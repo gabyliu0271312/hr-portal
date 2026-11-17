@@ -381,6 +381,24 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it('keeps ordinary empty references even with a 360-like title while hiding only typed empty 360 regions', async () => {
+    Object.assign(routeQuery, { node: 'view-result', project_id: '1' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())
+    vi.spyOn(projectManagementApi, 'myResults').mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [], regions: [
+      { key: 'reference:arbitrary-id', kind: 'reference', title: '反馈模块', reference_kind: 'reviewer_360', contents: [] },
+      { key: 'reference:ordinary', kind: 'reference', title: '360°反馈（自愿评估）', reference_kind: 'node', contents: [] },
+      { key: 'reference:communication', kind: 'reference', title: '发展建议', reference_kind: 'node', contents: [] },
+    ] })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.find('[data-region-id="reference:arbitrary-id"]').exists()).toBe(false)
+    for (const key of ['ordinary', 'communication']) {
+      expect(wrapper.get(`[data-region-id="reference:${key}"]`).text()).toContain('暂无可查看内容')
+    }
+    expect(wrapper.get('[data-region-id="reference:ordinary"] h3').text()).toBe('360°反馈（自愿评估）')
+    wrapper.unmount()
+  })
+
   it('renders explicitly configured OKR regions through the existing readonly OKR panel', async () => {
     Object.assign(routeQuery, { node: 'view-result', project_id: '1' })
     vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())

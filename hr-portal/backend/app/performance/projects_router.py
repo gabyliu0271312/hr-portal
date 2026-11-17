@@ -2471,6 +2471,53 @@ async def open_cycle_results(
     return ResultOpeningBatchResponse(accepted_employee_nos=accepted, skipped_employee_nos=[employee_no for employee_no in selected if employee_no in skipped], skipped_reasons=skipped)
 
 
+def _result_reference_kind(source):
+    template = (source.config or {}).get("template") or {}
+    return "reviewer_360" if (source.node_type == "evaluation" and (
+        node_role_code(template) == ROLE_REVIEWER_360 or template.get("executor_label") == "360°评估人"
+    )) else "node"
+
+
+async def _normalize_result_region_kinds(result, project, db):
+    if not isinstance(result, dict) or not isinstance(result.get("regions"), list):
+        return result
+    if not any(region.get("kind") == "reference" and region.get("reference_kind") in {None, "node"}
+               for region in result["regions"]):
+        return result
+    nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+        PerformanceProjectNodeSnapshot.project_id == project.id,
+    ))).scalars().all())
+    nodes = [node for node in nodes if node.project_id == project.id]
+    views = [node for node in nodes if node.node_type == "result_view"]
+    if len(views) != 1:
+        return result
+    view = views[0]
+    relations = [content for content in ((view.config or {}).get("template") or {}).get("content") or []
+                 if content.get("content_slot") == "reference" and content.get("reference_kind") == "node"]
+    if not relations:
+        return result
+    source_by_id = {source.node_id: source for source in nodes}
+    kind_by_region_key = {}
+    for relation in relations:
+        relation_id = str(relation.get("content_id") or relation.get("id") or "")
+        if not relation_id or sum(str(item.get("content_id") or item.get("id") or "") == relation_id for item in relations) != 1:
+            continue
+        source = source_by_id.get(str(relation.get("reference_value") or ""))
+        if (source is not None and "template" in (source.config or {})
+                and _result_reference_kind(source) == "reviewer_360"):
+            kind_by_region_key[f"reference:{relation_id}"] = "reviewer_360"
+    if not kind_by_region_key:
+        return result
+    normalized = deepcopy(result)
+    normalized["regions"] = [
+        {**region, "reference_kind": kind_by_region_key.get(region.get("key"), region.get("reference_kind"))}
+        if (region.get("kind") == "reference" and region.get("reference_kind") in {None, "node"}
+            and region.get("key") in kind_by_region_key) else region
+        for region in normalized["regions"]
+    ]
+    return normalized
+
+
 async def _employee_result_regions(project, view, final_tasks, contents, employee_no, context, db):
     template = (view.config or {}).get("template") or {}
     title = _task_content_page_name(view)
@@ -2504,7 +2551,7 @@ async def _employee_result_regions(project, view, final_tasks, contents, employe
         source_template = (source.config or {}).get("template") or {}
         if "template" not in (source.config or {}) or getattr(source, "project_id", project.id) != project.id:
             continue
-        reviewer_360 = node_role_code(source_template) == ROLE_REVIEWER_360 or source_template.get("executor_label") == "360°评估人"
+        reviewer_360 = _result_reference_kind(source) == "reviewer_360"
         if reviewer_360:
             region["reference_kind"] = "reviewer_360"
         tasks = list((await db.execute(select(PerformanceNodeTask).where(
@@ -2583,7 +2630,7 @@ async def read_my_project_results(
                 or appeal.effective_result.get("employee_no") != actor.actor_ref):
             raise HTTPException(404, "RESULT_NOT_FOUND")
         from copy import deepcopy
-        return deepcopy(appeal.effective_result)
+        return await _normalize_result_region_kinds(deepcopy(appeal.effective_result), project, db)
     result, _opening, _snapshot_id, _final_template = await _published_employee_result(project, actor.actor_ref, context, db)
     return result
 

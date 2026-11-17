@@ -433,6 +433,17 @@
   - 实际页面：本地Vite路由＋隔离API/Chromium，工作总结/自评/结果三种查看态实测completed-content均width984/x358/maxWidth984px，正文14px/22px/rgb(31,35,41)。空360整模块不存在，有反馈时逐人展开正常；390px scrollWidth=390，无横向溢出；pageerror=0，业务写请求0。
   - 独立截图：`ui-blueprints/CR-010-F22-result-shared-readonly.png`、`CR-010-F22-result-with-feedback.png`、`CR-010-F22-result-mobile.png`；已读取前两张，验证实际实现而非设计稿。非真实数据库或生产验收，未commit/push/部署。
 
+## 26. CR-010-F23 关闭复议结果的360引用类型一致性（2026-11-17）
+
+- 用户确认：不能按标题或单独前端特判隐藏360；必须修复历史复议结果与当前冻结工作流的底层类型一致性。普通参考无内容仍保留普通空态，只有稳定角色为360的来源进入360专用渲染及空模块隐藏。
+- 生产只读证据：项目24/周期12/原鹏飞105289的冻结节点 `evaluation-1` 明确为 `assessment.reviewer_360`/`REVIEWER_360`；结果查看引用 `reference_value=evaluation-1` 且来源存在；关闭复议 `appeal_id=2` 的 `result_snapshot.source_result.regions` 与 `effective_result.regions` 均把该区域保留为 `reference_kind=node`、`status=unavailable`、`content_count=0`。结果接口对关闭复议直接返回 `effective_result`，不重新组装当前引用类型，导致前端将真实360来源当普通空参考。
+- [x] F23-T01 统一冻结来源角色投影
+  - 关闭复议结果返回前读取同项目冻结 `result_view` 节点及其 reference `reference_value`，以冻结来源节点的稳定 `node_role_code` 判断 `assessment.reviewer_360`；只修正历史返回DTO的 `reference_kind`，不重算答案/区域顺序/可见权限、不改写 `effective_result`、不按标题/content_id后缀猜测。单一结果视图、来源存在且模板完整、引用ID无歧义才投影；普通参考保持 `node`，缺失/冲突保持原值。
+  - 当前实时结果组装亦复用同一 `_result_reference_kind`，保证实时与关闭复议两条读取路径一致；无数据库迁移、无生产写入。
+  - 验收：后端复议结果/生命周期/项目/共享结果四文件 **968 passed、5 skipped、1既有python_multipart弃用警告**；新增场景覆盖360、普通来源、来源缺失、模板缺失、跨项目、重复视图、重复引用及有反馈内容，并验证原快照不变、无需读取可变终评答案；前端结果页/360组件 **120 passed**。前端构建通过（41.76s，仅既有VueUse PURE提示）。
+  - UI验证：隔离API/Chromium将真实后端投影结果送入结果页，旧 `reference_kind=node` 的空360区域归一化为 `reviewer_360` 后被完整隐藏；普通“发展建议”空参考仍显示“暂无可查看内容”；有冻结360反馈时可展开；pageerror=0、业务写请求0。截图 `ui-blueprints/CR-010-F22-legacy-reconsideration-360-hidden.png` 已读取。
+- 状态：代码、回归、构建和受控链路完成；真实生产部署未执行，未修改生产数据，未commit/push。本修复不处理与本问题无关的并行人员/组织文件变更。
+
 ## 19. CR-010-F13 结果查看配置与运行架构一致性（2026-11-10）
 
 - 用户确认：修复结果查看与工作总结提交后容器不一致、未配置评级摘要及显示顺序偏差，保证整体架构一致。沿用PM-T004结果查看与区域排序契约、CR-007正式入口；无新页面/流程，无需新完整蓝图。

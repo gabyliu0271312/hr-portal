@@ -422,11 +422,77 @@ async def test_runtime_version_conflict_does_not_close(decision_runtime):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("scenario", ["360", "ordinary", "missing_source", "missing_template", "wrong_project", "duplicate_view", "duplicate_relation", "with_content"])
+async def test_closed_result_reference_types_preserve_frozen_payload(decision_runtime, monkeypatch, scenario):
+    data = decision_runtime
+    relation = {"content_id": "arbitrary-reference-id", "content_slot": "reference", "reference_kind": "node", "reference_value": "frozen-source"}
+    source = SimpleNamespace(id=2, project_id=3, node_id="frozen-source", node_type="evaluation",
+        config={"template": {"executor_role_code": "assessment.reviewer_360"}})
+    view = SimpleNamespace(id=3, project_id=3, node_id="result-view-1", node_type="result_view",
+        config={"template": {"content": [relation]}})
+    nodes = [view, source]
+    if scenario == "ordinary":
+        source.config["template"]["executor_role_code"] = "assessment.line_manager"
+    elif scenario == "missing_source":
+        nodes = [view]
+    elif scenario == "missing_template":
+        source.config = {}
+    elif scenario == "wrong_project":
+        source.project_id = 99
+    elif scenario == "duplicate_view":
+        nodes.append(SimpleNamespace(id=4, project_id=3, node_id="other-view", node_type="result_view", config={}))
+    elif scenario == "duplicate_relation":
+        view.config["template"]["content"].append(dict(relation))
+    data.appeal.closed_at = datetime.now(UTC)
+    data.appeal.effective_result = effective_result(data.appeal.result_snapshot, {"rating-1": "B", "keep_result": "change"})
+    data.appeal.effective_result["regions"].extend([
+        {"key": "reference:arbitrary-reference-id", "kind": "reference", "reference_kind": "node",
+         "title": "360°反馈（自愿评估）", "status": "unavailable", "contents": []},
+        {"key": "reference:ordinary", "kind": "reference", "reference_kind": "node", "title": "发展建议", "contents": []},
+        {"key": "reference:okr", "kind": "reference", "reference_kind": "okr", "contents": [], "okrs": []},
+    ])
+    if scenario == "with_content":
+        data.appeal.effective_result["regions"][2]["contents"] = [{
+            "task_id": 70, "form_schema": _result()["contents"][0]["form_schema"],
+            "answers": {"rating-1": "A"}, "reviewer": {"display_name": "评估人"},
+        }]
+    original = deepcopy(data.appeal.effective_result)
+    data.db.scalar = AsyncMock(side_effect=[data.appeal, SimpleNamespace(id=22)])
+    data.db.execute = AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: nodes)))
+    monkeypatch.setattr(data.router, "_get_project", AsyncMock(return_value=data.project))
+    monkeypatch.setattr(data.router, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="E001")))
+    source_read = AsyncMock(side_effect=AssertionError("must not read mutable final or current answers"))
+    monkeypatch.setattr(data.router, "_published_employee_result", source_read)
+    from fastapi import FastAPI
+    from fastapi.encoders import jsonable_encoder
+    from httpx import ASGITransport, AsyncClient
+    app = FastAPI()
+    app.include_router(data.router.router)
+    app.dependency_overrides[data.router.get_session] = lambda: data.db
+    app.dependency_overrides[data.router.get_performance_access_context] = lambda: data.context
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/performance/workbench/projects/3/results")
+    assert response.status_code == 200
+    result = response.json()
+    expected = jsonable_encoder(deepcopy(original))
+    if scenario in {"360", "with_content"}:
+        expected["regions"][2]["reference_kind"] = "reviewer_360"
+    assert result == expected
+    assert data.appeal.effective_result == original
+    assert await data.router._normalize_result_region_kinds(result, data.project, data.db) == expected
+    source_read.assert_not_awaited()
+    data.db.commit.assert_not_awaited()
+    query = str(data.db.execute.call_args.args[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "performance_project_node_snapshots.project_id = 3" in query
+
+
+@pytest.mark.asyncio
 async def test_employee_reads_effective_result_without_rereading_mutable_final(decision_runtime, monkeypatch):
     data = decision_runtime
     data.appeal.closed_at = datetime.now(UTC)
     data.appeal.effective_result = effective_result(data.appeal.result_snapshot, {"rating-1": "B", "keep_result": "change"})
     data.db.scalar = AsyncMock(side_effect=[data.appeal, SimpleNamespace(id=22)])
+    data.db.execute = AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [])))
     monkeypatch.setattr(data.router, "_get_project", AsyncMock(return_value=data.project))
     monkeypatch.setattr(data.router, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="E001")))
     source = AsyncMock(side_effect=AssertionError("must not read final"))
@@ -479,6 +545,7 @@ async def test_http_draft_submit_reopen_result_and_closed_rejection(decision_run
         refused = await client.patch(url + "/draft", json={"answers": {"keep_result": "keep"}, "version": 3})
         assert refused.status_code == 409 and refused.json()["detail"] == "SUBMISSION_NOT_ALLOWED"
         data.db.scalar = AsyncMock(side_effect=[data.appeal, SimpleNamespace(id=22)])
+        data.db.execute = AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [])))
         monkeypatch.setattr(data.router, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="E001")))
         reopened = await client.get("/performance/workbench/projects/3/results")
         assert reopened.status_code == 200 and reopened.json()["contents"][0]["answers"]["rating-1"] == "B"
