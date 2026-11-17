@@ -34,6 +34,9 @@ describe('PerformanceComparisonRuleDrawer', () => {
     const wrapper = await mountDrawer()
     expect(mocks.options).toHaveBeenCalledWith({ template_ids: [101] })
     expect(wrapper.findAllComponents(PerformanceAssessmentSelect)[2]!.props('options')).toEqual([])
+    expect(wrapper.findAllComponents(PerformanceAssessmentSelect)[2]!.props('disabled')).toBe(false)
+    await wrapper.get('[aria-label="评估项"]').trigger('click')
+    expect(document.body.querySelector('[role="listbox"]')?.textContent).toContain('暂无可选选项')
     expect(wrapper.findAll('.comparison-rule-section__title').map(item => item.text())).toEqual(['需对比的评估环节*', '评估项差异规则*', '发生差异时的提示方式*'])
     expect(wrapper.get('[aria-label="删除第1条差异规则"]').attributes('disabled')).toBeDefined()
     await wrapper.setProps({ modelValue: false })
@@ -86,7 +89,7 @@ describe('PerformanceComparisonRuleDrawer', () => {
     resolveOld(candidates)
     await flushPromises()
     expect(wrapper.findAllComponents(PerformanceAssessmentSelect)[2]!.props('options')).toEqual([])
-    expect(wrapper.text()).toContain('暂无共有评估项')
+    expect(wrapper.findAllComponents(PerformanceAssessmentSelect)[2]!.props('emptyText')).toBe('暂无可选选项')
     expect(wrapper.text()).toContain('该方向无查看权限')
   })
   it('shows full directional warnings only for selected items and keeps rejected diagnostics', async () => {
@@ -100,6 +103,23 @@ describe('PerformanceComparisonRuleDrawer', () => {
     wrapper.findAllComponents(PerformanceAssessmentSelect)[2]!.vm.$emit('update:modelValue', JSON.stringify(['content', 'rating']))
     await flushPromises()
     expect(wrapper.text()).toContain('绩效模板「年度模板」中，员工自评的环节执行人无法查看上级评价的「绩效等级」评估项，不会触发对应评估项的差异提示。')
+  })
+  it('keeps selected items and the warning mounted while refreshing a pair', async () => {
+    mocks.options.mockResolvedValue({ ...candidates, warnings: [{ template_id: 101, stage_id: 'self', ref_stage_id: 'manager', content_id: 'content', item_id: 'rating', message: '该方向无查看权限' }] })
+    const wrapper = await mountDrawer(config)
+    const warning = wrapper.get('.comparison-rule-warning').element
+    let resolve!: (value: PerformanceComparisonCandidates) => void
+    mocks.options.mockImplementationOnce(() => new Promise(done => { resolve = done }))
+    wrapper.findAllComponents(PerformanceAssessmentSelect)[1]!.vm.$emit('update:modelValue', JSON.stringify([101, 'peer']))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.comparison-rule-warning').element).toBe(warning)
+    expect(wrapper.findAllComponents(PerformanceAssessmentSelect)[2]!.props('options')).toEqual([{ id: JSON.stringify(['content', 'rating']), label: '绩效等级', disabled: true }])
+    expect(wrapper.get('.comparison-rule-loading').text()).toBe('正在加载可选项...')
+    expect(wrapper.get('.confirm').attributes('disabled')).toBeDefined()
+    resolve(candidates)
+    await flushPromises()
+    expect(wrapper.find('.comparison-rule-loading').exists()).toBe(false)
+    expect(wrapper.find('.comparison-rule-warning').exists()).toBe(false)
   })
   it('keeps template identities grouped and prevents pairing across templates or the same node', async () => {
     mocks.options.mockResolvedValue({ ...candidates, templates: [...candidates.templates, { template_id: 102, name: '第二模板', stages: candidates.templates[0]!.stages }] })

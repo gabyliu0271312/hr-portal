@@ -134,6 +134,9 @@
 - [ ] PM-T003-I06-F01 差异规则真实候选与持久化
   - Goal/Type：周期差异规则服务端候选、单组配置、项目启动快照、删除撤销与迁移。
   - UI：配置抽屉沿用 I06；真实DOM像素验收 PNG `../../ui-blueprints/PM-T003-I06-F01-config-blueprint-v1.png`，正式实现后另取 implemented PNG；添加/编辑锁定及删除确认。
+  - 本轮 UI 修订证据（2026-11-17）：根据 REA 真实 DOM 修复现有 I06 配置抽屉，不扩大 F01 后端范围。补充实现截图 `../../ui-blueprints/PM-T003-I06-F01-config-dom-aligned-20261117.png` 与 `../../ui-blueprints/PM-T003-I06-F01-summary-dom-aligned-20261117.png`；均已查看，最终截图为自评/上级评估、单条规则及评估中提示。截图来自本地 Vite + 隔离 API 夹具，不代表真实鉴权/数据库验收。
+  - 本轮最终验证：`npm.cmd --prefix hr-portal/frontend test -- src/components/performance/PerformanceComparisonRuleDrawer.spec.ts src/components/performance/PerformanceComparisonRuleSettings.spec.ts src/views/performance/CycleManagement.spec.ts --silent`，3文件60 passed；`npm.cmd --prefix hr-portal/frontend run build` 的vue-tsc+Vite通过，3745模块，仅既有VueUse PURE注释告警。早轮1项失败为旧单行摘要空格断言，改为四列表格/标签/阈值/提示方式及pair请求断言后通过；补充加载中保留选项、warning DOM及阻止提交用例。非silent周期测试仍有既有UiDrawerShell透传attrs警告。
+  - 本轮浏览器：1280×800真实Vite编辑路由，隔离所有业务API；最终区块高度62/222（含62高warning）/152、标题16/24。受控延迟候选响应时，下方提示方式标题y在请求前/中/后均404.6667，pageerror0；这是同高度候选切换的防闪动证据，不代表不同业务warning数量永不改高度。未选环节可打开空评估项菜单由组件用例覆盖；一次浏览器删除后重开空态因夹具没有持久化删除而超时，未计通过。未修改后端/数据库/权限、未真实保存飞书周期、未commit/push/deploy；F01整体真实库闭环仍未完成，保持未勾选。
   - Test contract：Given 模板节点/共有评级题/参考权限/项目启动事实，When 候选、保存、重开、第二组、编辑锁定、删除，Then 身份、revision、权限和 active 交集正确。
   - Non-scope：周期日期锁定、旧项目批量补快照、真实外发。
 

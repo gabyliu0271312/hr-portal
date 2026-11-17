@@ -8,12 +8,20 @@ const options = vi.hoisted(() => vi.fn())
 vi.mock('@/api/performance', () => ({ performanceCycleApi: { comparisonOptions: options } }))
 const rule: PerformanceComparisonRule = { id: 'r1', template_id: 101, first_node_id: 'self', second_node_id: 'manager', indicator_diff_rules: [{ content_id: 'content', item_id: 'rating', operator: 'eq', threshold: 1 }], show_notice_in_review: true, fill_in_diff_reason: false, diff_reason_required: true, send_notification: false }
 const stubs = { PerformanceComparisonRuleDrawer: true, PerformanceConfirmDialog: true }
-beforeEach(() => options.mockReset().mockResolvedValue({ templates: [{ template_id: 101, name: '年度模板', stages: [{ node_id: 'self', name: '员工自评' }, { node_id: 'manager', name: '上级评价' }] }], items: [], warnings: [] }))
+beforeEach(() => options.mockReset().mockResolvedValue({ templates: [{ template_id: 101, name: '年度模板', stages: [{ node_id: 'self', name: '员工自评' }, { node_id: 'manager', name: '上级评价' }] }], items: [{ content_id: 'content', item_id: 'rating', label: '绩效评级', option_ids: ['a', 'b'] }], warnings: [] }))
 describe('PerformanceComparisonRuleSettings', () => {
   it('offers one group only and uses real names for edit/delete summary', async () => {
     const wrapper = mount(PerformanceComparisonRuleSettings, { props: { modelValue: [rule], templateIds: [101], cycleId: 3 }, global: { stubs } })
     await flushPromises()
-    expect(wrapper.text()).toContain('员工自评 与 上级评价')
+    expect(wrapper.text()).toContain('员工自评')
+    expect(wrapper.text()).toContain('与')
+    expect(wrapper.text()).toContain('上级评价')
+    expect(wrapper.findAll('th').map(cell => cell.text())).toEqual(['对比环节', '评估项差异规则', '差异提示方式', '操作'])
+    expect(wrapper.text()).toContain('绩效评级')
+    expect(wrapper.text()).toContain('相差 =')
+    expect(wrapper.text()).toContain('1 档')
+    expect(wrapper.text()).toContain('评估过程中展示差异提示')
+    expect(options).toHaveBeenCalledWith({ template_ids: [101], cycle_id: 3, template_id: 101, first_node_id: 'self', second_node_id: 'manager' })
     expect(wrapper.find('.evaluation-result-rule-add').exists()).toBe(false)
     await wrapper.findAll('button').find(button => button.text() === '编辑')!.trigger('click')
     expect(wrapper.getComponent(PerformanceComparisonRuleDrawer).props()).toMatchObject({ modelValue: true, initialValue: rule, templateIds: [101], cycleId: 3 })

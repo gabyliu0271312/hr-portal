@@ -1,6 +1,6 @@
 <template>
   <div class="prompt-notice" :class="{ 'prompt-notice--multiline': multiline }" :style="{ backgroundColor: definition.noticeBackground }">
-    <span class="prompt-notice__icon" :style="{ color: definition.iconColor }" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path :d="definition.iconPath" fill="currentColor" /><path :d="definition.iconInnerPath" fill="var(--performance-prompt-icon-inner)" /></svg></span>
+    <span class="prompt-notice__icon" :style="{ color: definition.iconColor }" aria-hidden="true"><slot name="icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path :d="definition.iconPath" fill="currentColor" /><path :d="definition.iconInnerPath" fill="var(--performance-prompt-icon-inner)" /></svg></slot></span>
     <div class="prompt-notice__text"><slot>{{ definition.label }}</slot></div>
   </div>
 </template>
