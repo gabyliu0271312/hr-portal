@@ -305,20 +305,23 @@ onBeforeUnmount(() => { ++request })
   cursor: pointer;
   font: 400 14px/32px var(--font-sans);
 }
-/* 操作列按钮：与创梦人力-组织-成本中心操作列同一套设计 token */
-.org-table__actions { display: inline-flex; align-items: center; gap: var(--ui-tree-action-gap); }
+/* 操作列「编辑」按钮：设计稿 17:1042 主要文字按钮·无图标·六态组件库
+   高度26 / 行高22 / 上下内边距2 左右4 / 圆角6 / 描边0 / 文字14 Medium
+   六态：默认文字#1456F0透明底；悬停底rgba(20,86,240,.1)；按下底rgba(20,86,240,.2) */
+.org-table__actions { display: inline-flex; align-items: center; gap: 4px; }
 .org-table__action {
-  height: var(--ui-tree-action-height);
-  padding: 0 var(--ui-tree-action-padding-x);
+  height: 26px;
+  padding: 2px 4px;
   border: 0;
-  border-radius: var(--ui-tree-action-radius);
+  border-radius: 6px;
   background: transparent;
-  color: var(--ui-tree-action-color);
+  color: #1456f0;
   cursor: pointer;
-  font: 400 14px/var(--ui-tree-action-height) var(--font-sans);
+  font: 500 14px/22px var(--font-sans);
   white-space: nowrap;
 }
-.org-table__action:hover { background: var(--ui-tree-action-hover-background); }
+.org-table__action:hover { background: rgba(20, 86, 240, 0.1); }
+.org-table__action:active { background: rgba(20, 86, 240, 0.2); }
 .org-table__action:focus-visible { outline: 2px solid var(--performance-button-focus-ring); outline-offset: 2px; }
 .allocation-result__table { display: flex; flex-direction: column; min-width: 0; }
 .allocation-result__empty { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-2); padding: var(--spacing-5) 0; }
