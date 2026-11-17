@@ -83,17 +83,19 @@ describe('FormConfig', () => {
     wrapper.unmount()
   })
 
-  it('添加字段：打开弹窗并调用 add', async () => {
+  it('添加字段：打开弹窗，多选后确认批量添加', async () => {
     const wrapper = mount(FormConfig, options)
     await flushPromises()
     const addBtn = wrapper.findAll('button').find(b => b.text() === '添加字段')
     await addBtn!.trigger('click')
     await flushPromises()
     expect(api.list).toHaveBeenCalled()
-    // 直接调用 addField
-    await (wrapper.vm as any).addField(3)
+    // 多选两个字段后确认
+    ;(wrapper.vm as any).toggleSelect(3)
+    await (wrapper.vm as any).confirmAdd()
     await flushPromises()
     expect(api.addFormField).toHaveBeenCalledWith('people_roster', 3)
+    expect(api.addFormField).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
 
