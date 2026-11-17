@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { projectManagementApi, type PerformanceReconsiderationStatus } from '@/api/performance'
 import Panel from './PerformanceResultReconsideration.vue'
 import Menu from './PerformanceResultReconsiderationMenu.vue'
+import panelSource from './PerformanceResultReconsideration.vue?raw'
 
 const state = (overrides: Partial<PerformanceReconsiderationStatus> = {}): PerformanceReconsiderationStatus => ({ id: null, version: null, node_id: 'appeal', window_open: true, can_submit: true, can_edit: false, can_withdraw: false, deadline_at: '2099-11-11T10:00:00Z', withdrawn_at: null, prompt: '模板配置提示文案', instruction: '模板配置填写说明', handler_label: 'HRBP', reason: null, submitted_at: null, ...overrides })
 const submitted = () => state({ id: 1, version: 2, can_submit: false, can_edit: true, can_withdraw: true, reason: '<p>原理由</p>', submitted_at: '2026-11-10T08:00:00Z' })
@@ -10,6 +11,9 @@ const mountPanel = (status = state(), expired = false) => mount(Panel, { props: 
 afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = '' })
 
 describe('employee result reconsideration', () => {
+  it('keeps the completed notice title and description in separate left-aligned blocks', () => {
+    expect(panelSource).toMatch(/\.reconsideration-completion :deep\(\.prompt-notice__text\)\{[^}]*display:block;[^}]*min-width:0;[^}]*text-align:left/)
+  })
   it('hides the menu after submission and restores it only after withdrawal before deadline', async () => {
     const wrapper = mount(Menu, { props: { status: state(), expired: false } })
     await wrapper.get('.reconsideration-menu').trigger('mouseenter')
@@ -22,6 +26,48 @@ describe('employee result reconsideration', () => {
     expect(wrapper.find('.reconsideration-menu').exists()).toBe(true)
     await wrapper.setProps({ expired: true })
     expect(wrapper.find('button').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each(['2026-11-16T03:04:00Z', '2026-11-16T03:04:00', '2026-11-16T11:04:00+08:00'])('replaces the pending card with the completed notice using Beijing time for %s', async closed_at => {
+    const wrapper = mountPanel({ ...submitted(), closed_at, can_edit: false, can_withdraw: false })
+    const notice = wrapper.get('.reconsideration-completion')
+    expect(notice.get('.reconsideration-completion__heading').text()).toBe('已完成')
+    expect(notice.get('p').text()).toBe('你的复议已于 2026-11-16 11:04（GMT+8） 处理完成，最终结果如下')
+    expect(notice.attributes('role')).toBe('status')
+    expect(notice.attributes('style')).toContain('background-color: rgb(228, 250, 225)')
+    expect(notice.find('svg').exists()).toBe(true)
+    expect(wrapper.find('.reconsideration-banner').exists()).toBe(false)
+    expect(wrapper.find('button').exists()).toBe(false)
+    expect(wrapper.text()).not.toMatch(/复议中|将收到待办|请耐心等待结果|编辑|撤回|查看复议|复议详情/)
+    wrapper.vm.open(true)
+    wrapper.vm.open()
+    await flushPromises()
+    expect(document.body.querySelector('.performance-dialog')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('replaces an existing pending card and closes its open editor when handling completes', async () => {
+    const wrapper = mountPanel(submitted())
+    wrapper.vm.open(true)
+    await flushPromises()
+    expect(document.body.querySelector('.rich-input')).not.toBeNull()
+    await wrapper.setProps({ status: { ...submitted(), closed_at: '2026-11-16T03:04:00Z', can_edit: false, can_withdraw: false } })
+    await flushPromises()
+    expect(wrapper.find('.reconsideration-banner').exists()).toBe(false)
+    expect(wrapper.get('.reconsideration-completion').text()).toContain('已完成')
+    expect(document.body.querySelector('.rich-input')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('hides the start menu for a closed application even if old withdrawal or window flags remain', async () => {
+    const wrapper = mount(Menu, { props: { status: state(), expired: false } })
+    await wrapper.get('.reconsideration-menu').trigger('mouseenter')
+    expect(wrapper.find('[role="menuitem"]').exists()).toBe(true)
+    await wrapper.setProps({ status: state({ closed_at: '2026-11-16T03:04:00Z', withdrawn_at: '2026-11-10T09:00:00Z' }) })
+    expect(wrapper.find('.reconsideration-menu').exists()).toBe(false)
+    expect(wrapper.find('button').exists()).toBe(false)
+    expect(wrapper.emitted('start')).toBeUndefined()
     wrapper.unmount()
   })
 

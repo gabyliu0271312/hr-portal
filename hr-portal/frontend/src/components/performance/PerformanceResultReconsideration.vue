@@ -1,6 +1,10 @@
 <template>
   <div v-if="loading" class="reconsideration-state" role="status">正在加载复议状态…</div>
   <div v-else-if="loadError" class="reconsideration-state" role="alert">{{ loadError }} <UiButton variant="link" @click="emit('retry')">重试</UiButton></div>
+  <PerformancePromptNotice v-else-if="status?.closed_at" type="success" multiline class="reconsideration-completion" role="status" aria-label="复议状态">
+    <div class="reconsideration-completion__heading">已完成</div>
+    <p>你的复议已于 {{ formatDisplayDateTime(status.closed_at) }}（GMT+8） 处理完成，最终结果如下</p>
+  </PerformancePromptNotice>
   <section v-else-if="status?.submitted_at && !status.withdrawn_at" class="reconsideration-banner" aria-label="复议状态">
     <span class="reconsideration-banner__icon" aria-hidden="true">●</span>
     <div class="reconsideration-banner__main"><div class="reconsideration-banner__heading"><strong>复议中</strong><div class="reconsideration-banner__actions"><UiButton class="reconsideration-banner__action" :disabled="!status.can_edit || expired || saving" @click="open(true)"><svg class="reconsideration-banner__action-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" data-icon="EditOutlined" aria-hidden="true"><path d="m17.57 7.244-.006-.006.37-.37a1 1 0 0 0 .001-1.412l-3.434-3.453-.002-.002a1 1 0 0 0-1.414 0l-.705.706.01.01L2 13.186V17a1 1 0 0 0 1 1h3.814L17.57 7.244Zm-3.273.389-2.015-2.015 1.487-1.515 2.023 2.034-1.495 1.496Zm-3.415-.587 2.002 2.002-6.913 6.92h-.004l-1.934-1.935v-.003l6.849-6.984ZM3 20a1 1 0 1 0 0 2h18a1 1 0 1 0 0-2H3Z" fill="currentColor" /></svg>编辑</UiButton><UiButton class="reconsideration-banner__action" :disabled="!status.can_withdraw || saving" @click="openWithdraw"><svg class="reconsideration-banner__action-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" data-icon="RedoOutlined" aria-hidden="true"><path d="M15.293 2.293a1 1 0 0 0 0 1.414L18.586 7H9.5a7.5 7.5 0 0 0 0 15H13a1 1 0 1 0 0-2H9.5a5.5 5.5 0 1 1 0-11h9.086l-3.293 3.293a1 1 0 0 0 1.414 1.414l5-5a1 1 0 0 0 0-1.414l-5-5a1 1 0 0 0-1.414 0Z" fill="currentColor" /></svg>撤回</UiButton></div></div><p>复议已提交，{{ status.handler_label || '配置的处理人' }}将收到待办并跟进，请耐心等待结果。</p></div>
@@ -13,9 +17,10 @@
   <PerformanceConfirmDialog v-model="withdrawOpen" message="是否确定撤回？" confirm-text="确定" cancel-text="取消" confirm-variant="primary" :loading="saving" :error-message="error" @confirm="withdraw" />
 </template>
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { projectManagementApi, type PerformanceReconsiderationStatus } from '@/api/performance'
+import { formatDisplayDateTime } from '@/utils/datetime'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformancePromptNotice from './PerformancePromptNotice.vue'
 import PerformanceRichTextEditor from './PerformanceRichTextEditor.vue'
@@ -32,6 +37,9 @@ const error = ref('')
 let alive = true
 let version: number | null = null
 onBeforeUnmount(() => { alive = false })
+watch(() => props.status?.closed_at, closedAt => {
+  if (closedAt) { editorOpen.value = false; withdrawOpen.value = false }
+})
 const hasReason = computed(() => {
   const template = document.createElement('template')
   template.innerHTML = reason.value
@@ -39,7 +47,7 @@ const hasReason = computed(() => {
 })
 function openWithdraw() { version = props.status?.version ?? null; withdrawOpen.value = true; error.value = '' }
 function open(edit = false) {
-  if (!props.status || props.expired || saving.value || !(edit ? props.status.can_edit : props.status.can_submit)) return
+  if (!props.status || props.status.closed_at || props.expired || saving.value || !(edit ? props.status.can_edit : props.status.can_submit)) return
   editing.value = edit
   reason.value = edit ? props.status.reason || '' : ''
   version = props.status.version
@@ -85,5 +93,6 @@ async function withdraw() {
 defineExpose({ open })
 </script>
 <style scoped>
+.reconsideration-completion{margin-bottom:var(--spacing-6);padding:10px 16px}.reconsideration-completion :deep(.prompt-notice__text){display:block;min-width:0;flex:1;padding-right:0;text-align:left}.reconsideration-completion__heading{margin-bottom:4px;font-weight:var(--font-weight-medium)}.reconsideration-completion p{margin:0;overflow-wrap:anywhere}
 .reconsideration-state{margin-bottom:var(--spacing-4);color:var(--color-text-secondary)}.reconsideration-banner{display:flex;gap:var(--spacing-2);padding:10px 16px;margin-bottom:var(--spacing-6);border-radius:var(--radius-md);background:var(--performance-tag-blue-background);font:400 14px/22px var(--font-sans);color:var(--color-text-primary)}.reconsideration-banner__icon{flex:none;color:var(--color-primary);font-size:16px;line-height:22px}.reconsideration-banner__main{flex:1;min-width:0}.reconsideration-banner__heading{display:flex;justify-content:space-between;gap:16px;margin-bottom:4px}.reconsideration-banner__heading strong{font-weight:600}.reconsideration-banner__main p{margin:0;overflow-wrap:anywhere}.reconsideration-banner__actions{display:flex;gap:8px;flex:none}.reconsideration-banner__action{height:24px;padding:0 18px;font-size:12px;border:0;color:var(--color-primary-active);background:var(--color-bg-card)}.reconsideration-banner__action-icon{width:12px;height:12px;flex:none;margin-right:4px}.reconsideration-banner__action:disabled{color:var(--color-text-placeholder);opacity:1}.reconsideration-form{display:grid;gap:12px;min-width:0}.reconsideration-error{margin:0;color:var(--color-danger)}.reconsideration-footer{display:flex;justify-content:flex-end;gap:12px}@media(max-width:600px){.reconsideration-banner__heading{flex-wrap:wrap}.reconsideration-banner__actions{margin-left:auto}}
 </style>

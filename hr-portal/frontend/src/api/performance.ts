@@ -36,6 +36,7 @@ export interface PerformanceReconsiderationStatus {
   handler_label: string
   reason: string | null
   submitted_at: string | null
+  closed_at?: string | null
 }
 
 export interface PerformanceRoleGrant {

@@ -555,6 +555,24 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it('shows the completed employee reconsideration notice above the final readonly result without action entries', async () => {
+    Object.assign(routeQuery, { project_id: '1', node: 'view-result' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())
+    vi.spyOn(projectManagementApi, 'myResults').mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [], contents: [{ task_id: 11, form_schema: [{ id: 'result', name: '绩效结果', fields: [{ id: 'feedback', type: 'rich_text', label: '最终反馈' }] }], answers: { feedback: '<p>复议后的正式结果</p>' } }] })
+    vi.mocked(projectManagementApi.resultReconsideration).mockResolvedValue({ id: 1, version: 3, node_id: 'appeal', window_open: true, can_submit: false, can_edit: false, can_withdraw: false, deadline_at: '2099-11-11T10:00:00Z', withdrawn_at: null, prompt: '', instruction: '', handler_label: 'HRBP', reason: '<p>申请理由</p>', submitted_at: '2026-11-15T03:04:00Z', closed_at: '2026-11-16T03:04:00Z' })
+    const wrapper = mountView()
+    await flushPromises()
+    const results = wrapper.get('.review-results')
+    expect(results.get('.reconsideration-completion').text()).toContain('你的复议已于 2026-11-16 11:04（GMT+8） 处理完成，最终结果如下')
+    expect(results.text()).toContain('复议后的正式结果')
+    expect(results.text().indexOf('已完成')).toBeLessThan(results.text().indexOf('复议后的正式结果'))
+    expect(wrapper.find('.reconsideration-menu').exists()).toBe(false)
+    expect(wrapper.find('.reconsideration-banner__actions').exists()).toBe(false)
+    expect(results.find('[contenteditable="true"]').exists()).toBe(false)
+    expect(results.text()).not.toMatch(/复议中|将收到待办|请耐心等待结果|申请理由|查看复议|复议详情/)
+    wrapper.unmount()
+  })
+
   it('loads results when selecting the submenu and preserves the reconsideration entry', async () => {
     Object.assign(routeQuery, { project_id: '1', node: 'summary' })
     vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())
