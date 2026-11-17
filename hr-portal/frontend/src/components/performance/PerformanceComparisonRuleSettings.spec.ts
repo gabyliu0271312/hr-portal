@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PerformanceComparisonRuleSettings from './PerformanceComparisonRuleSettings.vue'
 import PerformanceComparisonRuleDrawer from './PerformanceComparisonRuleDrawer.vue'
 import PerformanceConfirmDialog from './PerformanceConfirmDialog.vue'
+import PerformanceDisabledReason from './PerformanceDisabledReason.vue'
 import type { PerformanceComparisonRule } from '@/api/performance'
 const options = vi.hoisted(() => vi.fn())
 vi.mock('@/api/performance', () => ({ performanceCycleApi: { comparisonOptions: options } }))
@@ -29,6 +30,17 @@ describe('PerformanceComparisonRuleSettings', () => {
     expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual([{ ...rule, show_notice_in_review: false }])
     wrapper.unmount()
   })
+  it('uses the requested copy and requires exact confirmation before delete', async () => {
+    const wrapper = mount(PerformanceComparisonRuleSettings, { props: { modelValue: [rule], templateIds: [101] }, global: { stubs } })
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === '删除')!.trigger('click')
+    const confirm = wrapper.getComponent(PerformanceConfirmDialog)
+    expect(confirm.props()).toMatchObject({ message: '确定删除此对比的环节？', description: '删除后将不再触发差异提示，若已产生的差异提示也会不再展示。确定删除吗？', requireConfirm: true, confirmLabel: '请输入「确认删除」以确认当前操作', cancelText: '保留', confirmText: '删除' })
+    expect(confirm.props('modelValue')).toBe(true)
+    wrapper.unmount()
+  })
+
+
   it('locks add/edit from server capability, not dates, while retaining delete confirmation and failures', async () => {
     const wrapper = mount(PerformanceComparisonRuleSettings, { props: { modelValue: [rule], templateIds: [101], editable: false, editableReason: '已有项目启动' }, global: { stubs } })
     const buttons = wrapper.findAll('button')
@@ -46,6 +58,16 @@ describe('PerformanceComparisonRuleSettings', () => {
     expect(wrapper.get('.evaluation-result-rule-add').attributes('disabled')).toBeDefined()
     wrapper.unmount()
   })
+  it('shows current-project lock copy for add and edit actions', async () => {
+    const wrapper = mount(PerformanceComparisonRuleSettings, { props: { modelValue: [rule], templateIds: [101], editable: false }, global: { stubs } })
+    await flushPromises()
+    expect(wrapper.getComponent(PerformanceDisabledReason).props('reason')).toBe('已有启动项目，暂不支持修改')
+    await wrapper.setProps({ modelValue: [] })
+    expect(wrapper.getComponent(PerformanceDisabledReason).props('reason')).toBe('已有启动项目，不支持添加')
+    wrapper.unmount()
+  })
+
+
   it('does not load candidates for an empty draft and requires a selected template', async () => {
     const wrapper = mount(PerformanceComparisonRuleSettings, { props: { modelValue: [], templateIds: [] }, global: { stubs } })
     expect(options).not.toHaveBeenCalled()

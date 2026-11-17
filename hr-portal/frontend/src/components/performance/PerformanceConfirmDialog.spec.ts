@@ -57,6 +57,39 @@ describe('PerformanceConfirmDialog', () => {
     expect(Array.from(dialog.querySelectorAll('.performance-confirm-dialog__button')).map(button => button.textContent)).toEqual(['保留', '删除'])
     wrapper.unmount()
   })
+  it('requires typed confirmation, resets on reopen and preserves input on failure', async () => {
+    const wrapper = mountDialog({ requireConfirm: true, message: '确定删除此对比的环节？', confirmLabel: '请输入「确认删除」以确认当前操作' })
+    await flushPromises()
+    const confirm = () => document.querySelector<HTMLButtonElement>('.performance-confirm-dialog__button--danger')!
+    const input = () => document.querySelector<HTMLInputElement>('.performance-confirm-dialog__confirm-input')!
+    expect(document.querySelector('.performance-confirm-dialog__confirm-label')?.textContent).toContain('请输入「确认删除」以确认当前操作')
+    expect(confirm().disabled).toBe(true)
+    for (const value of ['确认', '确认删', '确认删除x']) {
+      input().value = value
+      input().dispatchEvent(new Event('input', { bubbles: true }))
+      await flushPromises()
+      expect(confirm().disabled).toBe(true)
+      confirm().click()
+    }
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+    input().value = '确认删除'
+    input().dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    expect(confirm().disabled).toBe(false)
+    confirm().click()
+    expect(wrapper.emitted('confirm')).toHaveLength(1)
+    await wrapper.setProps({ loading: true })
+    expect(confirm().disabled).toBe(true)
+    await wrapper.setProps({ loading: false, errorMessage: '版本冲突，请重试' })
+    expect(input().value).toBe('确认删除')
+    expect(confirm().disabled).toBe(false)
+    await wrapper.setProps({ modelValue: false })
+    await wrapper.setProps({ modelValue: true })
+    expect(input().value).toBe('')
+    expect(confirm().disabled).toBe(true)
+    wrapper.unmount()
+  })
+
   it('renders the HRBP delete subject using the captured warning dialog', async () => {
     const wrapper = mountDialog({ message: '确定删除吗？', subject: 'alice.xiao肖惠方' })
     await flushPromises()

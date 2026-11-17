@@ -12,15 +12,15 @@
             <PerformanceInfoPopover v-if="summaryWarning" :content="summaryWarning" icon-color="var(--performance-prompt-warning-icon)" />
           </div>
           <div v-else-if="column.key === 'prompts'" class="comparison-rule-summary-table__prompt-list"><PerformanceSelectTag v-for="prompt in promptLabels" :key="prompt" class="comparison-rule-tag" :label="prompt" :closable="false" /></div>
-          <div v-else class="comparison-rule-summary-table__actions"><PerformanceDisabledReason :disabled="!editable || disabled" :reason="editableReason || ''"><UiButton variant="text" :disabled="!editable || disabled" @click="drawerOpen = true">编辑</UiButton></PerformanceDisabledReason><UiButton variant="text" :disabled="disabled || deleting" @click="deleteOpen = true">删除</UiButton></div>
+          <div v-else class="comparison-rule-summary-table__actions"><PerformanceDisabledReason :disabled="!editable || disabled" :reason="!editable ? '已有启动项目，暂不支持修改' : ''"><UiButton variant="text" :disabled="!editable || disabled" @click="drawerOpen = true">编辑</UiButton></PerformanceDisabledReason><UiButton variant="text" :disabled="disabled || deleting" @click="deleteOpen = true">删除</UiButton></div>
         </template>
       </UiTable>
-      <PerformanceDisabledReason v-else :disabled="!editable || disabled || !templateIds.length" :reason="!templateIds.length ? '请选择绩效模板' : editableReason || ''">
+      <PerformanceDisabledReason v-else :disabled="!editable || disabled || !templateIds.length" :reason="!editable ? '已有启动项目，不支持添加' : !templateIds.length ? '请选择绩效模板' : ''">
         <UiButton class="evaluation-result-rule-add" variant="text" aria-label="添加需对比的环节" :disabled="!editable || disabled || !templateIds.length" @click="drawerOpen = true"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2a1 1 0 0 0-1 1v8H3a1 1 0 1 0 0 2h8v8a1 1 0 0 0 2 0v-8h8a1 1 0 0 0 0-2h-8V3a1 1 0 0 0-1-1Z" fill="currentColor" /></svg><span>添加需对比的环节</span></UiButton>
       </PerformanceDisabledReason>
     </div>
     <PerformanceComparisonRuleDrawer v-model="drawerOpen" :template-ids="templateIds" :cycle-id="cycleId" :initial-value="rule" @submit="save" />
-    <PerformanceConfirmDialog v-model="deleteOpen" message="确定删除该差异提示规则吗？" cancel-text="取消" confirm-text="删除" :loading="deleting" :error-message="deleteError" @confirm="remove" />
+    <PerformanceConfirmDialog v-model="deleteOpen" message="确定删除此对比的环节？" description="删除后将不再触发差异提示，若已产生的差异提示也会不再展示。确定删除吗？" require-confirm confirm-label="请输入「确认删除」以确认当前操作" cancel-text="保留" confirm-text="删除" :loading="deleting" :confirm-disabled="disabled" :error-message="deleteError" @confirm="remove" />
   </div>
 </template>
 <script setup lang="ts">

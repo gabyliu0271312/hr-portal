@@ -30,7 +30,7 @@
           </p>
           <p v-if="errorMessage" class="performance-confirm-dialog__body performance-confirm-dialog__error" role="alert">{{ errorMessage }}</p>
           <div v-if="requireConfirm" class="performance-confirm-dialog__confirm-field">
-            <label class="performance-confirm-dialog__confirm-label" :for="confirmInputId">输入「确认删除」以确认当前操作<span class="performance-confirm-dialog__required-mark" aria-hidden="true">*</span></label>
+            <label class="performance-confirm-dialog__confirm-label" :for="confirmInputId">{{ confirmLabel }}<span class="performance-confirm-dialog__required-mark" aria-hidden="true">*</span></label>
             <input :id="confirmInputId" v-model="confirmInput" class="performance-confirm-dialog__confirm-input" type="text" autocomplete="off" :disabled="loading" />
           </div>
           <div v-if="$slots.check" class="performance-confirm-dialog__check-field"><slot name="check" /></div>
@@ -63,6 +63,7 @@ const props = withDefaults(defineProps<{
   confirmText?: string
   loading?: boolean
   requireConfirm?: boolean
+  confirmLabel?: string
   confirmDisabled?: boolean
   confirmVariant?: 'danger' | 'primary'
   errorMessage?: string
@@ -76,6 +77,7 @@ const props = withDefaults(defineProps<{
   confirmText: '删除',
   loading: false,
   requireConfirm: false,
+  confirmLabel: '输入「确认删除」以确认当前操作',
   confirmDisabled: false,
   confirmVariant: 'danger',
   errorMessage: '',

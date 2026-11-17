@@ -268,10 +268,7 @@ class PerformanceCycleService:
             return summaries
         started_refs = set((await self.db.execute(select(PerformanceProject.cycle_ref).where(
             PerformanceProject.cycle_ref.in_(cycle_refs), started_project_condition(),
-        ).union(select(PerformanceAuditEvent.cycle_ref).where(
-            PerformanceAuditEvent.cycle_ref.in_(cycle_refs),
-            PerformanceAuditEvent.event_type == "PERFORMANCE_PROJECT_STARTED",
-        )))).scalars().all())
+        ))).scalars().all())
         for cycle in cycles:
             cycle._comparison_rules_editable = cycle.cycle_ref not in started_refs
 
@@ -836,7 +833,7 @@ class PerformanceCycleService:
 
     @staticmethod
     def serialize(cycle: PerformanceCycle) -> dict[str, Any]:
-        return {"semester_diff_rules": getattr(cycle, "semester_diff_rules", None) or [], "comparison_rules_revision": getattr(cycle, "comparison_rules_revision", 0) or 0, "comparison_rules_editable": getattr(cycle, "_comparison_rules_editable", True), "comparison_rules_editable_reason": None if getattr(cycle, "_comparison_rules_editable", True) else "周期下项目曾启动，仅允许删除差异规则", "id": cycle.id, "cycle_ref": cycle.cycle_ref, "name": cycle.name, "language": cycle.language, "period_year": cycle.period_year, "period_type": cycle.period_type, "period_subtype": getattr(cycle, "period_subtype", None), "template_id": getattr(cycle, "template_id", None), "template_ids": PerformanceCycleService.template_ids(cycle), "start_at": cycle.start_at.isoformat(), "end_at": cycle.end_at.isoformat(), "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at.isoformat() if cycle.lock_at else None, "pre_lock_sync_mode": cycle.pre_lock_sync_mode, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date.isoformat() if cycle.leaver_start_date else None, "leaver_end_date": cycle.leaver_end_date.isoformat() if cycle.leaver_end_date else None, "leaver_participation_mode": cycle.leaver_participation_mode, "overdue_submission_enabled": getattr(cycle, "overdue_submission_enabled", True), "overdue_submission_scope": getattr(cycle, "overdue_submission_scope", "EVALUATION"), "status": cycle.status}
+        return {"semester_diff_rules": getattr(cycle, "semester_diff_rules", None) or [], "comparison_rules_revision": getattr(cycle, "comparison_rules_revision", 0) or 0, "comparison_rules_editable": getattr(cycle, "_comparison_rules_editable", True), "comparison_rules_editable_reason": None if getattr(cycle, "_comparison_rules_editable", True) else "已有启动项目，暂不支持修改", "id": cycle.id, "cycle_ref": cycle.cycle_ref, "name": cycle.name, "language": cycle.language, "period_year": cycle.period_year, "period_type": cycle.period_type, "period_subtype": getattr(cycle, "period_subtype", None), "template_id": getattr(cycle, "template_id", None), "template_ids": PerformanceCycleService.template_ids(cycle), "start_at": cycle.start_at.isoformat(), "end_at": cycle.end_at.isoformat(), "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at.isoformat() if cycle.lock_at else None, "pre_lock_sync_mode": cycle.pre_lock_sync_mode, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date.isoformat() if cycle.leaver_start_date else None, "leaver_end_date": cycle.leaver_end_date.isoformat() if cycle.leaver_end_date else None, "leaver_participation_mode": cycle.leaver_participation_mode, "overdue_submission_enabled": getattr(cycle, "overdue_submission_enabled", True), "overdue_submission_scope": getattr(cycle, "overdue_submission_scope", "EVALUATION"), "status": cycle.status}
 
     @staticmethod
     def _validate_payload(payload: dict[str, Any], *, validate_lock_lead_time=True) -> None:

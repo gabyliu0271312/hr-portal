@@ -147,6 +147,28 @@ async def test_started_cycle_allows_same_value_or_delete_cancels_only_pending_re
 
 
 @pytest.mark.asyncio
+async def test_removing_last_started_project_unlocks_add_and_edit():
+    db = Db(started=True)
+    service = PerformanceComparisonConfigService(db)
+    cycle = SimpleNamespace(cycle_ref="c", semester_diff_rules=[], comparison_rules_revision=0)
+    with pytest.raises(HTTPException) as exc:
+        await service.update_rules(cycle, {"semester_diff_rules": [rule()], "comparison_rules_revision": 0}, [1])
+    assert exc.value.detail == {"code": "COMPARISON_RULES_LOCKED", "message": "已有启动项目，不支持添加"}
+    db.started = False
+    await service.update_rules(cycle, {"semester_diff_rules": [rule()], "comparison_rules_revision": 0}, [1])
+    assert cycle.comparison_rules_revision == 1
+    changed = deepcopy(cycle.semester_diff_rules)
+    changed[0]["send_notification"] = True
+    db.started = True
+    with pytest.raises(HTTPException) as exc:
+        await service.update_rules(cycle, {"semester_diff_rules": changed, "comparison_rules_revision": 1}, [1])
+    assert exc.value.detail["message"] == "已有启动项目，暂不支持修改"
+    db.started = False
+    await service.update_rules(cycle, {"semester_diff_rules": changed, "comparison_rules_revision": 1}, [1])
+    assert cycle.semester_diff_rules == changed and cycle.comparison_rules_revision == 2
+
+
+@pytest.mark.asyncio
 async def test_patch_omission_preserves_rules_and_rejects_template_removal():
     service = PerformanceComparisonConfigService(Db())
     saved = await service.normalize_rules([rule()], [1])
@@ -209,17 +231,44 @@ def test_outbox_fk_deletion_preserves_evidence_and_model_constraints():
 
 
 @pytest.mark.asyncio
-async def test_started_query_includes_archive_and_snapshot_evidence():
+async def test_started_query_only_checks_current_started_projects():
     service = PerformanceComparisonConfigService(Db(started=True))
     assert await service.has_started_projects("c")
     sql = str(service.db.executed[-1].compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
-    assert "'STARTED', 'ARCHIVED'" in sql
-    assert "performance_project_node_snapshots" in sql
-    assert "comparison_rules_snapshot" in sql
+    assert "status = 'STARTED'" in sql
+    assert "ARCHIVED" not in sql
+    assert "performance_project_node_snapshots" not in sql
+    assert "comparison_rules_snapshot" not in sql
     assert "start_at" not in sql
-    assert "performance_audit_events" in sql
-    assert "PERFORMANCE_PROJECT_STARTED" in sql
-    assert sql.count("cycle_ref = 'c'") == 2
+    assert "performance_audit_events" not in sql
+    assert sql.count("cycle_ref = 'c'") == 1
+
+
+@pytest.mark.asyncio
+async def test_current_started_lock_unlocks_after_delete_with_historical_audit_remaining():
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine("sqlite:///:memory:")
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("CREATE TABLE performance_projects (id INTEGER PRIMARY KEY, cycle_ref TEXT, status TEXT)"))
+            connection.execute(text("CREATE TABLE performance_audit_events (id INTEGER PRIMARY KEY, cycle_ref TEXT, event_type TEXT)"))
+            connection.execute(text("INSERT INTO performance_audit_events VALUES (1, 'c', 'PERFORMANCE_PROJECT_STARTED')"))
+            connection.execute(text("INSERT INTO performance_projects VALUES (1, 'c', 'STARTED'), (2, 'c', 'STARTED'), (3, 'other', 'STARTED'), (4, 'c', 'ARCHIVED'), (5, 'c', 'DRAFT')"))
+
+            class SqlDb:
+                async def execute(self, statement):
+                    return connection.execute(statement)
+
+            service = PerformanceComparisonConfigService(SqlDb())
+            assert await service.has_started_projects("c") is True
+            connection.execute(text("DELETE FROM performance_projects WHERE id = 1"))
+            assert await service.has_started_projects("c") is True
+            connection.execute(text("DELETE FROM performance_projects WHERE id = 2"))
+            assert await service.has_started_projects("c") is False
+            assert connection.scalar(text("SELECT count(*) FROM performance_audit_events")) == 1
+    finally:
+        engine.dispose()
 
 
 @pytest.mark.asyncio
@@ -260,7 +309,7 @@ async def test_summary_lock_is_cycle_global_even_when_project_scope_is_empty():
 
         async def execute(self, statement):
             self.statements.append(statement)
-            if hasattr(statement, "selects"):
+            if len(self.statements) == 1:
                 return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: ["cycle:1"]))
             return SimpleNamespace(all=lambda: [("cycle:1", 0, 0)])
 
@@ -270,7 +319,8 @@ async def test_summary_lock_is_cycle_global_even_when_project_scope_is_empty():
     assert result == {"cycle:1": (0, 0, [])}
     assert cycle._comparison_rules_editable is False
     lock_sql = str(db.statements[0].compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
-    assert "PERFORMANCE_PROJECT_STARTED" in lock_sql
+    assert "status = 'STARTED'" in lock_sql
+    assert "performance_audit_events" not in lock_sql
     assert "project_ref" not in lock_sql
 
 

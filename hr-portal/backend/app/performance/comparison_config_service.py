@@ -5,13 +5,13 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from pydantic import ValidationError
-from sqlalchemy import exists, or_, select, update
+from sqlalchemy import select, update
 
 from app.performance.assessment_roles import ROLE_REVIEWER_360, node_role_code
 from app.performance.comparison_schema import ComparisonRule
 from app.performance.models import (
-    PerformanceAuditEvent, PerformanceComparisonNotification, PerformanceProject,
-    PerformanceProjectNodeSnapshot, PerformanceTemplate, PerformanceTemplateWorkflow,
+    PerformanceComparisonNotification, PerformanceProject,
+    PerformanceTemplate, PerformanceTemplateWorkflow,
 )
 from app.performance.self_summary_service import (
     build_self_summary_schema, hydrate_self_summary_template,
@@ -24,11 +24,7 @@ def comparison_error(code, message, status_code=422):
 
 
 def started_project_condition():
-    return or_(
-        PerformanceProject.status.in_(["STARTED", "ARCHIVED"]),
-        PerformanceProject.settings.has_key("comparison_rules_snapshot"),
-        exists().where(PerformanceProjectNodeSnapshot.project_id == PerformanceProject.id),
-    )
+    return PerformanceProject.status == "STARTED"
 
 
 def rating_items(node):
@@ -105,10 +101,7 @@ class PerformanceComparisonConfigService:
     async def has_started_projects(self, cycle_ref):
         return bool((await self.db.execute(select(PerformanceProject.id).where(
             PerformanceProject.cycle_ref == cycle_ref, started_project_condition(),
-        ).union(select(PerformanceAuditEvent.id).where(
-            PerformanceAuditEvent.cycle_ref == cycle_ref,
-            PerformanceAuditEvent.event_type == "PERFORMANCE_PROJECT_STARTED",
-        )).limit(1))).scalar_one_or_none())
+        ).limit(1))).scalar_one_or_none())
 
     async def load_nodes(self, template_id):
         workflow = await self.db.get(PerformanceTemplateWorkflow, template_id, populate_existing=True)
@@ -226,7 +219,7 @@ class PerformanceComparisonConfigService:
                 comparison_error("COMPARISON_ITEM_NOT_SHARED", "请先删除使用该模板的差异规则")
             return
         if incoming and await self.has_started_projects(cycle.cycle_ref):
-            comparison_error("COMPARISON_RULES_LOCKED", "周期下项目曾启动，仅允许删除差异规则", 409)
+            comparison_error("COMPARISON_RULES_LOCKED", "已有启动项目，暂不支持修改" if previous else "已有启动项目，不支持添加", 409)
         normalized = await self.normalize_rules(incoming, template_ids, previous)
         removed = {rule["id"] for rule in previous} - {rule["id"] for rule in normalized}
         if removed:
