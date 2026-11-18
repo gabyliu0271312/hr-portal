@@ -54,23 +54,26 @@ describe('ProjectPerformanceMatrix', () => {
 
   it('loads the cycle provider with project zero, drills into real people and preserves detail permissions', async () => {
     const data = matrixOf()
-    data.completed_rows[0].cells.one.people = [
+    data.completed_rows[0].cells.one = { count: 2, people: [
       { employee_no: 'E1', display_name: '合法项目四人员', employment_status: 'ACTIVE', project_id: 4, root_review_id: 41, can_view_detail: true },
       { employee_no: 'E2', display_name: '无详情人员', employment_status: 'ACTIVE', project_id: 5, can_view_detail: false },
-    ]
+    ] }
     const provider = vi.fn().mockResolvedValue(data)
-    const wrapper = mount(ProjectPerformanceMatrix, { props: { projectId: 0, cycleId: 1, scopeKey: 'hrbp:1', provider }, global: { stubs: { PerformanceDialogShell: { props: ['modelValue'], template: '<div v-if="modelValue" class="cycle-drilldown"><slot /></div>' } } } })
+    const wrapper = mount(ProjectPerformanceMatrix, { props: { projectId: 0, cycleId: 1, scopeKey: 'hrbp:1', provider } })
     try {
       await flushPromises()
       expect(provider).toHaveBeenCalledOnce()
       expect(mockedApi.matrix).not.toHaveBeenCalled()
       wrapper.getComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', 'count')
       await flushPromises()
-      await wrapper.get('button[aria-label="查看J61星1人"]').trigger('click')
-      const buttons = wrapper.findAll('.cycle-drilldown button')
-      expect(buttons.map(button => button.text())).toEqual(['合法项目四人员', '无详情人员'])
-      expect(buttons[1].attributes('disabled')).toBeDefined()
-      await buttons[0].trigger('click')
+      await wrapper.get('button[aria-label="查看J61星2人"]').trigger('click')
+      const dialog = wrapper.getComponent(MatrixPeopleDialog)
+      expect(dialog.text()).toContain('合法项目四人员')
+      expect(dialog.text()).toContain('无详情人员')
+      expect(dialog.findAll('tbody tr')).toHaveLength(2)
+      await dialog.findAll('tbody tr')[1].trigger('click')
+      expect(wrapper.emitted('open-member')).toBeUndefined()
+      await dialog.findAll('tbody tr')[0].trigger('click')
       expect(wrapper.emitted('open-member')?.[0]?.[0]).toMatchObject({ project_id: 4, root_review_id: 41, can_view_detail: true })
     } finally { wrapper.unmount() }
   })

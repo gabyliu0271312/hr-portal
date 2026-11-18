@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { projectManagementApi, type ProjectMember } from '@/api/performance'
+import { projectManagementApi, type ProjectMatrixPerson, type ProjectMember } from '@/api/performance'
 import type { PerformanceTableColumn } from './performanceTableColumns'
 import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
@@ -18,6 +18,7 @@ const props = defineProps<{
   level: string
   ratingKey: string
   ratingLabel: string
+  people?: ProjectMatrixPerson[]
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; 'select-member': [member: ProjectMember] }>()
 
@@ -46,10 +47,51 @@ function departmentPath(row: ProjectMember) {
   return row.department_path || '--'
 }
 
+function matrixPersonRow(person: ProjectMatrixPerson, index: number): ProjectMember {
+  return {
+    ...person,
+    id: person.root_review_id ?? index,
+    employee_no: person.employee_no,
+    display_name: person.display_name,
+    employment_status: person.employment_status,
+    avatar_url: null,
+    rating: props.ratingLabel,
+    rating_tone: null,
+    completion: null,
+    department_path: null,
+  } as ProjectMember
+}
+
+function localRows() {
+  const normalized = (props.people || []).map(matrixPersonRow)
+  const term = keyword.value.trim().toLocaleLowerCase()
+  const filtered = term
+    ? normalized.filter(row => row.display_name.toLocaleLowerCase().includes(term) || row.employee_no.toLocaleLowerCase().includes(term))
+    : normalized
+  const direction = sortOrder.value === 'desc' ? -1 : 1
+  const sorted = sortOrder.value ? [...filtered].sort((left, right) => {
+    const key = sortKey.value === 'position_level' ? 'position_level' : sortKey.value === 'rating' ? 'rating' : sortKey.value === 'completion' ? 'completion' : 'display_name'
+    const leftValue = (left as unknown as Record<string, unknown>)[key]
+    const rightValue = (right as unknown as Record<string, unknown>)[key]
+    return String(leftValue || '').localeCompare(String(rightValue || ''), 'zh-CN', { numeric: true }) * direction
+  }) : filtered
+  total.value = sorted.length
+  rows.value = sorted.slice((page.value - 1) * pageSize.value, page.value * pageSize.value)
+}
+
 async function load() {
-  if (!props.modelValue || !props.projectId) return
+  if (!props.modelValue) return
   loading.value = true
   error.value = ''
+  if (props.people) {
+    localRows()
+    loading.value = false
+    return
+  }
+  if (!props.projectId) {
+    loading.value = false
+    return
+  }
   try {
     const result = await projectManagementApi.members(
       props.projectId,

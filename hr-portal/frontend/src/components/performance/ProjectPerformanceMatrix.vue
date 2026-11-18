@@ -89,20 +89,15 @@
           </table>
         </div>
       </section>
-      <PerformanceDialogShell v-if="props.cycleId && drilldown && !props.readonly" v-model="peopleOpen" title="人员列表">
-        <p>{{ props.cycleName || '当前周期' }} · {{ drilldown.level }} · {{ drilldown.rating.label }}</p>
-        <div class="cycle-matrix-people">
-          <button v-for="(person, index) in drilldownPeople" :key="`${person.project_id}:${person.employee_no}:${person.root_review_id}:${index}`" type="button" :disabled="!person.can_view_detail" @click="onPersonSelect(person)">{{ person.display_name }}</button>
-        </div>
-      </PerformanceDialogShell>
       <MatrixPeopleDialog
-        v-else-if="drilldown && !props.readonly"
+        v-if="drilldown && !props.readonly"
         v-model="peopleOpen"
         :project-id="props.projectId"
         :cycle-name="props.cycleName || '当前周期'"
         :level="drilldown.level"
         :rating-key="drilldown.rating.key"
         :rating-label="drilldown.rating.label"
+        :people="props.cycleId ? drilldownPeople : undefined"
         @select-member="onDialogSelectMember"
       />
     </template>
@@ -113,7 +108,6 @@
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import MatrixPeopleDialog from './MatrixPeopleDialog.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import { projectManagementApi, type ProjectMatrix, type ProjectMatrixRating, type ProjectMatrixRow } from '@/api/performance'
 import PerformanceSurfaceCard from './PerformanceSurfaceCard.vue'
 import { performanceLevelBackground } from './performanceColorOptions'
@@ -299,9 +293,6 @@ export default { components: { PeopleCell } }
 </script>
 
 <style scoped>
-.cycle-matrix-people { display: flex; flex-wrap: wrap; gap: var(--spacing-3); }
-.cycle-matrix-people button { padding: 0; border: 0; background: transparent; color: var(--color-primary); font: inherit; cursor: pointer; }
-.cycle-matrix-people button:disabled { color: var(--color-text-primary); cursor: default; }
 .project-matrix.surface-card { display: block; flex: none; padding: 0 20px 20px; }
 .matrix-toolbar { position: sticky; top: calc(var(--performance-tab-area-height) - var(--performance-review-surface-inset)); z-index: 4; display: flex; align-items: center; justify-content: space-between; min-height: 72px; background: #fff; }
 .matrix-scope-tabs { display: flex; align-items: center; min-width: 0; }

@@ -379,6 +379,13 @@
 - 已知边界：成员范围仅前端状态，切页签保持，换角色／项目后恢复默认；周期矩阵钻取使用聚合响应的people，项目钻取仍用原分页组件。原统计中未实现的绩效维度／历史对比章节、原筛选预留及跨项目重复成员合成不在本次新增范围，不伪造数据。
 - 未运行：真实JWT登录完整API链、真实PostgreSQL新连接回读、生产权限／生产数据、真实通知、部署；没有模型或迁移，不适用迁移upgrade／downgrade。本轮未commit／push／deploy，既有无关临时文件保留。T01／T02本地开发完成，T03真实环境部分待后续验收，三卡整体不勾选。
 
+### CR-007-F17-B01 周期矩阵人数钻取回归修复（2026-11-18）
+
+- [x] 根因定位与本地修复：`6807b3c9` 为周期多项目矩阵增加 `projectId=0` 聚合路径时，使用简化按钮列表替代原 `MatrixPeopleDialog`，导致“人员数量 → 人员表格 → 人员详情侧栏”既有链路在周期概览丢失；单项目路径未丢失。
+- 修复：周期聚合与单项目统一复用 `MatrixPeopleDialog`。聚合路径直接消费矩阵单元格已有人员，弹窗本地搜索、排序、分页，并保留 `project_id`、`root_review_id`、`can_view_detail`；允许行继续透传 `open-member`，无详情权限行不打开侧栏。单项目仍调用原成员分页接口，不新增接口、模型、迁移、权限或平行组件。
+- 自动化：`npm --prefix hr-portal/frontend test -- src/views/performance/ProjectManagement.spec.ts src/components/performance/ProjectPerformanceMatrix.spec.ts --silent --maxWorkers=2 --minWorkers=1` → **2文件65 passed**；覆盖聚合表格展示、拒绝行、允许行打开详情事件、单项目接口及项目管理侧栏接入。`npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite exit0，3783模块，48.57s**，仅既有VueUse PURE注释提示；目标文件 `git diff --check` 通过。
+- 边界：既有页面小范围回归修复，无新蓝图；未执行真实JWT登录浏览器、真实API／PostgreSQL、生产部署、commit或push，不将本地自动化视为生产验收。
+
 ### CR-007-F17-UI01 管理角色图标还原（2026-11-18）
 
 - 发布授权：用户明确要求在 main 提交并推送 UI01 图标还原、UI02 节点名称恢复及其测试／验收截图；不部署。下文“未提交推送”指开发验收时点。
