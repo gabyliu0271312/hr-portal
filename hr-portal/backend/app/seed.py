@@ -610,6 +610,7 @@ _BUILTIN_TABLES = [
     {"table_name": "cost_center_monthly",     "table_label": "成本中心月度维护表",    "icon": "OfficeBuilding", "display_order": 50,  "is_period": True,  "period_col": "month", "period_source": "inject", "scope_strategy": "cc_first"},
     {"table_name": "org_unit",                "table_label": "组织单元",              "icon": "Share",          "display_order": 55,  "is_period": False, "scope_strategy": "cross_filter"},
     {"table_name": "org_tree",                "table_label": "组织架构",              "icon": "Share",          "display_order": 56,  "is_period": False, "scope_strategy": "cross_filter", "warehouse_layer": "ODS"},
+    {"table_name": "cost_center_tree",         "table_label": "成本中心",              "icon": "Wallet",         "display_order": 57,  "is_period": False, "scope_strategy": "cc_first",    "warehouse_layer": "ODS"},
     {"table_name": "emp_monthly_cost_class",  "table_label": "员工月度成本归集分类表","icon": "Collection",     "display_order": 60,  "is_period": False, "scope_strategy": "cc_first"},
     {"table_name": "emp_monthly_cost_result", "table_label": "员工月度成本分摊结果",  "icon": "TrendCharts",    "display_order": 70,  "is_period": True,  "period_col": "month", "period_source": "inject", "is_result_table": True, "scope_strategy": "cc_first"},
 ]

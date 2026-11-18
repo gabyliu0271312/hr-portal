@@ -11,6 +11,7 @@ from app.data.ddl import validate_column_name, validate_table_name, require_ware
 from app.data.models import RegisteredTable, TableColumn
 from app.datasources.models import DataSource
 from app.warehouse.asset_sink_validation import validate_rows_for_asset
+from app.warehouse.asset_sink_tree import _is_tree_asset, _write_tree_upsert
 
 
 def _business_key_hash(row: dict, primary_key: str | list[str] | tuple[str, ...]) -> str:
@@ -37,6 +38,40 @@ class WarehouseAssetSink:
         asset = await self.db.scalar(select(RegisteredTable).where(RegisteredTable.table_name == target_asset))
         if asset is None or asset.asset_status != "published":
             raise ValueError("目标数据资产不存在或尚未发布")
+        # 树资产走专用分支（方案乙-1：直写树表，无中间表）。
+        # 树检测基于固定树表白名单：仅 org_tree / cost_center_tree 两个已知树资产
+        # 走树分支，普通实体资产零查询零行为变化。
+        from app.warehouse.asset_sink_tree import TREE_ASSET_NAMES
+        if target_asset in TREE_ASSET_NAMES:
+            if write_mode not in {"upsert", "replace"}:
+                raise ValueError("树资产仅支持增量变更（upsert）或全量替换（replace）")
+            # 增量变更：同 code 更新/复用旧 ID，不删已有节点
+            if write_mode == "upsert":
+                return await _write_tree_upsert(
+                    self.db,
+                    table_name=target_asset,
+                    rows=rows,
+                    field_whitelist=field_whitelist,
+                    default_active=True,
+                )
+            # replace：清空树（保留固定根）后重写
+            if target_asset == "cost_center_tree":
+                from app.data.models import CostCenterNode as _TreeModel
+                from app.trees.service import CC_ROOT_CODE as _CC_ROOT
+            else:
+                from app.data.models import OrgNode as _TreeModel
+                from app.datasources.sync_service import _ORG_ROOT_CODE as _CC_ROOT
+            from sqlalchemy import delete as _sa_delete
+            await self.db.execute(
+                _sa_delete(_TreeModel).where(_TreeModel.code != _CC_ROOT)
+            )
+            return await _write_tree_upsert(
+                self.db,
+                table_name=target_asset,
+                rows=rows,
+                field_whitelist=field_whitelist,
+                default_active=True,
+            )
         columns = list((await self.db.execute(select(TableColumn).where(TableColumn.table_name == target_asset))).scalars())
         allowed = {column.column_code for column in columns}
         whitelist = {validate_column_name(field) for field in field_whitelist}
