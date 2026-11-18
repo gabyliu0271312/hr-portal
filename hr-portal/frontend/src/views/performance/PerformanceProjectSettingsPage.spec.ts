@@ -130,6 +130,92 @@ describe('project audience visibility', () => {
 
 
 
+describe('calibration people options', () => {
+  async function calibrationProject(groups: Record<string, unknown> = {}) {
+    const project = {
+      ...await mocks.get(), template_id: 11,
+      evaluator_rules: { groups: [{ conditions: [{ field: 'department', operator: 'include', values: ['研发'] }] }] },
+      flow_settings: { node_settings: { calibration: { calibration: { force_distribution_enabled: false, phases: [
+        { phase_id: 'phase-1', rules: [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] },
+        { phase_id: 'phase-2', rules: [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'RULE', allow_authorize: false, ...groups }] },
+      ] } } }, node_times: {} },
+    }
+    mocks.get.mockResolvedValue(project)
+    mocks.getTemplateWorkflow.mockResolvedValue({ nodes: [{ node_id: 'calibration', node_type: 'calibration', name: '校准', order: 1 }] })
+    return project
+  }
+
+  it('loads people on the first calibrator selector open and reuses the loaded options', async () => {
+    await calibrationProject()
+    const wrapper = page(false, true)
+    try {
+      await flushPromises()
+      await button(wrapper, '下一步').trigger('click')
+      await flushPromises()
+      await wrapper.findAll('.add-rule')[0].trigger('click')
+      expect(mocks.listEvaluatorOptions).not.toHaveBeenCalled()
+      await wrapper.get('input[aria-label="校准人条件值"]').trigger('click')
+      await flushPromises()
+      expect(mocks.listEvaluatorOptions).toHaveBeenCalledTimes(1)
+      expect(mocks.listEvaluatorOptions).toHaveBeenCalledWith(1)
+      const option = wrapper.findAll('[role="option"]').find(item => item.text() === '张三')!
+      expect(option).toBeDefined()
+      await option.trigger('click')
+      expect(wrapper.findAll('.performance-select-shell__tag-content').map(item => item.text())).toContain('张三')
+      await wrapper.get('input[aria-label="校准人条件值"]').trigger('click')
+      await flushPromises()
+      expect(mocks.listEvaluatorOptions).toHaveBeenCalledTimes(1)
+      expect(mocks.update).not.toHaveBeenCalled()
+    } finally { wrapper.unmount() }
+  })
+
+  it('retries a failed calibrator options request without losing the drawer draft', async () => {
+    await calibrationProject()
+    mocks.listEvaluatorOptions.mockRejectedValueOnce(new Error('network'))
+    const wrapper = page(false, true)
+    try {
+      await flushPromises()
+      await button(wrapper, '下一步').trigger('click')
+      await flushPromises()
+      await wrapper.findAll('.add-rule')[0].trigger('click')
+      await wrapper.get('.calibration-description-input input').setValue('保留校准描述')
+      const input = wrapper.get('input[aria-label="校准人条件值"]')
+      await input.trigger('click')
+      await flushPromises()
+      expect(mocks.listEvaluatorOptions).toHaveBeenCalledTimes(1)
+      expect(wrapper.text()).toContain('被评估人名单加载失败，请稍后重试')
+      await input.trigger('keydown', { key: 'Escape' })
+      await input.trigger('click')
+      await flushPromises()
+      expect(mocks.listEvaluatorOptions).toHaveBeenCalledTimes(2)
+      expect(wrapper.findAll('[role="option"]').some(item => item.text() === '张三')).toBe(true)
+      expect((wrapper.get('.calibration-description-input input').element as HTMLInputElement).value).toBe('保留校准描述')
+      expect(mocks.update).not.toHaveBeenCalled()
+    } finally { wrapper.unmount() }
+  })
+
+  it.each(['subject_groups', 'scope_groups'])('resolves saved %s employees in later phases and groups on reopen', async source => {
+    const groups = [
+      { conditions: [{ field: source === 'subject_groups' ? 'employee' : 'department', operator: 'INCLUDE', values: [] }] },
+      { conditions: [{ field: 'employee', operator: 'INCLUDE', values: ['E001'] }] },
+    ]
+    await calibrationProject({ [source]: groups })
+    const wrapper = page(false, true)
+    try {
+      await flushPromises()
+      expect(mocks.listEvaluatorOptions).toHaveBeenCalledTimes(1)
+      expect(mocks.listEvaluatorOptions).toHaveBeenCalledWith(1)
+      await button(wrapper, '下一步').trigger('click')
+      await flushPromises()
+      await wrapper.findAll('.rule-actions button')[2].trigger('click')
+      expect(wrapper.findAll('.performance-select-shell__tag-content').map(item => item.text())).toContain('张三')
+      expect(wrapper.text()).not.toContain('人员信息不可用')
+      expect(wrapper.getComponent(PerformanceProjectFlowSettings).props('modelValue')?.node_settings.calibration.calibration?.phases[1].rules[0][source as 'subject_groups' | 'scope_groups']).toEqual(groups)
+      expect(mocks.update).not.toHaveBeenCalled()
+    } finally { wrapper.unmount() }
+  })
+})
+
 describe('project audience preview', () => {
   it('resolves saved employee rules to display names in the real disabled person selector', async () => {
     const rules = { groups: [{ conditions: [{ field: 'employee', operator: 'include', values: ['900162'] }] }] }

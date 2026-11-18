@@ -370,6 +370,9 @@ async function loadProject() {
     editingPolicy.value = project.editing_policy; calibrationBaseDigest.value = project.calibration_base_digest
     const hasSavedPeople = form.evaluator_rules.groups.some(group => group.conditions.some(condition => ['employee', 'directLeader', 'superior'].includes(condition.field) && condition.values.length))
       || (project.scope_rules?.groups || []).some(group => group.conditions.some(condition => condition.field === 'employee' && condition.values.length))
+      || Object.values(form.flow_settings.node_settings).some(setting => setting.calibration?.phases.some(phase => phase.rules.some(rule =>
+        [...(rule.subject_groups || []), ...(rule.scope_groups || [])].some(group => group.conditions.some(condition => condition.field === 'employee' && condition.values.length)),
+      )))
     if (project.template_id && (hasSavedPeople || Object.values(form.flow_settings.node_settings).some(setting => Boolean((setting as any).result_reconsideration?.handler_employee_nos?.length || (setting as any).result_reconsideration?.handler)))) await loadEvaluatorOptions()
     savedView.value = true
     await loadAudiencePreview()

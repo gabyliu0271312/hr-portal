@@ -31,6 +31,7 @@
               :value-options="peopleOptions"
               count-suffix="有可校准的被评估人"
               :removable="draft.subject_groups.length > 1"
+              @open-options="emit('open-options')"
               @update:model-value="subjectDirty = true; validationError = ''"
               @remove="removeSubjectGroup(groupIndex)"
             />
