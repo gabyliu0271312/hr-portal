@@ -9,6 +9,7 @@ const props = defineProps<{
   gradeOptions: Array<{ value: string; label: string }>
   removable?: boolean
   invalid?: boolean
+  disabled?: boolean
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: PerformanceDistributionCondition]; remove: [] }>()
 
@@ -30,20 +31,21 @@ function multiple(value: string | string[] | null) { return Array.isArray(value)
 </script>
 
 <template>
-  <div class="distribution-rule-row" :class="{ 'is-invalid': invalid }">
-    <PerformanceSearchSelect :model-value="modelValue.control_mode" :options="controlOptions" selection-style="plain" aria-label="分布控制方式" @update:model-value="update({ control_mode: single($event) as PerformanceDistributionCondition['control_mode'] })" />
-    <PerformanceSearchSelect :model-value="modelValue.grade_codes" :options="gradeOptions" multiple aria-label="分布等级" placeholder="请选择等级" @update:model-value="update({ grade_codes: multiple($event) })" />
-    <PerformanceSearchSelect :model-value="modelValue.operator" :options="operatorOptions" selection-style="plain" aria-label="分布比较符" @update:model-value="update({ operator: single($event) as PerformanceDistributionCondition['operator'] })" />
-    <PerformanceNumberInput :model-value="String(modelValue.value || '')" width="90px" :min="0" :max="modelValue.unit === 'PERCENT' ? 100 : undefined" :show-controls="false" aria-label="分布数值" @update:model-value="update({ value: Number($event) || 0 })" />
-    <PerformanceSearchSelect class="distribution-rule-row__unit" :model-value="modelValue.unit" :options="unitOptions" selection-style="plain" aria-label="分布单位" @update:model-value="update({ unit: single($event) as PerformanceDistributionCondition['unit'] })" />
-    <PerformanceIconButton icon="DeleteTrashOutlined" label="删除分布条件" :disabled="!removable" @click="emit('remove')" />
+  <div class="distribution-rule-row" :class="{ 'is-invalid': invalid, 'has-remove': removable }">
+    <PerformanceSearchSelect :model-value="modelValue.control_mode" :options="controlOptions" selection-style="plain" :disabled="disabled" aria-label="分布控制方式" @update:model-value="update({ control_mode: single($event) as PerformanceDistributionCondition['control_mode'] })" />
+    <PerformanceSearchSelect :model-value="modelValue.grade_codes" :options="gradeOptions" multiple :disabled="disabled" aria-label="分布等级" placeholder="请选择" @update:model-value="update({ grade_codes: multiple($event) })" />
+    <PerformanceSearchSelect :model-value="modelValue.operator" :options="operatorOptions" selection-style="plain" :disabled="disabled" aria-label="分布比较符" @update:model-value="update({ operator: single($event) as PerformanceDistributionCondition['operator'] })" />
+    <PerformanceNumberInput :model-value="String(modelValue.value)" class="distribution-rule-row__amount" width="117px" :min="0" :max="modelValue.unit === 'PERCENT' ? 100 : undefined" :show-controls="false" suffix-variant="addon" :disabled="disabled" aria-label="分布数值" @update:model-value="update({ value: Number($event) || 0 })">
+      <template #suffix><PerformanceSearchSelect class="distribution-rule-row__unit" :model-value="modelValue.unit" :options="unitOptions" selection-style="plain" :disabled="disabled" aria-label="分布单位" @update:model-value="update({ unit: single($event) as PerformanceDistributionCondition['unit'] })" /></template>
+    </PerformanceNumberInput>
+    <PerformanceIconButton v-if="removable" icon="DeleteTrashOutlined" label="删除分布条件" :disabled="disabled" @click="emit('remove')" />
   </div>
 </template>
 
 <style scoped>
-.distribution-rule-row{display:grid;grid-template-columns:85px minmax(150px,1fr) 120px 90px 72px 24px;align-items:start;gap:var(--spacing-2)}
+.distribution-rule-row{display:grid;grid-template-columns:85px minmax(0,220px) minmax(0,168px) 117px;align-items:start;gap:var(--spacing-2);min-width:0}.distribution-rule-row.has-remove{grid-template-columns:85px minmax(0,1fr) minmax(0,168px) 117px 24px}.distribution-rule-row__amount{--performance-number-addon-width:56px}.distribution-rule-row__amount :deep(.distribution-rule-row__unit.performance-select-shell__selector){height:30px;border:0;border-radius:0;background:transparent}.distribution-rule-row__amount :deep(.performance-select-shell__arrow){margin-left:4px}
 .distribution-rule-row.is-invalid :deep(.performance-select-shell__selector),.distribution-rule-row.is-invalid :deep(.performance-number-input){border-color:var(--performance-field-border-invalid)}
 .distribution-rule-row__unit{min-width:0}
 .distribution-rule-row :deep(.performance-icon-button){--performance-icon-button-size:24px;margin-top:4px}
-@media(max-width:720px){.distribution-rule-row{min-width:590px}}
+@media(max-width:640px){.distribution-rule-row,.distribution-rule-row.has-remove{grid-template-columns:120px minmax(0,1fr)}.distribution-rule-row__amount{max-width:100%}}
 </style>

@@ -1,5 +1,5 @@
 <template>
-  <div ref="root" class="performance-select-shell" :class="{ 'is-open': open }">
+  <div ref="root" class="performance-select-shell" :class="{ 'is-open': open }" @keydown="emit('keydown', $event)">
     <div class="performance-select-shell__selector" :class="[$attrs.class, { 'has-value': selectedItems.length, disabled, 'disabled-white': disabledSurface === 'white', 'is-plain': selectionStyle === 'plain' }]" :aria-invalid="$attrs['aria-invalid'] === true || $attrs['aria-invalid'] === 'true' ? 'true' : undefined" @click="openMenu">
       <div ref="content" class="performance-select-shell__content">
         <span v-if="!selectedItems.length && !query" class="performance-select-shell__placeholder">{{ placeholder }}</span>
@@ -10,7 +10,7 @@
             <PerformanceSelectTag v-for="item in overflowItems" :key="item.value" :label="item.label" :avatar-url="item.avatarUrl" :avatar-fallback="item.avatarFallback" :disabled="disabled || lockedValues.includes(item.value)" @remove="removeValue(item.value, false)" />
           </div>
         </ElPopover>
-        <input ref="searchInput" v-model="query" class="performance-select-shell__input" type="search" role="combobox" autocomplete="off" :disabled="disabled" :readonly="selectionStyle === 'plain'" :aria-label="ariaLabel" :aria-invalid="$attrs['aria-invalid'] === true || $attrs['aria-invalid'] === 'true' ? 'true' : undefined" :aria-expanded="open" :placeholder="selectedItems.length ? undefined : placeholder" :style="{ width: query ? `${Math.max(6, query.length * 14)}px` : '6px' }" @focus="openOnFocus && openMenu()" @keydown.esc.stop="close" />
+        <input ref="searchInput" v-model="query" class="performance-select-shell__input" type="search" role="combobox" autocomplete="off" :disabled="disabled" :readonly="selectionStyle === 'plain'" :aria-label="ariaLabel" :aria-invalid="$attrs['aria-invalid'] === true || $attrs['aria-invalid'] === 'true' ? 'true' : undefined" :aria-expanded="open" :placeholder="selectedItems.length ? undefined : placeholder" :style="{ width: query ? `${Math.max(6, query.length * 14)}px` : '6px' }" @focus="openOnFocus && !restoringFocus && openMenu()" @keydown.esc.stop="close()" />
       </div>
       <button v-if="selectedItems.length && selectionStyle !== 'plain'" class="performance-select-shell__clear" type="button" :disabled="disabled || lockedValues.length > 0" :aria-label="clearLabel" @click.stop="clearAll">
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="currentColor" /><path d="m8 8 8 8M16 8l-8 8" stroke="white" stroke-width="2" /></svg>
@@ -23,7 +23,7 @@
     </div>
     <Teleport to="body">
       <div v-if="open" ref="popup" class="performance-select-shell__popup" :style="{ ...popupStyle, height: popupHeightStyle, maxHeight: `${popupMaxHeight}px` }">
-        <section class="performance-select-shell__dialog" role="dialog" :aria-label="popupLabel"><slot :query="query" :close="close" :focus="focusSearch" /></section>
+        <section class="performance-select-shell__dialog" role="dialog" :aria-label="popupLabel" @keydown="emit('keydown', $event)"><slot :query="query" :close="close" :focus="focusSearch" /></section>
       </div>
     </Teleport>
   </div>
@@ -59,13 +59,15 @@ const props = withDefaults(defineProps<{
   selectedItems: () => [], placeholder: '请选择', ariaLabel: '选择器', popupLabel: '选项', clearLabel: '清空已选',
   popupHeight: 'auto', popupWidth: undefined, popupMaxHeight: 320, selectionStyle: 'tags', openOnFocus: true, openOnSearch: false, hideArrow: false, disabledSurface: 'muted', disabled: false, lockedValues: () => [],
 })
-const emit = defineEmits<{ 'update:modelValue': [value: string[]]; 'update:query': [value: string]; open: []; close: [] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: string[]]; 'update:query': [value: string]; open: []; close: []; keydown: [event: KeyboardEvent] }>()
 const root = ref<HTMLElement | null>(null)
 const content = ref<HTMLElement | null>(null)
 const measureRoot = ref<HTMLElement | null>(null)
 const popup = ref<HTMLElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
 const open = ref(false)
+let restoringFocus = false
+let popupObserver: ResizeObserver | undefined
 const visibleCount = ref(props.selectedItems.length)
 const query = defineModel<string>('query', { default: '' })
 const popupStyle = ref<Record<string, string>>({ visibility: 'hidden' })
@@ -101,7 +103,7 @@ function updatePosition() {
   const margin = Number.parseFloat(style.getPropertyValue('--performance-select-popup-viewport-margin')) || 8
   const popupContentHeight = props.popupHeight === 'auto' ? Math.min(props.popupMaxHeight, popup.value?.getBoundingClientRect().height || props.popupMaxHeight) : props.popupHeight
   const top = box.bottom + gap + popupContentHeight <= window.innerHeight - margin ? box.bottom + gap : Math.max(margin, box.top - popupContentHeight - gap)
-  const width = props.popupWidth ?? box.width
+  const width = Math.min(props.popupWidth ?? box.width, Math.max(0, window.innerWidth - margin * 2))
   const left = Math.max(margin, Math.min(box.left, window.innerWidth - width - margin))
   popupStyle.value = { position: 'fixed', top: `${top}px`, left: `${left}px`, width: `${width}px`, visibility: 'visible' }
 }
@@ -115,14 +117,19 @@ function openMenu() {
   emit('open')
   void nextTick(() => { measureVisibleItems(); updatePosition(); focusSearch() })
 }
-function close() {
+function close(restoreFocus = true) {
   if (!open.value) return
   open.value = false
   query.value = ''
   emit('close')
   popupStyle.value = { visibility: 'hidden' }
+  if (restoreFocus && (root.value?.contains(document.activeElement) || popup.value?.contains(document.activeElement))) {
+    restoringFocus = true
+    void nextTick(() => { searchInput.value?.focus(); restoringFocus = false })
+  }
 }
 function focusSearch() { void nextTick(() => searchInput.value?.focus()) }
+defineExpose({ openMenu, close, focusSearch, isOpen: open })
 function removeValue(value: string, focus = true) {
   if (props.disabled || props.lockedValues.includes(value)) return
   emit('update:modelValue', props.modelValue.filter(item => item !== value))
@@ -132,7 +139,7 @@ function clearAll() { if (!props.disabled && !props.lockedValues.length) { emit(
 function onOutside(event: PointerEvent) {
   const target = event.target
   if (!(target instanceof Node) || root.value?.contains(target) || popup.value?.contains(target)) return
-  close()
+  close(false)
 }
 function onViewportChange() { if (open.value) updatePosition() }
 watch([() => props.selectedItems, () => props.selectionStyle, query], () => { visibleCount.value = props.selectedItems.length; void nextTick(measureVisibleItems) }, { deep: true })
@@ -142,6 +149,13 @@ watch(query, value => {
   if (value.trim() && !open.value && !props.disabled) openMenu()
   else if (!value.trim() && open.value) close()
 })
+watch(popup, element => {
+  popupObserver?.disconnect()
+  if (element && typeof ResizeObserver !== 'undefined') {
+    popupObserver = new ResizeObserver(updatePosition)
+    popupObserver.observe(element)
+  }
+}, { flush: 'post' })
 watch(() => props.disabled, disabled => { if (disabled) close() })
 onMounted(() => {
   void nextTick(measureVisibleItems)
@@ -150,6 +164,7 @@ onMounted(() => {
   window.addEventListener('scroll', onViewportChange, true)
 })
 onBeforeUnmount(() => {
+  popupObserver?.disconnect()
   document.removeEventListener('pointerdown', onOutside)
   window.removeEventListener('resize', onViewportChange)
   window.removeEventListener('scroll', onViewportChange, true)
@@ -175,6 +190,7 @@ onBeforeUnmount(() => {
 .performance-select-shell__overflow-count { display: inline-flex; align-items: center; height: var(--performance-select-tag-height); flex: 0 0 auto; margin: 2px var(--performance-select-tag-gap) 2px 0; padding: 0 var(--performance-select-tag-padding-x); border: 0; border-radius: var(--performance-select-tag-radius); background: var(--performance-select-tag-background); color: var(--performance-select-tag-text); font: inherit; white-space: nowrap; cursor: pointer; }
 .performance-select-shell__input { height: var(--performance-select-content-height); min-width: 6px; max-width: 100%; flex-shrink: 0; margin: 0; padding: 0; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; cursor: text; }
 .performance-select-shell__input::-webkit-search-cancel-button { display: none; }
+.performance-select-shell__placeholder ~ .performance-select-shell__input::placeholder { color: transparent; }
 .performance-select-shell__selector:not(.has-value) .performance-select-shell__input { position: absolute; inset: 0; width: 100% !important; }
 .performance-select-shell__clear { position: absolute; right: var(--performance-select-padding-x); display: flex; width: 12px; height: 28px; flex: 0 0 12px; align-items: center; margin-left: var(--spacing-2); padding: 0; border: 0; background: transparent; color: var(--performance-select-icon-color); cursor: pointer; opacity: 0; pointer-events: none; }
 .performance-select-shell__clear svg { width: 12px; height: 12px; }

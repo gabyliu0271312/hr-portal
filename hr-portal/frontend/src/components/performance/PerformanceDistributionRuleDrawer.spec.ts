@@ -14,6 +14,17 @@ const assessmentOptions = [{ id: 'grade', label: '绩效等级', description: '�
 afterEach(() => { document.body.innerHTML = '' })
 
 describe('PerformanceDistributionRuleDrawer', () => {
+  it('renders zero in the joined number/unit control and omits single-row deletion', async () => {
+    const wrapper = mount(PerformanceDistributionRuleDrawer, { props: { modelValue: true, assessmentOptions }, attachTo: document.body })
+    const row = wrapper.findComponent(PerformanceDistributionRuleRow)
+    expect((row.get('input[aria-label="分布数值"]').element as HTMLInputElement).value).toBe('0')
+    expect(row.find('[aria-label="删除分布条件"]').exists()).toBe(false)
+    expect(row.get('.number-input-suffix input').attributes('aria-label')).toBe('分布单位')
+    await wrapper.setProps({ saving: true })
+    expect(row.get('input[aria-label="分布等级"]').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
   it('validates required fields and submits a complete rule', async () => {
     const wrapper = mount(PerformanceDistributionRuleDrawer, { props: { modelValue: true, assessmentOptions }, attachTo: document.body })
     const confirm = document.body.querySelector('.performance-drawer-footer__confirm') as HTMLButtonElement
@@ -67,12 +78,13 @@ describe('PerformanceDistributionRuleDrawer', () => {
     expect(wrapper.emitted('confirm')?.[0]?.[0]).toMatchObject({ min_people_operator: 'GTE', min_people_count: 0 })
   })
 
-  it('keeps the applicable-people number input editable with stepper and 90px width', async () => {
+  it('keeps the applicable-people input editable in a 146px addon without steppers', async () => {
     const wrapper = mount(PerformanceDistributionRuleDrawer, { props: { modelValue: true, assessmentOptions }, attachTo: document.body })
     const numberInput = wrapper.findComponent(PerformanceNumberInput)
-    expect(numberInput.props('showControls')).toBe(true)
+    expect(numberInput.props('showControls')).toBe(false)
+    expect(numberInput.props('suffixVariant')).toBe('addon')
     expect(numberInput.props('readonly')).toBe(false)
-    expect(numberInput.props('width')).toBe('90px')
+    expect(numberInput.props('width')).toBe('146px')
     const input = document.body.querySelector('input[aria-label="分布适用人数"]') as HTMLInputElement
     expect(input.readOnly).toBe(false)
     expect(input.disabled).toBe(false)

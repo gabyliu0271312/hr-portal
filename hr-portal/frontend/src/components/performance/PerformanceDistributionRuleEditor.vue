@@ -1,7 +1,7 @@
 <template>
   <div class="distribution-rule-editor">
     <PerformanceFormItem label="评估项" required :invalid="submitted && !modelValue.assessment_item_id" error-message="评估项为必填">
-      <PerformanceAssessmentSelect :model-value="modelValue.assessment_item_id" label="" aria-label="分布评估项" placeholder="请选择" :options="selectableAssessments" :invalid="submitted && !modelValue.assessment_item_id" empty-text="暂无可配置的评级评估项" @update:model-value="setAssessment" />
+      <PerformanceAssessmentSelect :model-value="modelValue.assessment_item_id" :disabled="disabled" label="" aria-label="分布评估项" placeholder="请选择" :options="selectableAssessments" :invalid="submitted && !modelValue.assessment_item_id" empty-text="暂无可配置的评级评估项" @update:model-value="setAssessment" />
       <p v-if="selectedAssessment" class="distribution-assessment-summary">{{ selectedAssessment.label }}共{{ gradeCodes.length }}个评级结果：<span v-for="code in gradeCodes" :key="code">{{ code }}</span></p>
     </PerformanceFormItem>
 
@@ -47,7 +47,7 @@
     <PerformanceFormItem label="适用人数" required :invalid="submitted && modelValue.min_people_count < 0" error-message="适用人数不合法">
       <div class="distribution-applicable-count">
         <PerformanceSearchSelect class="distribution-applicable-count__operator" :model-value="modelValue.min_people_operator" :options="operatorOptions" selection-style="plain" aria-label="分布适用人数比较符" :disabled="disabled" @update:model-value="update({ min_people_operator: single($event) as PerformanceDistributionOperator })" />
-        <PerformanceNumberInput :model-value="String(modelValue.min_people_count)" width="90px" :min="0" suffix="人" aria-label="分布适用人数" :disabled="disabled" @update:model-value="update({ min_people_count: Number($event) || 0 })" />
+        <PerformanceNumberInput :model-value="String(modelValue.min_people_count)" width="146px" :min="0" :show-controls="false" suffix="人" suffix-variant="addon" aria-label="分布适用人数" :disabled="disabled" @update:model-value="update({ min_people_count: Number($event) || 0 })" />
       </div>
     </PerformanceFormItem>
 
@@ -55,7 +55,7 @@
       <template #label-extra><PerformanceInfoPopover content="请注意避免分布规则间发生冲突，否则会导致校准任务无法完成" :width="360" /></template>
       <template #description>请注意避免分布规则间发生冲突，否则会导致校准任务无法完成</template>
       <div class="distribution-condition-list">
-        <PerformanceDistributionRuleRow v-for="(condition,index) in modelValue.conditions" :key="index" :model-value="condition" :grade-options="gradeOptions" :removable="modelValue.conditions.length > 1" :invalid="submitted && invalidCondition(condition)" @update:model-value="updateCondition(index, $event)" @remove="removeCondition(index)" />
+        <PerformanceDistributionRuleRow v-for="(condition,index) in modelValue.conditions" :key="index" :model-value="condition" :grade-options="gradeOptions" :removable="modelValue.conditions.length > 1" :disabled="disabled" :invalid="submitted && invalidCondition(condition)" @update:model-value="updateCondition(index, $event)" @remove="removeCondition(index)" />
       </div>
       <PerformanceTextButton label="添加规则" :disabled="disabled" @click="addCondition"><template #icon><AddOutlinedIcon /></template></PerformanceTextButton>
     </PerformanceFormItem>
@@ -165,12 +165,13 @@ function setScopeEnabled(key: 'calibration_scope' | 'department' | 'other_dimens
 </script>
 
 <style scoped>
-.distribution-rule-editor{display:flex;flex-direction:column;gap:var(--spacing-5);min-width:0;color:var(--color-text-primary)}
-.distribution-assessment-summary{display:flex;align-items:center;flex-wrap:wrap;gap:var(--spacing-1);margin:var(--spacing-2) 0 0;color:var(--color-text-secondary);font-size:var(--font-size-md);line-height:22px}.distribution-assessment-summary span{display:inline-flex;align-items:center;min-height:24px;padding:1px 6px;border-radius:var(--radius-sm);background:var(--performance-select-tag-background);color:var(--performance-select-tag-text)}
-.distribution-applicable-count{display:flex;align-items:center;gap:var(--spacing-2);width:288px}.distribution-applicable-count :deep(.performance-select-shell){flex:0 0 120px;min-width:0}.distribution-applicable-count :deep(.performance-number-input){flex:0 0 90px}
+.distribution-rule-editor{display:flex;flex-direction:column;gap:var(--spacing-5);min-width:0;color:var(--color-text-primary);--performance-input-field-gap:0px}.distribution-rule-editor :deep(.performance-form-item:first-child){margin-bottom:2px}.distribution-rule-editor :deep(.performance-form-item__description){margin-top:-8px}.distribution-rule-editor :deep(.performance-form-item:last-of-type .performance-form-item__description){margin-bottom:0;color:#808080;line-height:21px}
+.distribution-assessment-summary{display:flex;align-items:center;flex-wrap:wrap;gap:var(--spacing-1);margin:var(--spacing-1) 0 0;color:rgba(0,0,0,.65);font-size:var(--font-size-md);line-height:21px}
+.distribution-applicable-count{display:flex;align-items:flex-start;gap:var(--spacing-2);width:100%}.distribution-applicable-count :deep(.performance-select-shell){flex:0 0 120px;min-width:0}.distribution-applicable-count :deep(.performance-number-input){flex:0 0 146px;--performance-number-addon-width:56px}
 .distribution-condition-list{display:flex;flex-direction:column;gap:var(--spacing-2);margin-bottom:var(--spacing-2)}.distribution-rule-editor :deep(.performance-form-item__label){gap:var(--spacing-1)}.distribution-rule-editor :deep(.performance-form-item__description){font-size:var(--font-size-md);line-height:20px}
 .distribution-scope-options{display:flex;flex-direction:column;gap:var(--spacing-2)}.distribution-scope-group{min-width:0;margin:0 0 var(--spacing-2);padding:var(--spacing-2) 0 0;border-radius:var(--radius-sm);background:transparent}
 .distribution-scope-group :deep(.performance-audience-rule-editor__groups){width:100%}.distribution-scope-group :deep(.performance-audience-rule-editor__main){width:100%}
 .distribution-rule-error{margin:0;color:var(--performance-field-error-color);font-size:var(--performance-field-error-font-size);line-height:var(--performance-field-error-line-height)}
-@media(max-width:720px){.distribution-rule-editor{min-width:640px}.distribution-scope-group{margin-left:0}}
+.distribution-rule-editor :deep(.performance-radio-group--horizontal){display:flex;flex-wrap:wrap;row-gap:8px!important}.distribution-rule-editor :deep(.performance-radio-entry){flex-shrink:0}
+@media(max-width:720px){.distribution-scope-group{margin-left:0}}
 </style>

@@ -105,7 +105,7 @@ function adjust(delta: number) {
 <template>
   <div
     class="performance-number-input"
-    :class="{ 'is-disabled': disabled, 'is-readonly': readonly, 'is-invalid': invalid, 'has-addon': suffix && suffixVariant === 'addon' }"
+    :class="{ 'is-disabled': disabled, 'is-readonly': readonly, 'is-invalid': invalid, 'has-addon': (suffix || $slots.suffix) && suffixVariant === 'addon' }"
     :data-size="size"
     :data-min="min"
     :data-step="effectiveStep"
@@ -129,7 +129,7 @@ function adjust(delta: number) {
         @blur="formatInput"
       />
     </div>
-    <span v-if="suffix" class="number-input-suffix">{{ suffix }}</span>
+    <span v-if="suffix || $slots.suffix" class="number-input-suffix"><slot name="suffix">{{ suffix }}</slot></span>
     <div v-if="showControls" class="number-stepper">
       <button type="button" :aria-label="`${ariaLabel}增加`" :disabled="disabled || readonly || atMaximum" @click="adjust(1)">
         <svg width="8" height="8" viewBox="0 0 24 24" fill="none" data-icon="UpBoldOutlined" aria-hidden="true">
@@ -151,7 +151,7 @@ function adjust(delta: number) {
 .performance-number-input:focus-within { border-color: var(--performance-field-border-focus); box-shadow: var(--performance-field-focus-ring); }
 .performance-number-input.is-invalid { border-color: var(--performance-field-border-invalid); box-shadow: none; }
 .number-input-wrap { display: flex; flex: 1 1 auto; align-items: center; min-width: 0; min-height: 0; box-sizing: border-box; }
-.performance-number-input input { min-width: 0; flex: 1; width: 100%; height: 100%; padding: 4px 8px; box-sizing: border-box; border: 0; outline: 0; background: transparent; color: inherit; font: 400 14px/var(--number-input-line-height) inherit; }
+.performance-number-input input { min-width: 0; flex: 1; width: 100%; height: 100%; padding: 4px 8px; box-sizing: border-box; border: 0; outline: 0; background: transparent; color: inherit; font: 400 var(--font-size-md)/var(--number-input-line-height) var(--font-sans); }
 .performance-number-input[data-size="interval"] input { flex: 0 0 auto; width: 75.0729px; height: 22px; padding: 0 32px 0 0; line-height: 0; }
 .performance-number-input input::placeholder { color: var(--color-text-placeholder); }
 .performance-number-input[data-size="interval"] .number-stepper { position: absolute; top: 0; left: 65.0729px; right: auto; width: 32px; height: 30px; }

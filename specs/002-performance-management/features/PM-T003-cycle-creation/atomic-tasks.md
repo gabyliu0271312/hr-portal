@@ -303,6 +303,10 @@
   - Evidence（2026-10-28，本地）：首次实现后端分布/接口定向5/5通过、完整 `test_performance_projects.py` 263 passed/4个既有opt-in skipped；前端2文件23/23通过。用户修订布局与筛选口径后，前端分布抽屉/流程设置2文件25/25通过，后端分布规则7/7通过，`npm run build` 的vue-tsc与Vite生产构建通过（3407 modules transformed，仅既有VueUse PURE注释提示），目标文件 `git diff --check` 无错误。实际 UI PNG、真实鉴权 PATCH/GET/启动 API 与数据库回读尚未执行，因此任务保持 `[ ]`。
   - Blockers：运行时分布计算和按校准范围下一步是后续独立任务，不阻塞本卡配置与门禁；实际 UI PNG 和真实 API/SQL 证据尚未生成；正式整体类型构建等待并行测试语法错误解除后复跑。
   - Non-scope：分布执行、自动调整、软控制提示、强制豁免、范围配置下一步、历史重建、部署和提交推送。
+  - 2026-11-18 组件校准证据：用户要求重新REA采集六类选择框并优化，参数与边界见ui-interaction同节。修改共享SelectShell/SearchSelect/AssessmentSelect及绩效Element适配、数字suffix插槽、单选附属图标布局，以及分布抽屉/Editor/Row；后端/API/迁移/权限未由本轮修改。菜单普通行30px、步距32px、五项120×166px实测吻合；选中蓝字/对勾与活动灰底分离，保留远程搜索、组织树、标签保序与resize不重排。人数146=90+56，规则数值单位117=61+56，业务增减器隐藏；单行无删除、0正常回显。
+  - 本轮测试：八文件联合112 passed（SearchSelect15、DistributionRuleDrawer8、NumberInput3、TodoNotification13、AudienceRuleEditor32、HrbpPermission7、ComparisonRuleDrawer11、NotificationSettings23）；最后键盘事件目标保护修改后，两文件SearchSelect/DistributionRuleDrawer再验23 passed。AssessmentContentLayers选择器相关筛选7 passed/56 skipped，不将跳过计通过；早期完整138项中137 passed/1 failed，失败为未修改的PerformancePromptDisplay背景色硬编码旧断言（期望rgb，实际CSS变量），未改其业务代码或断言。
+  - 本轮浏览器：真实本地Vite挂载实际组件+合成选项，桌面1440×900、窄屏390×844。窄屏panel x=0、width=380（全局预留10px滚动条），正文clientWidth=scrollWidth=380，四个取整选项完整、比较符120px不截字、按钮可见；桌面菜单120×166。消除自定义及原生placeholder重叠；稳定组件截图见../../ui-blueprints/PM-T003-I12-select-alignment-{desktop,mobile}-20261118.png。登录页背景为受控组件验收，不冒充鉴权项目/API/DB证据；过渡帧无效截图不作证据。
+  - 本轮构建：最终 `npm --prefix hr-portal/frontend run build` → vue-tsc+Vite退出0，3769 modules、40.78s，仅既有VueUse PURE注释警告；本轮代码与文档指定文件git diff --check通过。中途并行UiTable插槽key及ProjectFlowSettings.spec.ts空值类型错误已在最终工作区解除，未由本轮覆盖其文件。保持整卡未勾选，真实保存→SQL→GET及生产验收未执行；未部署/提交/推送。
   - Definition of done：配置、合同、启动拒绝、前后端测试、构建、实际 UI PNG 与保存/重开证据完成后，主代理才可勾选。
 
 ## 任务依赖图

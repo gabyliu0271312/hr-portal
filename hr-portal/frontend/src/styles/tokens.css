@@ -510,11 +510,11 @@
   --performance-select-tag-content-max-width: 144px;
   --performance-select-tag-close-size: 12px;
   --performance-select-icon-color: #646a73;
-  --performance-select-option-height: var(--performance-control-height);
-  --performance-select-option-padding-x: var(--spacing-3);
-  --performance-select-option-hover: var(--color-bg-hover);
-  --performance-select-option-selected: var(--color-primary-subtle);
-  --performance-select-check-size: var(--spacing-4);
+  --performance-select-option-height: 30px;
+  --performance-select-option-padding-x: 8px;
+  --performance-select-option-hover: rgba(31, 35, 41, 0.08);
+  --performance-select-option-selected: transparent;
+  --performance-select-check-size: 12px;
   --performance-select-check-color: var(--color-primary-hover);
   --performance-select-popup-max-height: 240px;
   --performance-select-popup-gap: var(--spacing-1);

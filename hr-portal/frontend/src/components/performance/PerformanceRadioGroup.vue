@@ -41,7 +41,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
         <span class="radio-label"><slot name="label" :option="option">{{ option.label }}</slot></span>
         <PerformanceInfoPopover v-if="option.showInfo || option.info" class="info-icon" :content="option.info || PERFORMANCE_INFO_PLACEHOLDER" @click.prevent.stop />
       </label>
-      <slot name="after-option" :option="option" />
+      <span v-if="$slots['after-option']" class="performance-radio-after"><slot name="after-option" :option="option" /></span>
     </div>
   </div>
 </template>
@@ -60,7 +60,9 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 .performance-radio-option.disabled input { cursor: not-allowed; }
 .radio-label { white-space: nowrap; }
 .info-icon { display:inline-flex; flex: 0 0 var(--performance-info-icon-size); width: var(--performance-info-icon-size); height: var(--performance-info-icon-size); margin-left: var(--performance-info-icon-gap); color: var(--performance-info-icon-color); }
-.performance-radio-entry { display: contents; }
+.performance-radio-entry { display: inline-flex; align-items: center; min-width: 0; }
+.performance-radio-after { display: inline-flex; align-items: center; margin-left: var(--performance-info-icon-gap); }
+.performance-radio-after:empty { display: none; }
 .performance-radio-group--card { display: flex; width: 100%; }
 .performance-radio-group--card .performance-radio-entry { display: flex; align-items: center; width: 100%; min-width: 0; padding: var(--spacing-4); box-sizing: border-box; border: 1px solid var(--performance-template-option-border); border-radius: var(--radius-lg); }
 .performance-radio-group--card .performance-radio-entry.checked { border-color: var(--color-primary); }

@@ -8,7 +8,7 @@ import PerformanceSelectShell from './PerformanceSelectShell.vue'
 
 const options = ['1', '2', '3', '4', '5', '6', '7'].map(value => ({ value, label: `周${value}` }))
 const stubs = { Teleport: true, ElPopover: { template: '<div><slot name="reference" /><slot /></div>' } }
-afterEach(() => { vi.restoreAllMocks() })
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 function mockLayout(initialWidth = 160) {
   let width = initialWidth
@@ -31,6 +31,67 @@ function create(values: string[], width = 160) {
 const visibleLabels = (wrapper: ReturnType<typeof mount>) => wrapper.findAll('.performance-select-shell__content > .performance-select-shell__tag > .performance-select-shell__tag-content').map(tag => tag.text())
 
 describe('shared performance selectors', () => {
+  it('repositions when async popup content grows and clamps its width without remeasuring tags', async () => {
+    let height = 40
+    let resized: ResizeObserverCallback | undefined
+    const disconnect = vi.fn()
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(element: Element) { if (element.classList.contains('performance-select-shell__popup')) resized = this.callback }
+      disconnect = disconnect
+    })
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const popup = this.classList.contains('performance-select-shell__popup')
+      return { x: 10, y: popup ? 0 : 500, left: 10, right: 710, top: popup ? 0 : 500, bottom: popup ? height : 532, width: 700, height: popup ? height : 32, toJSON: () => ({}) }
+    })
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390)
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(600)
+    const wrapper = mount(PerformanceSelectShell, { props: { modelValue: [], popupWidth: 700 }, global: { stubs } })
+    await wrapper.get('.performance-select-shell__selector').trigger('click')
+    await flushPromises()
+    const popup = wrapper.get('.performance-select-shell__popup')
+    expect(popup.attributes('style')).toContain('width: 374px')
+    expect(popup.attributes('style')).toContain('top: 536px')
+    height = 166
+    expect(resized).toBeTypeOf('function')
+    expect(popup.element.getBoundingClientRect().height).toBe(166)
+    resized?.([], {} as ResizeObserver)
+    await flushPromises()
+    expect(wrapper.get('.performance-select-shell__popup').attributes('style')).toContain('top: 330px')
+    wrapper.unmount()
+    expect(disconnect).toHaveBeenCalled()
+  })
+  it('separates selection from activity and navigates filtered enabled options with the keyboard', async () => {
+    const wrapper = mount(PerformanceSearchSelect, {
+      props: { modelValue: '1', selectionStyle: 'plain', options: [{ value: '1', label: '第一项' }, { value: '2', label: '禁用项', disabled: true }, { value: '3', label: '第三项' }] },
+      global: { stubs }, attachTo: document.body,
+    })
+    await wrapper.get('.performance-select-shell__selector').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('[role="option"]')[2].trigger('mouseenter')
+    expect(wrapper.findAll('[role="option"]')[0].classes()).toContain('is-selected')
+    expect(wrapper.findAll('[role="option"]')[0].classes()).not.toContain('is-active')
+    await wrapper.get('input').trigger('keydown', { key: 'ArrowUp' })
+    expect(wrapper.findAll('[role="option"]')[0].classes()).toContain('is-active')
+    await wrapper.get('input').trigger('keydown', { key: 'ArrowDown' })
+    await wrapper.get('input').trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['3'])
+    expect(wrapper.get('input').attributes('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(wrapper.get('input').element)
+    wrapper.unmount()
+
+    const search = mount(PerformanceSearchSelect, { props: { modelValue: [], multiple: true, options }, global: { stubs } })
+    await search.get('input').setValue('周7')
+    await search.get('.performance-select-shell__selector').trigger('click')
+    await flushPromises()
+    await search.get('input').trigger('keydown', { key: 'ArrowDown' })
+    await search.get('input').trigger('keydown', { key: 'Enter' })
+    expect(search.emitted('update:modelValue')?.at(-1)).toEqual([['7']])
+    expect(search.get('input').attributes('aria-expanded')).toBe('true')
+    search.unmount()
+  })
+
   it('shows person display names, searches employee numbers and preserves names when remote options change', async () => {
     const wrapper = mount(PerformancePersonSelect, { props: {
       modelValue: ['900162'], multiple: true,
