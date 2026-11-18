@@ -91,3 +91,17 @@ T07已完成开发和专项验收，详细命令/边界见atomic-tasks.md的T07�
 - ../../ui-blueprints/CR-005-T07-implemented-select-checkmarks.png
 - ../../ui-blueprints/CR-005-T07-implemented-select-mobile.png
 - ../../ui-blueprints/CR-005-T07-implemented-select-element-adapter.png
+
+## 环节启动通知弹窗 v7（CR-005-T08，2026-11-18）
+
+用户确认按本轮 REA 评估开发，暂不配置节假日设置；本节替代历史版本中启动编辑禁用的限制。现有路由及管理员 U 权限不变，不新增页面或复杂流程，复用采集结果作为小范围 UI 依据。
+
+- 白色主体680×214px、8px圆角、无阴影、遮罩55%，居中；共享壳标题区72px，标题16/600/24，左右内边距24px。
+- 单字段“是否在节假日和周末时屏蔽”，14/600/24、必填标记、16px信息图标；字段到横向单选8px，选项间24px。正文最小62px，正文到底部24px；取消/确定80×32px、间12px、右侧/底部24px。
+- 提示原文：“屏蔽后，法定节假日和周末将不发送通知。（调休上班日正常通知）\n备注：当前法定节假日覆盖中国大陆及部分非中国大陆的国家/地区。”保留换行，提示宽366px，通过全局token配置。
+- 每次打开初始化“不屏蔽”，切换仅改变组件草稿；取消、关闭、Esc及确定均结束草稿，无PATCH、无摘要更新、无保存成功提示。此为UI交付，提示中的日历规则尚未执行。
+- 正常态/取消重开/键盘关闭/无U权限/加载失败/已有保存忙碌均验证；本项没有持久化错误状态、迁移或真实发送验收。桌面和390px窄屏不得横溢。
+- 复用 PerformanceDialogShell、PerformanceFormItem、PerformanceRadioGroup、PerformanceInfoPopover、UiButton；尺寸均消费tokens.css，局部变量仅在启动弹窗作用域覆盖，其他通知不改。
+- 采集证据：REA ev_bffae7b1683c8767ba0f3a72b5f1af31ccff38b5f239fae61330436f581a6249（打开成功，按名称等待因源dialog未命名超时，以捕获DOM为准）；截图 ev_3e93a2f68bc69a03ecd319d9ed53d50c57bce8c0f158a69700037c1986139b4d；取消重开 ev_ec19a105013a232da019fddf727b0bd3dd7901d9cbef41f6c3b95052a0e0a0af。
+
+2026-11-18实现验收：桌面主体680×214、标题72、正文62；390px视口主体358×214、无横溢。提示366px、保留原文换行。取消/确定/重开复位、Esc、无配置写入和无pageerror由实际Chrome+隔离API fixture验证；53项聚焦测试及类型检查/Vite构建通过。独立实际PNG已读取：../../ui-blueprints/CR-005-T08-implemented-stage-start-dialog.png、../../ui-blueprints/CR-005-T08-implemented-stage-start-mobile.png。仅UI交付，不宣称真实持久化或节假日发送已完成。

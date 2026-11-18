@@ -33,9 +33,9 @@
         :frequency="rule.key === 'todo_task_notification_enabled' ? todoSummary.frequency : rule.key === 'progress_daily_notification_enabled' ? progressSummary.frequency : rule.frequency"
         :time="rule.key === 'todo_task_notification_enabled' ? todoSummary.time : rule.key === 'progress_daily_notification_enabled' ? progressSummary.time : rule.time"
         :holiday-policy="rule.key === 'todo_task_notification_enabled' ? todoSummary.holidayPolicy : rule.key === 'progress_daily_notification_enabled' ? progressSummary.holidayPolicy : '不屏蔽'"
-        :editable="rule.key !== 'stage_start_notification_enabled'"
+        :editable="true"
         :editing-disabled="saving"
-        @edit="rule.key === 'progress_daily_notification_enabled' ? emit('edit-progress-daily') : emit('edit-todo')"
+        @edit="editRule(rule.key)"
         @update:enabled="updateRule(rule.key, $event)"
       />
     </section>
@@ -55,6 +55,7 @@ const emit = defineEmits<{
   (event: 'request-disable', key: PerformanceNotificationRuleKey): void
   (event: 'edit-todo'): void
   (event: 'edit-progress-daily'): void
+  (event: 'edit-stage-start'): void
 }>()
 const todoSummary = computed(() => todoNotificationSummary(props.settings.todo_task_rule))
 const progressSummary = computed(() => todoNotificationSummary(props.settings.progress_daily_rule || defaultProgressDailyNotificationRule()))
@@ -72,6 +73,13 @@ const rules = [
   { key: 'progress_daily_notification_enabled', label: '绩效进度日报通知', frequency: '以天为单位重复', time: '环节截止前每 1 天的 18:00:00(人员所在时区)' },
   { key: 'stage_start_notification_enabled', label: '环节启动通知', frequency: '环节开始时发送一次', time: '到达环节开始时间时' },
 ] as const
+
+function editRule(key: PerformanceNotificationRuleKey) {
+  if (props.saving) return
+  if (key === 'stage_start_notification_enabled') emit('edit-stage-start')
+  else if (key === 'progress_daily_notification_enabled') emit('edit-progress-daily')
+  else emit('edit-todo')
+}
 
 function updateCalibration(value: string) {
   if (!props.saving && value !== props.settings.calibration_delivery_mode && (value === 'realtime' || value === 'after_calibration')) {

@@ -297,6 +297,9 @@
   --performance-dialog-wide-width: 600px;
   --performance-dialog-md-width: 840px;
   --performance-notification-dialog-width: 680px;
+  --performance-stage-start-notification-body-min-height: 62px;
+  --performance-notification-holiday-help-width: 366px;
+  --performance-notification-cancel-border: #d0d3d6;
   --performance-notification-unit-width: 70px;
   --performance-time-column-width: 70px;
   --performance-time-panel-height: 240px;

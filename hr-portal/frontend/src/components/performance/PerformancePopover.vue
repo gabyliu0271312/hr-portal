@@ -17,7 +17,7 @@ const props = withDefaults(defineProps<{
   visible: boolean
   role?: 'tooltip' | 'dialog'
   anchor: HTMLElement | DOMRect | null
-  width?: number | 'auto'
+  width?: number | string
   gap?: number
   viewportMargin?: number
   name?: string
@@ -42,7 +42,7 @@ function updatePosition() {
   if (props.anchor instanceof HTMLElement && !props.anchor.isConnected) { emit('close'); return }
   const margin = props.viewportMargin ?? token('--performance-popover-viewport-margin', 16)
   const gap = props.gap ?? token('--performance-popover-gap', 10)
-  const width = props.width === 'auto' ? 'max-content' : `${props.width ?? token('--performance-popover-width', 420)}px`
+  const width = props.width === 'auto' ? 'max-content' : typeof props.width === 'string' ? props.width : `${props.width ?? token('--performance-popover-width', 420)}px`
   panel.style.width = width
   panel.style.maxWidth = `${Math.max(0, window.innerWidth - margin * 2)}px`
   const above = Math.max(0, rect.top - gap - margin)

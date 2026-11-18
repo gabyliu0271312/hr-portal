@@ -47,7 +47,7 @@ describe('PerformanceNotificationSettingsCard', () => {
     expect((checkboxes[1].element as HTMLInputElement).checked).toBe(false)
     expect(wrapper.findAll('.notification-rule-summary')[1].find('.notification-rule-summary__details').exists()).toBe(false)
     expect(wrapper.findAll('.notification-rule-summary')[1].find('button').exists()).toBe(false)
-    expect(wrapper.findAll('button:disabled')).toHaveLength(1)
+    expect(wrapper.findAll('button:disabled')).toHaveLength(0)
     expect(wrapper.find('form').exists()).toBe(false)
   })
 
@@ -62,7 +62,10 @@ describe('PerformanceNotificationSettingsCard', () => {
     expect(wrapper.emitted('edit-todo')).toBeUndefined()
     await rows[0].get('button').trigger('click')
     expect(wrapper.emitted('edit-todo')).toEqual([[]])
-    expect(rows[2].get('button').attributes('disabled')).toBeDefined()
+    await rows[2].get('button').trigger('click')
+    expect(wrapper.emitted('edit-stage-start')).toEqual([[]])
+    expect(wrapper.emitted('edit-todo')).toEqual([[]])
+    expect(wrapper.emitted('edit-progress-daily')).toEqual([[]])
     wrapper.unmount()
   })
 
@@ -133,7 +136,7 @@ describe('PerformanceNotificationSettingsCard', () => {
       await wrapper.setProps({ saving: false })
       expect(wrapper.findAll('.notification-rule-summary').slice(1).map((row) => row.element.outerHTML.replace(/ disabled=""/g, ''))).toEqual(markup)
       expect(siblings[0].get('button').attributes('disabled')).toBeUndefined()
-      expect(siblings[1].get('button').attributes('disabled')).toBeDefined()
+      expect(siblings[1].get('button').attributes('disabled')).toBeUndefined()
       expect(wrapper.get('.notification-settings-card__notice').text()).toBe(notice)
       wrapper.unmount()
     }

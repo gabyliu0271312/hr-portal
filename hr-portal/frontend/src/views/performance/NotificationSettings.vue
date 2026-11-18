@@ -19,7 +19,9 @@
       @request-disable="askDisable"
       @edit-todo="openRuleEditor('todo_task_rule')"
       @edit-progress-daily="openRuleEditor('progress_daily_rule')"
+      @edit-stage-start="openStageStartEditor"
     />
+    <PerformanceStageStartNotificationDialog v-model="stageStartEditing" />
     <PerformanceTodoNotificationDialog
       :model-value="editingRule !== null"
       :title="editingRule === 'progress_daily_rule' ? '编辑绩效进度日报通知' : '编辑待办任务通知'"
@@ -50,6 +52,7 @@ import {
 } from '@/api/performance'
 import PerformanceNotificationMethodsCard from '@/components/performance/PerformanceNotificationMethodsCard.vue'
 import PerformanceNotificationSettingsCard from '@/components/performance/PerformanceNotificationSettingsCard.vue'
+import PerformanceStageStartNotificationDialog from '@/components/performance/PerformanceStageStartNotificationDialog.vue'
 import PerformanceTodoNotificationDialog from '@/components/performance/PerformanceTodoNotificationDialog.vue'
 import PerformanceNotificationDisableConfirm from '@/components/performance/PerformanceNotificationDisableConfirm.vue'
 import { defaultProgressDailyNotificationRule } from '@/components/performance/performanceTodoNotificationRule'
@@ -62,10 +65,16 @@ const loading = ref(false)
 const saving = ref(false)
 const loadError = ref('')
 const editingRule = ref<'todo_task_rule' | 'progress_daily_rule' | null>(null)
+const stageStartEditing = ref(false)
 const ruleSaveError = ref('')
 
+function openStageStartEditor() {
+  if (saving.value || pendingDisable.value || editingRule.value || stageStartEditing.value || !settings.value) return
+  stageStartEditing.value = true
+}
+
 function openRuleEditor(key: 'todo_task_rule' | 'progress_daily_rule') {
-  if (saving.value || pendingDisable.value || editingRule.value || !settings.value) return
+  if (saving.value || pendingDisable.value || editingRule.value || stageStartEditing.value || !settings.value) return
   ruleSaveError.value = ''
   editingRule.value = key
 }
@@ -97,6 +106,7 @@ async function loadSettings() {
   settings.value = null
   pendingDisable.value = null
   editingRule.value = null
+  stageStartEditing.value = false
   ruleSaveError.value = ''
   loadError.value = ''
   try {

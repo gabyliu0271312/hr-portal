@@ -102,3 +102,15 @@
   - 全量回归限制：`npm --prefix hr-portal/frontend test -- src/components/performance src/views/performance src/layouts/PerformanceAdminLayout.spec.ts src/layouts/PerformanceLayout.spec.ts --exclude '**/*.spec.js' --maxWorkers=3 --minWorkers=1` → **119 files通过/10 files失败，938 tests通过/10失败**。10项用Vite pre-load插件在内存替换本次相关选择器为HEAD版本进行只读对照，工作区不改；**同样37通过/10失败**，确认不是本次选择器变更引入。保留不修范围外问题，不宣称全量全绿。
   - 对照复现的失败：AuthorizationManagementPanel（surface-card硬编码CSS断言）、LevelConfigEditor（负数归一化期望）、PerformanceHrbpScopeSummary（测试缺Pinia）、PerformanceListToolbar（filter事件次数）、PerformanceMetricDimensionCreateDialog（规则节点结构）、PerformanceMetricFieldCreateDialog（按钮计数）、PerformanceProjectTimeSettings（UUID fallback期望）、WorkflowNodeBasicFields（字段数量）、OtherPermissionSettings（旧保存按钮class）、SubjectVisibilitySettings（硬编码字体断言）。早期含旧JS镜像全量运行53失败，不能以该历史结果或排除JS后的结果互相替代；最终受影响JS镜像另有专项通过证据。
   - 边界：仅T07标记完成，T01/T06的历史整卡状态不借此次周选择链路补验整体勾选。未部署远程/本机容器、未commit/push、无新migration、未改权限/周期快照或发送；已有无关工作区变更保留。生产与逐页完整人工验收未运行，不属于本次通过结论。
+
+- [x] CR-005-T08 环节启动通知弹窗像素还原
+  - 用户授权：2026-11-18依据REA评估实现弹窗，暂不配置节假日设置；spec v4 / UI v7，适用Spec012 N000/N00/U00共享组件和状态规则。
+  - 允许：新增PerformanceStageStartNotificationDialog.vue；NotificationSettings.vue/.spec.ts、PerformanceNotificationSettingsCard.vue/.spec.ts；tokens.css及必要的共享Popover宽度类型支持；本目录现有文档和T08独立PNG。
+  - 输入输出：打开→不屏蔽草稿→单选切换→取消/关闭/Esc/确定结束草稿；不PATCH、不改摘要、不提示保存成功，重开重置。
+  - 范围：现有路由、管理员U入口；680×214px、共享壳/表单/单选/提示/按钮、token，无新增依赖。禁止后端/API/迁移/日历/调度/权限扩大/周期快照/生产或部署。
+  - Given设置已加载且具备U；When打开、切换、取消或确定、重开；Then布局匹配、草稿独立、无请求且摘要不变。无U隐藏；保存中不开放；原待办和日报入口保持正确。
+  - 验证：既有页面/通知卡片/共享提示相关spec、类型检查及构建；实际Vue浏览器桌面与390px交互、计算样式与截图。持久化和后端测试不适用，本项不实现配置保存。
+  - 独立PNG：../../ui-blueprints/CR-005-T08-implemented-stage-start-{dialog,mobile}.png。停止仅撤销本任务局部改动，不回滚其他变更。
+  - 2026-11-18验收：通知页面、通知卡片、待办弹窗、共享信息提示、共享弹窗壳5个spec共53项通过；`npm --prefix hr-portal/frontend run build`类型检查及Vite构建通过，仅既有@vueuse PURE注释警告。本轮文件diff --check通过。
+  - 实际Vite5175 + Chrome + 隔离API fixture：桌面680×214、标题72、正文62、标签24、单选22、按钮80×32且间距12，提示宽366；390px视口弹窗358×214，document.scrollWidth=390。切换→取消/确定→重开均复位不屏蔽，Esc关闭，无非GET请求、无pageerror；权限隐藏与忙碌拒绝由页面测试覆盖。两张独立实际PNG已读取核对。
+  - UI局部样式使用显式业务类限定的global选择器命中Teleport壳，避免scoped deep未命中造成209px高度。共享Popover新增CSS字符串宽度支持，数字/auto默认行为回归通过。未配置节假日日历/持久化/发送，无后端、迁移、部署或提交推送；其他会话改动保留。

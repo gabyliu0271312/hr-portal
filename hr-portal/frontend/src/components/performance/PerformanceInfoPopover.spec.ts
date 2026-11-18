@@ -33,6 +33,20 @@ describe('PerformanceInfoPopover', () => {
     vi.useRealTimers()
   })
 
+  it('accepts a global token width and preserves multiline help', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(PerformanceInfoPopover, {
+      attachTo: document.body,
+      props: { content: '第一行\n第二行', width: 'var(--performance-notification-holiday-help-width)', preserveNewlines: true },
+    })
+    await wrapper.get('.performance-info-popover__anchor').trigger('focusin')
+    vi.advanceTimersByTime(124)
+    await wrapper.vm.$nextTick()
+    const popover = document.body.querySelector<HTMLElement>('.performance-info-popover')!
+    expect(popover.style.width).toBe('var(--performance-notification-holiday-help-width)')
+    expect(popover.querySelector('.performance-info-popover__multiline')?.textContent).toBe('第一行\n第二行')
+  })
+
   it('renders list content through the same shared popover', async () => {
     vi.useFakeTimers()
     const wrapper = mount(PerformanceInfoPopover, {

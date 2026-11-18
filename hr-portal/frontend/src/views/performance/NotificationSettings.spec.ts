@@ -400,12 +400,48 @@ describe('NotificationSettings', () => {
     wrapper.unmount()
   })
 
+  it('opens the stage-start UI and discards changes on every close without writing', async () => {
+    const wrapper = mount(NotificationSettings, { global: { stubs } })
+    await flushPromises()
+    const summary = wrapper.findAll('.notification-rule-summary')[2]
+    const before = summary.text()
+    for (const action of ['取消', '确定', '关闭', 'Escape']) {
+      await wrapper.get('button[aria-label="编辑环节启动通知"]').trigger('click')
+      const dialog = wrapper.get('.stage-start-notification-dialog')
+      expect(dialog.text()).toContain('编辑环节启动通知')
+      expect(dialog.findAll('input[type="radio"]')).toHaveLength(2)
+      expect(dialog.get('input[value="no"]').element).toHaveProperty('checked', true)
+      await dialog.get('input[value="yes"]').setValue(true)
+      if (action === 'Escape') await dialog.trigger('keydown', { key: 'Escape' })
+      else if (action === '关闭') await dialog.get('button[aria-label="关闭"]').trigger('click')
+      else await dialog.findAll('button').find(button => button.text() === action)!.trigger('click')
+      expect(wrapper.find('.stage-start-notification-dialog').exists()).toBe(false)
+      expect(summary.text()).toBe(before)
+      expect(api.update).not.toHaveBeenCalled()
+    }
+    wrapper.unmount()
+  })
+
+  it('blocks the stage-start editor while a policy save is pending', async () => {
+    let finish!: (value: PerformanceNotificationSettings) => void
+    api.update.mockImplementationOnce(() => new Promise<PerformanceNotificationSettings>(resolve => { finish = resolve }))
+    const wrapper = mount(NotificationSettings, { global: { stubs } })
+    await flushPromises()
+    await wrapper.findAll('.notification-settings-card input[type="radio"]')[1].setValue(true)
+    await wrapper.get('button[aria-label="编辑环节启动通知"]').trigger('click')
+    expect(wrapper.find('.stage-start-notification-dialog').exists()).toBe(false)
+    finish(response({ calibration_delivery_mode: 'after_calibration' }))
+    await flushPromises()
+    wrapper.unmount()
+  })
+
   it('hides the edit action without Portal update permission', async () => {
     useUserStore().menus[0].can_update = false
     const wrapper = mount(NotificationSettings, { global: { stubs } })
     await flushPromises()
     expect(wrapper.find('button[aria-label="编辑待办任务通知"]').exists()).toBe(false)
     expect(wrapper.find('button[aria-label="编辑绩效进度日报通知"]').exists()).toBe(false)
+    expect(wrapper.find('button[aria-label="编辑环节启动通知"]').exists()).toBe(false)
     wrapper.unmount()
   })
 

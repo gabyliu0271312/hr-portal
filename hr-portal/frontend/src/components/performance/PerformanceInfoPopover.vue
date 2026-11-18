@@ -17,7 +17,7 @@
 import { computed, getCurrentInstance, onBeforeUnmount, ref } from 'vue'
 import PerformancePopover from './PerformancePopover.vue'
 
-const props = withDefaults(defineProps<{ content?: string | string[]; delay?: number; width?: number | 'auto'; variant?: 'info' | 'disabled-action'; gap?: number; viewportMargin?: number; iconColor?: string; ariaLabel?: string; preserveNewlines?: boolean }>(), { content: '', delay: 124, width: 420, variant: 'info', gap: 10, viewportMargin: 16, iconColor: 'var(--performance-info-icon-color)', ariaLabel: '查看说明', preserveNewlines: false })
+const props = withDefaults(defineProps<{ content?: string | string[]; delay?: number; width?: number | string; variant?: 'info' | 'disabled-action'; gap?: number; viewportMargin?: number; iconColor?: string; ariaLabel?: string; preserveNewlines?: boolean }>(), { content: '', delay: 124, width: 420, variant: 'info', gap: 10, viewportMargin: 16, iconColor: 'var(--performance-info-icon-color)', ariaLabel: '查看说明', preserveNewlines: false })
 const tooltipId = `performance-info-popover-${getCurrentInstance()!.uid}`
 const isAction = computed(() => props.variant === 'disabled-action')
 const hasContent = computed(() => Array.isArray(props.content) ? props.content.some(line => line.trim()) : Boolean(props.content.trim()))
