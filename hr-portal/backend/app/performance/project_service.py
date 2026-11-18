@@ -1302,6 +1302,59 @@ class PerformanceProjectService:
         except ValueError as exc:
             raise ProjectValidationError(str(exc)) from exc
 
+    async def calibration_details(self, project, payload):
+        preview = await self.calibration_preview(project, payload)
+        if not preview:
+            return {}
+        if project.status == PROJECT_STATUS_STARTED:
+            _, task_people, _ = await self.project_audience(project)
+            snapshot = await self.db.scalar(select(PerformanceProjectMemberSnapshot).where(
+                PerformanceProjectMemberSnapshot.project_id == project.id,
+            ).order_by(PerformanceProjectMemberSnapshot.id.desc()).limit(1))
+            people = list((await self.db.execute(select(PerformanceAuthorizationSnapshotPerson).where(
+                PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.source_snapshot_id,
+            ))).scalars().all())
+        else:
+            _, _, _, settings = self._validate_payload({**self.serialize(project), **payload}, project.settings or {})
+            cycle = await self.db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
+            _, people = await self._cycle_snapshot_people(cycle)
+            task_people, _ = self._classify_people(people, settings, cycle)
+        evaluated = sorted({str(person.employee_no) for person in task_people})
+        people_by_no = {str(person.employee_no): person for person in people}
+        rows = []
+        for employee_no, person in sorted(people_by_no.items()):
+            supervisor = people_by_no.get(getattr(person, "direct_supervisor_employee_no", None))
+            path = normalize_roster_text(getattr(person, "organization_ref", None)) or organization_path(person)
+            rows.append({
+                "employee_no": employee_no,
+                "display_name": person.display_name,
+                "direct_supervisor_name": supervisor.display_name if supervisor else None,
+                "dotted_supervisor_name": None,
+                "department": normalize_roster_text(getattr(person, "department", None)),
+                "leaf_department": next((part.strip() for part in reversed((path or "").split("/")) if part.strip()), None),
+                **{field: normalize_roster_text(getattr(person, field, None)) for field in (
+                    "job_family", "job_category", "standard_position", "employment_status",
+                )},
+            })
+        details = {}
+        for node_id, calibration in preview.items():
+            if calibration is None:
+                raise ProjectValidationError("项目校准快照不存在")
+            phases = deepcopy(calibration.get("phases") or [])
+            for phase in phases:
+                phase.setdefault("rule_sources", None)
+            assigned = {str(item["employee_no"]) for phase in phases for item in phase.get("assignments") or []} & set(evaluated)
+            details[node_id] = {
+                **calibration,
+                "evaluated_count": len(evaluated),
+                "assigned_count": len(assigned),
+                "unassigned_count": len(evaluated) - len(assigned),
+                "phases": phases,
+                "evaluated_employee_nos": evaluated,
+                "people": rows,
+            }
+        return details
+
     def _add_calibration_tasks(self, project, member_snapshot, node_snapshot, calibration, timing):
         for phase in calibration["phases"]:
             window = (timing.get("phase_times") or {}).get(phase["phase_id"]) or {}

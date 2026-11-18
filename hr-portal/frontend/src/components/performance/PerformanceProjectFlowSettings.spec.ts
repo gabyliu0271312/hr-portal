@@ -2,6 +2,9 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { performanceProjectApi } from '@/api/performance'
 import type { PerformanceWorkflowNode } from '@/api/performance'
+import PerformanceCalibrationDetailScreen from './PerformanceCalibrationDetailScreen.vue'
+import PerformanceCalibrationDetailTable from './PerformanceCalibrationDetailTable.vue'
+import PerformanceCalibrationPeopleScreen from './PerformanceCalibrationPeopleScreen.vue'
 import PerformanceProjectFlowSettings from './PerformanceProjectFlowSettings.vue'
 import PerformanceCalibrationConditionGroup from './PerformanceCalibrationConditionGroup.vue'
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
@@ -42,6 +45,53 @@ const reviewer360Node = (order: number) => node('evaluation', order, 'assessment
 describe('PerformanceProjectFlowSettings', () => {
   beforeEach(() => { vi.spyOn(performanceProjectApi, 'calibrationPreview').mockResolvedValue({}) })
   afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = '' })
+  it('opens calibration details for the selected node with the current project payload', async () => {
+    const wrapper = mount(PerformanceProjectFlowSettings, {
+      props: { nodes: [node('calibration', 1)], projectId: 12, projectPayload: { name: '项目', description: null, administrators: [] } },
+      global: { stubs: { PerformanceCalibrationDetailScreen: true } },
+    })
+    await wrapper.findAll('button').find(button => button.text() === '查看校准详情')!.trigger('click')
+    const detail = wrapper.getComponent(PerformanceCalibrationDetailScreen)
+    expect(detail.props('projectId')).toBe(12)
+    expect(detail.props('nodeId')).toBe('calibration-1')
+    expect(detail.props('payload')?.flow_settings?.node_settings['calibration-1']?.calibration).toBeDefined()
+    detail.vm.$emit('update:modelValue', false)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findComponent(PerformanceCalibrationDetailScreen).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('shows rule sources in batches of five and filters without double-counting reviewees', async () => {
+    const assignments = Array.from({ length: 12 }, (_, index) => ({ handler_ref: `H${index}`, employee_no: 'E1', allow_authorize: false }))
+    const details = { role_code: 'assessment.calibrator' as const, evaluated_count: 2, assigned_count: 1, unassigned_count: 1, evaluated_employee_nos: ['E1', 'E2'], people: [], phases: [{ phase_id: 'p1', assignments, rule_sources: [{ rule_id: 'r1', rule: { subject_type: 'PERSON' as const, operator: 'INCLUDE' as const, scope: 'PROJECT_ALL' as const, allow_authorize: false }, assignments }] }] }
+    const wrapper = mount(PerformanceCalibrationDetailTable, { props: { details, loading: false, error: '', calibrators: [], reviewees: [], organizations: [] } })
+    expect(wrapper.findAll('.calibration-person-row')).toHaveLength(5)
+    expect(wrapper.get('.calibration-group-row').text()).toContain('被评估人 1 人')
+    expect(wrapper.get('.calibration-more').text()).toBe('展开更多（7）')
+    await wrapper.get('.calibration-more').trigger('click')
+    expect(wrapper.findAll('.calibration-person-row')).toHaveLength(10)
+    expect(wrapper.get('.calibration-more').text()).toBe('展开更多（2）')
+    await wrapper.setProps({ calibrators: ['H0'] })
+    expect(wrapper.findAll('.calibration-person-row')).toHaveLength(1)
+    await wrapper.get('.calibration-group-toggle').trigger('click')
+    expect(wrapper.find('.calibration-person-row').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('uses the requested node and opens only unassigned snapshot employees', async () => {
+    const person = (employee_no: string) => ({ employee_no, display_name: employee_no, direct_supervisor_name: null, dotted_supervisor_name: null, department: null, leaf_department: null, job_family: null, job_category: null, standard_position: null, employment_status: null })
+    const detail = { role_code: 'assessment.calibrator' as const, evaluated_count: 2, assigned_count: 1, unassigned_count: 1, evaluated_employee_nos: ['E1', 'E2'], people: [person('E1'), person('E2')], phases: [{ phase_id: 'p1', assignments: [{ handler_ref: 'H1', employee_no: 'E1', allow_authorize: false }], rule_sources: null }] }
+    const api = vi.spyOn(performanceProjectApi, 'calibrationDetails').mockResolvedValue({ other: { ...detail, assigned_count: 0 }, calibration: detail })
+    const wrapper = mount(PerformanceCalibrationDetailScreen, { props: { modelValue: true, projectId: 12, nodeId: 'calibration', payload: { name: '项目', description: null, administrators: [] }, stats: null, organizations: [] }, global: { stubs: { PerformanceCalibrationPeopleScreen: true } } })
+    await flushPromises()
+    expect(api).toHaveBeenCalledWith(12, expect.objectContaining({ name: '项目' }))
+    expect(wrapper.get('.calibration-detail-toolbar').text()).toContain('1 人已分配给 1 个校准人')
+    expect(wrapper.text()).toContain('历史快照未保留规则来源')
+    await wrapper.get('.unassigned-count').trigger('click')
+    expect(wrapper.getComponent(PerformanceCalibrationPeopleScreen).props('people').map((row: any) => row.employee_no)).toEqual(['E2'])
+    wrapper.unmount()
+  })
+
   it('uses the multi-select person component for reconsideration fallback handlers', async () => {
     const wrapper = mount(PerformanceProjectFlowSettings, {
       props: {

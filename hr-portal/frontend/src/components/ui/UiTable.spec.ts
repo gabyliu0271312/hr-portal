@@ -43,6 +43,17 @@ describe('UiTable', () => {
     wrapper.unmount()
   })
 
+  it('renders grouped business rows through the row slot without changing standard cells', () => {
+    const wrapper = mount(UiTable, {
+      props: { columns, rows: [{ name: '规则组', grouped: true }, { name: '校准人' }] },
+      slots: { row: '<tr class="custom-row"><td :colspan="columns.length">{{ row.name }}-{{ rowIndex }}</td></tr>' },
+    })
+    expect(wrapper.findAll('tbody tr.custom-row')).toHaveLength(2)
+    expect(wrapper.get('tbody td').attributes('colspan')).toBe('4')
+    expect(wrapper.text()).toContain('规则组-0')
+    wrapper.unmount()
+  })
+
   it('supports default and custom empty states', async () => {
     const wrapper = mount(UiTable, { props: { columns, rows: [], emptyText: '没有匹配项' } })
     expect(wrapper.find('.ui-table__state').text()).toBe('没有匹配项')

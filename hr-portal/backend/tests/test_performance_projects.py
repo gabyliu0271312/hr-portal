@@ -6816,6 +6816,190 @@ async def test_calibration_preview_denies_other_project(monkeypatch):
     assert error.value.status_code == 403
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("empty_rules", [False, True])
+async def test_calibration_details_draft_uses_payload_snapshot_filters_and_rule_sources(monkeypatch, empty_rules):
+    from copy import deepcopy
+    from unittest.mock import AsyncMock
+    from app.performance import project_service
+    from app.performance.models import PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceTemplateWorkflow
+
+    people = _calibration_people()
+    for no, person in people.items():
+        person.display_name = f"快照{no}"
+        person.employment_status = "在职"
+    people["E2"].employment_status = "离职"
+    people["E2"].departure_date = date(2026, 2, 1)
+    people["E1"].organization_ref = "集团/新疆事业部/研发部/平台"
+    people["E1"].job_family = "技术序列"
+    people["E1"].job_category = "研发子序列"
+    people["E1"].standard_position = "软件工程师"
+    people["E3"].project_manager_employee_no = "C1"
+    cycle = SimpleNamespace(cycle_ref="cycle:one", leaver_enabled=True, leaver_start_date=date(2026, 1, 1),
+        leaver_end_date=date(2026, 12, 31), leaver_participation_mode="REPORT_ONLY")
+    target = project()
+    target.settings["evaluator_rules"] = {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["C1"]}]}]}
+    flow = _calibration_rules()
+    phases = flow["node_settings"]["calibration-1"]["calibration"]["phases"]
+    phases[0]["rules"].append(deepcopy(phases[0]["rules"][0]))
+    phases.append({**deepcopy(phases[0]), "phase_id": "second"})
+    if empty_rules:
+        for phase in phases:
+            phase["rules"] = []
+    payload = {"name": "当前草稿", "template_id": 1, "flow_settings": flow, "evaluator_rules": {"groups": [
+        {"conditions": [{"field": "employee", "operator": "include", "values": ["E1", "E2", "E3"]}]},
+        {"conditions": [{"field": "employee", "operator": "include", "values": ["E1"]}]},
+    ]}}
+
+    class Db:
+        async def scalar(self, statement):
+            assert statement.column_descriptions[0]["entity"] is PerformanceCycle
+            return cycle
+
+        async def execute(self, statement):
+            assert statement.column_descriptions[0]["entity"] is PerformanceAuthorizationSnapshotPerson
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: list(people.values())))
+
+        async def get(self, model, key):
+            assert model is PerformanceTemplateWorkflow and key == 1
+            return SimpleNamespace(nodes=[{"node_id": "calibration-1", "node_type": "calibration"}])
+
+    service = PerformanceProjectService(Db())
+    snapshot_people = AsyncMock(return_value=(SimpleNamespace(id=10), list(people.values())))
+    monkeypatch.setattr(service, "_cycle_snapshot_people", snapshot_people)
+    monkeypatch.setattr(project_service, "validate_executor_roles", AsyncMock())
+    before = deepcopy(target.settings)
+    preview = await service.calibration_preview(target, payload)
+    result = (await service.calibration_details(target, payload))["calibration-1"]
+    assert target.settings == before
+    assert result["role_code"] == "assessment.calibrator"
+    assert result["evaluated_employee_nos"] == ["E1", "E3"]
+    assert (result["evaluated_count"], result["assigned_count"], result["unassigned_count"]) == (2, 0 if empty_rules else 1, 2 if empty_rules else 1)
+    assert result["phases"] == preview["calibration-1"]["phases"]
+    assert set(result) - set(preview["calibration-1"]) == {"evaluated_employee_nos", "people"}
+    for phase in result["phases"]:
+        assert len(phase["assignments"]) == (0 if empty_rules else 1)
+        assert len(phase["rule_sources"]) == (0 if empty_rules else 2)
+        if not empty_rules:
+            assignment = phase["assignments"][0]
+            assert assignment["employee_no"] == "E1" and len(assignment["source_rule_ids"]) == 2
+            assert {source["rule_id"] for source in phase["rule_sources"]} == set(assignment["source_rule_ids"])
+            assert all(source["rule"]["scope"] == "RULE" and len(source["assignments"]) == 1 for source in phase["rule_sources"])
+    rows = {row["employee_no"]: row for row in result["people"]}
+    assert set(rows) == set(people)
+    assert rows["E1"] == {"employee_no": "E1", "display_name": "快照E1", "direct_supervisor_name": "快照M1",
+        "dotted_supervisor_name": None, "department": "新疆事业部", "leaf_department": "平台",
+        "job_family": "技术序列", "job_category": "研发子序列", "standard_position": "软件工程师", "employment_status": "在职"}
+    assert rows["E3"]["direct_supervisor_name"] is None and rows["E3"]["dotted_supervisor_name"] is None
+    assert rows["E3"]["leaf_department"] == "销售部"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy_sources", [False, True])
+@pytest.mark.parametrize("recorded_task_members", [False, True])
+async def test_calibration_details_started_reads_frozen_members_and_not_current_draft(monkeypatch, legacy_sources, recorded_task_members):
+    from copy import deepcopy
+    from app.performance import project_service
+    from app.performance.models import PerformanceAuthorizationSnapshotPerson, PerformanceNodeTask, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot
+
+    target = project("STARTED")
+    target.evaluated_count = 2
+    target.settings["evaluator_rules"] = {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["WRONG"]}]}]}
+    assignment = {"handler_ref": "C1", "employee_no": "E1", "allow_authorize": False, "source_rule_ids": ["frozen-rule"]}
+    phase = {"phase_id": "first", "assignments": [assignment]}
+    if not legacy_sources:
+        phase["rule_sources"] = [{"rule_id": "frozen-rule", "rule": {"scope": "PROJECT_ALL"}, "assignments": [assignment]}]
+    frozen = {"role_code": "assessment.calibrator", "evaluated_count": 3, "assigned_count": 1, "unassigned_count": 2, "phases": [phase]}
+    before = deepcopy(frozen)
+    nodes = [SimpleNamespace(node_id="calibration-1", config={"calibration": frozen})]
+    source_filter = {"task_generation_employee_nos": ["E1", "E3"]} if recorded_task_members else {}
+    snapshot = SimpleNamespace(id=7, source_snapshot_id=10, source_filter=source_filter)
+    people = [SimpleNamespace(employee_no=no, display_name=f"周期快照{no}", employment_status="离职",
+        direct_supervisor_employee_no="C1" if no == "E1" else None, department="研发", organization_ref="集团/研发/平台")
+        for no in ["E1", "E2", "E3", "C1", "RULE_PERSON"]]
+    members = [SimpleNamespace(employee_no=no, display_name=f"成员快照{no}") for no in ["E1", "E2", "E3"]]
+
+    class Db:
+        async def scalar(self, statement):
+            assert statement.column_descriptions[0]["entity"] is PerformanceProjectMemberSnapshot
+            return snapshot
+
+        async def execute(self, statement):
+            model = statement.column_descriptions[0]["entity"]
+            if model is PerformanceNodeTask:
+                assert "revoked_at IS NULL" in str(statement)
+            if model is PerformanceAuthorizationSnapshotPerson:
+                assert statement.compile().params["snapshot_id_1"] == 10
+            rows = {PerformanceProjectNodeSnapshot: nodes, PerformanceProjectMember: members,
+                PerformanceAuthorizationSnapshotPerson: people, PerformanceNodeTask: ["E1", "E3"]}[model]
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
+
+    service = PerformanceProjectService(Db())
+    def forbidden(*args, **kwargs):
+        raise AssertionError("started details must not resolve draft or live roster")
+    monkeypatch.setattr(service, "_cycle_snapshot_people", forbidden)
+    monkeypatch.setattr(service, "_classify_people", forbidden)
+    monkeypatch.setattr(project_service, "_canonical_roster_rows", forbidden)
+    monkeypatch.setattr(project_service, "resolve_calibration", forbidden)
+    result = (await service.calibration_details(target, {"name": "未保存草稿", "evaluator_rules": {"groups": []}, "flow_settings": {"node_settings": {}}}))["calibration-1"]
+    assert result["evaluated_employee_nos"] == ["E1", "E3"]
+    assert (result["evaluated_count"], result["assigned_count"], result["unassigned_count"]) == (2, 1, 1)
+    assert result["phases"][0]["assignments"] == [assignment]
+    assert result["phases"][0]["rule_sources"] == (None if legacy_sources else phase["rule_sources"])
+    rows = {row["employee_no"]: row for row in result["people"]}
+    assert set(rows) == {person.employee_no for person in people}
+    assert rows["E1"]["display_name"] == "周期快照E1" and rows["E1"]["direct_supervisor_name"] == "周期快照C1"
+    assert rows["E1"]["employment_status"] == "离职" and rows["E1"]["leaf_department"] == "平台"
+    assert frozen == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("permissions,refs,expected", [
+    ((), (), 403),
+    (("performance.projects.manage",), ("project:other",), 403),
+    ((), ("project:one",), 403),
+    (("performance.projects.manage",), ("project:one",), 200),
+    (("performance.cycles.manage",), (), 200),
+])
+async def test_calibration_details_route_uses_project_management_permission(monkeypatch, permissions, refs, expected):
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    from app.performance import projects_router
+    monkeypatch.setattr(projects_router, "_get_project", AsyncMock(return_value=project()))
+    details = AsyncMock(return_value={"calibration-1": {"evaluated_employee_nos": []}})
+    monkeypatch.setattr(PerformanceProjectService, "calibration_details", details)
+    payload = ProjectPayload(name="项目一")
+    if expected == 403:
+        with pytest.raises(HTTPException) as error:
+            await projects_router.calibration_details(1, payload, context(*permissions, refs=refs), object())
+        assert error.value.status_code == 403
+        details.assert_not_awaited()
+    else:
+        assert await projects_router.calibration_details(1, payload, context(*permissions, refs=refs), object()) == details.return_value
+        details.assert_awaited_once_with(projects_router._get_project.return_value, {"name": "项目一"})
+
+
+def test_calibration_details_http_contract_validates_payload_and_service_errors(monkeypatch):
+    from unittest.mock import AsyncMock
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.performance import projects_router
+    app = FastAPI()
+    app.include_router(projects_router.router, prefix="/api/v1")
+    app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context("performance.cycles.manage")
+    app.dependency_overrides[projects_router.get_session] = lambda: object()
+    monkeypatch.setattr(projects_router, "_get_project", AsyncMock(return_value=project()))
+    details = AsyncMock(side_effect=ProjectValidationError("校准规则不合法"))
+    monkeypatch.setattr(PerformanceProjectService, "calibration_details", details)
+    with TestClient(app) as client:
+        path = "/api/v1/performance/projects/1/calibration-details"
+        assert client.post(path, json={}).status_code == 422
+        assert client.post(path, json={"name": "项目", "unknown": True}).status_code == 422
+        details.assert_not_awaited()
+        response = client.post(path, json={"name": "项目"})
+        assert response.status_code == 422 and response.json() == {"detail": "校准规则不合法"}
+
+
 def test_calibration_window_never_uses_other_phase_envelope():
     from datetime import UTC, datetime
     from app.performance.projects_router import _task_window, _self_summary_state

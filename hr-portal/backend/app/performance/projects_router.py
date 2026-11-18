@@ -4295,6 +4295,17 @@ async def calibration_preview(project_id: int, payload: ProjectPayload, context:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@router.post("/projects/{project_id}/calibration-details")
+async def calibration_details(project_id: int, payload: ProjectPayload, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session)):
+    project = await _get_project(db, project_id)
+    if not _can_manage_project(context, project):
+        raise HTTPException(status_code=403, detail="无权查看当前项目校准范围")
+    try:
+        return await PerformanceProjectService(db).calibration_details(project, payload.model_dump(exclude_unset=True))
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.post("/projects/{project_id}/workflow-nodes/backfill")
 async def backfill_project_workflow_nodes(
     project_id: int,

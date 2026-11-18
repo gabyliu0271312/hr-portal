@@ -2146,12 +2146,38 @@ export interface PerformanceProjectNodeTime {
   phase_times?: Record<string, { start_at: string; end_at: string }>
 }
 
+export interface PerformanceCalibrationAssignmentRow {
+  handler_ref: string
+  employee_no: string
+  allow_authorize: boolean
+  source_rule_ids?: string[]
+}
 export interface PerformanceCalibrationAssignment {
   role_code: 'assessment.calibrator'
   evaluated_count: number
   assigned_count: number
   unassigned_count: number
-  phases: Array<{ phase_id: string; assignments: Array<{ handler_ref: string; employee_no: string; allow_authorize: boolean }> }>
+  phases: Array<{
+    phase_id: string
+    assignments: PerformanceCalibrationAssignmentRow[]
+    rule_sources?: Array<{ rule_id: string; rule: PerformanceProjectFlowRule; assignments: PerformanceCalibrationAssignmentRow[] }> | null
+  }>
+}
+export interface PerformanceCalibrationPerson {
+  employee_no: string
+  display_name: string
+  direct_supervisor_name: string | null
+  dotted_supervisor_name: string | null
+  department: string | null
+  leaf_department: string | null
+  job_family: string | null
+  job_category: string | null
+  standard_position: string | null
+  employment_status: string | null
+}
+export interface PerformanceCalibrationDetails extends PerformanceCalibrationAssignment {
+  evaluated_employee_nos: string[]
+  people: PerformanceCalibrationPerson[]
 }
 
 export type PerformanceDistributionMode = 'UNIFIED' | 'BY_CALIBRATION_SCOPE'
@@ -2656,6 +2682,10 @@ export const performanceProjectApi = {
   },
   async listTemplates(cycleId: number): Promise<PerformanceProjectTemplate[]> {
     const { data } = await api.get<PerformanceProjectTemplate[]>(`/performance/cycles/${cycleId}/project-templates`)
+    return data
+  },
+  async calibrationDetails(id: number, payload: PerformanceProjectPayload): Promise<Record<string, PerformanceCalibrationDetails | null>> {
+    const { data } = await api.post(`/performance/projects/${id}/calibration-details`, payload)
     return data
   },
   async calibrationPreview(id: number, payload: PerformanceProjectPayload): Promise<Record<string, PerformanceCalibrationAssignment | null>> {

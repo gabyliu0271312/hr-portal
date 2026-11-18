@@ -72,8 +72,9 @@
           </td>
         </tr>
         <template v-else>
+          <template v-for="(row, rowIndex) in rows" :key="rowKeyOf(row, rowIndex)">
+          <slot name="row" :row="row" :row-index="rowIndex" :columns="columns">
           <tr
-            v-for="(row, rowIndex) in rows"
             :key="rowKeyOf(row, rowIndex)"
             class="ui-table__row"
             :class="{ 'is-clickable': clickableRows, 'is-selected': selectable && isRowSelected(row), 'is-highlighted': highlightRowKey !== undefined && rowKeyOf(row, rowIndex) === String(highlightRowKey) }"
@@ -107,6 +108,8 @@
               </div>
             </td>
           </tr>
+          </slot>
+          </template>
         </template>
       </tbody>
     </table>
@@ -196,6 +199,7 @@ const emit = defineEmits<{
 }>()
 
 defineSlots<{
+  row?: (props: { row: any; rowIndex: number; columns: UiTableColumn[] }) => any
   /** 单元格插槽；未提供时显示 row[column.key]，空值显示 placeholder */
   cell?: (props: { row: any; column: UiTableColumn; value: any }) => any
   /** 空/加载态插槽 */

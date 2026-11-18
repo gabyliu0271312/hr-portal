@@ -69,7 +69,7 @@
           </div>
         </div>
         <div class="settings-heading calibration-heading"><div><h3>校准规则设置 <span class="required-mark">*</span><PerformanceInfoPopover content="校准人可查看并调整其校准范围内的绩效结果" :width="320" /></h3></div></div>
-        <div class="calibration-summary"><span class="info-circle">i</span><span v-if="assignmentStats[nodeKey(node)]">当前共 {{ assignmentStats[nodeKey(node)]!.evaluated_count }} 个被评估人，{{ assignmentStats[nodeKey(node)]!.assigned_count }} 人已分配校准，{{ assignmentStats[nodeKey(node)]!.unassigned_count }} 人未分配校准人。</span><span v-else>{{ assignmentError || (assignmentLoading ? '正在计算校准分配…' : '校准分配尚未计算') }}</span><PerformanceTextButton label="查看校准详情" /></div>
+        <div class="calibration-summary"><span class="info-circle">i</span><span v-if="assignmentStats[nodeKey(node)]">当前共 {{ assignmentStats[nodeKey(node)]!.evaluated_count }} 个被评估人，{{ assignmentStats[nodeKey(node)]!.assigned_count }} 人已分配校准，{{ assignmentStats[nodeKey(node)]!.unassigned_count }} 人未分配校准人。</span><span v-else>{{ assignmentError || (assignmentLoading ? '正在计算校准分配…' : '校准分配尚未计算') }}</span><PerformanceTextButton label="查看校准详情" :disabled="!projectId || !projectPayload" @click="calibrationDetailsNode = nodeKey(node)" /></div>
         <div v-for="(phase, phaseIndex) in calibrationSettings(node).phases" :key="phase.phase_id || phaseIndex" class="calibration-phase">
           <div class="phase-heading"><div class="phase-title">第 {{ phaseIndex + 1 }} 阶段</div><PerformanceDisabledReason :disabled="Boolean(phaseDeleteReason(node, phaseIndex))" :reason="phaseDeleteReason(node, phaseIndex)" variant="popover"><PerformanceIconButton icon="DeleteTrashOutlined" :label="`删除第 ${phaseIndex + 1} 阶段`" :disabled="Boolean(phaseDeleteReason(node, phaseIndex))" @click="openDeletePhase(node, phaseIndex)" /></PerformanceDisabledReason></div>
           <div class="rule-table">
@@ -135,6 +135,16 @@
         />
       </section>
     </article>
+    <PerformanceCalibrationDetailScreen
+      v-if="calibrationDetailsNode"
+      :model-value="true"
+      :project-id="projectId || null"
+      :node-id="calibrationDetailsNode"
+      :payload="projectPayload ? { ...projectPayload, flow_settings: projectFlowWithUtcTimes(cloneSettings(draft)) } : null"
+      :stats="assignmentStats[calibrationDetailsNode] || null"
+      :organizations="organizationTree"
+      @update:model-value="calibrationDetailsNode = null"
+    />
     <PerformanceConfirmDialog v-model="deleteOpen" :message="deletion?.ruleIndex == null ? '确定删除该校准阶段吗？' : '确定删除该校准规则吗？'" description="保存成功后，失去规则来源的校准任务及操作权限将被撤销，历史结果保留。" cancel-text="取消" confirm-text="删除" :loading="deleteSaving" :error-message="deleteError" @confirm="confirmDeletion">
       <template #check><PerformanceCheckbox v-model="notifyCalibrators" label="通知校准人任务已删除" :disabled="deleteSaving" /></template>
     </PerformanceConfirmDialog>
@@ -177,6 +187,7 @@
 </template>
 
 <script setup lang="ts">
+import PerformanceCalibrationDetailScreen from './PerformanceCalibrationDetailScreen.vue'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import { projectCalibrationRangeError, createCalibrationPhaseId, createCalibrationRuleId, calibrationPhaseKey, ensureCalibrationPhaseIds, syncCalibrationPhaseTimes, initializeProjectFlow, projectFlowWithLocalTimes, projectFlowWithUtcTimes, mergeProjectDisplayChanges, calibrationOperations, calibrationHasNewPhases, calibrationSavedTimestamp, type ProjectEditingPolicy, type ProjectSettingsResponse, type ProjectSettingsPatch } from './performanceProjectCalibration'
@@ -548,6 +559,7 @@ function setOpeningMode(node: PerformanceWorkflowNode, field: 'automatic_enabled
   resultViewSettings(node)[field] = enabled
 }
 function setAutomaticRule(node: PerformanceWorkflowNode, value: string) { resultViewSettings(node).automatic_rule = value as 'PREVIOUS_AND_START' | 'PREVIOUS_IMMEDIATE' }
+const calibrationDetailsNode = ref<string | null>(null)
 const assignmentStats = ref<Record<string, PerformanceCalibrationAssignment | null>>({})
 const assignmentLoading = ref(false)
 const assignmentError = ref('')

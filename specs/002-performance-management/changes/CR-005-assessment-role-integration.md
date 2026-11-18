@@ -387,3 +387,14 @@ REA 专项复核飞书成员列表滚动锁定（evidence `ev_bec1df…`，登�
 - 测试：现有ProjectPerformanceMatrix.spec.ts新增真实数量点击→完整弹窗用例，覆盖初次请求、分页/搜索/排序/容量均携带原level/rating过滤、详情允许/拒绝、空态、错误和返回；UiTable.spec.ts新增resize宽度刷新及卸载用例。最终专项5文件45项通过。扩大到ProjectManagement.spec.ts时统计报表预览“模拟数据”断言失败，涉及当前并行统计报表改动，未修改或隐藏该失败。
 - 浏览器：真实Vue矩阵弹窗+隔离50行数据，在1280×600、1280×400、1680×950、900×600均验证白卡x20/y76、表格x40、白卡可纵滚至分页、表头随卡片滚走、表体无独立纵滚、头体列与可视宽度一致、横滚同步、姓名固定、搜索/筛选间距12px、页面无横向溢出。截图hr-portal/.tmp/matrix-drilldown-shared-surface-20261111.png已重采并查看，仅本地组件证据。
 - 构建：最终npm --prefix hr-portal/frontend run build的vue-tsc与Vite通过（47.34s，既有VueUse PURE警告保留）；本轮文件diff-check通过。未commit、push或部署，并行后端/统计报表/色值token改动保留、不纳入本轮。
+
+### 2026-11-18：CR-005-T04 后台校准分配详情
+
+- 用户确认范围：依据本轮 REA DOM、接口和截图评估完成开发还原。入口为后台周期与项目→项目设置→流程设置→查看校准详情，保留当前节点 ID 与编辑中的流程配置；只读详情不保存配置、不生成或重算任务。关联 T04 的详情子项，未将整卡或 T06 总体验收勾选完成。
+- UI：复用 UiFullScreenModal/UiPageHeader、UiSurface、UiTable、人员身份、选择器、工具栏、分页与安全 CSV 导出组件。新增校准详情组装、分组行、筛选、未分配人员名单与紧凑姓名列表组件；UiTable 仅新增可选 row 插槽，默认单元格行为保持。消费已有全局颜色、字体、间距与容器 token；44px 分组行、55px 人员行等使用领域局部尺寸，不修改全局表格基线。
+- 只读接口：POST /api/v1/performance/projects/{project_id}/calibration-details，沿用 ProjectPayload、_can_manage_project、403/422；复用 calibration_preview 与 project_audience。返回阶段/规则来源、分配、被评估人工号及人员展示字段。草稿按当前配置和周期快照计算，启动后读取冻结分配和项目成员分类，排除 report-only。历史缺少 rule_sources 返回 null，前端按阶段展示；虚线上级缺数据返回 null，界面显示 --，不推造关系。
+- 浏览器证据：实际 Vue 组件配合隔离的 407 人/25 校准人接口数据，实测头部56、摘要72、表头47、分组44、人员55px，首条人员行y240；筛选浮层348×238px；每次展开追加5人、筛选应用、未分配5人名单、搜索、返回及CSV内容通过。1280px、390px页面无横向溢出，宽表在表格内横滚。实现截图：[CR-005-T04-implemented-calibration-details-20261118.png](../ui-blueprints/CR-005-T04-implemented-calibration-details-20261118.png)，已查看；受控数据和文字头像不代表飞书真实人员或照片的像素比对。
+- 前端验证：npm --prefix hr-portal/frontend exec -- vitest run --root hr-portal/frontend src/components/performance/PerformanceProjectFlowSettings.spec.ts src/components/ui/UiTable.spec.ts src/components/performance/PerformanceExportButton.spec.ts，3文件67项通过；npm --prefix hr-portal/frontend run build 的 vue-tsc 与 Vite 通过（49.62s），保留已有 VueUse PURE 注释警告。本轮文件 git diff --check 通过。
+- 后端验证：backend 现有 .venv、PYTHONPATH 指向 backend，pytest tests/test_performance_projects.py -q -k calibration_details 为12 passed；扩大 -k "calibration or audience or report_only or evaluator_preview" 为180 passed、2 skipped。跳过项需要显式数据库验收开关和隔离库，不当作通过；已有 python_multipart 弃用警告保留。
+- 验收限制：本地 Docker daemon 不可用，8000端口未监听，未完成真实登录→业务库→重新读取的端到端验收；无数据库迁移、无生产部署、无commit/push。+N 的飞书点击/悬浮行为、飞书原始导出格式及人员名单完整筛选面板未取得完整证据，本地采用姓名溢出提示、安全CSV及人员过滤，不宣称这些细节已逐像素验收。
+- UI合规：已读 Spec012 ui-interaction/ui-implementation-guardrails；不涉及数仓、UCP或破坏性操作。未改变项目配置权限，不影响前台校准工作台、任务授权或结果修改流程。
