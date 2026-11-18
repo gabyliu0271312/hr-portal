@@ -108,7 +108,26 @@ export interface PerformanceWorkbenchTaskGroup {
   participation_roles?: string[]
 }
 
+export interface PerformanceMemberDelegation {
+  id: number
+  authorization_type: 'AUTHORIZE' | 'TRANSFER'
+  status: 'ACTIVE' | 'REVOKED' | 'REPLACED'
+  operator_name: string
+  recipient_name: string
+  original_handler_name: string
+  stage_name: string
+  created_at: string
+  operated_at: string
+  revoked_by_name: string | null
+}
+
+export interface PerformanceMemberIdentityStatus {
+  live_employment_status: string | null
+  delegations: PerformanceMemberDelegation[]
+}
+
 export interface PerformanceMemberProfile {
+  identity_status?: PerformanceMemberIdentityStatus | null
   employee_no: string
   display_name: string
   company_org?: string | null
@@ -323,6 +342,7 @@ export interface PerformanceReviewOverview {
 }
 
 export interface PerformanceReview360InvitedReviewer {
+  identity_status?: PerformanceMemberIdentityStatus | null
   employee_no: string
   display_name: string
   department: string | null
@@ -394,6 +414,7 @@ export const performanceReview360InviteApi = {
 }
 
 export interface PerformanceReview360FeedbackItem {
+  identity_status?: PerformanceMemberIdentityStatus | null
   task_id: number
   employee_no: string
   display_name: string
@@ -1050,6 +1071,7 @@ export interface RevieweeConflictResult {
 }
 
 export interface ProjectMatrixPerson {
+  identity_status?: PerformanceMemberIdentityStatus | null
   employee_no: string
   display_name: string
   employment_status: string | null
@@ -1108,6 +1130,7 @@ export interface ProjectReportComparisonData {
 }
 
 export interface PerformanceResultOpeningPerson {
+  identity_status?: PerformanceMemberIdentityStatus | null
   employee_no: string
   display_name: string
   project_id: number

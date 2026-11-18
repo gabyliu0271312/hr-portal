@@ -51,7 +51,7 @@
         @sort-change="changeSort"
       >
         <template #cell="{ row, column }">
-          <PerformanceMemberIdentity v-if="column.key === 'display_name'" :display-name="row.display_name" size="sm" />
+          <PerformanceMemberIdentity v-if="column.key === 'display_name'" :display-name="row.display_name" size="sm" :identity-status="row.identity_status" />
           <span v-else-if="column.key === 'reminder_target'" class="reminder-target"><PerformanceMemberIdentity :display-name="String(reminderCellValue(row, column.key))" size="sm" /></span>
           <PerformanceMemberIdentity v-else-if="(column.key === 'direct_supervisor' || column.key === 'hrbp') && row[column.key]" :display-name="row[column.key]" size="sm" />
           <PerformanceRatingTag v-else-if="mode === 'open-result' && column.key.startsWith('rating:') && row.ratings?.[column.key]?.label" :label="row.ratings[column.key].label" :color="row.ratings[column.key].color || undefined" :foreground="row.ratings[column.key].foreground || undefined" />

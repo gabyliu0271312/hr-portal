@@ -207,7 +207,7 @@ onMounted(() => void load())
     >
       <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :min-width="columnMinWidth(column.key)">
         <template #default="{ row }">
-          <PerformanceMemberIdentity v-if="column.key === 'name'" :display-name="row.display_name" />
+          <PerformanceMemberIdentity v-if="column.key === 'name'" :display-name="row.display_name" :identity-status="row.identity_status" />
           <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" />
           <span v-else>{{ cellValue(row, column.key) }}</span>
         </template>

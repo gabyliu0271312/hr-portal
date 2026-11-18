@@ -321,7 +321,7 @@ defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVo
       @row-click="openItem"
     >
       <template #cell="{ row, column }">
-        <PerformanceMemberIdentity v-if="column.key === 'name'" :display-name="row.display_name" />
+        <PerformanceMemberIdentity v-if="column.key === 'name'" :display-name="row.display_name" :identity-status="row.identity_status" />
         <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" :allow-rejected="!communicationMode" />
         <PerformanceRatingTag v-else-if="column.key.startsWith('rating:') && row.ratings?.[column.key]" :label="row.ratings[column.key].label" :color="row.ratings[column.key].color || undefined" :foreground="row.ratings[column.key].foreground || undefined" />
         <span v-else-if="column.key === 'completion'" class="feedback-panel__completion">

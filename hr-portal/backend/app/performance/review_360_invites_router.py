@@ -22,6 +22,7 @@ from app.performance.auth_context import (
     resolve_trusted_performance_actor,
 )
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
+from app.performance.member_identity_service import hydrate_member_identities
 from app.performance.models import (
     AUTHORIZATION_SNAPSHOT_STATUS_LOCKED,
     DYNAMIC_ASSIGNMENT_ACTOR_TYPE_EMPLOYEE,
@@ -60,6 +61,7 @@ class InvitedReviewerOut(BaseModel):
     source_label: str
     invited_at: str | None = None
     due_at: str | None = None
+    identity_status: dict | None = None
 
 
 class InviteListOut(BaseModel):
@@ -376,6 +378,7 @@ async def list_invites(
             item for item in items
             if lowered in item.display_name.lower() or lowered in item.employee_no.lower()
         ]
+    await hydrate_member_identities(db, [(item, project.id, member_snapshot_id) for item in items], include_delegations=False)
     return InviteListOut(
         items=items,
         total=len(items),

@@ -26,6 +26,7 @@ from app.performance.auth_context import (
     resolve_trusted_performance_actor,
 )
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
+from app.performance.member_identity_service import hydrate_member_identities
 from app.performance.models import (
     DYNAMIC_ASSIGNMENT_ACTOR_TYPE_EMPLOYEE,
     DYNAMIC_IDENTITY_TYPE_REVIEWER_360,
@@ -66,6 +67,7 @@ class FeedbackItemOut(BaseModel):
     relationship: str
     due_at: str | None = None
     can_giveup: bool = False
+    identity_status: dict | None = None
 
 
 class FeedbackListOut(BaseModel):
@@ -296,6 +298,7 @@ async def list_feedback(
             item for item in items
             if lowered in item.display_name.lower() or lowered in item.employee_no.lower()
         ]
+    await hydrate_member_identities(db, [(item, project.id, member_snapshot_id) for item in items])
     return FeedbackListOut(
         items=items,
         total=len(items),

@@ -184,6 +184,7 @@ const loadMembers = async () => {
         department: item.department,
         employee_type: item.employee_type,
         employment_status: item.employment_status,
+        identity_status: item.identity_status,
         visible_profile_fields: item.visible_profile_fields,
         task_id: item.task_id,
         aggregate_task_id: item.aggregate_task_id,
@@ -336,7 +337,7 @@ onMounted(() => void loadMembers())
       @sort-change="onSortChange"
     >
       <template #cell="{ row, column }">
-        <PerformanceMemberIdentity v-if="column.key === 'name'" :display-name="row.display_name" />
+        <PerformanceMemberIdentity v-if="column.key === 'name'" :display-name="row.display_name" :identity-status="row.identity_status" />
         <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" />
         <PerformanceRatingTag v-else-if="column.key.startsWith('rating:') && row.ratings?.[column.key]" :label="row.ratings[column.key].label" :color="row.ratings[column.key].color || undefined" :foreground="row.ratings[column.key].foreground || undefined" />
         <span v-else-if="column.key === 'rating' && row.rating" class="rating-badge" :class="ratingClass(row)">{{ row.rating }}</span>

@@ -130,7 +130,7 @@ watch(() => props.modelValue, open => {
         @sort-change="changeSort"
       >
         <template #cell="{ row, column }">
-          <PerformanceMemberIdentity v-if="column.key === 'name'" :display-name="(row as ProjectMember).display_name" :class="{ 'is-detail-link': (row as ProjectMember).can_view_detail }" />
+          <PerformanceMemberIdentity v-if="column.key === 'name'" :display-name="(row as ProjectMember).display_name" :identity-status="(row as ProjectMember).identity_status" :class="{ 'is-detail-link': (row as ProjectMember).can_view_detail }" />
           <span v-else-if="column.key === 'department_path'">{{ departmentPath(row as ProjectMember) }}</span>
           <PerformanceRatingTag v-else-if="column.key === 'rating' && (row as ProjectMember).rating" :label="(row as ProjectMember).rating!" :color="(row as ProjectMember).rating_tone || undefined" />
           <PerformanceEvaluateRatioPopover v-else-if="column.key === 'completion' && (row as ProjectMember).evaluate_ratio" :completion="(row as ProjectMember).completion || '0/0'" :ratio="(row as ProjectMember).evaluate_ratio" />

@@ -256,6 +256,7 @@ watch(displayMode, () => nextTick(syncColumnWidths))
 <script lang="ts">
 import { defineComponent, h } from 'vue'
 import type { ProjectMatrixPerson } from '@/api/performance'
+import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
 
 const PeopleCell = defineComponent({
   name: 'PeopleCell',
@@ -271,7 +272,7 @@ const PeopleCell = defineComponent({
         key: person.employee_no,
         title: person.display_name,
         onClick: person.can_view_detail ? () => emit('select-person', person) : undefined,
-      }, person.display_name))),
+      }, [h(PerformanceMemberIdentity, { displayName: person.display_name, identityStatus: person.identity_status, size: 'sm', showAvatar: false })]))),
       props.people.length > 6 ? h('button', { type: 'button', class: 'people-toggle', 'aria-label': props.expanded ? '收起人员' : '展开人员', onClick: () => emit('toggle') }, props.expanded ? '收起' : '展开') : null,
     ])
   },

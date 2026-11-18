@@ -262,6 +262,20 @@
 - 浏览器：本地Vite真实Vue路由、Chrome headless、1440×900，所有 `/api/v1/*` 响应隔离为合成数据。阅读抽屉、编辑校准参考、成员360浮层均进入共享确认与预览；预览／取消写请求0，具体任务POST携带 node_id/task_id，校准来源 source_task_id=11，360仅task_ids=[81,82]且target_kind=reviewer_360，成功／部分成功反馈正确。关闭后alertdialog=0、body overflow为空、pageerror=0、未匹配API=0。不是实际外发或真实鉴权API验收。
 - 独立UI证据（已查看）：`ui-blueprints/CR-007-F14-implemented-member-reminder-20261113.png`、`CR-007-F14-implemented-edit-reminder-20261113.png`、`CR-007-F14-implemented-360-reminder-20261113.png`。既有组件/token复用、无新增视觉体系；未宣称像素完全一致。未执行生产、真实数据库／飞书投递、并发幂等实测。停止仅撤销本卡增量，不整包回滚或删除任务／审计。
 
+## 2026-11-18 CR-007-F15 公用姓名状态与授权历史
+
+- 发布授权：本地验收后，用户明确要求在 main 提交并推送；仅本卡增量，不包含临时文件，不执行部署。下文“无commit/push”记录的是开发验收时点。
+- [ ] CR-007-F15：本地开发、前后端自动化、构建及合成数据浏览器验证完成；真实登录 API/PostgreSQL/生产未验收，整体验收保持未勾选。
+- 用户确认：撤销后无有效同类记录则标签消失；固定顺序“已授权、已转交、已离职”；悬浮包含同类型完整历史及校准授权，最后操作排最上。延续已采集姓名右侧同行标签和原成员列表信息架构，无新页面/菜单或新蓝图。
+- 读取契约：原名单按权限筛选及分页后批量补 `identity_status={live_employment_status,delegations}`。记录含 id、authorization_type、status、operator_name、recipient_name、original_handler_name、stage_name、created_at、operated_at、revoked_by_name；只读，沿既有成员查看范围，不引入新操作权限或明细端点。项目＋成员快照＋员工号精确关联；实时在职优先、冻结字段兜底且不覆盖；ACTIVE 驱动标签，REVOKED/REPLACED 保留历史，撤销任务的失效 ACTIVE 不返回。校准纳入，360 评估人的授权记录匿名边界保留，邀请评估人仅补实时状态。
+- 实现边界：后端新增 `member_identity_service.py`，接入 project/cycle members、导出、matrix、review taskPeople、360 feedback/invites、reminder-people、result-opening people。前端扩展 `PerformanceMemberIdentity`，新增 `PerformanceMemberDelegationTag`，复用 `PerformancePopover`；成员/评估/360/矩阵及提醒名单传入身份状态，矩阵保留纯姓名无头像形态。普通主管、HRBP、校准处理人与候选选择器不套用被评估人任务标签。
+- Token：新增人员列表24px头像、状态20px/12px/左右6px/圆角4px/间距4px及绿灰语义色；所有新外观数值集中 `tokens.css`，移除姓名胶囊/离职色局部硬编码。浮层继续消费全局420px宽、12/16px内距、8px圆角、箭头与阴影；长姓名独立省略，标签保留；键盘focus/click打开、Escape关闭，标签点击不触发行详情。
+- 允许文件：backend/app/performance/{member_identity_service,projects_router,review_360_feedback_router,review_360_invites_router}.py、backend/tests/test_performance_member_identity.py 及受影响项目测试夹具；frontend API类型、姓名/标签/成员/反馈/邀请/提醒/矩阵组件及姓名组件测试、tokens.css、本记录和独立截图。共享文件只精确 Edit，保留并行校准规则预览增量。无模型、迁移、历史快照、授权写流程、角色配置或生产变更；不自动提交推送部署。
+- Given/When/Then：同时存在有效授权/转交及实时离职→按固定顺序展示；撤销最后有效记录→标签及已打开浮层消失；历史包含校准/撤销/替换→完整保留并按 operated_at 倒序；同工号跨项目/快照→记录不串用；匿名360→不泄漏处理人授权历史；旧响应无 identity_status→保持原展示。
+- 前端证据：`npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceMemberIdentity.spec.ts src/components/performance/ProjectPerformanceMatrix.spec.ts src/components/performance/PerformanceReminderPanel.spec.ts src/views/performance/ProjectManagement.spec.ts src/views/performance/Review.spec.ts --pool=threads --poolOptions.threads.singleThread=true --silent` → **5文件221 passed**；`npm --prefix hr-portal/frontend run build` → vue-tsc＋Vite exit0（3772模块，既有VueUse PURE提示）。首次npm exec外部调用发生Vitest suite收集错误，改用项目npm test后通过，不改业务绕过测试。
+- 浏览器证据：本地Vite真实Vue成员表格、全部API隔离合成数据，1440×900与390×844；三个标签顺序、撤销隐藏、校准历史倒序、转交悬浮、长姓名不裁标签、键盘Escape通过。实测20px/12px/4px/0 6px/rgba(53,189,75,.2)；窄屏浮层左右16px，pageerror=0。`ui-blueprints/CR-007-F15-member-identity-history-20261118.png` 已查看，含全局Element样式的最终截图；前一次隔离页缺Element样式已更正，不将组件截图当作真实登录/API/数据库验收。
+- 后端最终证据：`python -m pytest hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_member_identity.py -q --tb=short` → **837 passed / 5 skipped / 1 python_multipart第三方弃用警告，31.24s，exit0**，主线程已核对完整日志 `.tmp-member-identity-pytest.log`；独立身份13项主线程复跑通过，含真实SQLite执行SQL、校准/匿名/跨项目快照、当前页及拒绝范围。另跑 auth_context/member_reminders/subject_visibility 三文件 → **128 passed / 1同类警告**。首轮全量35个旧fixture失败已通过精确补投影形状、快照字段、空查询结果及真实查询次数恢复；未mock整体hydration、未按Session类型跳过、不改变原业务断言或并行校准8项。`git diff --check` 通过，仅换行转换提示。真实PostgreSQL/登录API/生产未执行，5跳过项不计通过。无数据库迁移、实际通知、commit/push/deploy。停止仅撤回本卡增量，保留快照、任务、答案及审计。
+
 ## 2026-11-13 CR-007-F13 前台读链路性能优化
 
 - [ ] CR-007-F13：本地实现及自动化回归通过；真实登录/API/PostgreSQL、运行时前后对比与生产验收未完成，不勾选整体验收。
