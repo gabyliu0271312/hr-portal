@@ -42,6 +42,7 @@
 - 统计新增只读 `POST /performance/projects/{id}/calibration-rule-preview`，请求 `{project: ProjectPayload, rule: PerformanceProjectFlowRule}`，返回 `subject_group_counts/scope_group_counts/total_count/selected/people`。校准人每组统计命中且实际有被评估人的校准人；范围每组为所有命中校准人的被评估人并集，总人数按工号去重。预览与正式分配共用校准匹配内核，组内AND、组间OR；不把assignment对数当人数。
 - 草稿使用周期冻结人员及当前项目草稿的任务成员范围；STARTED使用实际任务成员与其来源人员快照，不用客户端修改范围扩大历史名单，不回填实时花名册。预览只读、不生成任务、不发送消息、不改变原PATCH及校准编辑政策；沿项目管理授权，403/404/422不放宽。
 - 条件编辑、增删组、范围模式切换后防抖请求；变化立即失效旧请求与旧名单，关闭/重开不接受上一轮响应。加载、失败及不完整规则不得冒用旧人数，失败保留规则输入并可重试。
+- 2026-11-18统计重复刷新修复：预览监听当前开关、项目ID、项目payload及条件组的序列化业务快照，不按对象引用触发；父组件每秒时钟/统计状态刷新时创建同值payload不清空人数、不显示加载提示、不作废在途响应。实际修改条件、范围或项目内容仍立即失效旧响应并防抖重算，显式重试入口保持可用。沿用原布局及token，不靠延长防抖或隐藏提示掩盖重复请求。
 - 灰框 padding16/20、背景N100、圆角8；组标题14/400/22、下距8；字段146、操作符100、间距8、值列自适应、控件高32。组删除复用IconButton，灰框外右侧顶对齐、24px按钮和4px间隔；至少两组才出现，单组释放删除gutter。校准变体消费共享token，不改变通用范围128/88默认规格。
 - 前两列plain readonly的外壳和input均pointer，第三列可输入区域text，disabled保持not-allowed；在PerformanceSelectShell统一，不用页面cursor补丁。范围底部同一行左侧添加组、右侧总人数，仅数字使用共享人数链接token（REA #245BDB）；名单按工号去重。
 - 名单复用FocusGroupPeopleDialog校准变体、UiFullScreenModal/UiPageHeader及PerformanceManagementTable/UiTable。八列为姓名、直属上级、虚线上级、一级部门、末级部门、序列、子序列、职务；缺少冻结数据源的虚线上级保持空值/占位。标题副标题间距12，副标题14/400/22、N600，层级高于规则抽屉；现有五列默认消费者及20px页头间距不变。

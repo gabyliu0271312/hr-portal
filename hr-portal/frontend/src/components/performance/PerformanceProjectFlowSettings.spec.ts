@@ -78,6 +78,35 @@ describe('PerformanceProjectFlowSettings', () => {
     wrapper.unmount()
   })
 
+  it.each(['PROJECT_ALL', 'RULE'] as const)('does not restart %s rule previews on the parent clock tick', async scope => {
+    vi.useFakeTimers()
+    const preview = vi.mocked(performanceProjectApi.calibrationRulePreview).mockResolvedValue({ subject_group_counts: [1], scope_group_counts: [3], total_count: 3, selected: [], people: [] })
+    const rule = { subject_type: 'PERSON' as const, operator: 'INCLUDE' as const, scope, allow_authorize: false,
+      subject_groups: [{ conditions: [{ field: 'employee' as const, operator: 'INCLUDE' as const, values: ['H1'] }] }],
+      scope_groups: [{ conditions: [{ field: 'calibrator_relation' as const, operator: 'INCLUDE' as const, values: ['ALL_SUBORDINATES'] }] }],
+    }
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: {
+      nodes: [node('calibration', 1)], projectId: 12, projectPayload: { name: '项目', description: null, administrators: [] },
+      modelValue: { node_settings: { 'calibration-1': { calibration: { force_distribution_enabled: false, phases: [{ phase_id: 'p1', rules: [rule] }] } } }, node_times: {} },
+    } })
+    try {
+      await wrapper.findAll('.rule-actions button').find(button => button.text() === '编辑')!.trigger('click')
+      await vi.advanceTimersByTimeAsync(500)
+      await flushPromises()
+      expect(preview).toHaveBeenCalledTimes(1)
+      for (let tick = 0; tick < 4; tick++) {
+        await vi.advanceTimersByTimeAsync(1000)
+        await flushPromises()
+        expect(document.body.querySelector('.calibration-rule-preview-status')).toBeNull()
+        expect(document.body.querySelector('.calibration-rule-total__number')?.textContent).toBe('3')
+      }
+      expect(preview).toHaveBeenCalledTimes(1)
+    } finally {
+      wrapper.unmount()
+      vi.useRealTimers()
+    }
+  })
+
   it('shows rule sources in batches of five and filters without double-counting reviewees', async () => {
     const assignments = Array.from({ length: 12 }, (_, index) => ({ handler_ref: `H${index}`, employee_no: 'E1', allow_authorize: false }))
     const details = { role_code: 'assessment.calibrator' as const, evaluated_count: 2, assigned_count: 1, unassigned_count: 1, evaluated_employee_nos: ['E1', 'E2'], people: [], phases: [{ phase_id: 'p1', assignments, rule_sources: [{ rule_id: 'r1', rule: { subject_type: 'PERSON' as const, operator: 'INCLUDE' as const, scope: 'PROJECT_ALL' as const, allow_authorize: false }, assignments }] }] }

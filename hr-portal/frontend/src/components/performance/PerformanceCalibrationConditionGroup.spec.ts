@@ -125,6 +125,46 @@ describe('PerformanceCalibrationConditionGroup', () => {
 })
 
 describe('PerformanceCalibrationRuleDrawer', () => {
+  it.each(['PROJECT_ALL', 'RULE'] as const)('keeps %s counts settled when parent rerenders with an equivalent payload', async scope => {
+    vi.useFakeTimers()
+    const spy = vi.spyOn(performanceProjectApi, 'calibrationRulePreview').mockResolvedValue(previewResult(3))
+    const wrapper = mount(PerformanceCalibrationRuleDrawer, {
+      props: { modelValue: true, projectId: 1, projectPayload: structuredClone(previewProject), rule: { ...previewRule, scope } },
+      attachTo: document.body,
+    })
+    await vi.advanceTimersByTimeAsync(250)
+    await flushPromises()
+    for (let tick = 0; tick < 4; tick++) {
+      await wrapper.setProps({ projectPayload: structuredClone(previewProject) })
+      expect(document.body.querySelector('.calibration-rule-preview-status')).toBeNull()
+      expect(document.body.querySelector('.calibration-rule-total__number')?.textContent).toBe('3')
+      await vi.advanceTimersByTimeAsync(1000)
+    }
+    expect(spy).toHaveBeenCalledTimes(1)
+    await wrapper.setProps({ projectPayload: { ...previewProject, evaluator_rules: { groups: [{ conditions: [{ field: 'employee', operator: 'include', values: ['E2'] }] }] } } })
+    expect(document.body.querySelector('.calibration-rule-preview-status')).not.toBeNull()
+    await vi.advanceTimersByTimeAsync(250)
+    expect(spy).toHaveBeenCalledTimes(2)
+    expect(spy.mock.calls[1][1].project.evaluator_rules?.groups[0].conditions[0].values).toEqual(['E2'])
+    wrapper.unmount()
+  })
+
+  it('keeps a pending preview alive when the parent passes equivalent payload objects', async () => {
+    vi.useFakeTimers()
+    let finish: (value: PerformanceCalibrationRulePreview) => void = () => {}
+    const spy = vi.spyOn(performanceProjectApi, 'calibrationRulePreview').mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    const wrapper = mount(PerformanceCalibrationRuleDrawer, { props: { modelValue: true, projectId: 1, projectPayload: previewProject, rule: previewRule }, attachTo: document.body })
+    await vi.advanceTimersByTimeAsync(250)
+    await wrapper.setProps({ projectPayload: structuredClone(previewProject) })
+    finish(previewResult(3))
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(document.body.querySelector('.calibration-rule-preview-status')).toBeNull()
+    expect(document.body.querySelector('.calibration-rule-total__number')?.textContent).toBe('3')
+    wrapper.unmount()
+  })
+
   it('clears counts for incomplete groups without requesting and refreshes after their removal', async () => {
     vi.useFakeTimers()
     const spy = vi.spyOn(performanceProjectApi, 'calibrationRulePreview').mockResolvedValue(previewResult(3))

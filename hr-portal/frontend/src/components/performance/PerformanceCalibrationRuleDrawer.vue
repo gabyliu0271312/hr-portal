@@ -332,7 +332,15 @@ watch(() => [props.modelValue, props.rule, props.mode], () => {
     distributionSubmitted.value = false
   }
 }, { deep: false })
-watch(() => [props.modelValue, props.projectId, props.projectPayload, draft.value.subject_source, draft.value.subject_groups, draft.value.scope_mode, draft.value.scope_groups], markPreviewDirty, { deep: true, immediate: true, flush: 'sync' })
+watch(() => JSON.stringify({
+  open: props.modelValue,
+  projectId: props.projectId,
+  projectPayload: props.projectPayload,
+  subjectSource: draft.value.subject_source,
+  subjectGroups: draft.value.subject_groups,
+  scopeMode: draft.value.scope_mode,
+  scopeGroups: draft.value.scope_groups,
+}), markPreviewDirty, { immediate: true, flush: 'sync' })
 onBeforeUnmount(() => { previewVersion += 1; if (previewTimer) clearTimeout(previewTimer) })
 </script>
 
