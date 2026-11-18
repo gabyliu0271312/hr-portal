@@ -174,7 +174,7 @@ function syncColumnWidths() {
 }
 
 async function load() {
-  if (!props.projectId) return
+  if (!props.provider && !props.projectId) return
   loading.value = true
   error.value = ''
   try {

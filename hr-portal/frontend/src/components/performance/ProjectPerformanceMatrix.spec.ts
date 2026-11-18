@@ -39,6 +39,19 @@ describe('ProjectPerformanceMatrix', () => {
     vi.mocked(mockedApi.matrix).mockReset()
   })
 
+  it('loads a cycle-scoped readonly provider without a project id', async () => {
+    const provider = vi.fn().mockResolvedValue(matrixOf())
+    const wrapper = mount(ProjectPerformanceMatrix, { props: { projectId: 0, provider, readonly: true } })
+    await flushPromises()
+    expect(provider).toHaveBeenCalledOnce()
+    expect(mockedApi.matrix).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('员工三')
+    expect(wrapper.text()).toContain('员工一')
+    expect(wrapper.text()).toContain('（1 人）')
+    expect(wrapper.text()).toContain('（2 人）')
+    wrapper.unmount()
+  })
+
   it('keeps the entire matrix inside one shared white surface across loading and empty states', async () => {
     let resolve!: (value: ProjectMatrix) => void
     vi.mocked(mockedApi.matrix).mockReturnValue(new Promise(value => { resolve = value }))
