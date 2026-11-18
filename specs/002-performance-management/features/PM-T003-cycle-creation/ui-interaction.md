@@ -36,6 +36,17 @@
 - 多组运行协议：comparison响应保留旧单组字段并增加groups数组，groups存在时（包括[]）优先使用，不回退旧首组。提交/草稿以comparison_reasons数组逐组携带rule_id、diff_reason、comparison_context；读回draft_comparison_reasons，各组上下文独立校验，失败不得部分提交。comparison_state.groups按rule_id保存，旧单组内容可读；删除组只读历史理由仍保留，不再触发活动提示或理由要求。运行中提示、理由框、参考查看/管理详情/总览均逐组授权投影；通知入队及发送前复核按rule_id隔离。旧已启动项目不补快照，不改变外发三态。
 - 通知发另一环节有权看双方对应项的有效评估人，排除提交者及只读/失效授权；正式评级组合变化后再通知，同评级改评语/理由不重发。复用全局三态及统一scheduler；本轮验收禁止真实外发。
 
+## PM-T003-I07 校准规则人数与名单修订（2026-11-18）
+
+- 用户明确授权按本轮 REA 评估完成修复；沿既有规则抽屉、全屏名单及共享选择器实施，不新增信息架构或独立蓝图。REA 两组证据 `ev_99b98eddad6b568a7fdb02bb070da7f47c0a18deb694d41187d0115b76d836fe`、单组证据 `ev_789a05e413dce2f24368aff6f65c7d326f072550b2ea98d6b8ce1c718106ad63`；尺寸、cursor及接口响应另由同一CDP目标定点读取。线上仅测试未保存草稿，重新打开恢复原两组，不提交修改。
+- 统计新增只读 `POST /performance/projects/{id}/calibration-rule-preview`，请求 `{project: ProjectPayload, rule: PerformanceProjectFlowRule}`，返回 `subject_group_counts/scope_group_counts/total_count/selected/people`。校准人每组统计命中且实际有被评估人的校准人；范围每组为所有命中校准人的被评估人并集，总人数按工号去重。预览与正式分配共用校准匹配内核，组内AND、组间OR；不把assignment对数当人数。
+- 草稿使用周期冻结人员及当前项目草稿的任务成员范围；STARTED使用实际任务成员与其来源人员快照，不用客户端修改范围扩大历史名单，不回填实时花名册。预览只读、不生成任务、不发送消息、不改变原PATCH及校准编辑政策；沿项目管理授权，403/404/422不放宽。
+- 条件编辑、增删组、范围模式切换后防抖请求；变化立即失效旧请求与旧名单，关闭/重开不接受上一轮响应。加载、失败及不完整规则不得冒用旧人数，失败保留规则输入并可重试。
+- 灰框 padding16/20、背景N100、圆角8；组标题14/400/22、下距8；字段146、操作符100、间距8、值列自适应、控件高32。组删除复用IconButton，灰框外右侧顶对齐、24px按钮和4px间隔；至少两组才出现，单组释放删除gutter。校准变体消费共享token，不改变通用范围128/88默认规格。
+- 前两列plain readonly的外壳和input均pointer，第三列可输入区域text，disabled保持not-allowed；在PerformanceSelectShell统一，不用页面cursor补丁。范围底部同一行左侧添加组、右侧总人数，仅数字使用共享人数链接token（REA #245BDB）；名单按工号去重。
+- 名单复用FocusGroupPeopleDialog校准变体、UiFullScreenModal/UiPageHeader及PerformanceManagementTable/UiTable。八列为姓名、直属上级、虚线上级、一级部门、末级部门、序列、子序列、职务；缺少冻结数据源的虚线上级保持空值/占位。标题副标题间距12，副标题14/400/22、N600，层级高于规则抽屉；现有五列默认消费者及20px页头间距不变。
+- 共享PerformanceScopeCount总名单按employee_no去重，仅数字可点击；上下文变化立即失效旧请求。禁止直接把通用人员组resolve-scope用于校准关系计算。权限、周期快照、数据库迁移、生产部署及未在原需求内的角色/字段新增不在本轮范围。
+
 ## 1. 入口与页面
 
 - 入口：`/performance/settings` 左侧“周期与项目”。

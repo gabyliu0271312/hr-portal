@@ -1,9 +1,9 @@
 <template>
+  <div class="calibration-condition-group-wrap" :class="{ 'calibration-condition-group-wrap--calibration': variant === 'calibration' }">
   <div class="calibration-condition-group">
     <div class="calibration-condition-group__heading">
       <span>{{ title }}</span>
-      <span class="calibration-condition-group__count">{{ countText }}</span>
-      <PerformanceIconButton v-if="removable" icon="DeleteTrashOutlined" :label="`删除${fieldLabel}${title}`" @click="emit('remove')" />
+      <span class="calibration-condition-group__count">共 {{ count }} 人{{ countSuffix }}</span>
     </div>
     <PerformanceConditionLogicGroup :count="modelValue.conditions.length" operator="且">
       <template #default="{ index }">
@@ -64,6 +64,8 @@
       <span>添加条件</span>
     </button>
   </div>
+  <PerformanceIconButton v-if="removable" class="calibration-condition-group__delete" icon="DeleteTrashOutlined" :label="`删除${fieldLabel}${title}`" @click="emit('remove')" />
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -88,13 +90,13 @@ const props = withDefaults(defineProps<{
   hireDateRange?: { min: string | null; max: string | null }
   count?: number
   countSuffix?: string
+  variant?: 'default' | 'calibration'
   removable?: boolean
   submitted?: boolean
 }>(), { valueOptions: () => [], organizationTree: () => [], count: 0, countSuffix: '', removable: false })
 const emit = defineEmits<{ 'update:modelValue': [value: PerformanceCalibrationConditionGroup]; remove: []; 'open-options': [] }>()
 const includeOperatorOptions = [{ value: 'INCLUDE', label: '包含' }, { value: 'EXCLUDE', label: '不包含' }]
 const operatorOptions = (field: PerformanceCalibrationCondition['field']) => field === 'hire_date' ? HIRE_DATE_OPERATOR_OPTIONS : includeOperatorOptions
-const countText = computed(() => `共 ${props.count} 人${props.countSuffix}`)
 const optionFields = computed(() => props.fieldOptions)
 function conditionError(index: number) {
   if (!props.submitted) return ''
@@ -134,5 +136,5 @@ function addCondition() {
 .calibration-value-select.is-invalid :deep(.performance-select-shell__selector),.calibration-value-select.is-invalid :deep(.performance-search-select__trigger),.calibration-value-select.is-invalid :deep(.performance-organization-tree-select__trigger),.calibration-value-select.is-invalid :deep(.performance-date-time-field__input){border-color:var(--performance-field-border-invalid)}
 .calibration-value-select:has(.calibration-condition-group__error){height:auto;flex-direction:column;align-items:stretch;align-self:flex-start}
 .calibration-condition-group__error{margin-top:var(--performance-field-error-gap);color:var(--performance-field-error-color);font-size:var(--performance-field-error-font-size);line-height:var(--performance-field-error-line-height)}
-.calibration-condition-group{display:flex;flex-direction:column;min-width:0;padding:16px 20px;border-radius:8px;background:#f5f6f7;box-sizing:border-box;color:#1f2329}.calibration-condition-group__heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;font:600 14px/22px var(--font-sans)}.calibration-condition-group__count{color:#646a73;font-weight:400}.calibration-condition-group__row>.performance-icon-button{flex:0 0 24px;margin-top:4px}.calibration-condition-group__row:first-child{margin-top:0}.calibration-condition-group__row{display:flex;align-items:flex-start;margin-top:8px}.calibration-condition-group__fields{display:flex;flex:1;min-width:0;align-items:center}.calibration-select,.calibration-value-select{position:relative;display:flex;align-items:center;min-width:0;height:32px;margin:0 8px;box-sizing:border-box}.calibration-select{flex:0 0 112px}.calibration-select--operator{flex:0 0 96px}.calibration-value-select{flex:1;margin-right:0}.calibration-value-select :deep(.performance-select-shell){width:100%}.calibration-condition-group__add{display:inline-flex;align-items:center;width:max-content;margin-top:8px;padding:0;border:0;background:transparent;color:#3370ff;font:400 14px/22px var(--font-sans);cursor:pointer}.calibration-condition-group__add svg{width:16px;height:16px;margin-right:4px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.calibration-condition-group-wrap{display:flex;align-items:flex-start;gap:var(--performance-calibration-group-delete-gap);min-width:0}.calibration-condition-group-wrap--calibration{--performance-scope-field-width:var(--performance-calibration-field-width);--performance-scope-operator-width:var(--performance-calibration-operator-width)}.calibration-condition-group__delete{width:var(--performance-scope-delete-size);height:var(--performance-scope-delete-size);flex:0 0 var(--performance-scope-delete-size)}.calibration-condition-group{display:flex;flex:1;flex-direction:column;min-width:0;padding:var(--performance-calibration-group-padding-block) var(--performance-calibration-group-padding-inline);border-radius:var(--performance-calibration-group-radius);background:var(--performance-calibration-group-background);box-sizing:border-box;color:var(--performance-scope-group-title-color)}.calibration-condition-group__heading{display:flex;align-items:center;justify-content:space-between;gap:var(--spacing-2);margin-bottom:var(--performance-scope-group-title-gap);font:var(--performance-scope-group-title-weight) var(--performance-scope-group-title-size)/var(--performance-scope-group-title-height) var(--font-sans)}.calibration-condition-group__count{color:var(--performance-text-secondary);font-weight:400}.calibration-condition-group__row>.performance-icon-button{flex:0 0 var(--performance-scope-delete-size);margin-top:var(--spacing-1);margin-left:var(--performance-calibration-group-delete-gap)}.calibration-condition-group__row:first-child{margin-top:0}.calibration-condition-group__row{display:flex;align-items:flex-start;margin-top:var(--performance-scope-row-gap)}.calibration-condition-group__fields{display:flex;flex:1;min-width:0;align-items:center;gap:var(--performance-scope-row-gap)}.calibration-select,.calibration-value-select{position:relative;display:flex;align-items:center;min-width:0;height:var(--performance-control-height);margin:0;box-sizing:border-box}.calibration-select{flex:0 0 var(--performance-scope-field-width)}.calibration-select--operator{flex:0 0 var(--performance-scope-operator-width)}.calibration-value-select{flex:1;margin-right:0}.calibration-value-select :deep(.performance-select-shell){width:100%}.calibration-condition-group__add{display:inline-flex;align-items:center;width:max-content;margin-top:var(--performance-scope-row-gap);padding:0;border:0;background:transparent;color:var(--color-primary);font:400 var(--performance-scope-add-btn-size)/var(--performance-input-line-height) var(--font-sans);cursor:pointer}.calibration-condition-group__add svg{width:var(--performance-icon-size);height:var(--performance-icon-size);margin-right:var(--spacing-1)}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 </style>

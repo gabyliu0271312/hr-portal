@@ -22,7 +22,7 @@ from app.data.employee_roster_contract import (
     require_employee_roster_columns,
 )
 from app.performance.assessment_roles import ROLE_CALIBRATOR, ROLE_DOTTED_MANAGER, ROLE_LINE_MANAGER, ROLE_METRIC_EVALUATOR, ROLE_PROJECT_MANAGER, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code, normalize_executor_identity, validate_executor_roles
-from app.performance.calibration_service import calibration_template, resolve_calibration, canonical_flow, calibration_digest, editing_policy, validate_calibration_change, apply_calibration_delta, CalibrationConflict
+from app.performance.calibration_service import calibration_template, resolve_calibration, match_calibration_rule, canonical_flow, calibration_digest, editing_policy, validate_calibration_change, apply_calibration_delta, CalibrationConflict
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
 from app.performance.self_summary_service import hydrate_self_summary_template, resolve_self_summary_content
 from app.performance.scope_options import build_organization_tree
@@ -1285,6 +1285,50 @@ class PerformanceProjectService:
     @classmethod
     def _select_people(cls, people, settings):
         return cls._matching_people(people, settings)
+
+    async def calibration_rule_preview(self, project, payload, rule):
+        _, _, _, settings = self._validate_payload({**self.serialize(project), **payload}, project.settings or {})
+        flow = self._validate_flow_settings({"node_settings": {"preview": {"calibration": {"phases": [{"rules": [rule]}]}}}})
+        rule = flow["node_settings"]["preview"]["calibration"]["phases"][0]["rules"][0]
+        if project.status != PROJECT_STATUS_DRAFT:
+            members, task_people, _ = await self.project_audience(project)
+            snapshot = await self.db.scalar(select(PerformanceProjectMemberSnapshot).where(
+                PerformanceProjectMemberSnapshot.project_id == project.id,
+            ).order_by(PerformanceProjectMemberSnapshot.id.desc()).limit(1))
+            people = list((await self.db.execute(select(PerformanceAuthorizationSnapshotPerson).where(
+                PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.source_snapshot_id,
+            ))).scalars().all())
+            people_by_no = {person.employee_no: person for person in people}
+            people_by_no.update({person.employee_no: person for person in members})
+        else:
+            cycle = await self.db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
+            _, people = await self._cycle_snapshot_people(cycle)
+            task_people, _ = self._classify_people(people, settings, cycle)
+            people_by_no = {person.employee_no: person for person in people}
+        try:
+            result = match_calibration_rule(rule, people_by_no, [person.employee_no for person in task_people])
+        except ValueError as exc:
+            raise ProjectValidationError(str(exc)) from exc
+        result.pop("assignments")
+        rows = []
+        for employee_no in result["selected"]:
+            person = people_by_no[employee_no]
+            supervisor = people_by_no.get(getattr(person, "direct_supervisor_employee_no", None))
+            rows.append({
+                "employee_no": employee_no,
+                "display_name": person.display_name,
+                "direct_supervisor_name": supervisor.display_name if supervisor else None,
+                "dotted_supervisor_name": None,
+                "organization_ref": organization_path(person),
+                "leaf_department": next((part.strip() for part in reversed((organization_path(person) or "").split("/")) if part.strip()), None),
+                "job_sequence": normalize_roster_text(getattr(person, "job_family", None)),
+                "job_sub_sequence": normalize_roster_text(getattr(person, "job_category", None)),
+                "position_name": normalize_roster_text(getattr(person, "standard_position", None)),
+                **{field: normalize_roster_text(getattr(person, field, None)) for field in (
+                    "department", "department_2", "job_family", "job_category", "standard_position",
+                )},
+            })
+        return {**result, "people": rows}
 
     async def calibration_preview(self, project, payload):
         _, _, _, settings = self._validate_payload({**self.serialize(project), **payload}, project.settings or {})

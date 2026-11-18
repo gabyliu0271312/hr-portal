@@ -45,7 +45,10 @@ const node = (node_type: string, order: number, executor_role_code: string | nul
 const reviewer360Node = (order: number) => node('evaluation', order, 'assessment.reviewer_360')
 
 describe('PerformanceProjectFlowSettings', () => {
-  beforeEach(() => { vi.spyOn(performanceProjectApi, 'calibrationPreview').mockResolvedValue({}) })
+  beforeEach(() => {
+    vi.spyOn(performanceProjectApi, 'calibrationPreview').mockResolvedValue({})
+    vi.spyOn(performanceProjectApi, 'calibrationRulePreview').mockResolvedValue({ subject_group_counts: [], scope_group_counts: [], total_count: 0, selected: [], people: [] })
+  })
   afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = '' })
   it('opens calibration details for the selected node with the current project payload', async () => {
     const wrapper = mount(PerformanceProjectFlowSettings, {
@@ -60,6 +63,18 @@ describe('PerformanceProjectFlowSettings', () => {
     detail.vm.$emit('update:modelValue', false)
     await wrapper.vm.$nextTick()
     expect(wrapper.findComponent(PerformanceCalibrationDetailScreen).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('passes project context and the current flow draft to the calibration rule editor', async () => {
+    const wrapper = mount(PerformanceProjectFlowSettings, {
+      props: { nodes: [node('calibration', 1)], projectId: 12, projectPayload: { name: '项目', description: null, administrators: [] } },
+      global: { stubs: { PerformanceCalibrationRuleDrawer: true } },
+    })
+    await wrapper.findAll('button').find(button => button.text().includes('添加校准规则'))!.trigger('click')
+    const editor = wrapper.getComponent(PerformanceCalibrationRuleDrawer)
+    expect(editor.props('projectId')).toBe(12)
+    expect(editor.props('projectPayload')).toMatchObject({ name: '项目', flow_settings: { node_settings: { 'calibration-1': { calibration: expect.anything() } } } })
     wrapper.unmount()
   })
 
@@ -745,7 +760,10 @@ describe('CR-013 calibration editing policy', () => {
   function started(canDelete = true) {
     return mount(PerformanceProjectFlowSettings, { props: { nodes: [node('calibration', 1)], modelValue: initial(), savedFlowSettings: initial(), baselineFlowSettings: initial(), projectStatus: 'STARTED', editingPolicy: policy(canDelete), calibrationBaseDigest: 'digest-1', projectId: 12, projectPayload: { name: '项目一', description: null, administrators: [] } } })
   }
-  beforeEach(() => { vi.spyOn(performanceProjectApi, 'calibrationPreview').mockResolvedValue({}) })
+  beforeEach(() => {
+    vi.spyOn(performanceProjectApi, 'calibrationPreview').mockResolvedValue({})
+    vi.spyOn(performanceProjectApi, 'calibrationRulePreview').mockResolvedValue({ subject_group_counts: [], scope_group_counts: [], total_count: 0, selected: [], people: [] })
+  })
   afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = '' })
   it('locks every distribution control and existing rule content while allowing additions', async () => {
     const wrapper = started(false)

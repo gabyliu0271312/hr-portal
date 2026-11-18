@@ -86,17 +86,18 @@ async function refresh() {
   }
 }
 
-watch(() => props.groups, () => {
+watch(() => [props.groups, props.cycleId, props.enabled], () => {
+  requestVersion += 1
   if (debounceTimer) clearTimeout(debounceTimer)
   if (pollTimer) clearTimeout(pollTimer)
+  totalCount.value = 0
+  groupCounts.value = []
+  groupPeoples.value = []
+  dialogOpen.value = false
+  loading.value = Boolean(props.cycleId && props.enabled)
+  error.value = ''
   debounceTimer = setTimeout(() => void refresh(), 200)
 }, { deep: true })
-
-watch(() => props.enabled, () => {
-  if (debounceTimer) clearTimeout(debounceTimer)
-  if (pollTimer) clearTimeout(pollTimer)
-  debounceTimer = setTimeout(() => void refresh(), 0)
-})
 
 onMounted(() => {
   if (props.enabled) debounceTimer = setTimeout(() => void refresh(), 0)
@@ -120,7 +121,9 @@ function openGroup(index: number) {
 
 /** 打开总名单人员列表 */
 function openTotal() {
-  openDialog(groupPeoples.value.flat(), `符合条件的员工，共计 ${totalCount.value} 人`)
+  if (loading.value || error.value) return
+  const rows = [...new Map(groupPeoples.value.flat().map(person => [person.employee_no, person])).values()]
+  openDialog(rows, `符合条件的员工，共计 ${totalCount.value} 人`)
 }
 
 onBeforeUnmount(() => {
@@ -133,13 +136,9 @@ onBeforeUnmount(() => {
 <template>
   <div class="performance-scope-count">
     <p v-if="error" class="performance-scope-count__error" role="alert">{{ error }}</p>
-    <button
-      type="button"
-      class="performance-scope-count__total"
-      @click="openTotal"
-    >
-      <span class="performance-scope-count__label">符合条件的人员，共 </span><span class="performance-scope-count__num" :class="{ 'performance-scope-count__num--active': totalCount > 0 }">{{ totalCount }}</span><span class="performance-scope-count__label"> 人</span>
-    </button>
+    <span class="performance-scope-count__total">
+      <span class="performance-scope-count__label">符合条件的人员，共 </span><button type="button" class="performance-scope-count__num" :class="{ 'performance-scope-count__num--active': totalCount > 0 }" :disabled="loading || Boolean(error) || totalCount === 0" @click="openTotal">{{ totalCount }}</button><span class="performance-scope-count__label"> 人</span>
+    </span>
     <slot
       :counts="groupCounts"
       :loading="loading"
@@ -174,10 +173,17 @@ onBeforeUnmount(() => {
   cursor: default;
 }
 .performance-scope-count__num {
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--performance-button-link-disabled-color);
+  font: inherit;
 }
 .performance-scope-count__num--active {
-  color: var(--color-primary-hover);
+  color: var(--performance-count-link-color);
   cursor: pointer;
 }
+.performance-scope-count__num--active:hover { color: var(--color-primary-hover); }
+.performance-scope-count__num:disabled { color: var(--performance-button-link-disabled-color); cursor: default; }
+.performance-scope-count__num:focus-visible { outline: 0; box-shadow: var(--performance-button-focus-ring); }
 </style>

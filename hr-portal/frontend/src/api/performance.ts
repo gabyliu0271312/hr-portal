@@ -2139,6 +2139,14 @@ export interface PerformanceProjectFlowRule {
   distribution_rules?: PerformanceDistributionRule[]
 }
 
+export interface PerformanceCalibrationRulePreview {
+  subject_group_counts: number[]
+  scope_group_counts: number[]
+  total_count: number
+  selected: string[]
+  people: PerformanceFocusGroupChangePerson[]
+}
+
 export interface PerformanceProjectNodeTime {
   start_at: string
   end_at: string
@@ -2693,6 +2701,10 @@ export const performanceProjectApi = {
     const { data } = await api.post(`/performance/projects/${id}/calibration-details`, payload)
     return data
   },
+  async calibrationRulePreview(id: number, payload: { project: PerformanceProjectPayload; rule: PerformanceProjectFlowRule }): Promise<PerformanceCalibrationRulePreview> {
+    const { data } = await api.post<PerformanceCalibrationRulePreview>(`/performance/projects/${id}/calibration-rule-preview`, payload)
+    return data
+  },
   async calibrationPreview(id: number, payload: PerformanceProjectPayload): Promise<Record<string, PerformanceCalibrationAssignment | null>> {
     const { data } = await api.post(`/performance/projects/${id}/calibration-preview`, payload)
     return data
@@ -2911,6 +2923,11 @@ export interface PerformanceFocusGroupChangePerson {
   employee_no: string
   display_name: string
   direct_supervisor_name?: string | null
+  dotted_supervisor_name?: string | null
+  leaf_department?: string | null
+  job_sub_sequence?: string | null
+  position_name?: string | null
+  standard_position?: string | null
   /** 部门路径（/ 分隔），末级部门由前端 leaf_department 取末段（与 PerformancePeopleListPanel 同源） */
   organization_ref?: string | null
   /** 一级部门（花名册 department 物理列，label 即「一级部门」） */

@@ -22,6 +22,8 @@ const props = defineProps<{
   modelValue: boolean
   title: string
   subtitle?: string
+  variant?: 'default' | 'calibration'
+  columns?: PerformanceTableColumn[]
   rows: PerformanceFocusGroupChangePerson[]
   total?: number
   loading: boolean
@@ -35,7 +37,7 @@ const keyword = ref('')
 const page = ref(1)
 const pageSize = ref(10)
 
-const columns: PerformanceTableColumn[] = [
+const defaultColumns: PerformanceTableColumn[] = [
   { key: 'display_name', label: '姓名', width: 312, fixed: 'left' },
   { key: 'direct_supervisor_name', label: '直属上级', width: 312 },
   { key: 'department', label: '一级部门', width: 312 },
@@ -43,7 +45,20 @@ const columns: PerformanceTableColumn[] = [
   { key: 'job_sequence', label: '序列', width: 312 },
 ]
 
+const calibrationColumns: PerformanceTableColumn[] = [
+  { key: 'display_name', label: '姓名', width: 312, fixed: 'left' },
+  { key: 'direct_supervisor_name', label: '直属上级', width: 312 },
+  { key: 'dotted_supervisor_name', label: '虚线上级', width: 312 },
+  { key: 'department', label: '一级部门', width: 312 },
+  { key: 'leaf_department', label: '末级部门', width: 312 },
+  { key: 'job_sequence', label: '序列', width: 312 },
+  { key: 'job_sub_sequence', label: '子序列', width: 312 },
+  { key: 'position_name', label: '职务', width: 312 },
+]
+const columns = computed(() => props.columns ?? (props.variant === 'calibration' ? calibrationColumns : defaultColumns))
+
 function leafDepartment(row: PerformanceFocusGroupChangePerson): string {
+  if (row.leaf_department) return row.leaf_department
   const parts = (row.organization_ref ?? '').split('/').filter(Boolean)
   return parts[parts.length - 1] ?? ''
 }
@@ -63,7 +78,7 @@ const displayedRows = computed(() => {
 })
 
 function searchableText(row: PerformanceFocusGroupChangePerson) {
-  return [row.display_name, row.employee_no, row.direct_supervisor_name, row.department, leafDepartment(row), row.department_2, row.job_sequence]
+  return [row.display_name, row.employee_no, row.direct_supervisor_name, row.dotted_supervisor_name, row.department, leafDepartment(row), row.department_2, row.job_sequence, row.job_sub_sequence, row.position_name, row.job_family, row.job_category, row.standard_position]
     .filter(Boolean)
     .join(' ')
 }
@@ -106,7 +121,8 @@ function close() {
 </script>
 
 <template>
-  <UiFullScreenModal v-if="props.modelValue" class="focus-group-people-dialog" :title="props.title" :show-footer="false" content-scroll="page" @back="close">
+  <Teleport to="body">
+  <UiFullScreenModal v-if="props.modelValue" class="focus-group-people-dialog" :class="{ 'focus-group-people-dialog--calibration': props.variant === 'calibration' }" :title="props.title" :show-footer="false" content-scroll="page" @back="close">
     <template #subtitle>{{ props.subtitle }}</template>
     <div class="focus-group-people-page">
       <UiSurface class="focus-group-people-surface" radius="all" min-width="0" padding="var(--ui-surface-padding-spacious)">
@@ -136,7 +152,7 @@ function close() {
         </template>
         <template #cell="{ row, column }">
           <span v-if="column.key === 'leaf_department'">{{ leafDepartment(row as PerformanceFocusGroupChangePerson) || '--' }}</span>
-          <span v-else>{{ (row as PerformanceFocusGroupChangePerson)[column.key as keyof PerformanceFocusGroupChangePerson] ?? '--' }}</span>
+          <span v-else>{{ (row as PerformanceFocusGroupChangePerson)[column.key as keyof PerformanceFocusGroupChangePerson] || '--' }}</span>
         </template>
         <template #empty="{ loading: isLoading, text }">
           <div v-if="!isLoading" class="focus-group-people-empty">
@@ -148,13 +164,17 @@ function close() {
       </UiSurface>
     </div>
   </UiFullScreenModal>
+  </Teleport>
 </template>
 
 <style scoped>
 .focus-group-people-dialog {
+  z-index: var(--performance-people-dialog-z-index);
   --ui-fullscreen-background: var(--performance-page-surface);
   --performance-fullscreen-content-bottom-space: 0px;
 }
+.focus-group-people-dialog--calibration { --performance-header-title-desc-gap: var(--spacing-3); }
+.focus-group-people-dialog--calibration :deep(.full-screen-modal-header-subtitle) { color: var(--performance-text-secondary); font: 400 var(--font-size-md)/var(--performance-input-line-height) var(--font-sans); }
 .focus-group-people-page {
   width: 100%;
   min-width: 0;

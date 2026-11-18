@@ -1,15 +1,21 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import PerformanceCalibrationConditionGroup from './PerformanceCalibrationConditionGroup.vue'
 import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
 import PerformanceOrganizationSelect from './PerformanceOrganizationSelect.vue'
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformanceCalibrationRuleDrawer from './PerformanceCalibrationRuleDrawer.vue'
-import type { PerformanceProjectFlowRule } from '@/api/performance'
+import { performanceProjectApi } from '@/api/performance'
+import type { PerformanceCalibrationRulePreview, PerformanceProjectFlowRule, PerformanceProjectPayload } from '@/api/performance'
+import FocusGroupPeopleDialog from './focus-group/FocusGroupPeopleDialog.vue'
+import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import { CALIBRATOR_RELATION_OPTIONS } from './performanceConditionFields'
 
 const condition = (field: 'department' | 'employee' | 'hire_date' | 'calibrator_relation', values: string[] = [], operator: 'INCLUDE' | 'EXCLUDE' | 'before' | 'not_before' | 'after' | 'not_after' = field === 'hire_date' ? 'before' : 'INCLUDE') => ({ field, operator, values })
-afterEach(() => { document.body.innerHTML = '' })
+afterEach(() => { document.body.innerHTML = ''; vi.useRealTimers(); vi.restoreAllMocks() })
+const previewProject: PerformanceProjectPayload = { name: '项目', description: null, administrators: [] }
+const previewRule: PerformanceProjectFlowRule = { subject_type: 'PERSON', operator: 'INCLUDE', scope: 'RULE', allow_authorize: false, subject_groups: [{ conditions: [condition('employee', ['H1'])] }], scope_groups: [{ conditions: [condition('calibrator_relation', ['DIRECT_SUBORDINATES'])] }] }
+const previewResult = (count: number): PerformanceCalibrationRulePreview => ({ subject_group_counts: [1], scope_group_counts: [count], total_count: count, selected: [], people: [] })
 
 describe('PerformanceCalibrationConditionGroup', () => {
   it('shows field validation only after submission and clears it after the value is filled', async () => {
@@ -62,6 +68,35 @@ describe('PerformanceCalibrationConditionGroup', () => {
     wrapper.unmount()
   })
 
+  it('loads a debounced calibration preview and opens the deduplicated eight-column people list', async () => {
+    vi.useFakeTimers()
+    const preview: PerformanceCalibrationRulePreview = { subject_group_counts: [1], scope_group_counts: [2], total_count: 2, selected: ['E1', 'E2'], people: [{ employee_no: 'E1', display_name: '员工1', department: '部门', job_family: '序列', job_category: '子序列', standard_position: '职务' }, { employee_no: 'E1', display_name: '员工1', department: '部门' }, { employee_no: 'E2', display_name: '员工2' }] }
+    const spy = vi.spyOn(performanceProjectApi, 'calibrationRulePreview').mockResolvedValue(preview)
+    const projectPayload = { name: '项目', description: null, administrators: [] } as PerformanceProjectPayload
+    const wrapper = mount(PerformanceCalibrationRuleDrawer, { props: { modelValue: true, projectId: 1, projectPayload, rule: previewRule }, attachTo: document.body })
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy).toHaveBeenCalledWith(1, { project: projectPayload, rule: expect.objectContaining({ subject_groups: previewRule.subject_groups, scope_groups: previewRule.scope_groups }) })
+    expect(wrapper.getComponent(FocusGroupPeopleDialog).props('rows')).toHaveLength(2)
+    expect(document.body.querySelector('.calibration-rule-total')?.textContent).toBe('总人数：2 人')
+    expect(document.body.querySelector('.calibration-rule-total__number')?.textContent).toBe('2')
+    ;(document.body.querySelector('.calibration-rule-total__number') as HTMLElement).click()
+    await wrapper.vm.$nextTick()
+    expect(document.body.querySelector('.focus-group-people-dialog')).not.toBeNull()
+    expect(document.body.textContent).toContain('虚线上级')
+    expect(document.body.textContent).toContain('子序列')
+    expect(document.body.textContent).toContain('职务')
+    expect(wrapper.getComponent(PerformanceManagementTable).props('columns')).toHaveLength(8)
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(document.body.querySelector('.calibration-condition-group__count button')).toBeNull()
+    await wrapper.getComponent(FocusGroupPeopleDialog).vm.$emit('update:modelValue', false)
+    await wrapper.vm.$nextTick()
+    expect(document.body.querySelector('.focus-group-people-dialog')).toBeNull()
+    wrapper.unmount(); vi.useRealTimers(); spy.mockRestore()
+  })
+
+
   it('uses the standard organization, person, and hire-date controls for scope fields', async () => {
     const organizationTree = [{ value: '集团', label: '集团', level: 1, children: [] }]
     const wrapper = mount(PerformanceCalibrationConditionGroup, {
@@ -90,6 +125,71 @@ describe('PerformanceCalibrationConditionGroup', () => {
 })
 
 describe('PerformanceCalibrationRuleDrawer', () => {
+  it('clears counts for incomplete groups without requesting and refreshes after their removal', async () => {
+    vi.useFakeTimers()
+    const spy = vi.spyOn(performanceProjectApi, 'calibrationRulePreview').mockResolvedValue(previewResult(3))
+    const wrapper = mount(PerformanceCalibrationRuleDrawer, { props: { modelValue: true, projectId: 1, projectPayload: previewProject, rule: previewRule }, attachTo: document.body })
+    await vi.advanceTimersByTimeAsync(250)
+    await flushPromises()
+    ;(document.body.querySelector('.calibration-rule-section .calibration-rule-link') as HTMLElement).click()
+    await wrapper.vm.$nextTick()
+    await vi.advanceTimersByTimeAsync(250)
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(document.body.querySelector('.calibration-rule-total__number')?.textContent).toBe('0')
+    ;(document.body.querySelector('[aria-label="删除校准人条件组 2"]') as HTMLElement).click()
+    await wrapper.vm.$nextTick()
+    await vi.advanceTimersByTimeAsync(250)
+    expect(spy).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  it('invalidates responses immediately on draft changes and ignores older or closed-drawer requests', async () => {
+    vi.useFakeTimers()
+    const resolvers: Array<(value: PerformanceCalibrationRulePreview) => void> = []
+    const spy = vi.spyOn(performanceProjectApi, 'calibrationRulePreview').mockImplementation(() => new Promise(resolve => resolvers.push(resolve)))
+    const wrapper = mount(PerformanceCalibrationRuleDrawer, { props: { modelValue: true, projectId: 1, projectPayload: previewProject, rule: previewRule }, attachTo: document.body })
+    await vi.advanceTimersByTimeAsync(250)
+    wrapper.findAllComponents(PerformanceCalibrationConditionGroup)[0].vm.$emit('update:modelValue', { conditions: [condition('employee', ['H2'])] })
+    await wrapper.vm.$nextTick()
+    resolvers[0](previewResult(99))
+    await flushPromises()
+    expect(document.body.querySelector('.calibration-rule-total__number')?.textContent).toBe('0')
+    await vi.advanceTimersByTimeAsync(250)
+    expect(spy).toHaveBeenCalledTimes(2)
+    resolvers[1](previewResult(2))
+    await flushPromises()
+    expect(document.body.querySelector('.calibration-rule-total__number')?.textContent).toBe('2')
+    ;(document.body.querySelector('input[value="PROJECT_ALL"]') as HTMLElement).click()
+    await wrapper.vm.$nextTick()
+    await vi.advanceTimersByTimeAsync(250)
+    expect(spy.mock.calls[2][1].rule.scope).toBe('PROJECT_ALL')
+    await wrapper.setProps({ modelValue: false })
+    resolvers[2](previewResult(88))
+    await flushPromises()
+    await wrapper.setProps({ modelValue: true })
+    expect(document.body.querySelector('.calibration-rule-total__number')?.textContent).toBe('0')
+    wrapper.unmount()
+  })
+
+  it('shows preview errors, retries and keeps requests disabled without project context', async () => {
+    vi.useFakeTimers()
+    const spy = vi.spyOn(performanceProjectApi, 'calibrationRulePreview').mockRejectedValueOnce(new Error('offline')).mockResolvedValue(previewResult(4))
+    const wrapper = mount(PerformanceCalibrationRuleDrawer, { props: { modelValue: true, projectId: 1, projectPayload: previewProject, rule: previewRule }, attachTo: document.body })
+    await vi.advanceTimersByTimeAsync(250)
+    await flushPromises()
+    expect(document.body.textContent).toContain('人员统计失败，请重试')
+    expect((document.body.querySelector('.calibration-rule-total__number') as HTMLButtonElement).disabled).toBe(true)
+    ;(document.body.querySelector('.calibration-rule-preview-retry') as HTMLElement).click()
+    await vi.advanceTimersByTimeAsync(250)
+    await flushPromises()
+    expect(document.body.querySelector('.calibration-rule-total__number')?.textContent).toBe('4')
+    await wrapper.setProps({ projectId: null })
+    await vi.advanceTimersByTimeAsync(250)
+    expect(spy).toHaveBeenCalledTimes(2)
+    expect(document.body.querySelector('.calibration-rule-total__number')?.textContent).toBe('0')
+    wrapper.unmount()
+  })
+
   it('blocks incomplete new groups without discarding the open draft', async () => {
     const wrapper = mount(PerformanceCalibrationRuleDrawer, { props: { modelValue: true }, attachTo: document.body })
     const drawer = () => document.body.querySelector('.calibration-rule-drawer')!

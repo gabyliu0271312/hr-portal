@@ -365,6 +365,42 @@ def _relations(employee_no, calibrator, people):
     return set()
 
 
+def match_calibration_rule(rule, people, member_nos):
+    groups = rule.get("subject_groups") or []
+    scope_groups = [] if rule.get("scope", "PROJECT_ALL") == "PROJECT_ALL" else rule.get("scope_groups") or []
+    references = {value for group in groups for condition in group["conditions"] for value in condition["values"]}
+    if references - people.keys():
+        raise ValueError("校准人员必须来自本周期人员快照")
+    effective_handlers = set()
+    scope_members = [set() for _ in scope_groups]
+    selected = set()
+    assignments = []
+    for handler in people:
+        if not _matches(groups, handler):
+            continue
+        for employee_no in dict.fromkeys(member_nos):
+            if rule.get("scope", "PROJECT_ALL") == "PROJECT_ALL":
+                in_scope = True
+            else:
+                relations = _relations(employee_no, handler, people)
+                in_scope = False
+                for index, group in enumerate(scope_groups):
+                    if all(_matches_scope(employee_no, condition, people, relations) for condition in group["conditions"]):
+                        scope_members[index].add(employee_no)
+                        in_scope = True
+            if in_scope:
+                effective_handlers.add(handler)
+                selected.add(employee_no)
+                assignments.append({"handler_ref": handler, "employee_no": employee_no, "allow_authorize": bool(rule.get("allow_authorize"))})
+    return {
+        "assignments": assignments,
+        "subject_group_counts": [sum(_matches([group], handler) for handler in effective_handlers) for group in groups],
+        "scope_group_counts": [len(members) for members in scope_members],
+        "total_count": len(selected),
+        "selected": sorted(selected),
+    }
+
+
 def resolve_calibration(node, settings, people, member_nos, *, require_complete=False):
     config = (settings.get("node_settings", {}).get(node["node_id"], {}).get("calibration") or {})
     phases = config.get("phases") or []
@@ -379,28 +415,17 @@ def resolve_calibration(node, settings, people, member_nos, *, require_complete=
         sources = []
         for rule_index, rule in enumerate(phase.get("rules") or []):
             rule_id = rule.get("rule_id") or f"rule-{index + 1}-{rule_index + 1}"
-            rule_assignments = []
             groups = rule.get("subject_groups") or []
             if not groups:
                 if require_complete:
                     raise ValueError("请明确指定校准人，不能使用空白校准规则启动项目")
                 continue
-            references = {value for group in groups for condition in group["conditions"] for value in condition["values"]}
-            if references - people.keys():
-                raise ValueError("校准人员必须来自本周期人员快照")
-            handlers = [employee for employee in people if _matches(groups, employee)]
-            for handler in handlers:
-                for employee_no in member_nos:
-                    in_scope = rule.get("scope", "PROJECT_ALL") == "PROJECT_ALL"
-                    if not in_scope:
-                        relations = _relations(employee_no, handler, people)
-                        in_scope = any(all(_matches_scope(employee_no, condition, people, relations) for condition in group["conditions"]) for group in rule.get("scope_groups") or [])
-                    if in_scope:
-                        key = (handler, employee_no)
-                        assignment = assignments.setdefault(key, {"handler_ref": handler, "employee_no": employee_no, "allow_authorize": False, "source_rule_ids": []})
-                        assignment["allow_authorize"] |= bool(rule.get("allow_authorize"))
-                        assignment["source_rule_ids"].append(rule_id)
-                        rule_assignments.append({"handler_ref": handler, "employee_no": employee_no, "allow_authorize": bool(rule.get("allow_authorize"))})
+            rule_assignments = match_calibration_rule(rule, people, member_nos)["assignments"]
+            for item in rule_assignments:
+                key = (item["handler_ref"], item["employee_no"])
+                assignment = assignments.setdefault(key, {**item, "allow_authorize": False, "source_rule_ids": []})
+                assignment["allow_authorize"] |= item["allow_authorize"]
+                assignment["source_rule_ids"].append(rule_id)
             sources.append({"rule_id": rule_id, "rule": deepcopy(rule), "assignments": rule_assignments})
         result.append({"phase_id": phase_id, "rule_sources": sources, "assignments": [assignments[key] for key in sorted(assignments)]})
     assigned = {item["employee_no"] for phase in result for item in phase["assignments"]}

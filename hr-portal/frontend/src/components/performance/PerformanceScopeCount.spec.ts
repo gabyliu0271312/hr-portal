@@ -105,10 +105,51 @@ describe('PerformanceScopeCount', () => {
     expect(dialog.attributes('data-rows')).toBe('1')
   })
 
+  it('deduplicates overlapping OR-group people in the total list', async () => {
+    vi.mocked(performanceFocusGroupApi.resolveScope).mockReset()
+      .mockResolvedValueOnce({ task_id: 'task-1', status: 1 } as any)
+      .mockResolvedValueOnce({ ...resolvedOnce, selected_count: 1, group_counts: [1, 1], group_peoples: [[groupRow], [groupRow]] } as any)
+    const wrapper = mountCount()
+    await settle()
+    await wrapper.get('.performance-scope-count__num').trigger('click')
+    expect(wrapper.get('.people-dialog-stub').attributes('data-rows')).toBe('1')
+    expect(wrapper.get('.people-dialog-stub').attributes('data-subtitle')).toBe('符合条件的员工，共计 1 人')
+    wrapper.unmount()
+  })
+
+  it('makes only the count clickable and disables an empty count', async () => {
+    const wrapper = mountCount({ enabled: false })
+    await settle()
+    expect(wrapper.get('.performance-scope-count__total').element.tagName).toBe('SPAN')
+    expect(wrapper.get('.performance-scope-count__num').attributes('disabled')).toBeDefined()
+    await wrapper.get('.performance-scope-count__label').trigger('click')
+    expect(wrapper.find('.people-dialog-stub').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('invalidates an in-flight response immediately when cycle context changes', async () => {
+    let resolveOld: (value: any) => void = () => {}
+    vi.mocked(performanceFocusGroupApi.resolveScope).mockReset()
+      .mockResolvedValueOnce({ task_id: 'old', status: 1 } as any)
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve }))
+      .mockResolvedValueOnce({ task_id: 'new', status: 1 } as any)
+      .mockResolvedValueOnce({ ...resolvedOnce, selected_count: 1 } as any)
+    const wrapper = mountCount()
+    await settle()
+    await wrapper.setProps({ cycleId: 2 })
+    resolveOld(resolvedOnce)
+    await flushPromises()
+    expect(wrapper.text()).toContain('符合条件的人员，共 0 人')
+    await settle()
+    expect(performanceFocusGroupApi.resolveScope).toHaveBeenLastCalledWith(2, expect.anything(), 'new')
+    expect(wrapper.text()).toContain('符合条件的人员，共 1 人')
+    wrapper.unmount()
+  })
+
   it('opens total people dialog with employee count description', async () => {
     const wrapper = mountCount()
     await settle()
-    await wrapper.find('.performance-scope-count__total').trigger('click')
+    await wrapper.find('.performance-scope-count__num').trigger('click')
     await flushPromises()
     const dialog = wrapper.find('.people-dialog-stub')
     expect(dialog.exists()).toBe(true)

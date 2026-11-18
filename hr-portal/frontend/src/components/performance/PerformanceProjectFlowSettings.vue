@@ -171,6 +171,8 @@
       v-model="drawerOpen"
       :mode="ruleEditor.ruleIndex === null ? 'create' : 'edit'"
       :rule="ruleEditor.rule"
+      :project-id="projectId"
+      :project-payload="projectPayload ? { ...projectPayload, flow_settings: projectFlowWithUtcTimes(cloneSettings(draft)) } : null"
       :people-options="peopleOptions"
       :organization-tree="organizationTree"
       :hire-date-range="hireDateRange"

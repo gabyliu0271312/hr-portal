@@ -64,6 +64,7 @@ function person(overrides: Partial<PerformanceFocusGroupChangePerson> = {}): Per
 
 function stubs() {
   return {
+    teleport: true,
     UiFullScreenModal: fullScreenModalStub,
     PerformanceManagementTable: managementTableStub,
     PerformanceSearchInput: searchInputStub,
@@ -102,6 +103,38 @@ describe('FocusGroupPeopleDialog', () => {
     expect(wrapper.text()).toContain('序列-研发') // 序列复用上级评估 format_job_sequence
   })
 
+  it('keeps the calibration eight-column contract and displays explicit snapshot leaf and optional fields', async () => {
+    const rows = [person({ leaf_department: '冻结末级', dotted_supervisor_name: null, job_sub_sequence: '冻结子序列', position_name: '冻结职务' }), person({ employee_no: 'E002', display_name: '乙', direct_supervisor_name: '', leaf_department: '', organization_ref: '', job_sequence: '', job_sub_sequence: '', position_name: '' })]
+    const wrapper = mount(FocusGroupPeopleDialog, {
+      props: { modelValue: true, title: '人员列表', rows, loading: false, error: '', variant: 'calibration' },
+      global: { stubs: stubs() },
+    })
+    await flushPromises()
+    const table = wrapper.findComponent(managementTableStub)
+    expect(table.props('columns').map((column: { key: string; label: string }) => [column.key, column.label])).toEqual([
+      ['display_name', '姓名'], ['direct_supervisor_name', '直属上级'], ['dotted_supervisor_name', '虚线上级'], ['department', '一级部门'], ['leaf_department', '末级部门'], ['job_sequence', '序列'], ['job_sub_sequence', '子序列'], ['position_name', '职务'],
+    ])
+    expect(wrapper.get('.full-screen-modal-stub').classes()).toContain('focus-group-people-dialog--calibration')
+    expect(wrapper.text()).toContain('冻结末级')
+    expect(wrapper.text()).toContain('冻结子序列')
+    expect(wrapper.text()).toContain('冻结职务')
+    expect(wrapper.findAll('.management-table-stub span').filter(cell => cell.text() === '--').length).toBeGreaterThanOrEqual(6)
+    await wrapper.get('.search-input').setValue('冻结职务')
+    expect(table.props('rows')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('accepts caller columns while preserving default rows and missing-value rendering', async () => {
+    const columns = [{ key: 'position_name', label: '职务', width: 312 }]
+    const wrapper = mount(FocusGroupPeopleDialog, {
+      props: { modelValue: true, title: '人员列表', rows: [person({ position_name: '工程师' })], loading: false, error: '', columns },
+      global: { stubs: stubs() },
+    })
+    expect(wrapper.findComponent(managementTableStub).props('columns')).toEqual(columns)
+    expect(wrapper.text()).toContain('工程师')
+    wrapper.unmount()
+  })
+
   it('filters and paginates locally when no loadFn provided', async () => {
     const rows = Array.from({ length: 12 }, (_, index) => person({ employee_no: `E${index}`, display_name: index % 2 === 0 ? '甲' : '乙' }))
     const wrapper = mount(FocusGroupPeopleDialog, {
@@ -124,6 +157,7 @@ describe('FocusGroupPeopleDialog', () => {
     const rows = Array.from({ length: 12 }, (_, index) => person({ employee_no: `E${index}`, display_name: `成员${index}` }))
     const wrapper = mount(FocusGroupPeopleDialog, {
       props: { modelValue: true, title: '人员列表', subtitle: '核心研发团队', rows, loading: false, error: '' },
+      global: { stubs: { teleport: true, ElSelect: { props: ['modelValue'], template: '<select :value="modelValue"><slot /></select>' }, ElOption: { props: ['value', 'label'], template: '<option :value="value">{{ label }}</option>' } } },
     })
     await flushPromises()
     expect(wrapper.getComponent(UiFullScreenModal).props('contentScroll')).toBe('page')

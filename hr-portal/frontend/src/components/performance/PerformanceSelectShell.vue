@@ -175,10 +175,12 @@ onBeforeUnmount(() => {
 .performance-select-shell { position: relative; width: 100%; min-width: 0; }
 .performance-select-shell__selector { position: relative; display: flex; align-items: center; overflow: hidden; width: 100%; height: var(--performance-select-height); padding: 1px var(--performance-select-padding-x); box-sizing: border-box; border: 1px solid var(--performance-field-border); border-radius: var(--performance-control-radius); background: var(--color-bg-card); color: var(--color-text-primary); font: 400 var(--font-size-md)/22px var(--font-sans); cursor: text; transition: border-color var(--duration-base) var(--ease-standard), background-color var(--duration-base) var(--ease-standard); }
 .performance-select-shell__selector.has-value { padding-left: var(--performance-select-padding-value-left); }
+.performance-select-shell__selector.is-plain { cursor: pointer; }
 .performance-select-shell__selector.is-plain.has-value { padding-left: var(--performance-select-padding-x); }
 .performance-select-shell__selector.is-plain :deep(.performance-select-shell__tag) { flex-shrink: 1; margin: 0; padding: 0; background: transparent; }
 .performance-select-shell__selector.is-plain :deep(.performance-select-shell__tag-content) { max-width: none; }
-.performance-select-shell__selector.is-plain .performance-select-shell__input { position: absolute; inset: 0; width: 100% !important; color: transparent; caret-color: transparent; }
+.performance-select-shell__selector.is-plain .performance-select-shell__input { position: absolute; inset: 0; width: 100% !important; color: transparent; caret-color: transparent; cursor: pointer; }
+.performance-select-shell__selector.disabled .performance-select-shell__input { cursor: not-allowed; }
 .performance-select-shell__selector.is-plain .performance-select-shell__placeholder { position: relative; pointer-events: none; }
 .performance-select-shell__selector.is-plain .performance-select-shell__input::placeholder { color: transparent; }
 .performance-select-shell__selector.disabled { background: var(--performance-field-disabled-background); color: var(--performance-field-disabled-text); cursor: not-allowed; }

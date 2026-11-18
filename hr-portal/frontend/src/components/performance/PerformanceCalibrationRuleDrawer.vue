@@ -30,6 +30,8 @@
               :field-options="subjectFieldOptions"
               :value-options="peopleOptions"
               count-suffix="有可校准的被评估人"
+              :count="preview?.subject_group_counts[groupIndex] ?? 0"
+              variant="calibration"
               :removable="draft.subject_groups.length > 1"
               @open-options="emit('open-options')"
               @update:model-value="subjectDirty = true; validationError = ''"
@@ -62,6 +64,8 @@
               :value-options="peopleOptions"
               :organization-tree="organizationTree"
               :hire-date-range="hireDateRange"
+              :count="preview?.scope_group_counts[groupIndex] ?? 0"
+              variant="calibration"
               :removable="draft.scope_groups.length > 1"
               @open-options="emit('open-options')"
               @update:model-value="validationError = ''"
@@ -70,10 +74,15 @@
             <div v-if="groupIndex < draft.scope_groups.length - 1" class="calibration-rule-group-or">或</div>
           </template>
         </template>
+        <div class="calibration-rule-scope-actions">
         <button v-if="draft.scope_mode === 'RULE'" type="button" class="calibration-rule-link" @click="addScopeGroup">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.709 4.058C12.595 4 12.445 4 12.147 4h-.294c-.298 0-.448 0-.562.058a.534.534 0 0 0-.233.233C11 4.405 11 4.555 11 4.853V11H4.853c-.298 0-.448 0-.562.058a.534.534 0 0 0-.233.233C4 11.405 4 11.555 4 11.853v.294c0 .298 0 .448.058.562.051.1.133.182.233.233.114.058.264.058.562.058H11v6.147c0 .298 0 .448.058.562.051.1.133.182.233.233.114.058.264.058.562.058h.294c.298 0 .448 0 .562-.058a.535.535 0 0 0 .233-.233c.058-.114.058-.264.058-.562V13h6.147c.298 0 .448 0 .562-.058a.535.535 0 0 0 .233-.233c.058-.114.058-.264.058-.562v-.294c0-.298 0-.448-.058-.562a.535.535 0 0 0-.233-.233C19.595 11 19.445 11 19.147 11H13V4.853c0-.298 0-.448-.058-.562a.534.534 0 0 0-.233-.233Z" fill="currentColor" /></svg>
           添加条件组
         </button>
+        <span class="calibration-rule-total" :aria-busy="previewLoading"><span>总人数：</span><button type="button" class="calibration-rule-total__number" :disabled="previewLoading || !!previewError || !preview?.total_count" aria-label="查看符合条件的被评估人" @click="openPeople">{{ preview?.total_count ?? 0 }}</button><span> 人</span></span>
+        </div>
+        <p v-if="previewLoading" class="calibration-rule-preview-status" role="status">正在统计人员…</p>
+        <p v-if="previewError" class="calibration-rule-error" role="alert">{{ previewError }} <button type="button" class="calibration-rule-preview-retry" @click="markPreviewDirty">重试</button></p>
         <p v-if="validationError" class="calibration-rule-error" role="alert">{{ validationError }}</p>
       </section>
 
@@ -130,11 +139,14 @@
       <PerformanceDrawerFooter variant="captured" :confirm-text="isDistributionFlow && step === 0 ? '下一步' : '确定'" :cancel-text="isDistributionFlow && step === 1 ? '上一步' : '取消'" :confirm-disabled="saving" @confirm="confirm" @cancel="isDistributionFlow && step === 1 ? backStep() : cancel()" />
     </template>
   </UiDrawerShell>
+  <FocusGroupPeopleDialog v-model="peopleOpen" title="人员列表" :subtitle="`符合条件的员工，共计 ${previewPeople.length} 人`" :rows="previewPeople" :loading="false" error="" variant="calibration" />
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import type { PerformanceCalibrationConditionGroup as CalibrationGroup, PerformanceDistributionAssessmentOption, PerformanceDistributionRule, PerformanceHrbpOrganizationNode, PerformanceProjectFlowRule } from '@/api/performance'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { performanceProjectApi } from '@/api/performance'
+import type { PerformanceCalibrationRulePreview, PerformanceProjectPayload, PerformanceCalibrationConditionGroup as CalibrationGroup, PerformanceDistributionAssessmentOption, PerformanceDistributionRule, PerformanceHrbpOrganizationNode, PerformanceProjectFlowRule } from '@/api/performance'
+import FocusGroupPeopleDialog from './focus-group/FocusGroupPeopleDialog.vue'
 import type { PerformanceSearchSelectOption } from './PerformanceSearchSelect.vue'
 import PerformanceDrawerFooter from './PerformanceDrawerFooter.vue'
 import UiDrawerShell from '../ui/UiDrawerShell.vue'
@@ -159,6 +171,8 @@ type RuleDraft = {
 
 const props = withDefaults(defineProps<{
   modelValue: boolean
+  projectId?: number | null
+  projectPayload?: PerformanceProjectPayload | null
   rule?: PerformanceProjectFlowRule | null
   mode?: 'create' | 'edit'
   peopleOptions?: PeopleOption[]
@@ -182,6 +196,38 @@ const subjectDirty = ref(false)
 const step = ref(0)
 const distributionSubmitted = ref(false)
 const isDistributionFlow = computed(() => props.distributionMode === 'BY_CALIBRATION_SCOPE')
+const preview = ref<PerformanceCalibrationRulePreview | null>(null)
+const previewLoading = ref(false)
+const previewError = ref('')
+const peopleOpen = ref(false)
+const previewPeople = computed(() => [...new Map((preview.value?.people || []).map(person => [person.employee_no, person])).values()])
+let previewTimer: ReturnType<typeof setTimeout> | undefined
+let previewVersion = 0
+
+function markPreviewDirty() {
+  const version = ++previewVersion
+  if (previewTimer) clearTimeout(previewTimer)
+  preview.value = null
+  previewError.value = ''
+  peopleOpen.value = false
+  previewLoading.value = false
+  if (!props.modelValue || !props.projectId || !props.projectPayload || !validGroups(draft.value.subject_groups) || (draft.value.scope_mode === 'RULE' && !validGroups(draft.value.scope_groups))) return
+  previewLoading.value = true
+  previewTimer = setTimeout(() => { void loadPreview(version) }, 250)
+}
+async function loadPreview(version: number) {
+  if (!props.projectId || !props.projectPayload || version !== previewVersion) return
+  try {
+    const result = await performanceProjectApi.calibrationRulePreview(props.projectId, { project: props.projectPayload, rule: toRule() })
+    if (version !== previewVersion || !props.modelValue) return
+    preview.value = result
+  } catch (error: any) {
+    if (version === previewVersion && props.modelValue) previewError.value = error?.response?.data?.detail || '人员统计失败，请重试'
+  } finally {
+    if (version === previewVersion) previewLoading.value = false
+  }
+}
+function openPeople() { if (!previewLoading.value && !previewError.value && previewPeople.value.length) peopleOpen.value = true }
 
 function createGroup(field: 'employee' | 'calibrator_relation'): CalibrationGroup {
   return { conditions: [{ field, operator: 'INCLUDE', values: [] }] }
@@ -286,13 +332,23 @@ watch(() => [props.modelValue, props.rule, props.mode], () => {
     distributionSubmitted.value = false
   }
 }, { deep: false })
+watch(() => [props.modelValue, props.projectId, props.projectPayload, draft.value.subject_source, draft.value.subject_groups, draft.value.scope_mode, draft.value.scope_groups], markPreviewDirty, { deep: true, immediate: true, flush: 'sync' })
+onBeforeUnmount(() => { previewVersion += 1; if (previewTimer) clearTimeout(previewTimer) })
 </script>
 
 <style scoped>
+.calibration-rule-scope-actions{display:flex;align-items:center;justify-content:space-between;gap:var(--spacing-2);margin-top:var(--spacing-2)}
+.calibration-rule-scope-actions>.calibration-rule-link{margin-top:0}
+.calibration-rule-total{margin-left:auto;color:var(--performance-text-secondary)}
+.calibration-rule-total__number{padding:0;border:0;background:transparent;color:var(--performance-count-link-color);font:inherit;cursor:pointer}
+.calibration-rule-total__number:hover:not(:disabled){color:var(--performance-count-link-hover-color)}
+.calibration-rule-total__number:disabled{color:var(--performance-count-link-disabled-color);cursor:not-allowed}
+.calibration-rule-preview-retry{padding:0;border:0;background:transparent;color:var(--performance-count-link-color);font:inherit;cursor:pointer}
+.calibration-rule-preview-status{margin:var(--spacing-2) 0 0;color:var(--performance-text-secondary)}
 .calibration-rule-error{margin:var(--performance-field-error-gap) 0 0;color:var(--performance-field-error-color);font-size:var(--performance-field-error-font-size);line-height:var(--performance-field-error-line-height)}
 .calibration-rule-header{display:flex;align-items:center;gap:32px;min-width:0}.calibration-rule-header h2{margin:0;white-space:nowrap}.calibration-step-guide{display:flex;align-items:center;justify-content:center;gap:12px;color:#8f959e;font-size:14px;line-height:22px}.calibration-step-guide--body{margin:0 auto 20px}.calibration-step-guide span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.calibration-step-guide b{display:inline-flex;width:20px;height:20px;align-items:center;justify-content:center;border:1px solid #d0d3d6;border-radius:50%;font-size:12px;font-weight:400}.calibration-step-guide span.current,.calibration-step-guide span.done{color:#3370ff}.calibration-step-guide span.current b,.calibration-step-guide span.done b{border-color:#3370ff;background:#3370ff;color:#fff}.calibration-step-guide i{width:56px;border-top:1px solid #d0d3d6}
 .calibration-distribution-list{display:flex;flex-direction:column;gap:12px}.calibration-distribution-item{display:flex;flex-direction:column;gap:8px}.calibration-distribution-card{padding:16px 20px;border-radius:4px;background:#f5f6f7}.calibration-distribution-card__header{display:flex;align-items:center;justify-content:space-between;font-weight:600}.calibration-distribution-empty{display:flex;flex-direction:column;align-items:center;padding:32px 0;color:#646a73}.calibration-distribution-empty :deep(.metric-template-empty-illustration){display:block;width:250px;height:125px}.calibration-distribution-empty p{margin:12px 0}.calibration-distribution-add{margin-top:12px}
 .calibration-rule-group-or{margin:16px -20px 8px;padding:12px 20px 0;border-top:1px solid var(--color-line-divider);color:var(--color-text-secondary);font:400 14px/22px var(--font-sans)}
 .calibration-rule-section :deep(.performance-condition-logic-group__rows > .calibration-condition-group + .calibration-condition-group){margin-top:8px}
-.calibration-condition-group+.calibration-condition-group{margin-top:8px}.calibration-rule-drawer{display:flex;flex-direction:column;gap:20px;min-width:0;color:#1f2329;font:400 14px/22px var(--font-sans)}.calibration-rule-section{min-width:0}.calibration-rule-section__title{display:flex;align-items:center;margin:0;font:600 14px/22px var(--font-sans)}.required-mark{margin-right:4px;color:#f54a45}.calibration-radio-group{display:flex;flex-wrap:wrap;gap:8px 24px;margin:8px 0 20px}.calibration-radio-group--vertical{flex-direction:column;margin-bottom:0}.calibration-radio-group label{display:flex;align-items:center;min-height:22px;cursor:pointer}.calibration-radio-group input{width:16px;height:16px;margin:0 8px 0 0;accent-color:var(--color-primary)}.calibration-rule-link{display:inline-flex;align-items:center;margin-top:8px;padding:0;border:0;background:transparent;color:#3370ff;font:400 14px/22px var(--font-sans);cursor:pointer}.calibration-rule-link svg{width:16px;height:16px;margin-right:4px}.calibration-rule-empty{margin:8px 0 0;color:#646a73}.calibration-rule-help{margin:8px 0 12px;color:#646a73}.calibration-rule-example{margin-left:8px;padding:0;border:0;background:transparent;color:var(--color-primary);font:inherit;cursor:pointer}.calibration-description-input{display:flex;align-items:center;min-height:32px;padding:4px 8px 4px 11px;border:1px solid #d0d3d6;border-radius:6px;background:#fff;box-sizing:border-box}.calibration-description-input:focus-within{border-color:#3370ff;box-shadow:0 0 0 2px rgba(51,112,255,.18)}.calibration-description-input input{flex:1;min-width:20px;height:22px;padding:0;border:0;outline:0;background:transparent;color:#1f2329;font:400 14px/22px var(--font-sans)}.calibration-description-input>span:not(.calibration-description-input__count){margin-left:8px;padding:0 6px;border-radius:4px;background:rgba(31,35,41,.1);color:#646a73;font-size:12px;line-height:20px}.calibration-description-input__count{display:none}.calibration-rule-delegation{margin-top:0}.calibration-rule-delegation .calibration-rule-section__title{gap:8px}.calibration-rule-delegation .calibration-rule-help{margin-bottom:0}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.calibration-condition-group+.calibration-condition-group{margin-top:8px}.calibration-rule-drawer{display:flex;flex-direction:column;gap:20px;width:100%;min-width:0;color:#1f2329;font:400 14px/22px var(--font-sans)}.calibration-rule-section{min-width:0}.calibration-rule-section__title{display:flex;align-items:center;margin:0;font:600 14px/22px var(--font-sans)}.required-mark{margin-right:4px;color:#f54a45}.calibration-radio-group{display:flex;flex-wrap:wrap;gap:8px 24px;margin:8px 0 20px}.calibration-radio-group--vertical{flex-direction:column;margin-bottom:0}.calibration-radio-group label{display:flex;align-items:center;min-height:22px;cursor:pointer}.calibration-radio-group input{width:16px;height:16px;margin:0 8px 0 0;accent-color:var(--color-primary)}.calibration-rule-link{display:inline-flex;align-items:center;margin-top:8px;padding:0;border:0;background:transparent;color:#3370ff;font:400 14px/22px var(--font-sans);cursor:pointer}.calibration-rule-link svg{width:16px;height:16px;margin-right:4px}.calibration-rule-empty{margin:8px 0 0;color:#646a73}.calibration-rule-help{margin:8px 0 12px;color:#646a73}.calibration-rule-example{margin-left:8px;padding:0;border:0;background:transparent;color:var(--color-primary);font:inherit;cursor:pointer}.calibration-description-input{display:flex;align-items:center;min-height:32px;padding:4px 8px 4px 11px;border:1px solid #d0d3d6;border-radius:6px;background:#fff;box-sizing:border-box}.calibration-description-input:focus-within{border-color:#3370ff;box-shadow:0 0 0 2px rgba(51,112,255,.18)}.calibration-description-input input{flex:1;min-width:20px;height:22px;padding:0;border:0;outline:0;background:transparent;color:#1f2329;font:400 14px/22px var(--font-sans)}.calibration-description-input>span:not(.calibration-description-input__count){margin-left:8px;padding:0 6px;border-radius:4px;background:rgba(31,35,41,.1);color:#646a73;font-size:12px;line-height:20px}.calibration-description-input__count{display:none}.calibration-rule-delegation{margin-top:0}.calibration-rule-delegation .calibration-rule-section__title{gap:8px}.calibration-rule-delegation .calibration-rule-help{margin-bottom:0}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 </style>

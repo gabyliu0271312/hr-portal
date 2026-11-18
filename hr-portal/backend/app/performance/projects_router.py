@@ -1591,6 +1591,12 @@ class ProjectPayload(BaseModel):
     flow_settings: dict | None = None
 
 
+class CalibrationRulePreviewPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project: ProjectPayload
+    rule: dict
+
+
 class ProjectPatchPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str | None = Field(default=None, min_length=1, max_length=128)
@@ -4282,6 +4288,17 @@ async def update_project(
         await db.rollback()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return ProjectResponse(**PerformanceProjectService.serialize(project))
+
+
+@router.post("/projects/{project_id}/calibration-rule-preview")
+async def calibration_rule_preview(project_id: int, payload: CalibrationRulePreviewPayload, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session)):
+    project = await _get_project(db, project_id)
+    if not _can_manage_project(context, project):
+        raise HTTPException(status_code=403, detail="无权查看当前项目校准范围")
+    try:
+        return await PerformanceProjectService(db).calibration_rule_preview(project, payload.project.model_dump(exclude_unset=True), payload.rule)
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/projects/{project_id}/calibration-preview")
