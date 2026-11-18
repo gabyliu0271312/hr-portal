@@ -598,6 +598,12 @@ async def _handler_performance_focus_scope(
     return len(selected), f"performance focus scope resolved: selected={len(selected)}"
 
 
+async def _handler_performance_employment_sync(job, db, triggered_by):
+    from app.performance.snapshot_service import refresh_live_employment_statuses
+
+    return await refresh_live_employment_statuses(db)
+
+
 async def _handler_performance_cycle_lifecycle(
     job: ScheduledJob,
     db: AsyncSession,
@@ -639,6 +645,7 @@ async def _handler_performance_comparison(job, db, triggered_by):
 
 
 JOB_HANDLERS: dict[str, HandlerFn] = {
+    "performance_employment_sync": _handler_performance_employment_sync,
     "performance_comparison": _handler_performance_comparison,
     "performance_reconsideration": _handler_performance_reconsideration,
     "datasource_sync": _handler_datasource_sync,

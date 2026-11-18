@@ -276,6 +276,18 @@
 - 浏览器证据：本地Vite真实Vue成员表格、全部API隔离合成数据，1440×900与390×844；三个标签顺序、撤销隐藏、校准历史倒序、转交悬浮、长姓名不裁标签、键盘Escape通过。实测20px/12px/4px/0 6px/rgba(53,189,75,.2)；窄屏浮层左右16px，pageerror=0。`ui-blueprints/CR-007-F15-member-identity-history-20261118.png` 已查看，含全局Element样式的最终截图；前一次隔离页缺Element样式已更正，不将组件截图当作真实登录/API/数据库验收。
 - 后端最终证据：`python -m pytest hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_member_identity.py -q --tb=short` → **837 passed / 5 skipped / 1 python_multipart第三方弃用警告，31.24s，exit0**，主线程已核对完整日志 `.tmp-member-identity-pytest.log`；独立身份13项主线程复跑通过，含真实SQLite执行SQL、校准/匿名/跨项目快照、当前页及拒绝范围。另跑 auth_context/member_reminders/subject_visibility 三文件 → **128 passed / 1同类警告**。首轮全量35个旧fixture失败已通过精确补投影形状、快照字段、空查询结果及真实查询次数恢复；未mock整体hydration、未按Session类型跳过、不改变原业务断言或并行校准8项。`git diff --check` 通过，仅换行转换提示。真实PostgreSQL/登录API/生产未执行，5跳过项不计通过。无数据库迁移、实际通知、commit/push/deploy。停止仅撤回本卡增量，保留快照、任务、答案及审计。
 
+### 2026-11-18 CR-007-F15-S01 绩效内部每日在职状态刷新
+
+- 发布授权：本地验证后用户明确要求在main提交并推送本卡六文件；不部署或执行生产首次补齐。下文未提交推送指开发验收时点。
+
+- [ ] CR-007-F15-S01：用户确认每天北京时间09:00由绩效消费方刷新，允许正常情况下接近24小时延迟；不改花名册写入，不在名单GET实时查花名册。本卡为后端修复，不新增UI/蓝图/迁移。
+- 目标/契约：注册全局统一任务 `performance_employment_sync`（business_id=0，cron=`0 9 * * *`，Asia/Shanghai，kind不超过32字符）；启动幂等补任务，保留管理员已有启停/调度设置。复用现有run-now/retry、scheduled_jobs.last_*与job_runs，不新调度器或历史表。
+- 消费与事务：按工号读取花名册已有实体列 `employment_status/active_status`；空值跳过，已知状态归一化；两列或重复工号状态冲突、未知/缺失保留原绩效值并汇总计数。批量更新所有已有授权快照（含锁定周期）的live_employment_status；只允许该列与自动updated_at变化，冻结状态/组织/姓名/成员/任务/授权不变。执行器统一提交/回滚，handler不commit；源表/必要字段不可用或SQL失败按失败历史记录，不伪报成功。
+- 文件边界：只允许backend/app/performance/snapshot_service.py、scheduler/handlers.py与engine.py、既有tests/test_performance_member_identity.py与test_quality_dependency_hardening.py、本记录。禁止datasources写流程、共享花名册契约、模型/迁移、前端与并行校准修改。现有名单读取逻辑保持，供结果开通/360等原消费者继续读取同一绩效live字段。
+- 验收：真实SQLite执行批量SELECT/UPDATE，覆盖锁定快照/多周期、生产active_status样例、双列空值/冲突、重复/缺失/未知、幂等及事务回滚；同步→新会话读取姓名identity状态，断言冻结字段/任务不变。调度测试覆盖09:00时区、kind长度、注册幂等和保留已有配置、失败历史及重试入口。首次补齐走已有run-now由部署者受控执行，不在开发环境操作生产。停用只禁用该任务，不清空已同步值。
+- 实现：snapshot_service.refresh_live_employment_statuses按固定ID顺序锁定绩效人员行，工号查询与状态写入每1000项分段；两个状态字段都存在时跳过空值，规范化中文/既有英文枚举，同工号跨列及重复源行冲突不更新。只改live_employment_status及ORM自动updated_at，无内部commit；调度kind长度27、09:00上海时区、ON CONFLICT DO NOTHING保留已有设置。GET和前端零改动，空绩效名单不查源表；无身份、答案、任务或授权操作。
+- 最终本地证据：`DB_HOST=127.0.0.1 DB_PORT=1 PYTHONPATH=hr-portal/backend hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_member_identity.py hr-portal/backend/tests/test_quality_dependency_hardening.py hr-portal/backend/tests/test_performance_cycles.py hr-portal/backend/tests/test_performance_snapshot_service.py hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_comparison_notifications.py -q --tb=short` → **976 passed / 7 skipped / 1 python_multipart第三方弃用警告，19.46s，exit0**。SQL测试含1001工号分段、真实新会话回读、引擎失败回滚/失败历史/重试成功及二次bootstrap不重置管理员disabled和cron；SQLite不验证PostgreSQL行锁语义，生产/真实PostgreSQL与调度时刻实际运行未执行，跳过项不计通过。本卡diff --check通过，无前端构建（未改前端）、迁移、生产写入、真实外发、提交推送或部署；本地开发完成，整体仍未勾选。
+
 ## 2026-11-13 CR-007-F13 前台读链路性能优化
 
 - [ ] CR-007-F13：本地实现及自动化回归通过；真实登录/API/PostgreSQL、运行时前后对比与生产验收未完成，不勾选整体验收。

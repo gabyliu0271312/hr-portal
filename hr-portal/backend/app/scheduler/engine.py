@@ -64,8 +64,12 @@ class SchedulerEngine:
                 ("performance_reconsideration", {}),
                 ("performance_comparison", {"batch_size": 20}),
                 ("performance_cycle_lifecycle", {}),
+                ("performance_employment_sync", {}),
             ):
-                cron = "*/5 * * * *" if kind == "performance_cycle_lifecycle" else "* * * * *"
+                cron = {
+                    "performance_cycle_lifecycle": "*/5 * * * *",
+                    "performance_employment_sync": "0 9 * * *",
+                }.get(kind, "* * * * *")
                 statement = pg_insert(ScheduledJob).values(
                     kind=kind, business_id=0, cron=cron,
                     payload=payload, enabled=True,

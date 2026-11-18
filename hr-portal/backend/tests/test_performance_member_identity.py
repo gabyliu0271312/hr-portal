@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import Column, JSON, MetaData, Table, create_engine, event, update
+from sqlalchemy import Column, JSON, MetaData, String, Table, UniqueConstraint, create_engine, event, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
@@ -276,3 +276,245 @@ async def test_feedback_reviewee_and_invite_reviewer_use_different_history_bound
         subject_ref="E1", after_state={"project_id": 1, "source_type": "SELF"}, event_type="REVIEWER_360_INVITED", event_at=NOW)]))
     result = await invites.list_invites(1, keyword=None, context=object(), db=identity_db)
     assert result.items[0].identity_status == {"live_employment_status": "离职", "delegations": []}
+
+
+@pytest.mark.asyncio
+async def test_daily_status_refresh_reads_roster_and_reopens_locked_identity_without_changing_snapshot(monkeypatch, identity_db):
+    from app.performance import snapshot_service
+    from app.scheduler.handlers import get_handler
+    db = identity_db
+    roster = Table("test_roster", MetaData(), Column("employee_no", String),
+                   Column("employment_status", String), Column("active_status", String))
+    roster.create(db.session.get_bind())
+    db.session.execute(roster.insert(), [
+        {"employee_no": " E1 ", "employment_status": "  ", "active_status": " 离职 "},
+        {"employee_no": "M1", "employment_status": "在职", "active_status": "in_service"},
+    ])
+    db.session.execute(update(PerformanceAuthorizationSnapshotPerson).values(live_employment_status="在职"))
+    db.session.commit()
+    before_members = db.session.execute(select(PerformanceProjectMember.__table__)).all()
+    before_tasks = db.session.execute(select(PerformanceNodeTask.__table__)).all()
+    before_records = db.session.execute(select(PerformanceNodeTaskAuthorization.__table__)).all()
+    monkeypatch.setattr(snapshot_service, "employee_roster_table", lambda: roster)
+    handler = get_handler("performance_employment_sync")
+    changed, message = await handler(SimpleNamespace(), db, "manual")
+    assert changed == 2 and "更新=2" in message
+    assert "缺失工号=3" in message
+    db.session.commit()
+    db.session.expire_all()
+    row = {"project_id": 1, "root_review_id": 10, "employee_no": "E1"}
+    await service.hydrate_project_member_rows(db, [row])
+    assert row["identity_status"]["live_employment_status"] == "离职"
+    assert db.session.get(PerformanceAuthorizationSnapshotPerson, 1010).live_employment_status == "离职"
+    person = db.session.get(PerformanceAuthorizationSnapshotPerson, 1000)
+    assert person.employment_status == "在职" and person.display_name == "员工"
+    assert db.session.get(PerformanceAuthorizationSnapshot, 100).status == "LOCKED"
+    assert db.session.execute(select(PerformanceProjectMember.__table__)).all() == before_members
+    assert db.session.execute(select(PerformanceNodeTask.__table__)).all() == before_tasks
+    assert db.session.execute(select(PerformanceNodeTaskAuthorization.__table__)).all() == before_records
+    assert (await handler(SimpleNamespace(), db, "cron"))[0] == 0
+    assert db.session.execute(select(roster.c.active_status).where(roster.c.employee_no == " E1 ")).scalar_one() == " 离职 "
+
+
+@pytest.mark.asyncio
+async def test_daily_status_refresh_preserves_missing_empty_unknown_and_conflicting_rows(monkeypatch, identity_db):
+    from app.performance import snapshot_service
+    db = identity_db
+    roster = Table("test_roster", MetaData(), Column("employee_no", String),
+                   Column("employment_status", String), Column("active_status", String))
+    roster.create(db.session.get_bind())
+    db.session.execute(roster.insert(), [
+        {"employee_no": "E1", "employment_status": "在职", "active_status": "离职"},
+        {"employee_no": "M1", "employment_status": None, "active_status": " "},
+        {"employee_no": "G1", "employment_status": None, "active_status": "暂停"},
+        {"employee_no": "R1", "employment_status": "在职", "active_status": None},
+        {"employee_no": "R1", "employment_status": "离职", "active_status": None},
+    ])
+    db.session.commit()
+    before = db.session.execute(select(PerformanceAuthorizationSnapshotPerson.__table__)).all()
+    monkeypatch.setattr(snapshot_service, "employee_roster_table", lambda: roster)
+    changed, message = await snapshot_service.refresh_live_employment_statuses(db)
+    assert changed == 0
+    assert all(text in message for text in ("缺失工号=1", "空状态=1", "未知状态=1", "冲突工号=2"))
+    assert db.session.execute(select(PerformanceAuthorizationSnapshotPerson.__table__)).all() == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_field", ["employment_status", "active_status"])
+async def test_daily_status_refresh_supports_each_physical_status_field_and_rollback(monkeypatch, identity_db, status_field):
+    from app.performance import snapshot_service
+    db = identity_db
+    roster = Table("test_roster", MetaData(), Column("employee_no", String), Column(status_field, String))
+    roster.create(db.session.get_bind())
+    db.session.execute(roster.insert().values(employee_no="M1", **{status_field: "已离职"}))
+    db.session.commit()
+    monkeypatch.setattr(snapshot_service, "employee_roster_table", lambda: roster)
+    before = db.session.execute(select(PerformanceAuthorizationSnapshotPerson.__table__)).all()
+    assert (await snapshot_service.refresh_live_employment_statuses(db))[0] == 2
+    db.session.rollback()
+    assert db.session.execute(select(PerformanceAuthorizationSnapshotPerson.__table__)).all() == before
+    assert (await snapshot_service.refresh_live_employment_statuses(db))[0] == 2
+    db.session.commit()
+    with Session(db.session.get_bind()) as reopened:
+        assert reopened.get(PerformanceAuthorizationSnapshotPerson, 1001).live_employment_status == "离职"
+        assert reopened.get(PerformanceAuthorizationSnapshotPerson, 1001).employment_status == "在职"
+
+
+@pytest.mark.asyncio
+async def test_daily_status_refresh_missing_roster_field_fails_without_writes(monkeypatch, identity_db):
+    from app.performance import snapshot_service
+    roster = Table("test_roster", MetaData(), Column("employee_no", String))
+    monkeypatch.setattr(snapshot_service, "employee_roster_table", lambda: roster)
+    with pytest.raises(snapshot_service.EmployeeRosterContractError):
+        await snapshot_service.refresh_live_employment_statuses(identity_db)
+    assert not identity_db.session.dirty
+    assert all(query.lstrip().upper().startswith("SELECT") for query in identity_db.queries)
+
+
+@pytest.mark.asyncio
+async def test_daily_status_refresh_empty_people_has_no_roster_read(monkeypatch):
+    from app.performance import snapshot_service
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(all=lambda: [])))
+    def unavailable():
+        raise AssertionError("empty snapshot must not query roster")
+    monkeypatch.setattr(snapshot_service, "employee_roster_table", unavailable)
+    assert (await snapshot_service.refresh_live_employment_statuses(db))[0] == 0
+    assert db.execute.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_daily_status_job_is_registered_at_shanghai_nine_without_overwriting_existing():
+    from app.scheduler.engine import SchedulerEngine
+    from app.scheduler.schedule_parser import parse_schedule
+    from sqlalchemy.dialects import postgresql
+    statements = []
+    db = SimpleNamespace(execute=AsyncMock(side_effect=lambda statement: statements.append(statement)), commit=AsyncMock())
+    class Context:
+        async def __aenter__(self): return db
+        async def __aexit__(self, *args): return False
+    await SchedulerEngine(Context)._ensure_internal_jobs()
+    statement = next(stmt for stmt in statements if stmt.compile().params["kind"] == "performance_employment_sync")
+    params = statement.compile().params
+    assert len(params["kind"]) <= 32 and params["business_id"] == 0 and params["enabled"]
+    assert "ON CONFLICT (kind, business_id) DO NOTHING" in str(statement.compile(dialect=postgresql.dialect()))
+    trigger = parse_schedule(params["cron"])
+    next_time = trigger.get_next_fire_time(None, datetime(2026, 11, 18, 0, 30, tzinfo=UTC))
+    assert str(trigger.timezone) == "Asia/Shanghai"
+    assert next_time.hour == 9 and next_time.minute == 0
+    assert next_time.astimezone(UTC).hour == 1
+    db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_daily_status_refresh_batches_roster_reads_and_snapshot_updates(monkeypatch, identity_db):
+    from app.performance import snapshot_service
+    db = identity_db
+    roster = Table("test_roster", MetaData(), Column("employee_no", String), Column("active_status", String))
+    roster.create(db.session.get_bind())
+    numbers = [f"B{index:04d}" for index in range(1001)]
+    db.session.execute(roster.insert(), [{"employee_no": no, "active_status": "离职"} for no in numbers])
+    for index, no in enumerate(numbers):
+        db.insert(PerformanceAuthorizationSnapshotPerson, id=2000 + index, snapshot_id=100,
+                  employee_no=no, display_name="批量人员", employment_status="在职", live_employment_status="在职")
+    db.session.commit()
+    monkeypatch.setattr(snapshot_service, "employee_roster_table", lambda: roster)
+    db.execute.reset_mock()
+    changed, message = await snapshot_service.refresh_live_employment_statuses(db)
+    assert changed == 1001 and "更新=1001" in message
+    assert db.execute.await_count == 5
+    db.session.commit()
+    assert db.session.get(PerformanceAuthorizationSnapshotPerson, 3000).live_employment_status == "离职"
+
+
+@pytest.mark.asyncio
+async def test_daily_status_job_bootstrap_is_idempotent_and_preserves_admin_configuration(identity_db):
+    from sqlalchemy import Integer
+    from app.scheduler.engine import SchedulerEngine
+    from app.scheduler.models import ScheduledJob
+    bind = identity_db.session.get_bind()
+    metadata = MetaData()
+    Table(ScheduledJob.__tablename__, metadata, *[
+        Column(column.name, Integer() if column.primary_key else column.type,
+               primary_key=column.primary_key, nullable=True)
+        for column in ScheduledJob.__table__.columns
+    ], UniqueConstraint("kind", "business_id"))
+    metadata.create_all(bind)
+    class Context:
+        async def __aenter__(self):
+            self.session = Session(bind)
+            return SimpleNamespace(execute=AsyncMock(side_effect=self.session.execute), commit=AsyncMock(side_effect=self.session.commit))
+        async def __aexit__(self, *args): self.session.close()
+    engine = SchedulerEngine(Context)
+    await engine._ensure_internal_jobs()
+    with Session(bind) as db:
+        job = db.scalar(select(ScheduledJob).where(ScheduledJob.kind == "performance_employment_sync"))
+        assert job.cron == "0 9 * * *" and job.enabled
+        job.enabled = False
+        job.cron = "0 10 * * *"
+        db.commit()
+    await engine._ensure_internal_jobs()
+    with Session(bind) as db:
+        jobs = list(db.scalars(select(ScheduledJob)))
+        assert len(jobs) == 7
+        job = next(job for job in jobs if job.kind == "performance_employment_sync")
+        assert job.cron == "0 10 * * *" and job.enabled is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["missing_field", "after_update"])
+async def test_daily_status_engine_records_failure_rolls_back_and_retries(monkeypatch, identity_db, failure):
+    from sqlalchemy import Integer
+    from app.performance import snapshot_service
+    from app.scheduler import engine as scheduler_module
+    from app.scheduler.models import JobRun, ScheduledJob
+    bind = identity_db.session.get_bind()
+    metadata = MetaData()
+    for model in (JobRun, ScheduledJob):
+        Table(model.__tablename__, metadata, *[
+            Column(column.name, Integer() if column.primary_key else column.type,
+                   primary_key=column.primary_key, nullable=True)
+            for column in model.__table__.columns
+        ])
+    metadata.create_all(bind)
+    roster = Table("test_roster", MetaData(), Column("employee_no", String), Column("active_status", String))
+    roster.create(bind)
+    identity_db.session.execute(roster.insert().values(employee_no="M1", active_status="离职"))
+    identity_db.session.execute(ScheduledJob.__table__.insert().values(
+        id=1, kind="performance_employment_sync", business_id=0, cron="0 9 * * *", enabled=True, payload={}))
+    identity_db.session.commit()
+    missing = Table("missing_roster", MetaData(), Column("employee_no", String))
+    monkeypatch.setattr(snapshot_service, "employee_roster_table", lambda: missing if failure == "missing_field" else roster)
+
+    class Context:
+        async def __aenter__(self):
+            self.session = Session(bind, expire_on_commit=False)
+            return SimpleNamespace(
+                get=AsyncMock(side_effect=self.session.get), add=self.session.add,
+                execute=AsyncMock(side_effect=self.session.execute), flush=AsyncMock(side_effect=self.session.flush),
+                commit=AsyncMock(side_effect=self.session.commit), rollback=AsyncMock(side_effect=self.session.rollback),
+                refresh=AsyncMock(side_effect=self.session.refresh))
+        async def __aexit__(self, *args): self.session.close()
+
+    engine = scheduler_module.SchedulerEngine(Context)
+    monkeypatch.setattr(engine, "_publish_job_events", AsyncMock())
+    if failure == "after_update":
+        async def explode(*args):
+            await snapshot_service.refresh_live_employment_statuses(args[1])
+            raise RuntimeError("status refresh transaction failed")
+        monkeypatch.setattr(scheduler_module, "get_handler", lambda kind: explode)
+    failed = await engine.run_job_now(1, "manual")
+    assert failed.status == "failed"
+    with Session(bind) as reopened:
+        assert reopened.get(ScheduledJob, 1).last_status == "failed"
+        assert reopened.get(PerformanceAuthorizationSnapshotPerson, 1001).live_employment_status is None
+        assert reopened.get(JobRun, failed.id).status == "failed"
+    from app.scheduler.handlers import get_handler
+    monkeypatch.setattr(scheduler_module, "get_handler", get_handler)
+    monkeypatch.setattr(snapshot_service, "employee_roster_table", lambda: roster)
+    succeeded = await engine.run_job_now(1, "retry")
+    assert succeeded.status == "success" and succeeded.rows == 2
+    with Session(bind) as reopened:
+        assert reopened.get(ScheduledJob, 1).last_status == "success"
+        assert reopened.get(PerformanceAuthorizationSnapshotPerson, 1001).live_employment_status == "离职"
+        assert reopened.get(PerformanceAuthorizationSnapshotPerson, 1001).employment_status == "在职"
+        assert [run.status for run in reopened.scalars(select(JobRun).order_by(JobRun.id))] == ["failed", "success"]

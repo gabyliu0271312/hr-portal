@@ -5,10 +5,10 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import String, cast, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.data.employee_roster_contract import ORGANIZATION_FIELDS, organization_path
+from app.data.employee_roster_contract import EmployeeRosterContractError, ORGANIZATION_FIELDS, employee_roster_table, normalize_employee_no, normalize_roster_text, organization_path
 from app.performance.models import (
     AUTHORIZATION_SNAPSHOT_STATUS_DRAFT,
     AUTHORIZATION_SNAPSHOT_STATUS_LOCKED,
@@ -337,6 +337,68 @@ def resolve_identity_scopes(
         )
         for target_type, target_ref in sorted(scopes)
     )
+
+
+async def refresh_live_employment_statuses(db):
+    people = (await db.execute(select(
+        PerformanceAuthorizationSnapshotPerson.id,
+        PerformanceAuthorizationSnapshotPerson.employee_no,
+        PerformanceAuthorizationSnapshotPerson.live_employment_status,
+    ).order_by(PerformanceAuthorizationSnapshotPerson.id).with_for_update())).all()
+    if not people:
+        return 0, "绩效在职状态刷新：人员=0，更新=0"
+    roster = employee_roster_table()
+    status_fields = [field for field in ("employment_status", "active_status") if field in roster.c]
+    if "employee_no" not in roster.c or not status_fields:
+        raise EmployeeRosterContractError("员工实时花名册缺少工号或在职状态字段")
+    employee_nos = sorted({normalize_employee_no(no) for _, no, _ in people} - {None})
+    statuses = {}
+    aliases = {
+        "在职": "在职", "in_service": "在职",
+        "离职": "离职", "已离职": "离职", "dimissed": "离职",
+        "dismissed": "离职", "departed": "离职",
+    }
+    for start in range(0, len(employee_nos), 1000):
+        numbers = employee_nos[start:start + 1000]
+        rows = (await db.execute(select(
+            roster.c.employee_no, *(roster.c[field] for field in status_fields),
+        ).where(func.trim(cast(roster.c.employee_no, String)).in_(numbers)))).all()
+        for row in rows:
+            employee_no = normalize_employee_no(row[0])
+            values = statuses.setdefault(employee_no, set())
+            for value in row[1:]:
+                value = normalize_roster_text(value)
+                if value is not None:
+                    values.add(aliases.get(value.lower(), "UNKNOWN"))
+    targets = {}
+    counts = {"missing": 0, "empty": 0, "unknown": 0, "conflict": 0}
+    for employee_no in employee_nos:
+        values = statuses.get(employee_no)
+        if values is None:
+            counts["missing"] += 1
+        elif not values:
+            counts["empty"] += 1
+        elif "UNKNOWN" in values:
+            counts["unknown"] += 1
+        elif len(values) != 1:
+            counts["conflict"] += 1
+        else:
+            targets[employee_no] = next(iter(values))
+    updates = {}
+    for person_id, employee_no, previous in people:
+        target = targets.get(normalize_employee_no(employee_no))
+        if target is not None and previous != target:
+            updates.setdefault(target, []).append(person_id)
+    for target, ids in updates.items():
+        for start in range(0, len(ids), 1000):
+            await db.execute(update(PerformanceAuthorizationSnapshotPerson).where(
+                PerformanceAuthorizationSnapshotPerson.id.in_(ids[start:start + 1000]),
+            ).values(live_employment_status=target).execution_options(synchronize_session=False))
+    changed = sum(len(ids) for ids in updates.values())
+    message = (f"绩效在职状态刷新：人员={len(people)}，更新={changed}，"
+               f"缺失工号={counts['missing']}，空状态={counts['empty']}，"
+               f"未知状态={counts['unknown']}，冲突工号={counts['conflict']}")
+    return changed, message
 
 
 class PerformanceAuthorizationSnapshotService:
