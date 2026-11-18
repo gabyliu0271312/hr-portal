@@ -2,7 +2,7 @@
   <Teleport to="body">
     <div v-if="visible && anchor" v-bind="$attrs" ref="popover" class="performance-popover" :class="[name, `${name}--${placement}`]" :data-placement="placement" :style="position" :role="role" @mouseenter="$emit('mouseenter')" @mouseleave="$emit('mouseleave')">
       <div class="performance-popover__content" :class="contentClass"><slot /></div>
-      <div class="performance-popover__arrow" :class="[arrowClass, `performance-popover__arrow--${placement}`]" :style="{ left: `${arrowLeft}px` }" aria-hidden="true">
+      <div v-if="showArrow" class="performance-popover__arrow" :class="[arrowClass, `performance-popover__arrow--${placement}`]" :style="{ left: `${arrowLeft}px` }" aria-hidden="true">
         <svg width="16" height="8" viewBox="0 0 16 8" fill="none"><path d="M8-.5H0v1c1.553 0 3.033.664 4.065 1.825l2.814 3.166a1.5 1.5 0 002.242 0l2.814-3.166A5.438 5.438 0 0116 .5v-1H8z" /></svg>
       </div>
     </div>
@@ -23,7 +23,10 @@ const props = withDefaults(defineProps<{
   name?: string
   contentClass?: string
   arrowClass?: string
-}>(), { name: 'performance-popover', role: 'tooltip' })
+  align?: 'center' | 'end'
+  side?: 'auto' | 'bottom'
+  showArrow?: boolean
+}>(), { name: 'performance-popover', role: 'tooltip', align: 'center', side: 'auto', showArrow: true })
 const emit = defineEmits<{ close: []; mouseenter: []; mouseleave: [] }>()
 const popover = ref<HTMLElement | null>(null)
 const placement = ref<'top' | 'bottom'>('top')
@@ -49,12 +52,13 @@ function updatePosition() {
   const below = Math.max(0, window.innerHeight - rect.bottom - gap - margin)
   const content = panel.querySelector<HTMLElement>('.performance-popover__content')!
   const naturalHeight = Math.max(content.scrollHeight, panel.getBoundingClientRect().height)
-  const top = above >= naturalHeight || above >= below
+  const top = props.side !== 'bottom' && (above >= naturalHeight || above >= below)
   placement.value = top ? 'top' : 'bottom'
   content.style.maxHeight = `${top ? above : below}px`
   const size = panel.getBoundingClientRect()
   const center = rect.left + rect.width / 2
-  const left = Math.max(margin, Math.min(center - size.width / 2, window.innerWidth - size.width - margin))
+  const preferredLeft = props.align === 'end' ? rect.right - size.width : center - size.width / 2
+  const left = Math.max(margin, Math.min(preferredLeft, window.innerWidth - size.width - margin))
   position.value = { width, maxWidth: `${Math.max(0, window.innerWidth - margin * 2)}px`, left: `${left}px`, top: `${Math.max(margin, top ? rect.top - size.height - gap : rect.bottom + gap)}px`, visibility: 'visible' }
   const inset = token('--performance-popover-arrow-inset', 16)
   arrowLeft.value = Math.max(Math.min(inset, size.width / 2), Math.min(center - left, size.width - inset))
@@ -67,7 +71,7 @@ function cleanup() {
   window.removeEventListener('scroll', updatePosition, true)
   window.removeEventListener('keydown', onKeydown)
 }
-watch(() => [props.visible, props.anchor, props.width, props.gap, props.viewportMargin], () => {
+watch(() => [props.visible, props.anchor, props.width, props.gap, props.viewportMargin, props.align, props.side], () => {
   cleanup()
   if (!props.visible || !props.anchor) return
   position.value = { visibility: 'hidden' }

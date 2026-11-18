@@ -22,7 +22,10 @@ describe('PerformanceManagementMemberScope', () => {
       expect(wrapper.text()).toContain('本周期我负责的人员')
       await openScope(wrapper)
       expect(checkbox('本周期我负责的人员').checked).toBe(true)
-      expect(checkbox('本周期我负责的人员').disabled).toBe(true)
+      expect(checkbox('本周期我负责的人员').disabled).toBe(false)
+      change('本周期我负责的人员', false)
+      await flushPromises()
+      expect(checkbox('本周期我负责的人员').checked).toBe(true)
       expect(checkbox('全选').indeterminate).toBe(true)
       change('当前我负责的人员', true)
       await flushPromises()
@@ -31,7 +34,7 @@ describe('PerformanceManagementMemberScope', () => {
       change('本周期我负责的人员', false)
       await flushPromises()
       expect(wrapper.text()).toContain('当前我负责的人员')
-      expect(checkbox('当前我负责的人员').disabled).toBe(true)
+      expect(checkbox('当前我负责的人员').disabled).toBe(false)
       change('全选', true)
       await flushPromises()
       expect(checkbox('本周期我负责的人员').checked).toBe(true)
@@ -44,12 +47,33 @@ describe('PerformanceManagementMemberScope', () => {
     } finally { wrapper.unmount() }
   })
 
+  it('uses the captured dropdown placement and lets labels toggle their entire rows', async () => {
+    const wrapper = mount(PerformanceManagementMemberScope, { attachTo: document.body })
+    try {
+      await openScope(wrapper)
+      const popover = wrapper.getComponent({ name: 'PerformancePopover' })
+      expect(popover.props()).toMatchObject({ align: 'end', side: 'bottom', gap: 4, showArrow: false })
+      expect(document.body.querySelector('.performance-popover__arrow')).toBeNull()
+      const rows = document.body.querySelectorAll<HTMLElement>('.management-member-scope-row')
+      ;(rows[1].lastElementChild as HTMLElement).click()
+      await flushPromises()
+      expect(checkbox('当前我负责的人员').checked).toBe(true)
+      expect(wrapper.text()).toContain('成员范围：全部')
+      expect(document.body.querySelector('[data-icon="CheckboxIndeterminate"]')).toBeNull()
+      rows[0].click()
+      await flushPromises()
+      expect(wrapper.text()).toContain('成员范围：当前我负责的人员')
+      expect(checkbox('全选').indeterminate).toBe(true)
+      expect(document.body.querySelector('[data-icon="CheckboxIndeterminate"]')).not.toBeNull()
+    } finally { wrapper.unmount() }
+  })
+
   it('closes on outside click and Escape, restores focus and retains local selection', async () => {
     const wrapper = mount(PerformanceManagementMemberScope, { attachTo: document.body })
     try {
       await wrapper.get('button').trigger('keydown', { key: 'ArrowDown' })
       await flushPromises()
-      expect(document.activeElement).toBe(checkbox('当前我负责的人员'))
+      expect(document.activeElement).toBe(checkbox('本周期我负责的人员'))
       change('当前我负责的人员', true)
       await flushPromises()
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))

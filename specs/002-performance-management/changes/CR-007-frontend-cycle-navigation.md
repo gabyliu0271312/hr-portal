@@ -394,3 +394,14 @@
 - 仅修改 `Review.vue`、`PerformanceReviewCategorySidebar.vue` 及原 `Review.spec.ts` 的相关回归断言；保留UI01两角色图标增量。不改变周期选择器、权限、接口、工作台项目标题或项目管理具体项目名称。属于既有文案呈现恢复，无需新蓝图。
 - 原多项目测试改为断言展开／折叠均为纯节点名，同时验证两次真实project_id与task_id跳转及选中身份；回归命令 `npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/views/performance/ProjectManagement.spec.ts --silent --maxWorkers=2 --minWorkers=1` → **2文件166 passed，exit0**；完整 `npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite exit0，3782模块，41.41s**，仅既有VueUse PURE注释提示；`git diff --check`通过。
 - 浏览器：894×631，真实Vue共享侧栏与两个合成项目，展开标签和折叠菜单均为“工作总结环节”；点击回传分别为[1,summary]／[2,summary]，折叠点第二项仍[2,summary]，pageerror0。独立实现截图 `ui-blueprints/CR-007-F17-UI02-node-labels-20261118.png` 已读取，不等于生产端到端验收；未改后端，未commit／push／deploy。
+
+### CR-007-F17-UI03 HRBP 成员范围专项还原（2026-11-18）
+
+- 发布授权：用户明确要求在 main 提交并推送本卡组件、共享浮层可选参数、tokens、测试及实现截图；不部署。下文未提交推送指开发验收时点。
+- 用户要求按钮、浮层及选择按实际DOM还原。既有采集具备结构但缺精确CSS；REA发现参考目标（Evidence `ev_5a3eb75d307cf238ee74f8e5a1db787844c7f8932ff75acf5144184175f169d7`），scenario执行失败后改用现有Playwright直连同一9222目标专项量取，不将后者伪称REA Evidence。未新增脚本／报告／测试文档；参考页面选择恢复到本周期，临时视口恢复3440×1313。
+- 实采正常按钮234×32、padding 0 11、边框#d0d3d6／hover与展开#336df4、圆角6、14px／21px；全部状态宽136。DownBoldOutlined原path、10×10。浮层172×101、右边与按钮对齐、下方4px、无可见箭头、1px #dee0e3边框、8px圆角；列表padding 2px 0，行164×30、margin 1px 3px、padding 4px 8px、复选框文字间隔6；底栏170×30、padding 4px 11px、间隔8。复选框16×16、1px边框、4px圆角、蓝色#1456f0，未选边框#8f959e，勾及半选原12×12 path；行hover rgba(31,35,41,.08)，阴影按稳定普通／hover三层实采值。
+- 实现：PerformanceManagementMemberScope替换原无边框文字入口，复用PerformanceCheckbox并局部覆盖边框、半选SVG居中；文字和行均可点击，鼠标不主动抢首项焦点，键盘ArrowDown可聚焦。PerformancePopover添加可选align/end、side/bottom、showArrow参数，既有默认值保持center／auto／true。本组件专用tokens写入tokens.css，不改变共享checkbox／其他浮层默认外观；不改API／后端范围。
+- 选择语义：参考本次确认最后一项可以取消，但与用户已确认v1“至少一项”约束不同；本次保留已确认约束，最后一项不再视觉disabled，点击仍保持选中；全选取消回本周期。参考全选DOM aria-checked在双选时仍mixed，本地按实际全选checked、单选indeterminate正确提供语义，不复刻该可访问性缺陷。空选业务如需跟随参考应另行明确；未擅自改变已确认规则。
+- 本地浏览器：1280×720、同一Chrome、真实Vue范围组件及tokens，本期状态按钮box[1018,76,234,32]、浮层[1080,112,172,101]与参考对应值完全相同；复选框颜色、16px尺寸、30px行及底栏padding一致，半选SVG12×12居中。整行文字点击双选→全部、取消周期→当前、Escape关闭均通过，pageerror0，无业务接口请求。仅组件局部参数核对，不冒充整页像素差计算或生产验收。
+- 实际项目管理路由补验：本地Vite真实Vue页面、全部API隔离为合成数据，按钮234×32、浮层172×101、gap4、右对齐偏差0；本地页面按钮x1016与参考x1018相差2px，来自既有页头右侧留白，不据此宣称整页像素一致。文字行切换双选更新“全部”，新增业务请求0、pageerror0、未匹配API0、Escape关闭通过。实现截图 `ui-blueprints/CR-007-F17-UI03-management-scope-20261118.png` 已读取。
+- 独立实现截图（均已读取）：`ui-blueprints/CR-007-F17-UI03-member-scope-period-20261118.png`、`CR-007-F17-UI03-member-scope-all-20261118.png`。回归 `npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceManagementMemberScope.spec.ts src/views/performance/ProjectManagement.spec.ts src/components/performance/PerformanceMemberIdentity.spec.ts --silent --maxWorkers=2 --minWorkers=1` → **3文件63 passed，exit0**；`npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite exit0，3783模块，40.49s**，仅既有VueUse PURE提示；diff --check通过。无后端、生产、真实通知、提交推送或部署。
