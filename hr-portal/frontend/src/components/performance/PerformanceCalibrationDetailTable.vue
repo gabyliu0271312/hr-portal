@@ -4,7 +4,7 @@ import type { PerformanceCalibrationAssignmentRow, PerformanceCalibrationDetails
 import UiTable from '@/components/ui/UiTable.vue'
 import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
 import PerformanceCompactPeople from './PerformanceCompactPeople.vue'
-import { CALIBRATOR_RELATION_OPTIONS } from './performanceConditionFields'
+import { summarizeCalibrationRule } from './performanceCalibrationRuleSummary'
 
 const props = defineProps<{
   details: PerformanceCalibrationDetails | null
@@ -17,21 +17,10 @@ const props = defineProps<{
 const collapsed = ref<Record<string, boolean>>({})
 const limits = ref<Record<string, number>>({})
 const people = computed(() => new Map(props.details?.people.map(person => [person.employee_no, person]) || []))
-const departments = computed(() => {
-  const result = new Map<string, string>()
-  function visit(nodes: PerformanceHrbpOrganizationNode[]) { nodes.forEach(node => { result.set(node.value, node.label); visit(node.children || []) }) }
-  visit(props.organizations)
-  return result
-})
-const name = (id: string) => people.value.get(id)?.display_name || id
+const summaryPeople = computed(() => (props.details?.people || []).map(person => ({ value: person.employee_no, label: person.display_name || person.employee_no, display_name: person.display_name })))
+const name = (id: string) => people.value.get(id)?.display_name || '人员信息不可用'
 function summarize(rule: PerformanceProjectFlowRule, subject = false) {
-  if (!subject && rule.scope === 'PROJECT_ALL') return '项目全员'
-  const relations = new Map(CALIBRATOR_RELATION_OPTIONS.map(option => [option.value, option.label]))
-  return (subject ? rule.subject_groups : rule.scope_groups)?.map(group => group.conditions.map(condition => {
-    const values = condition.values.map(value => condition.field === 'employee' ? name(value) : condition.field === 'department' ? departments.value.get(value) || value : relations.get(value) || value).join('、')
-    const operator = ({ EXCLUDE: '不包含 ', before: '入职日期早于 ', not_before: '入职日期不早于 ', after: '入职日期晚于 ', not_after: '入职日期不晚于 ' } as Record<string, string>)[condition.operator] || ''
-    return operator + values
-  }).join(' & ')).join(' 或 ') || '暂未配置'
+  return summarizeCalibrationRule(rule, { subject, peopleOptions: summaryPeople.value, organizationTree: props.organizations })
 }
 function byHandler(assignments: PerformanceCalibrationAssignmentRow[]) {
   const result = new Map<string, Set<string>>()

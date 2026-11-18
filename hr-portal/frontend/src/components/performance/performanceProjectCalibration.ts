@@ -119,7 +119,7 @@ export function initializeCalibrationNodes(nodes: PerformanceWorkflowNode[], set
     if (node.node_type !== 'calibration') continue
     const key = node.node_id || `${node.node_type}-${node.order}`
     const setting = settings.node_settings[key] ||= {}
-    setting.calibration ||= { force_distribution_enabled: false, distribution: { mode: 'UNIFIED', rules: [], scope_configured: false }, phases: [{ rules: [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] }] }
+    setting.calibration ||= { force_distribution_enabled: false, distribution: { mode: 'UNIFIED', rules: [], scope_configured: false }, phases: [{ rules: [] }] }
     setting.calibration.distribution ||= { mode: 'UNIFIED', rules: [], scope_configured: false }
   }
   ensureCalibrationPhaseIds(settings.node_settings)

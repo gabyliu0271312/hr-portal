@@ -21,6 +21,7 @@ vi.mock('@/api/performance', async () => {
 
 import PerformanceProjectSettingsPage from './PerformanceProjectSettingsPage.vue'
 import PerformanceAudienceRuleEditor from '@/components/performance/PerformanceAudienceRuleEditor.vue'
+import PerformanceCalibrationRuleDrawer from '@/components/performance/PerformanceCalibrationRuleDrawer.vue'
 import PerformanceProjectFlowSettings from '@/components/performance/PerformanceProjectFlowSettings.vue'
 import PerformanceProjectTimeSettings from '@/components/performance/PerformanceProjectTimeSettings.vue'
 import PerformanceDateTimeField from '@/components/performance/PerformanceDateTimeField.vue'
@@ -580,6 +581,9 @@ describe('CR-013 project partial saves', () => {
     const wrapper = page(false, true); await flushPromises()
     await button(wrapper, '下一步').trigger('click'); await flushPromises()
     await wrapper.get('.add-phase').trigger('click'); await flushPromises()
+    await wrapper.findAll('.add-rule').at(-1)!.trigger('click')
+    wrapper.getComponent(PerformanceCalibrationRuleDrawer).vm.$emit('confirm', { subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false, subject_groups: [{ conditions: [{ field: 'employee', operator: 'INCLUDE', values: ['E001'] }] }] })
+    await flushPromises()
     expect(wrapper.getComponent(PerformanceProjectFlowSettings).findComponent(PerformanceDateTimeField).exists()).toBe(false)
     expect(mocks.update).not.toHaveBeenCalled()
     await button(wrapper, '下一步').trigger('click'); await flushPromises()
@@ -619,6 +623,9 @@ describe('CR-013 project partial saves', () => {
     const wrapper = page(false, true); await flushPromises()
     await button(wrapper, '下一步').trigger('click'); await flushPromises()
     await wrapper.get('.add-phase').trigger('click'); await flushPromises()
+    await wrapper.findAll('.add-rule').at(-1)!.trigger('click')
+    wrapper.getComponent(PerformanceCalibrationRuleDrawer).vm.$emit('confirm', { subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false, subject_groups: [{ conditions: [{ field: 'employee', operator: 'INCLUDE', values: ['E001'] }] }] })
+    await flushPromises()
     await button(wrapper, '下一步').trigger('click'); await flushPromises()
     const time = wrapper.getComponent(PerformanceProjectTimeSettings)
     const fields = time.findAllComponents(PerformanceDateTimeField)

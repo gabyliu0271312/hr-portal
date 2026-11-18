@@ -7,12 +7,13 @@ import PerformanceCalibrationDetailTable from './PerformanceCalibrationDetailTab
 import PerformanceExportButton from './PerformanceExportButton.vue'
 import PerformanceCalibrationDetailFilter from './PerformanceCalibrationDetailFilter.vue'
 import PerformanceCalibrationPeopleScreen from './PerformanceCalibrationPeopleScreen.vue'
+import PerformanceCalibrationRuleSummary from './PerformanceCalibrationRuleSummary.vue'
+import { normalizeCalibrationPersonLabel, summarizeCalibrationRule } from './performanceCalibrationRuleSummary'
 import PerformanceProjectFlowSettings from './PerformanceProjectFlowSettings.vue'
 import PerformanceCalibrationConditionGroup from './PerformanceCalibrationConditionGroup.vue'
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
 import PerformanceCalibrationRuleDrawer from './PerformanceCalibrationRuleDrawer.vue'
-import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceProject360InviteSettingsDrawer from './PerformanceProject360InviteSettingsDrawer.vue'
 import { initializeProjectFlow } from './performanceProjectCalibration'
 
@@ -280,7 +281,7 @@ describe('PerformanceProjectFlowSettings', () => {
     expect(wrapper.get('.rule-table-header').text()).toContain('校准人')
     expect(wrapper.get('.rule-table-header').text()).toContain('校准范围')
     expect(wrapper.get('.rule-table-header').text()).toContain('是否允许授权他人')
-    expect(wrapper.findAll('.rule-actions button').map(button => button.text())).toEqual(['编辑', '删除'])
+    expect(wrapper.findAll('.rule-actions button')).toHaveLength(0)
     expect(wrapper.get('.phase-heading .performance-icon-button').attributes('aria-label')).toBe('删除第 1 阶段')
 
     await wrapper.get('.add-phase').trigger('click')
@@ -295,9 +296,9 @@ describe('PerformanceProjectFlowSettings', () => {
   it('opens the captured calibration rule drawer without inserting until confirmation', async () => {
     const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [node('calibration', 1)], peopleOptions: [{ value: 'E001', label: '员工（E001）' }] } })
 
-    expect(wrapper.findAll('.rule-row')).toHaveLength(1)
+    expect(wrapper.findAll('.rule-row')).toHaveLength(0)
     await wrapper.get('.add-rule').trigger('click')
-    expect(wrapper.findAll('.rule-row')).toHaveLength(1)
+    expect(wrapper.findAll('.rule-row')).toHaveLength(0)
     const drawer = document.body.querySelector('[aria-label="校准规则编辑"]') as HTMLElement
     expect(drawer).not.toBeNull()
     expect(document.body.querySelector('.performance-drawer__header h2')?.textContent).toBe('添加校准规则')
@@ -306,7 +307,7 @@ describe('PerformanceProjectFlowSettings', () => {
     const confirm = document.body.querySelector('.performance-drawer-footer__confirm') as HTMLButtonElement
     confirm.click()
     await wrapper.vm.$nextTick()
-    expect(wrapper.findAll('.rule-row')).toHaveLength(1)
+    expect(wrapper.findAll('.rule-row')).toHaveLength(0)
     expect(drawer.querySelector('[role="alert"]')?.textContent).toContain('校准人')
     const conditionGroup = wrapper.findComponent(PerformanceCalibrationConditionGroup)
     const subject = conditionGroup.props('modelValue') as { conditions: Array<{ field: 'employee' | 'calibrator_relation'; operator: 'INCLUDE' | 'EXCLUDE'; values: string[] }> }
@@ -321,7 +322,8 @@ describe('PerformanceProjectFlowSettings', () => {
     await wrapper.vm.$nextTick()
     confirm.click()
     await wrapper.vm.$nextTick()
-    expect(wrapper.findAll('.rule-row')).toHaveLength(2)
+    expect(wrapper.findAll('.rule-row')).toHaveLength(1)
+    expect(wrapper.get('.rule-authorization').text()).toBe('否')
     wrapper.unmount()
   })
 
@@ -367,7 +369,7 @@ describe('PerformanceProjectFlowSettings', () => {
     ;(document.body.querySelector('.performance-drawer-footer__confirm') as HTMLButtonElement).click()
     await vi.waitFor(() => expect(document.body.querySelector('.calibration-rule-error')?.textContent).toContain('保存失败'))
     expect(document.body.querySelector('[aria-label="校准规则编辑"]')).not.toBeNull()
-    expect(wrapper.findAll('.rule-row')).toHaveLength(1)
+    expect(wrapper.findAll('.rule-row')).toHaveLength(0)
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     wrapper.unmount()
     update.mockRestore()
@@ -404,14 +406,14 @@ describe('PerformanceProjectFlowSettings', () => {
     const cancel = document.body.querySelector('.performance-drawer-footer__cancel') as HTMLButtonElement
     cancel.click()
     await wrapper.vm.$nextTick()
-    expect(wrapper.findAll('.rule-row')).toHaveLength(1)
+    expect(wrapper.findAll('.rule-row')).toHaveLength(0)
     expect(document.body.querySelector('[aria-label="校准规则编辑"]')).toBeNull()
 
     await wrapper.get('.add-rule').trigger('click')
     const close = document.body.querySelector('.performance-drawer__close') as HTMLButtonElement
     close.click()
     await wrapper.vm.$nextTick()
-    expect(wrapper.findAll('.rule-row')).toHaveLength(1)
+    expect(wrapper.findAll('.rule-row')).toHaveLength(0)
     expect(document.body.querySelector('[aria-label="校准规则编辑"]')).toBeNull()
     wrapper.unmount()
   })
@@ -782,6 +784,92 @@ describe('PerformanceProjectFlowSettings', () => {
   })
 })
 
+describe('calibration rule read-only summary', () => {
+  const rule = {
+    subject_type: 'PERSON' as const, operator: 'INCLUDE' as const, scope: 'RULE' as const, allow_authorize: true,
+    subject_groups: [{ conditions: [{ field: 'employee' as const, operator: 'INCLUDE' as const, values: ['E1'] }] }],
+    scope_groups: [
+      { conditions: [{ field: 'department' as const, operator: 'INCLUDE' as const, values: ['D1'] }, { field: 'employee' as const, operator: 'EXCLUDE' as const, values: ['E2'] }] },
+      { conditions: [{ field: 'calibrator_relation' as const, operator: 'INCLUDE' as const, values: ['DIRECT_SUBORDINATES'] }] },
+    ],
+  }
+  const peopleOptions = [{ value: 'E1', label: '张三（E1）' }, { value: 'E2', label: '李四(E2)' }]
+  const organizationTree = [{ value: 'root', label: '总部', level: 1, children: [{ value: 'D1', label: '研发部', level: 2, children: [] }] }]
+  afterEach(() => { vi.useRealTimers(); document.body.innerHTML = '' })
+
+  it('initializes no rules and keeps explicitly saved rules unchanged', () => {
+    const settings = { node_settings: {}, node_times: {} } as Parameters<typeof initializeProjectFlow>[1]
+    initializeProjectFlow([node('calibration', 1)], settings)
+    expect(settings.node_settings['calibration-1'].calibration?.phases[0].rules).toEqual([])
+    settings.node_settings['calibration-1'].calibration!.phases[0].rules.push(structuredClone(rule))
+    initializeProjectFlow([node('calibration', 1)], settings)
+    expect(settings.node_settings['calibration-1'].calibration?.phases[0].rules).toEqual([rule])
+  })
+
+  it('resolves names, nested departments, all operators and AND/OR without exposing unresolved employee numbers', () => {
+    expect(summarizeCalibrationRule(rule, { subject: true, peopleOptions })).toBe('人员 包含 张三')
+    expect(summarizeCalibrationRule(rule, { peopleOptions, organizationTree })).toBe('（部门 包含 研发部 且 人员 不包含 李四） 或 （与校准人关系 包含 校准人的直属下级）')
+    expect(summarizeCalibrationRule(rule, { subject: true })).toBe('人员 包含 人员信息不可用')
+    expect(normalizeCalibrationPersonLabel({ value: 'E1', label: 'E1' })).toBe('人员信息不可用')
+    expect(normalizeCalibrationPersonLabel({ value: 'E1', label: '旧名称', display_name: ' 新名称 ' })).toBe('新名称')
+    expect(summarizeCalibrationRule({ ...rule, scope: 'PROJECT_ALL' })).toBe('项目全员')
+    expect(summarizeCalibrationRule({ ...rule, subject_groups: undefined }, { subject: true })).toBe('暂未配置')
+    const dated = { ...rule, scope_groups: [{ conditions: [{ field: 'hire_date' as const, operator: 'not_before' as const, values: ['2026-01-01'] }] }] }
+    expect(summarizeCalibrationRule(dated)).toBe('入职日期 不早于 2026-01-01')
+  })
+
+  it('shows saved authorization as text and passes real condition groups into both summaries', () => {
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [node('calibration', 1)], peopleOptions, organizationTree,
+      modelValue: { node_settings: { 'calibration-1': { calibration: { force_distribution_enabled: false, phases: [{ rules: [rule, { ...rule, allow_authorize: false }] }] } } }, node_times: {} },
+    } })
+    expect(wrapper.findAll('.rule-authorization').map(cell => cell.text())).toEqual(['是', '否'])
+    expect(wrapper.findAll('.rule-row input')).toHaveLength(0)
+    const summaries = wrapper.findAllComponents(PerformanceCalibrationRuleSummary)
+    expect(summaries).toHaveLength(4)
+    expect(summaries[0].get('.rule-summary').attributes('aria-label')).toBe('人员 包含 张三')
+    expect(summaries[1].get('.rule-summary').attributes('aria-label')).toContain('部门 包含 研发部 且 人员 不包含 李四')
+    wrapper.unmount()
+  })
+
+  it('keeps the full structured popup open on pointer transfer, closes after leaving, and resets after Escape', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(PerformanceCalibrationRuleSummary, { attachTo: document.body, props: { rule, peopleOptions, organizationTree }, global: { stubs: { Teleport: false } } })
+    const trigger = wrapper.get('.rule-summary')
+    await trigger.trigger('mouseenter')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('open-options')).toHaveLength(1)
+    const popup = document.body.querySelector<HTMLElement>('.calibration-rule-summary-popover')!
+    expect(popup.textContent).toContain('研发部')
+    expect(popup.textContent).toContain('李四')
+    expect(popup.textContent).toContain('且')
+    expect(popup.textContent).toContain('或')
+    await trigger.trigger('mouseleave')
+    vi.advanceTimersByTime(60)
+    popup.dispatchEvent(new MouseEvent('mouseenter'))
+    vi.advanceTimersByTime(150)
+    await wrapper.vm.$nextTick()
+    expect(document.body.contains(popup)).toBe(true)
+    popup.dispatchEvent(new MouseEvent('mouseleave'))
+    vi.advanceTimersByTime(99)
+    await wrapper.vm.$nextTick()
+    expect(document.body.contains(popup)).toBe(true)
+    vi.advanceTimersByTime(1)
+    await wrapper.vm.$nextTick()
+    expect(document.body.contains(popup)).toBe(false)
+    await trigger.trigger('focusin')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await wrapper.vm.$nextTick()
+    expect(trigger.attributes('aria-expanded')).toBe('false')
+    await trigger.trigger('mouseenter')
+    await trigger.trigger('mouseleave')
+    vi.advanceTimersByTime(100)
+    await wrapper.vm.$nextTick()
+    expect(document.body.querySelector('.calibration-rule-summary-popover')).toBeNull()
+    wrapper.unmount()
+    vi.runOnlyPendingTimers()
+  })
+})
+
 describe('CR-013 calibration editing policy', () => {
   const rule = (id: string) => ({ rule_id: id, subject_type: 'PERSON' as const, operator: 'INCLUDE' as const, scope: 'PROJECT_ALL' as const, allow_authorize: false })
   const initial = () => ({ node_settings: { 'calibration-1': { calibration: { force_distribution_enabled: true, distribution: { mode: 'UNIFIED' as const, rules: [], scope_configured: false }, phases: [{ phase_id: 'p1', rules: [rule('r1'), rule('r2')] }, { phase_id: 'p2', rules: [rule('r3')] }] } } }, node_times: { 'calibration-1': { start_at: '2027-01-01T00:00:00Z', end_at: '2027-01-09T00:00:00Z', phase_times: { p1: { start_at: '2027-01-01T00:00:00Z', end_at: '2027-01-02T00:00:00Z' }, p2: { start_at: '2027-01-08T00:00:00Z', end_at: '2027-01-09T00:00:00Z' } } } } })
@@ -800,9 +888,8 @@ describe('CR-013 calibration editing policy', () => {
     expect(wrapper.findAll('input[type="radio"]').every(input => (input.element as HTMLInputElement).disabled)).toBe(true)
     expect(wrapper.get('.distribution-add-rule').attributes('disabled')).toBeDefined()
     expect(wrapper.findAll('.rule-actions button').filter(button => button.text() === '编辑').every(button => button.attributes('disabled') !== undefined)).toBe(true)
-    expect(wrapper.findAll('.rule-row input[type="checkbox"]').every(input => (input.element as HTMLInputElement).disabled)).toBe(true)
-    const authorization = wrapper.findAllComponents(PerformanceCheckbox)[0]
-    authorization.vm.$emit('update:modelValue', true); await flushPromises()
+    expect(wrapper.findAll('.rule-row input[type="checkbox"]')).toHaveLength(0)
+    expect(wrapper.findAll('.rule-authorization').map(cell => cell.text())).toEqual(['否', '否', '否'])
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     expect(wrapper.findAll('.phase-heading button')[0].attributes('disabled')).toBeDefined()
     await wrapper.findAll('.add-rule')[0].trigger('click')
@@ -839,11 +926,11 @@ describe('CR-013 calibration editing policy', () => {
     const draft = wrapper.emitted('update:modelValue')!.at(-1)![0] as any
     const added = draft.node_settings['calibration-1'].calibration.phases[2]
     expect(added.phase_id).toBeTruthy()
-    expect(added.rules[0].rule_id).toMatch(/^[a-f0-9-]{36}$/)
+    expect(added.rules).toEqual([])
     expect(draft.node_times['calibration-1'].phase_times[added.phase_id]).toEqual({ start_at: '', end_at: '' })
-    await wrapper.findAll('.rule-actions button').filter(button => button.text() === '编辑').at(-1)!.trigger('click')
+    await wrapper.findAll('.add-rule').at(-1)!.trigger('click')
     expect(wrapper.emitted('pending-change')?.at(-1)).toEqual([true])
-    wrapper.getComponent(PerformanceCalibrationRuleDrawer).vm.$emit('confirm', { ...rule(added.rules[0].rule_id), description: '新阶段规则' })
+    wrapper.getComponent(PerformanceCalibrationRuleDrawer).vm.$emit('confirm', { ...rule(''), description: '新阶段规则' })
     await flushPromises()
     const updated = wrapper.emitted('update:modelValue')!.at(-1)![0] as any
     expect(updated.node_settings['calibration-1'].calibration.phases[2].rules[0].description).toBe('新阶段规则')
