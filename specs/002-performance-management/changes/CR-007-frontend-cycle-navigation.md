@@ -378,3 +378,19 @@
 - 独立实现PNG（均已读取，不是蓝图替代）：`ui-blueprints/CR-007-F17-T02-project-overview-20261118.png`、`CR-007-F17-T02-member-scope-20261118.png`、`CR-007-F17-T02-project-reports-20261118.png`、`CR-007-F17-T02-multi-project-workbench-20261118.png`、`CR-007-F17-T02-multi-project-review-20261118.png`。沿原token组件，不声明像素完全一致或生产数据验收。
 - 已知边界：成员范围仅前端状态，切页签保持，换角色／项目后恢复默认；周期矩阵钻取使用聚合响应的people，项目钻取仍用原分页组件。原统计中未实现的绩效维度／历史对比章节、原筛选预留及跨项目重复成员合成不在本次新增范围，不伪造数据。
 - 未运行：真实JWT登录完整API链、真实PostgreSQL新连接回读、生产权限／生产数据、真实通知、部署；没有模型或迁移，不适用迁移upgrade／downgrade。本轮未commit／push／deploy，既有无关临时文件保留。T01／T02本地开发完成，T03真实环境部分待后续验收，三卡整体不勾选。
+
+### CR-007-F17-UI01 管理角色图标还原（2026-11-18）
+
+- 发布授权：用户明确要求在 main 提交并推送 UI01 图标还原、UI02 节点名称恢复及其测试／验收截图；不部署。下文“未提交推送”指开发验收时点。
+- 用户提供两份 SnapSpec SVG，明确 HRBP 与项目管理员使用不同图标。仅调整 `PerformanceReviewCategorySidebar.vue` 的具名角色图标分支及尺寸／颜色，不改变导航、权限、接口或布局；属于既有图标修正，无需新蓝图。
+- HRBP 原样使用 ContactsOutlined 的 path 与 `viewBox="0 0 24 24"`；项目管理员原样保留16坐标path、`fill-rule="evenodd"`、`clip-rule="evenodd"`，不误套24坐标viewBox。旧 admin 分类沿项目管理员图标。
+- 展开及折叠均保持16×16px、颜色#646A73；仅管理角色覆盖共享折叠图标原14px／继承选中色，其他评估分类不变。保留原hover／active背景，不凭未完整采集的状态自造图标颜色。
+- 回归：`npm --prefix hr-portal/frontend test -- src/views/performance/ProjectManagement.spec.ts src/views/performance/Review.spec.ts --silent --maxWorkers=2 --minWorkers=1` → **2文件166 passed，31.44s，exit0**；`npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite exit0，3782模块，44.80s**，仅既有VueUse PURE注释提示；`git diff --check`通过。本轮未增加测试文件、脚本或测试文档。
+- 浏览器：894×631／DPR1，直接挂载真实Vue侧栏组件及合成角色，不调用业务接口；展开／折叠两图标实测均16×16、rgb(100,106,115)，SVG path与用户采集值一致，pageerror0。独立实现截图 `ui-blueprints/CR-007-F17-UI01-role-icons-expanded-20261118.png`、`CR-007-F17-UI01-role-icons-collapsed-20261118.png` 均已读取；不是整页或生产像素一致证明。无后端、生产、通知、提交推送或部署操作。
+
+### CR-007-F17-UI02 评估节点名称恢复（2026-11-18）
+
+- 用户纠正：绩效评估侧栏只显示原节点名称，不追加项目名或周期名。展开列表与折叠浮出菜单均移除项目后缀，Review不再生成显示用project_name；内部project_id／navigation_id／真实node_id保持，两个同名节点仍准确切换各自项目及任务，不合并或丢弃合法入口。
+- 仅修改 `Review.vue`、`PerformanceReviewCategorySidebar.vue` 及原 `Review.spec.ts` 的相关回归断言；保留UI01两角色图标增量。不改变周期选择器、权限、接口、工作台项目标题或项目管理具体项目名称。属于既有文案呈现恢复，无需新蓝图。
+- 原多项目测试改为断言展开／折叠均为纯节点名，同时验证两次真实project_id与task_id跳转及选中身份；回归命令 `npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/views/performance/ProjectManagement.spec.ts --silent --maxWorkers=2 --minWorkers=1` → **2文件166 passed，exit0**；完整 `npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite exit0，3782模块，41.41s**，仅既有VueUse PURE注释提示；`git diff --check`通过。
+- 浏览器：894×631，真实Vue共享侧栏与两个合成项目，展开标签和折叠菜单均为“工作总结环节”；点击回传分别为[1,summary]／[2,summary]，折叠点第二项仍[2,summary]，pageerror0。独立实现截图 `ui-blueprints/CR-007-F17-UI02-node-labels-20261118.png` 已读取，不等于生产端到端验收；未改后端，未commit／push／deploy。

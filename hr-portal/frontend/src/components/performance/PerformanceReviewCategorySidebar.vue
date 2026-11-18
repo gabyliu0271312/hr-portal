@@ -31,10 +31,12 @@
           @focus="showFlyout(category.key)"
           @click="toggleCategory(category.key)"
         >
-          <span class="category-icon" aria-hidden="true">
+          <span class="category-icon" :class="{ 'category-icon--management': ['hrbp', 'project_admin', 'admin'].includes(category.key) }" aria-hidden="true">
             <svg v-if="category.key === 'mine'" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 6.5a3 3 0 1 0-6 0 3 3 0 0 0 6 0Zm2 0a5 5 0 1 1-10 0 5 5 0 0 1 10 0ZM4 19v2h16v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4Zm-2 0a6 6 0 0 1 6-6h8a6 6 0 0 1 6 6v2a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-2Z" fill="currentColor" /></svg>
             <svg v-else-if="category.key === 'others'" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M10.5 1.5a5 5 0 1 1-.002 10.002A5 5 0 0 1 10.5 1.5Zm-3 5a3.001 3.001 0 0 0 6 0 3.001 3.001 0 0 0-6 0ZM4.125 18c-.08.32-.125.654-.125 1v1h8.5v2H4c-1.1 0-2-.9-2-2v-1a6 6 0 0 1 6-6h4.5v2H8a4.003 4.003 0 0 0-3.875 3Zm14.382 2.164L19.671 19H15a1 1 0 0 1 0-2h4.586l-1.079-1.079a1 1 0 1 1 1.414-1.414l2.829 2.828a1 1 0 0 1 0 1.415l-2.828 2.828a1 1 0 1 1-1.415-1.414Z" fill="currentColor" /></svg>
             <svg v-else-if="category.key === 'team'" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M8.5 4.5a2.5 2.5 0 1 0 .001 5.001A2.5 2.5 0 0 0 8.5 4.5ZM4 7a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0Zm1.835 7.5c-1.82 0-3.335 1.498-3.335 3.4v1.6h12v-1.6c0-1.901-1.515-3.4-3.335-3.4h-5.33ZM.5 17.9c0-2.982 2.39-5.4 5.335-5.4h5.33c2.945 0 5.335 2.418 5.335 5.4v1.6c0 1.1-.9 2-2 2h-12c-1.1 0-2-.9-2-2v-1.6Zm22 2.6h-4.135v-2H21.5v-.6c0-1.002-.845-1.9-2-1.9h-1.31a5.46 5.46 0 0 0-.985-2H19.5c2.21 0 4 1.746 4 3.9v1.6c.025.535-.49 1.02-1 1Zm-6-11a1.001 1.001 0 1 1 1 1c-.55 0-1-.447-1-1Zm1-3a3.001 3.001 0 0 0 0 6 3.001 3.001 0 0 0 0-6Z" fill="currentColor" /></svg>
+            <svg v-else-if="category.key === 'hrbp'" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" data-icon="ContactsOutlined"><path d="M5 7a5 5 0 1 0 10.002-.002A5 5 0 0 0 5 7Zm8 0a3 3 0 0 1-6 0 3 3 0 0 1 6 0Zm-6 6a6 6 0 0 0-6 6v1.5c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V19a6 6 0 0 0-6-6H7Zm6 2a4 4 0 0 1 4 4v1.539H3V19a4 4 0 0 1 4-4h6Zm4-5a1 1 0 0 1 1-1h4a1 1 0 1 1 0 2h-4a1 1 0 0 1-1-1Zm3 4a1 1 0 0 1 1-1h1a1 1 0 1 1 0 2h-1a1 1 0 0 1-1-1Z" fill="currentColor" /></svg>
+            <svg v-else-if="category.key === 'project_admin' || category.key === 'admin'" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M10 4.333a3.334 3.334 0 10-6.668.001 3.334 3.334 0 006.668 0zm-3.333 2a2 2 0 11.001-4.001 2 2 0 01-.001 4.001zM2.417 12a2.742 2.742 0 00-.084.667v.666h4c.184 0 .334.15.334.334v.666c0 .184-.15.334-.334.334H2c-.733 0-1-.267-1-1v-1a4 4 0 014-4h1.333c.184 0 .334.149.334.333v.667c0 .184-.15.333-.334.333H5c-1.243 0-2.287.85-2.583 2zm8.417-4.147a1 1 0 011 0l2.264 1.307a1 1 0 01.5.866v2.615a1 1 0 01-.5.866l-2.264 1.308a1 1 0 01-1 0l-2.265-1.308a1 1 0 01-.5-.866v-2.615a1 1 0 01.5-.866l2.265-1.307zm.5 1.25L9.402 10.22v2.23l1.932 1.115 1.931-1.115v-2.23l-1.931-1.115zm0 3.23a1 1 0 100-2 1 1 0 000 2z" fill="currentColor" /></svg>
             <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M19.602 3.06a1.5 1.5 0 1 1 2.898.777l-.388 1.449-2.898-.776.388-1.45Zm-.774 2.888 2.898.777-3.897 14.543c-.076.285-.24.54-.468.727l-1.48 1.218a.17.17 0 0 1-.268-.073l-.65-1.798a1.394 1.394 0 0 1-.036-.835l3.901-14.559ZM3 3a1 1 0 1 0 0 2h12a1 1 0 1 0 0-2H3Zm-1 9a1 1 0 0 1 1-1h9a1 1 0 1 1 0 2H3a1 1 0 0 1-1-1Zm1 7a1 1 0 1 0 0 2h7a1 1 0 1 0 0-2H3Z" fill="currentColor" /></svg>
           </span>
           <span class="category-label">{{ category.label }}</span>
@@ -51,7 +53,7 @@
             @click="emit('select-node', node)"
           >
             <span class="node-group">
-              <span class="node-label">{{ node.node_name }}<small v-if="node.project_name"> · {{ node.project_name }}</small></span>
+              <span class="node-label">{{ node.node_name }}</span>
               <em v-if="showNodeStatus && node.node_type !== 'result_view' && node.show_status !== false && node.status !== 'completed'" :class="`status-${node.status}`">{{ statusLabel[node.status] }}</em>
             </span>
           </button>
@@ -67,7 +69,7 @@
         class="flyout-node"
         :class="{ active: nodeKey(node) === selectedNodeId }"
         @click="selectFlyoutNode(node)"
-      >{{ node.node_name }}<small v-if="node.project_name"> · {{ node.project_name }}</small></button>
+      >{{ node.node_name }}</button>
       <p v-if="!activeFlyoutCategory.nodes.length" class="flyout-empty">暂无事项</p>
     </nav>
     <button class="sidebar-collapse" type="button" :aria-label="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'" :aria-expanded="!sidebarCollapsed" @click="toggleSidebar">
@@ -91,7 +93,6 @@ export interface SidebarFilterOption {
 export interface ReviewNavigationNode extends PerformanceReviewNode {
   navigation_id?: string
   project_id?: number
-  project_name?: string
 }
 
 const nodeKey = (node: ReviewNavigationNode) => node.navigation_id || node.node_id
@@ -218,6 +219,8 @@ const statusLabel: Record<PerformanceReviewNode['status'], string> = {
 .category-toggle { display: flex; width: calc(100% - 16px); height: 38px; align-items: center; margin: 1px 8px; padding: 0 16px; border: 0; border-radius: 6px; background: transparent; color: #646a73; cursor: pointer; font-size: 14px; font-weight: 400; line-height: 22px; text-align: left; transition: color .1s linear, background .1s linear; }
 .category-toggle:hover { background: rgba(31, 35, 41, 0.08); }
 .category-icon { display: flex; flex: 0 0 16px; margin-right: 8px; color: #646a73; }
+.review-sidebar .category-icon--management { color: #646a73; }
+.review-sidebar .category-icon--management svg { width: 16px; height: 16px; }
 .category-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .category-arrow { flex: 0 0 14px; margin-left: auto; color: #8f959e; transform: rotate(90deg); transition: transform .4s cubic-bezier(.34,.69,.1,1); }
 .category-arrow.collapsed { transform: rotate(0deg); }

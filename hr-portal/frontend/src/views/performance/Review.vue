@@ -196,7 +196,7 @@ const visibleCategories = computed(() => {
       if (!category.nodes.length) continue
       let target = categories.find(item => item.key === category.key)
       if (!target) { target = { ...category, nodes: [] }; categories.push(target) }
-      target.nodes.push(...category.nodes.map(node => ({ ...node, project_id: project.project_id, navigation_id: `${project.project_id}:${node.node_id}`, project_name: projects.length > 1 ? project.project_name : undefined })))
+      target.nodes.push(...category.nodes.map(node => ({ ...node, project_id: project.project_id, navigation_id: `${project.project_id}:${node.node_id}` })))
     }
   }
   if (!resultScopeNodes.value.length) return categories
