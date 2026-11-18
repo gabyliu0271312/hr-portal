@@ -183,18 +183,34 @@ describe('PerformanceWorkbench project context', () => {
     expect(wrapper.find('.announcement-card').exists()).toBe(false)
   })
 
-  it('updates the shared project when the workbench selector changes', async () => {
+  it('covers all cycle projects without a project selector and retains exact result and todo identities', async () => {
     const context = usePerformanceProjectContextStore()
-    vi.mocked(performanceWorkbenchApi.listProjects).mockResolvedValue(projects)
+    vi.mocked(performanceWorkbenchApi.listProjects).mockResolvedValue(projects.map(project => ({ ...project, result_published: true })))
+    vi.mocked(performanceWorkbenchApi.tasks).mockImplementation(async (projectId, state) => [{ ...pending[0], task_id: Number(projectId) * 10, node_name: state === 'pending' ? '待完成环节' : '已完成环节' }])
     context.setActiveProjectId(2)
     const wrapper = mountView()
     await flushPromises()
-    await wrapper.get('.select-project-one').trigger('click')
-    await flushPromises()
-
-    expect(context.activeProjectId).toBe(1)
-    expect(replace).toHaveBeenLastCalledWith({ query: { project_id: '1' } })
-    expect(performanceWorkbenchApi.timeline).toHaveBeenCalledWith(1)
+    expect(wrapper.find('.select-project-one').exists()).toBe(false)
+    expect(wrapper.findAll('.project-title').map(title => title.text())).toEqual(['项目一', '项目二'])
+    expect(wrapper.findAll('.timeline-node')).toHaveLength(2)
+    expect(wrapper.findAll('.result-card')).toHaveLength(2)
+    for (const stateIndex of [0, 1]) {
+      await wrapper.findAll('.todo-tabs button')[stateIndex].trigger('click')
+      const links = wrapper.findAll('.todo-item')
+      expect(links).toHaveLength(2)
+      for (const [index, link] of links.entries()) {
+        expect(link.text()).toContain(projects[index].project_name)
+        const url = new URL(link.attributes('href')!, 'http://localhost')
+        expect(Object.fromEntries(url.searchParams)).toEqual({ cycle_id: '1', project_id: String(index + 1), node: 'summary' })
+        await link.trigger('click')
+        expect(push).toHaveBeenLastCalledWith(`${url.pathname}${url.search}`)
+      }
+    }
+    await wrapper.findAll('.result-card button')[0].trigger('click')
+    expect(push).toHaveBeenLastCalledWith({ name: 'PerformanceReview', query: { entry: 'results', cycle_id: '1', project_id: '1' } })
+    expect(context.workbenchSnapshot(1)?.pending).toHaveLength(1)
+    expect(context.workbenchSnapshot(2)?.pending).toHaveLength(1)
+    wrapper.unmount()
   })
 
   it('does not start project requests after leaving while navigation is pending', async () => {
@@ -221,6 +237,42 @@ describe('PerformanceWorkbench project context', () => {
     expect(wrapper.findAll('.todo-item')).toHaveLength(1)
     await flushPromises()
     expect(wrapper.get('.todo-name').text()).toBe('工作总结')
+    wrapper.unmount()
+  })
+
+  it('keeps every cached project todo visible while the project list refresh is pending', async () => {
+    const context = usePerformanceProjectContextStore()
+    context.setWorkbenchProjects(projects)
+    for (const project of projects) context.setWorkbenchSnapshot(project.project_id, { timeline, pending, completed: [] })
+    vi.mocked(performanceWorkbenchApi.listProjects).mockReturnValue(new Promise(() => {}))
+    const wrapper = mountView()
+    expect(wrapper.findAll('.todo-item')).toHaveLength(2)
+    expect(wrapper.findAll('.timeline-node')).toHaveLength(2)
+    wrapper.unmount()
+  })
+
+  it('does not refill workbench caches after invalidation while projects are loading', async () => {
+    let resolveProjects!: (value: PerformanceWorkbenchProject[]) => void
+    vi.mocked(performanceWorkbenchApi.listProjects).mockReturnValueOnce(new Promise(done => { resolveProjects = done }))
+    const wrapper = mountView()
+    await flushPromises()
+    const context = usePerformanceProjectContextStore()
+    context.invalidate()
+    resolveProjects(projects)
+    await flushPromises()
+    expect(context.workbenchProjects).toBeNull()
+    expect(wrapper.findAll('.todo-item')).toHaveLength(0)
+    expect(performanceWorkbenchApi.timeline).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('shows an empty cycle without starting project requests', async () => {
+    vi.mocked(performanceWorkbenchApi.listProjects).mockResolvedValue([])
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).toContain('当前周期暂无相关绩效项目')
+    expect(performanceWorkbenchApi.tasks).not.toHaveBeenCalled()
+    expect(performanceWorkbenchApi.timeline).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 

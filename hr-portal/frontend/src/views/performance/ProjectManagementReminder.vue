@@ -4,6 +4,7 @@
     <div class="project-reminder-page__body">
       <p v-if="error" role="alert">{{ error }}</p>
       <PerformanceReminderPanel v-else
+        :key="JSON.stringify([cycleId, nodeKey, route.query.management_role, route.query.project_id])"
         :context="context"
         mode="cycle-remind"
         select-all-available
@@ -40,7 +41,7 @@ const description = computed(() => {
   const deadline = node.value.deadline_at ? new Date(node.value.deadline_at).toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(0, 16) + '（GMT+8）' : '--'
   return `完成率：${rate}　|　完成情况：${completed}/${total}　|　截止时间：${deadline}`
 })
-watch([nodeKey, cycleId], async () => {
+watch(() => [nodeKey.value, cycleId.value, route.query.management_role, route.query.project_id], async () => {
   const current = ++sequence
   node.value = null
   error.value = ''
@@ -68,7 +69,7 @@ function goBack() {
     void router.push({ name: 'PerformanceReview', query: { cycle_id: String(cycleId.value), node: '__team-results__' } })
     return
   }
-  void router.push({ name: 'PerformanceProjectManagement', query: { cycle_id: String(cycleId.value), view: String(route.query.view || '') } })
+  void router.push({ name: 'PerformanceProjectManagement', query: { cycle_id: String(cycleId.value), management_role: route.query.management_role, project_id: route.query.project_id, view: String(route.query.view || '') } })
 }
 </script>
 

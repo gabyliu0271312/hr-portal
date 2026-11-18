@@ -23,26 +23,29 @@
         <p>当前没有你作为项目管理员参与的已启动项目</p>
       </div>
       <template v-else>
-        <div v-if="!selectedProject" class="cycle-overview">
-          <PerformancePageTitle title="周期概览">
+        <div class="cycle-overview">
+          <PerformancePageTitle :title="selectedProject?.project_name || '周期概览'">
             <template #actions>
               <UiButton variant="secondary" class="reviewee-add-trigger" @click="revieweeAddOpen = true"><MemberAddIcon class="reviewee-add-trigger__icon" />添加被评估人</UiButton>
+              <PerformanceManagementMemberScope v-if="managementRole === 'hrbp'" :key="scopeKey" />
             </template>
           </PerformancePageTitle>
           <PerformanceLineTabs v-model="activeTab" sticky :tabs="overviewTabs">
-            <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" :cycle-id="activeCycle.cycle_id" v-model:view-mode="overviewViewMode" :department-provider="projectManagementApi.departmentCompletion" @action="handleCompletionAction" />
-            <AuthorizationManagementPanel v-if="activeTab === 'overview'" :authorizations="authorizations" @view="handleAuthorizationView" />
-            <AuthorizationManagementPanel v-if="activeTab === 'overview'" title="其他" :authorizations="otherModules" @view="handleOtherView" />
-            <ProjectMemberListPanel v-else-if="activeTab === 'members'" :key="viewRefreshKey" :cycle-id="activeCycle.cycle_id" :project-id="memberProjectId" @filter="emit('member-filter')" @authorize-selected="openDelegation('AUTHORIZE', $event)" @transfer-selected="openDelegation('TRANSFER', $event)" @select-member="openMember" @remind-evaluate="handleEvaluateRemind" />
-            <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :key="viewRefreshKey" :project-id="memberProjectId" :cycle-name="activeCycle.cycle_name" @open-member="openMatrixMember" />
-            <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :key="viewRefreshKey" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" />
+            <template v-if="activeTab === 'overview'">
+              <section v-if="selectedProject" class="management-timeline" aria-label="项目流程时间节点">
+                <p v-if="timelineLoading" role="status">正在加载项目流程…</p>
+                <p v-else-if="timelineError" role="alert">{{ timelineError }} <button type="button" @click="loadTimeline">重新加载</button></p>
+                <PerformanceWorkbenchTimeline v-else :key="scopeKey" :nodes="timelineNodes" />
+              </section>
+              <CompletionRatePanel :key="scopeKey" :nodes="completionNodes" :cycle-id="activeCycle.cycle_id" v-model:view-mode="overviewViewMode" :department-provider="projectManagementApi.departmentCompletion" @action="handleCompletionAction" />
+              <AuthorizationManagementPanel :authorizations="authorizations" @view="handleAuthorizationView" />
+              <AuthorizationManagementPanel title="其他" :authorizations="otherModules" @view="handleOtherView" />
+            </template>
+            <ProjectMemberListPanel v-else-if="activeTab === 'members'" :key="contentKey" :cycle-id="selectedProject ? undefined : activeCycle.cycle_id" :project-id="memberProjectId" @filter="emit('member-filter')" @authorize-selected="openDelegation('AUTHORIZE', $event)" @transfer-selected="openDelegation('TRANSFER', $event)" @select-member="openMember" @remind-evaluate="handleEvaluateRemind" />
+            <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :key="contentKey" :project-id="memberProjectId" :cycle-id="selectedProject ? undefined : activeCycle.cycle_id" :scope-key="scopeKey" :provider="matrixProvider" :cycle-name="activeCycle.cycle_name" @open-member="openMatrixMember" />
+            <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :key="contentKey" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" :provider="statisticsProvider" :self-final-provider="selfFinalProvider" />
             <p v-else class="pane-hint">该页签内容将在后续迭代中开发</p>
           </PerformanceLineTabs>
-        </div>
-        <div v-else class="management-heading">
-          <PerformancePageTitle :title="selectedProject.project_name">
-            <p class="panel-hint">项目管理内容将在后续迭代中开发</p>
-          </PerformancePageTitle>
         </div>
       </template>
     </section>
@@ -81,7 +84,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import PerformanceManagementMemberScope from '@/components/performance/PerformanceManagementMemberScope.vue'
+import PerformanceWorkbenchTimeline, { type WorkbenchTimelineNode } from '@/components/performance/PerformanceWorkbenchTimeline.vue'
+import type { ProjectReportProvider } from '@/components/performance/projectStatisticsReport'
 import { ElMessage } from 'element-plus'
 import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -133,21 +139,35 @@ const emit = defineEmits<{
 }>()
 const overview = ref<ProjectManagementOverview | null>(null)
 const activeCycleId = computed(() => projectContext.activeCycleId)
-const selectedKey = ref('')
-const activeTab = ref(route.query.rootReviewId ? 'members' : 'overview')
+const managementRole = computed(() => String(route.query.management_role || overview.value?.active_role || 'project_admin'))
+const requestedScope = computed(() => ({
+  ...(route.query.management_role ? { management_role: String(route.query.management_role) as 'hrbp' | 'project_admin' } : {}),
+  ...(route.query.project_id ? { project_id: Number(route.query.project_id) } : {}),
+}))
+const managementScope = computed(() => ({ ...requestedScope.value, management_role: managementRole.value as 'hrbp' | 'project_admin' }))
+const scopeKey = computed(() => JSON.stringify([activeCycleId.value, managementRole.value, route.query.project_id || '']))
+const selectedKey = computed(() => `${managementRole.value}:${route.query.project_id ? `project-${route.query.project_id}` : OVERVIEW_NODE_ID}`)
+const activeTab = ref(String(route.query.tab || (route.query.rootReviewId ? 'members' : 'overview')))
+watch(activeTab, tab => {
+  if (route.query.tab !== tab) void router.replace({ query: { ...route.query, tab } })
+})
+watch(() => route.query.tab, tab => {
+  if (OVERVIEW_TABS.some(item => item.key === tab)) activeTab.value = String(tab)
+})
 const drawerMember = ref<{ project_id: number; employee_no: string; root_review_id?: number; display_name?: string; task_id?: number | null; task_map?: ProjectMemberTaskOption[] } | null>(null)
 const drawerOpen = ref(false)
 const drawerActiveTab = ref(String(route.query.activeTab || ''))
 const drawerSourceTab = ref('')
 const memberDetailLoader = computed(() => {
   const member = drawerMember.value
+  const key = scopeKey.value
   return member ? (tab?: string) => projectContext.loadDrawerDetail(
-    JSON.stringify(['management', member.project_id, member.employee_no, member.root_review_id, tab || '']),
+    JSON.stringify(['management', key, member.project_id, member.employee_no, member.root_review_id, tab || '']),
     () => projectManagementApi.memberDetail(member.project_id, member.employee_no, member.root_review_id, tab ?? ''),
   ) : undefined
 })
 function memberQuery() {
-  return { ...route.query, member_project_id: String(drawerMember.value?.project_id || ''), employee_no: drawerMember.value?.employee_no, rootReviewId: String(drawerMember.value?.root_review_id || ''), activeTab: drawerActiveTab.value || undefined }
+  return { ...route.query, ...managementQuery(), tab: activeTab.value, member_project_id: String(drawerMember.value?.project_id || ''), employee_no: drawerMember.value?.employee_no, rootReviewId: String(drawerMember.value?.root_review_id || ''), activeTab: drawerActiveTab.value || undefined }
 }
 async function openMember(member: ProjectMember) {
   if (!member.can_view_detail) return
@@ -183,6 +203,8 @@ async function fillFromDrawer(payload: { task_id: string | number; employee_no: 
   const path = '/performance/review/template-task'
   const query: Record<string, string> = {
     task_id: String(payload.task_id),
+    management_role: managementRole.value,
+    ...(activeCycleId.value ? { cycle_id: String(activeCycleId.value) } : {}),
     project_id: String(projectId),
     node: payload.node_id || '',
     employee_no: payload.employee_no,
@@ -210,7 +232,7 @@ function restoreMember() {
   const rootId = Number(route.query.rootReviewId)
   const employeeNo = String(route.query.employee_no || '')
   if (!Number.isSafeInteger(projectId) || projectId <= 0 || !Number.isSafeInteger(rootId) || rootId <= 0 || !employeeNo) return
-  activeTab.value = drawerSourceTab.value || 'members'
+  activeTab.value = String(route.query.tab || drawerSourceTab.value || 'members')
   if (drawerMember.value?.project_id !== projectId || drawerMember.value?.root_review_id !== rootId || drawerMember.value?.employee_no !== employeeNo) {
     drawerMember.value = { project_id: projectId, employee_no: employeeNo, root_review_id: rootId }
   }
@@ -271,6 +293,7 @@ const deletingMember = ref(false)
 async function removeDrawerMember(payload: { project_id: number; employee_no: string; root_review_id?: number; display_name?: string }) {
   if (deletingMember.value) return
   const cycleId = activeCycleId.value
+  const key = scopeKey.value
   deletingMember.value = true
   try {
     await projectManagementApi.removeMember(payload.project_id, payload.employee_no, payload.root_review_id)
@@ -283,7 +306,7 @@ async function removeDrawerMember(payload: { project_id: number; employee_no: st
     deletingMember.value = false
   }
   ElMessage.success('操作成功')
-  if (activeCycleId.value !== cycleId) return
+  if (activeCycleId.value !== cycleId || scopeKey.value !== key) return
   viewRefreshKey.value++
   if (drawerMember.value?.project_id === payload.project_id && drawerMember.value?.employee_no === payload.employee_no) {
     drawerOpen.value = false
@@ -303,7 +326,7 @@ function delegationCompleted(count: number, _notificationStatus: string | undefi
   if (skippedCount) ElMessage.success(`已处理 ${count} 个任务，跳过 ${skippedCount} 个无原处理人任务`)
   const cycleId = activeCycleId.value
   if (cycleId === null || !count || !recordId) return
-  void router.push({ name: 'PerformanceAuthorizationRecords', query: { cycle_id: String(cycleId), highlight_id: recordId ? String(recordId) : undefined, highlight_tab: delegationAction.value === 'TRANSFER' ? 'transfer' : 'authorization' } })
+  void router.push({ name: 'PerformanceAuthorizationRecords', query: { ...managementQuery(), cycle_id: String(cycleId), highlight_id: recordId ? String(recordId) : undefined, highlight_tab: delegationAction.value === 'TRANSFER' ? 'transfer' : 'authorization' } })
 }
 
 function handleDrawerRemind(reference: PerformanceReferenceTab) {
@@ -366,37 +389,46 @@ const otherModules = ref<AuthorizationItem[]>([
 
 const filterOptions = computed(() => projectContext.cycles.map(cycle => ({ value: cycle.cycle_id, label: cycle.cycle_name })))
 
-const menuNodes = computed<PerformanceReviewNode[]>(() => [
-  { node_id: OVERVIEW_NODE_ID, node_name: '周期概览', node_type: 'cycle_overview', executor_label: '', status: 'pending', start_at: null, end_at: null, action_url: '' } as PerformanceReviewNode,
-  ...(overview.value?.projects || []).map(project => ({
-    node_id: `project-${project.project_id}`,
-    node_name: project.project_name,
-    node_type: 'project',
-    executor_label: '',
-    status: 'pending',
-    start_at: null,
-    end_at: null,
-    action_url: '',
-  }) as PerformanceReviewNode),
-])
-
-const categories = computed<PerformanceReviewCategory[]>(() => {
-  const label = overview.value?.category?.label || '项目管理员'
-  return [{ key: 'admin', label, nodes: menuNodes.value }]
-})
-
+const managementCategories = computed(() => overview.value?.categories ?? [{
+  key: 'project_admin' as const, label: overview.value?.category?.label || '项目管理员', projects: overview.value?.projects || [],
+}])
+const categories = computed<PerformanceReviewCategory[]>(() => managementCategories.value.map(category => ({
+  key: category.key,
+  label: category.label,
+  nodes: [
+    { node_id: `${category.key}:${OVERVIEW_NODE_ID}`, node_name: '周期概览', node_type: 'cycle_overview' },
+    ...category.projects.map(project => ({ node_id: `${category.key}:project-${project.project_id}`, node_name: project.project_name, node_type: 'project' })),
+  ].map(node => ({ ...node, executor_label: '', status: 'pending', start_at: null, end_at: null, action_url: '' }) as PerformanceReviewNode),
+})))
 const activeCycle = computed(() => overview.value?.active_cycle || null)
-const selectedNode = computed(() => menuNodes.value.find(node => node.node_id === selectedKey.value) || null)
-const selectedProject = computed(() => {
-  if (!selectedNode.value || selectedNode.value.node_type !== 'project') return null
-  const projectId = Number(selectedNode.value.node_id.replace('project-', ''))
-  return overview.value?.projects.find(project => project.project_id === projectId) || null
+const selectedProject = computed(() => overview.value?.projects.find(project => project.project_id === Number(route.query.project_id)) || null)
+const memberProjectId = computed(() => selectedProject.value?.project_id ?? 0)
+const matrixProvider = computed(() => {
+  const cycleId = activeCycle.value?.cycle_id || 0
+  const scope = { ...managementScope.value }
+  return () => projectManagementApi.managementMatrix(cycleId, scope)
 })
-
-const memberProjectId = computed(() => selectedProject.value?.project_id ?? overview.value?.projects[0]?.project_id ?? 0)
+const statisticsProvider = computed<ProjectReportProvider>(() => {
+  const scope = { ...managementScope.value }
+  const key = scopeKey.value
+  return async ({ cycleId, dimension = 'department' }) => {
+    const report = await projectContext.loadReport(`management:${key}:statistics:${dimension}`, () => projectManagementApi.levelStatistics(cycleId, dimension, scope))
+    return { ...report, ratings: report.ratings.map(rating => ({ ...rating, color: rating.color ?? undefined })) }
+  }
+})
+const selfFinalProvider = computed(() => {
+  const cycleId = activeCycle.value?.cycle_id || 0
+  const scope = { ...managementScope.value }
+  const key = scopeKey.value
+  return async () => {
+    const report = await projectContext.loadReport(`management:${key}:self-final`, () => projectManagementApi.selfFinalComparison(cycleId, scope))
+    return { ...report, ratings: report.ratings.map(rating => ({ ...rating, color: rating.color ?? undefined })) }
+  }
+})
 
 const revieweeAddOpen = ref(false)
 const viewRefreshKey = ref(0)
+const contentKey = computed(() => `${scopeKey.value}:${viewRefreshKey.value}`)
 const revieweeAddProjects = computed(() => overview.value?.projects?.filter(project => project.status === 'STARTED') ?? [])
 const revieweeAddProjectId = computed(() => {
   const projects = revieweeAddProjects.value
@@ -414,61 +446,162 @@ function onRevieweeAdded() {
 }
 
 function applyOverview(loaded: ProjectManagementOverview) {
+  if (route.query.project_id && !loaded.projects.some(project => project.project_id === Number(route.query.project_id))) throw new Error('INVALID_MANAGEMENT_PROJECT')
   overview.value = loaded
   if (loaded.active_cycle) projectContext.setActiveCycleId(loaded.active_cycle.cycle_id)
-  if (!menuNodes.value.some(node => node.node_id === selectedKey.value)) {
-    selectedKey.value = OVERVIEW_NODE_ID
-  }
 }
 
 let overviewRequest = 0
+let disposed = false
+let contextReady = false
+let selectingCycle = false
+let normalizingRole = false
 async function loadOverview(cycleId?: number | null) {
   const request = ++overviewRequest
+  const key = scopeKey.value
+  const version = projectContext.cacheVersion
   loading.value = true
   error.value = ''
+  const current = () => !disposed && request === overviewRequest && key === scopeKey.value && version === projectContext.cacheVersion
   try {
-    const loaded = await projectManagementApi.overview(cycleId ?? undefined)
-    if (request !== overviewRequest || (cycleId != null && activeCycleId.value !== cycleId)) return
+    const loaded = await projectManagementApi.overview(cycleId ?? undefined, { ...requestedScope.value })
+    if (!current()) return
+    if (loaded.active_cycle && cycleId != null && loaded.active_cycle.cycle_id !== cycleId) throw new Error('INVALID_MANAGEMENT_CYCLE')
+    if (!route.query.management_role && (loaded.active_role || !loaded.categories)) {
+      normalizingRole = true
+      try { await router.replace({ query: { ...route.query, management_role: loaded.active_role || 'project_admin' } }) }
+      finally { normalizingRole = false }
+      if (disposed || request !== overviewRequest) return
+    }
     applyOverview(loaded)
-  } catch {
-    if (request === overviewRequest && (cycleId == null || activeCycleId.value === cycleId)) error.value = '项目管理加载失败，请稍后重试'
+  } catch (failure: any) {
+    if (current()) {
+      overview.value = null
+      error.value = failure?.response?.status === 403 ? '无权访问当前管理范围' : '项目管理加载失败，请稍后重试'
+    }
   } finally {
-    if (request === overviewRequest) loading.value = false
+    if (!disposed && request === overviewRequest) loading.value = false
   }
 }
 
-async function selectCycle(rawCycleId: number | string) {
-  const cycleId = Number(rawCycleId)
-  if (!Number.isFinite(cycleId) || cycleId <= 0 || cycleId === activeCycleId.value) return
-  selectedKey.value = OVERVIEW_NODE_ID
+function clearScopeState() {
+  overviewRequest++
+  timelineRequest++
+  timelineNodes.value = []
+  timelineError.value = ''
   drawerOpen.value = false
   drawerMember.value = null
   drawerSourceTab.value = ''
+  drawerActiveTab.value = ''
+  memberReminderOpen.value = false
+  memberReminderContext.value = null
+  closeReminder()
+  delegationOpen.value = false
+  delegationTasks.value = []
+  selectedDelegationMembers.value = []
+  revieweeAddOpen.value = false
+  focusGroupDialogOpen.value = false
+  projectContext.invalidateDrawerDetails()
+}
+function managementQuery() {
+  return {
+    ...(activeCycleId.value ? { cycle_id: String(activeCycleId.value) } : {}),
+    management_role: managementRole.value,
+    ...(route.query.project_id ? { project_id: String(route.query.project_id) } : {}),
+  }
+}
+function cleanMemberQuery() {
+  const { rootReviewId: _root, activeTab: _tab, employee_no: _employee, member_project_id: _project, ...query } = route.query
+  return query
+}
+async function selectCycle(rawCycleId: number | string) {
+  const cycleId = Number(rawCycleId)
+  if (!Number.isSafeInteger(cycleId) || cycleId <= 0 || cycleId === activeCycleId.value) return
+  clearScopeState()
   loading.value = true
+  selectingCycle = true
   try {
     const navigation = await projectContext.selectCycle(cycleId)
     if (projectContext.activeCycleId !== cycleId) return
     if (!navigation.can_manage) { await router.replace('/performance/workbench'); return }
-    await router.replace({ query: { cycle_id: String(cycleId) } })
+    const { project_id: _project, ...query } = cleanMemberQuery()
+    await router.replace({ query: { ...query, cycle_id: String(cycleId), management_role: managementRole.value, tab: activeTab.value } })
     await loadOverview(cycleId)
   } catch { error.value = '项目管理加载失败，请稍后重试' }
-  finally { loading.value = false }
+  finally { selectingCycle = false; loading.value = false }
 }
 
 async function selectNode(node: PerformanceReviewNode) {
-  selectedKey.value = node.node_id
-  const query: Record<string, string> = { ...(route.query as Record<string, string>) }
-  if (activeCycleId.value) query.cycle_id = String(activeCycleId.value)
-  if (node.node_id === OVERVIEW_NODE_ID) delete query.project_id
-  else query.project_id = node.node_id.replace('project-', '')
-  await router.replace({ query })
+  const [role, target] = node.node_id.split(':')
+  if (!categories.value.some(category => category.key === role && category.nodes.some(item => item.node_id === node.node_id))) return
+  await router.replace({ query: {
+    ...cleanMemberQuery(),
+    ...managementQuery(),
+    management_role: role,
+    project_id: target === OVERVIEW_NODE_ID ? undefined : target.replace('project-', ''),
+    tab: activeTab.value,
+  } })
 }
+
+watch([() => route.query.cycle_id, () => route.query.management_role, () => route.query.project_id], async () => {
+  if (!contextReady || selectingCycle || normalizingRole) return
+  clearScopeState()
+  loading.value = true
+  const cycleId = Number(route.query.cycle_id) || activeCycleId.value
+  const key = JSON.stringify([route.query.cycle_id, route.query.management_role, route.query.project_id])
+  try {
+    if (cycleId && cycleId !== activeCycleId.value) {
+      selectingCycle = true
+      try { await projectContext.selectCycle(cycleId) } finally { selectingCycle = false }
+    }
+    if (key !== JSON.stringify([route.query.cycle_id, route.query.management_role, route.query.project_id])) return
+    await loadOverview(cycleId)
+    if (!error.value) restoreMember()
+  } catch { error.value = '项目管理加载失败，请稍后重试'; loading.value = false }
+}, { flush: 'sync' })
+
+const timelineNodes = ref<WorkbenchTimelineNode[]>([])
+const timelineLoading = ref(false)
+const timelineError = ref('')
+let timelineRequest = 0
+function formatDateTime(value: string | null) {
+  if (!value) return null
+  const date = new Date(value)
+  const parts = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(date)
+    .reduce<Record<string, string>>((result, part) => { result[part.type] = part.value; return result }, {})
+  return `${parts.month}/${parts.day} ${parts.hour}:${parts.minute}`
+}
+async function loadTimeline() {
+  const request = ++timelineRequest
+  const key = scopeKey.value
+  const projectId = selectedProject.value?.project_id
+  const cycleId = activeCycle.value?.cycle_id
+  timelineNodes.value = []
+  timelineError.value = ''
+  timelineLoading.value = false
+  if (!projectId || !cycleId || activeTab.value !== 'overview' || loading.value) return
+  timelineLoading.value = true
+  const current = () => !disposed && request === timelineRequest && key === scopeKey.value
+  try {
+    const nodes = await projectManagementApi.timeline(cycleId, projectId, managementRole.value as 'hrbp' | 'project_admin')
+    if (current()) timelineNodes.value = nodes.map(node => ({
+      node_id: node.node_id, node_name: node.node_name,
+      range: !node.start_at && !node.end_at ? '时间待配置' : `${formatDateTime(node.start_at) || '--'} - ${formatDateTime(node.end_at) || '--'}`,
+      ended: node.status === 'ended', current: node.status === 'in_progress',
+    }))
+  } catch {
+    if (current()) timelineError.value = '项目流程加载失败，请稍后重试'
+  } finally {
+    if (current()) timelineLoading.value = false
+  }
+}
+watch(() => [scopeKey.value, activeTab.value, loading.value], () => { void loadTimeline() })
 
 async function handleCompletionAction(payload: { action: 'remind' | 'enable-result'; nodeKey: string; title: string; description?: string; departmentPath?: string }) {
   emit('completion-action', payload)
   if (payload.action === 'enable-result' && activeCycle.value) {
     reminderContext.value = {
-      projectId: 0, cycleId: activeCycle.value.cycle_id, nodeId: 'result-view', nodeType: 'result_view',
+      projectId: memberProjectId.value, cycleId: activeCycle.value.cycle_id, nodeId: 'result-view', nodeType: 'result_view',
       reviewType: 'result_opening', title: '开通绩效结果', sectionTitle: '未开通的被评估人',
       description: '仅可选择当前周期内符合开通条件的被评估人',
     }
@@ -480,7 +613,7 @@ async function handleCompletionAction(payload: { action: 'remind' | 'enable-resu
   await router.push({
     name: 'PerformanceProjectReminder',
     query: {
-      cycle_id: String(activeCycle.value.cycle_id),
+      ...managementQuery(),
       node_key: payload.nodeKey,
       department: payload.departmentPath || '',
       view: overviewViewMode.value,
@@ -491,7 +624,7 @@ async function handleCompletionAction(payload: { action: 'remind' | 'enable-resu
 
 async function handleAuthorizationView(item: AuthorizationItem) {
   if (!activeCycle.value) return
-  await router.push({ name: item.key === 'calibration-auth' ? 'PerformanceCalibrationAuthorization' : 'PerformanceAuthorizationRecords', query: { cycle_id: String(activeCycle.value.cycle_id) } })
+  await router.push({ name: item.key === 'calibration-auth' ? 'PerformanceCalibrationAuthorization' : 'PerformanceAuthorizationRecords', query: { ...managementQuery() } })
 }
 
 const focusGroupDialogOpen = ref(false)
@@ -516,9 +649,11 @@ onMounted(async () => {
     const cycleId = projectContext.activeCycleId
     if (String(route.query.cycle_id || '') !== String(cycleId || '')) await router.replace({ query: { ...route.query, cycle_id: cycleId ? String(cycleId) : undefined } })
     await loadOverview(cycleId)
-    restoreMember()
+    if (!error.value) restoreMember()
+    contextReady = true
   } catch { error.value = '项目管理加载失败，请稍后重试'; loading.value = false }
 })
+onBeforeUnmount(() => { disposed = true; overviewRequest++; timelineRequest++ })
 </script>
 
 <style scoped>
@@ -526,6 +661,9 @@ onMounted(async () => {
 
 .project-management-page { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: var(--performance-page-surface); }
 .management-content { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; overflow-y: auto; padding: var(--performance-review-surface-inset) var(--performance-review-surface-inset) 24px; background: var(--performance-line-tabs-surface); }
+.management-timeline { padding: var(--spacing-6) var(--spacing-4); margin-bottom: var(--spacing-4); background: var(--color-bg-card); border-radius: var(--radius-lg); }
+.management-timeline p { margin: 0; color: var(--color-text-secondary); }
+.management-timeline button { border: 0; background: transparent; color: var(--color-primary); cursor: pointer; }
 .cycle-overview { display: flex; min-width: 0; flex-direction: column; }
 .pane-hint { margin: 16px 0 0; color: #8f959e; font-size: 13px; }
 .state-message { display: grid; flex: 1; place-content: center; gap: 8px; color: #646a73; font-size: 14px; text-align: center; }

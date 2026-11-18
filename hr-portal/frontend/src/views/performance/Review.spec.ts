@@ -118,6 +118,64 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it('keeps equal node ids from two projects separately reachable and opens the real task', async () => {
+    const projects = [overview.projects[0], { ...overview.projects[0], project_id: 2, project_name: '第二项目' }]
+    const projectOverview = (projectId: number): PerformanceReviewOverview => ({
+      ...structuredClone(overview), projects, active_project: projects[projectId - 1], template_name: `项目${projectId}模板`,
+      categories: [{ key: 'mine', label: '我的绩效', nodes: [{ ...overview.categories[0].nodes[0], task_id: projectId * 11 }] }],
+    })
+    usePerformanceProjectContextStore().setNavigation(navigationOf(1, { review_projects: projects, can_view_team_results: true, can_view_focus_results: true }))
+    vi.mocked(performanceReviewApi.overview).mockImplementation(async projectId => projectOverview(projectId || 1))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(performanceReviewApi.overview).toHaveBeenCalledWith(2, undefined, 1)
+    expect(wrapper.find('.project-picker').exists()).toBe(false)
+    expect(wrapper.findAll('.cycle-picker')).toHaveLength(1)
+    expect(wrapper.findAll('.review-node').filter(node => node.text().includes('工作总结环节')).map(node => node.text())).toEqual(['工作总结环节 · 绩效项目待完成', '工作总结环节 · 第二项目待完成'])
+    for (const projectId of [2, 1]) {
+      await wrapper.findAll('.review-node').find(node => node.text().includes(projects[projectId - 1].project_name) && node.text().includes('工作总结环节'))!.trigger('click')
+      await flushPromises()
+      expect(usePerformanceProjectContextStore().activeProjectId).toBe(projectId)
+      expect(wrapper.findAll('.review-node.active')).toHaveLength(1)
+      expect(wrapper.get('.review-node.active').text()).toContain(projects[projectId - 1].project_name)
+      await wrapper.get('.primary-button').trigger('click')
+      expect(push).toHaveBeenLastCalledWith(`/performance/review/self-summary?task_id=${projectId * 11}&project_id=${projectId}&node=summary`)
+      expect(replace).toHaveBeenCalledWith({ query: expect.objectContaining({ project_id: String(projectId), node: 'summary' }) })
+    }
+    await wrapper.get('.sidebar-collapse').trigger('click')
+    await wrapper.get('.category-toggle').trigger('click')
+    expect(wrapper.findAll('.flyout-node')).toHaveLength(2)
+    await wrapper.findAll('.flyout-node')[1].trigger('click')
+    await flushPromises()
+    expect(usePerformanceProjectContextStore().activeProjectId).toBe(2)
+    expect(wrapper.get('.review-node.active').text()).toContain('第二项目')
+    expect(wrapper.find('.sidebar-flyout').exists()).toBe(false)
+    expect(wrapper.findAll('.review-node').filter(node => node.text().includes('查看团队绩效结果'))).toHaveLength(1)
+    expect(wrapper.findAll('.review-node').filter(node => node.text().includes('关注人员的绩效结果'))).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('drops late aggregated project menus after switching cycles', async () => {
+    const projects = [overview.projects[0], { ...overview.projects[0], project_id: 2, project_name: '旧周期第二项目' }]
+    let resolveOld!: (value: PerformanceReviewOverview) => void
+    vi.mocked(performanceReviewApi.overview).mockImplementation((projectId, _taskId, cycleId) => {
+      if (cycleId === 1 && projectId === 2) return new Promise(done => { resolveOld = done })
+      return Promise.resolve(cycleId === 1 ? { ...structuredClone(overview), projects } : { ...structuredClone(overview), template_name: '新周期模板' })
+    })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).toContain('工作总结环节')
+    expect(wrapper.text()).not.toContain('正在加载绩效评估')
+    wrapper.findComponent({ name: 'PerformanceReviewCategorySidebar' }).vm.$emit('select-filter', 2)
+    await flushPromises()
+    resolveOld({ ...structuredClone(overview), projects, active_project: projects[1], categories: [{ key: 'mine', label: '我的绩效', nodes: [{ ...overview.categories[0].nodes[0], node_name: '旧周期敏感节点' }] }] })
+    await flushPromises()
+    expect(wrapper.text()).toContain('新周期模板')
+    expect(wrapper.text()).not.toContain('旧周期敏感节点')
+    expect(usePerformanceProjectContextStore().reviewOverview(2)).toBeNull()
+    wrapper.unmount()
+  })
+
   it('lets completed cards grow with content instead of shrinking inside the scroll viewport', () => {
     expect(reviewContentSource).toContain("'review-body--completed': !resultUnavailable && (node.node_type === 'result_view' || node.status === 'completed'")
     expect(reviewContentSource).toMatch(/\.review-body--completed\s*\{[^}]*flex:\s*1 0 auto/)

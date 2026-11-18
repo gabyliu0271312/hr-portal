@@ -81,7 +81,7 @@ async def preload_member_reminders(project, members, context, db):
         snapshot.source_snapshot_id: await db.get(PerformanceAuthorizationSnapshot, snapshot.source_snapshot_id)
         for snapshot in snapshots.values() if snapshot is not None
     }
-    key = (project.id, context.subject_type, context.subject_id, context.effective_employee_no, context.switch_session_id)
+    key = (project.id, context.subject_type, context.subject_id, context.effective_employee_no, context.switch_session_id, context.management_role, context.management_cycle_id, context.management_project_id)
     _request_cache(db, "performance_member_reminder_preload")[key] = {
         "actor": await shared.resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref),
         "snapshots": snapshots, "authorizations": authorizations,
@@ -156,6 +156,10 @@ async def _source_allowed(task, node, project, actor, db, preloaded=None):
 async def _member_scope(project, employee_no, context, db, source_task_id=None, *, preloaded=None):
     from app.performance import projects_router as shared
 
+    if context.management_role:
+        scope = await shared._project_data_scope(context, project, db, "performance.frontend.data-view")
+        if scope is not None and employee_no not in scope:
+            raise HTTPException(403, "PROJECT_MEMBER_REMIND_FORBIDDEN")
     if getattr(project, "status", None) != PROJECT_STATUS_STARTED:
         raise HTTPException(404, "PROJECT_NOT_FOUND")
     actor = preloaded["actor"] if preloaded else await shared.resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
@@ -187,7 +191,7 @@ async def _member_scope(project, employee_no, context, db, source_task_id=None, 
         return actor, snapshot, member, source
 
     scope_cache = _request_cache(db, "performance_member_reminder_management")
-    scope_key = (project.id, context.subject_type, context.subject_id, context.effective_employee_no, context.switch_session_id)
+    scope_key = (project.id, context.subject_type, context.subject_id, context.effective_employee_no, context.switch_session_id, context.management_role, context.management_cycle_id, context.management_project_id)
     management = scope_cache.get(scope_key)
     if management is None:
         managed = await shared._can_manage_project_like_overview(context, project, db)
@@ -236,10 +240,10 @@ async def _member_tasks(project, employee_no, context, db, source_task_id=None, 
     from app.integrations.feishu.notification_service import _global_delivery_mode
 
     preload_cache = _request_cache(db, "performance_member_reminder_preload")
-    preload_key = (project.id, context.subject_type, context.subject_id, context.effective_employee_no, context.switch_session_id)
+    preload_key = (project.id, context.subject_type, context.subject_id, context.effective_employee_no, context.switch_session_id, context.management_role, context.management_cycle_id, context.management_project_id)
     preloaded = preload_cache.get(preload_key) if first_only else None
     scope_cache = _request_cache(db, "performance_member_reminder_scope") if first_only else {}
-    scope_key = (project.id, employee_no, source_task_id, context.subject_type, context.subject_id, context.effective_employee_no, context.switch_session_id)
+    scope_key = (project.id, employee_no, source_task_id, context.subject_type, context.subject_id, context.effective_employee_no, context.switch_session_id, context.management_role, context.management_cycle_id, context.management_project_id)
     scoped = scope_cache.get(scope_key)
     if scoped is None:
         scoped = await _member_scope(project, employee_no, context, db, source_task_id, preloaded=preloaded)

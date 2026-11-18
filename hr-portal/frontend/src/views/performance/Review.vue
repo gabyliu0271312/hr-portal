@@ -7,7 +7,7 @@
       @select-filter="selectCycle"
       :projects="overview?.projects || []"
       :active-project="overview?.active_project || null"
-      :selected-node-id="selectedNodeId"
+      :selected-node-id="resultScopeKind ? selectedNodeId : `${activeProjectId}:${selectedNodeId}`"
       :loading="loading"
       @select-project="selectProject"
       @select-node="selectNode"
@@ -92,7 +92,7 @@ import PerformanceResultReconsiderationMenu from '@/components/performance/Perfo
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
 import PerformanceResultReviewer360Block, { hasVisibleReviewer360Content } from '@/components/performance/PerformanceResultReviewer360Block.vue'
 import PerformanceOkrPanel from '@/components/performance/PerformanceOkrPanel.vue'
-import PerformanceReviewCategorySidebar from '@/components/performance/PerformanceReviewCategorySidebar.vue'
+import PerformanceReviewCategorySidebar, { type ReviewNavigationNode } from '@/components/performance/PerformanceReviewCategorySidebar.vue'
 import PerformanceResultScopeView from '@/components/performance/PerformanceResultScopeView.vue'
 import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
 import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
@@ -188,7 +188,17 @@ const resultScopeNodes = computed<PerformanceReviewNode[]>(() => [
   ...(projectContext.navigation?.can_view_focus_results ? [{ node_id: FOCUS_RESULT_NODE_ID, node_name: '关注人员的绩效结果', node_type: 'focus_results', entry_mode: 'none' as const, executor_label: '', status: 'completed' as const, start_at: null, end_at: null, action_url: '' }] : []),
 ])
 const visibleCategories = computed(() => {
-  const categories = (overview.value?.categories || []).filter(category => category.nodes.length > 0).map(category => ({ ...category, nodes: [...category.nodes] }))
+  const categories: Array<{ key: string; label: string; nodes: ReviewNavigationNode[] }> = []
+  const projects = overview.value?.projects || []
+  for (const project of projects) {
+    const source = project.project_id === overview.value?.active_project?.project_id ? overview.value : projectContext.reviewOverview(project.project_id)
+    for (const category of source?.categories || []) {
+      if (!category.nodes.length) continue
+      let target = categories.find(item => item.key === category.key)
+      if (!target) { target = { ...category, nodes: [] }; categories.push(target) }
+      target.nodes.push(...category.nodes.map(node => ({ ...node, project_id: project.project_id, navigation_id: `${project.project_id}:${node.node_id}`, project_name: projects.length > 1 ? project.project_name : undefined })))
+    }
+  }
   if (!resultScopeNodes.value.length) return categories
   const team = categories.find(category => category.key === 'team')
   if (team) team.nodes.push(...resultScopeNodes.value)
@@ -196,7 +206,7 @@ const visibleCategories = computed(() => {
   return categories
 })
 const cycleOptions = computed(() => projectContext.cycles.map(cycle => ({ value: cycle.cycle_id, label: cycle.cycle_name })))
-const allNodes = computed(() => visibleCategories.value.flatMap(category => category.nodes))
+const allNodes = computed(() => visibleCategories.value.flatMap(category => category.nodes).filter(node => !node.project_id || node.project_id === activeProjectId.value))
 const selectedNode = computed(() => resultScopeKind.value ? allNodes.value.find(node => node.node_id === selectedNodeId.value) || null : overview.value?.active_project?.project_id === activeProjectId.value ? allNodes.value.find(node => node.node_id === selectedNodeId.value) || null : null)
 const calibrationCompletion = ref<PerformanceCalibrationCompletion | null>(null)
 const calibrationConfirmOpen = ref(false)
@@ -355,6 +365,16 @@ async function loadOverview(projectId?: number, silent = false) {
     if (!current()) return
     error.value = ''
     applyOverview(loaded)
+    if (!silent) loading.value = false
+    await Promise.all(loaded.projects.filter(project => project.project_id !== loaded.active_project?.project_id).map(async project => {
+      try {
+        const value = await performanceReviewApi.overview(project.project_id, undefined, cycleId || undefined)
+        if (current() && value.active_project?.project_id === project.project_id) projectContext.setReviewOverview(value)
+      } catch {
+        if (current()) error.value = '部分项目评估导航加载失败，请重试'
+      }
+    }))
+    if (!current()) return
     if (projectContext.navigation && projectContext.navigation.can_review !== (loaded.projects.length > 0 || Boolean(projectContext.navigation.can_view_team_results || projectContext.navigation.can_view_focus_results))) {
       const navigation = await projectContext.refreshNavigation(projectContext.activeCycleId || undefined, true)
       if (current() && !navigation.can_review) await router.replace('/performance/workbench')
@@ -396,8 +416,14 @@ async function selectProject(rawProjectId: number | string) {
     await loadOverview(projectId, true)
   } else await loadOverview(projectId)
 }
-async function selectNode(node: PerformanceReviewNode) {
+async function selectNode(node: ReviewNavigationNode) {
+  const cycleId = projectContext.activeCycleId
   resultsEntry.value = false
+  if (node.project_id && node.project_id !== activeProjectId.value) {
+    projectContext.setSelectedReviewNode(node.project_id, node.node_id)
+    await selectProject(node.project_id)
+    if (activeProjectId.value !== node.project_id || cycleId !== projectContext.activeCycleId || disposed) return
+  }
   error.value = ''
   selectedNodeId.value = node.node_id
   if (node.node_id === TEAM_RESULT_NODE_ID || node.node_id === FOCUS_RESULT_NODE_ID) {

@@ -95,7 +95,7 @@ watch([highlightId, highlightTab], () => {
   if (highlightTab.value) activeTab.value = highlightTab.value
   locateHighlight()
 })
-function goBack() { void router.push({ name: 'PerformanceProjectManagement', query: { cycle_id: String(cycleId.value) } }) }
+function goBack() { void router.push({ name: 'PerformanceProjectManagement', query: { cycle_id: String(cycleId.value), management_role: route.query.management_role, project_id: route.query.project_id } }) }
 function formatDate(value: string) { return value ? new Date(value).toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(0, 16) + '（GMT+8）' : '--' }
 async function revoke(row: ProjectAuthorizationRecord) {
   if (!row.project_id || !row.task_id || !row.authorization_id || loading.value) return
@@ -110,7 +110,12 @@ async function confirmRevoke() {
   try { await projectManagementApi.revokeTaskAuthorization(row.project_id, row.task_id, row.authorization_id); await load(); notice.value = '授权已撤销，已保存和提交内容保留' } catch { notice.value = '撤销失败，请刷新记录后重试' } finally { loading.value = false; revokeTarget.value = null }
 }
 watch(activeTab, () => { page.value = 1; highlightKey.value = '' }, { flush: 'sync' })
-watch(cycleId, () => void load())
+watch(() => [cycleId.value, route.query.management_role, route.query.project_id], () => {
+  confirmOpen.value = false
+  revokeTarget.value = null
+  notice.value = ''
+  void load()
+})
 onMounted(() => void load())
 </script>
 

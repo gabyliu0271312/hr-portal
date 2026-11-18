@@ -87,6 +87,8 @@ async def resolve_subject_visibility_role(
     node: PerformanceProjectNodeSnapshot,
     project: PerformanceProject | None,
 ) -> str:
+    if context.management_role:
+        return "hrbp" if context.management_role == "hrbp" else "activity_manager"
     target_ref = getattr(member, "employee_no", None) if member else None
     if target_ref and actor_ref == target_ref:
         return "reviewee"

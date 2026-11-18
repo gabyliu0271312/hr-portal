@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import UTC, datetime, date, timedelta
 import math
 from typing import Callable, Literal
@@ -273,6 +274,11 @@ async def _self_summary_task(task_id: int, actor: PerformanceAccessContext, db: 
             await PerformanceObjectAuthorizationService(db).authorize(ObjectAuthorizationRequest(cycle_ref=row[0].cycle_ref, employee_no=row[0].target_employee_no, actor_type="EMPLOYEE", actor_ref=trusted.actor_ref, action="CALIBRATE", cycle_status="ACTIVE", node_status="OPEN", record_status="DRAFT", project_id=row[0].project_id, node_id=row[1].node_id, phase_id=row[0].phase_id))
         except PerformanceObjectAuthorizationDenied:
             raise HTTPException(status_code=404, detail="TASK_NOT_FOUND") from None
+    if actor.management_role:
+        project = await _get_project(db, row[0].project_id)
+        scope = await _project_data_scope(actor, project, db, "performance.frontend.data-view")
+        if scope is not None and row[0].target_employee_no not in scope:
+            raise HTTPException(404, "TASK_NOT_FOUND")
     return row[0], row[1]
 
 
@@ -2304,6 +2310,20 @@ async def _opening_role_grants(db: AsyncSession, context: PerformanceAccessConte
 
 async def _opening_access_grants(db: AsyncSession, context: PerformanceAccessContext, projects: list[PerformanceProject]) -> list[tuple[PerformanceRole, PerformanceRoleAssignment]]:
     """Combine explicit scoped assignments with configured project-admin/HRBP identities."""
+    if context.management_role:
+        grants = []
+        for project in projects:
+            if context.management_project_id is not None and project.id != context.management_project_id:
+                continue
+            try:
+                scope = await _project_data_scope(context, project, db, "performance.frontend.result-open")
+            except HTTPException as exc:
+                if exc.status_code == 403:
+                    continue
+                raise
+            grants.append((SimpleNamespace(is_active=True, function_permission_keys=["performance.frontend.result-open"]),
+                SimpleNamespace(scope_type="PROJECT", scope_ref=project.project_ref, project_ref=project.project_ref, employee_nos=scope)))
+        return grants
     grants = [(role, assignment) for role, assignment in await _opening_role_grants(db, context)
               if getattr(role, "code", None) not in {"performance.project_admin", "performance.hrbp"}]
     if not projects:
@@ -2513,6 +2533,12 @@ async def result_opening_people(
     db: AsyncSession = Depends(get_session),
 ):
     rows = await _opening_project_members(db, cycle_id)
+    if context.management_role:
+        from app.performance.management_scope import management_projects
+        permitted = await management_projects(cycle_id, context, db, ("performance.frontend.result-open",))
+        scopes = {project.id: scope for project, scope in permitted}
+        rows = [(project, member) for project, member in rows if project.id in scopes
+                and (scopes[project.id] is None or member.employee_no in scopes[project.id])]
     projects = list({project.id: project for project, _member in rows}.values())
     grants = await _opening_access_grants(db, context, projects)
     if not any(role.is_active and "performance.frontend.result-open" in (role.function_permission_keys or []) for role, _ in grants):
@@ -2553,6 +2579,12 @@ async def open_cycle_results(
     db: AsyncSession = Depends(get_session),
 ):
     rows = await _opening_project_members(db, cycle_id)
+    if context.management_role:
+        from app.performance.management_scope import management_projects
+        permitted = await management_projects(cycle_id, context, db, ("performance.frontend.result-open",))
+        scopes = {project.id: scope for project, scope in permitted}
+        rows = [(project, member) for project, member in rows if project.id in scopes
+                and (scopes[project.id] is None or member.employee_no in scopes[project.id])]
     projects = list({project.id: project for project, _member in rows}.values())
     grants = await _opening_access_grants(db, context, projects)
     if not any(role.is_active and "performance.frontend.result-open" in (role.function_permission_keys or []) for role, _ in grants):
@@ -3148,10 +3180,15 @@ def _sort_member_rows(items, sort_by, sort_order, rating_columns):
 
 
 async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, *, export=False, page=None, page_size=50):
-    access = await resolve_frontend_access(db, context)
-    if not any(cycle.id == cycle_id for cycle in access.cycles):
-        raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
-    managed = {project.id: project for project, cycle in access.manage_projects if cycle.id == cycle_id}
+    if context.management_role:
+        from app.performance.management_scope import management_projects
+        permitted = await management_projects(cycle_id, context, db, ("performance.frontend.data-view",))
+        managed = {project.id: project for project, _scope in permitted}
+    else:
+        access = await resolve_frontend_access(db, context)
+        if not any(cycle.id == cycle_id for cycle in access.cycles):
+            raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
+        managed = {project.id: project for project, cycle in access.manage_projects if cycle.id == cycle_id}
     if not managed:
         raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
     authorized = []
@@ -3301,20 +3338,33 @@ async def result_view_matrix(
         raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
     if not scope.employee_nos:
         raise HTTPException(status_code=403, detail="RESULT_VIEW_FORBIDDEN")
+    return await _aggregate_project_matrix(scope.projects, scope.scopes, context, db)
+
+
+async def _aggregate_project_matrix(projects, scopes, context, db, *, reject_conflicts=False):
     ratings, pending_groups, completed_groups, people_rows = [], {}, {}, []
-    for project in scope.projects:
+    employees, rating_scale = set(), None
+    for project in projects:
         snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
-        members = list((await db.execute(select(PerformanceProjectMember).where(
-            PerformanceProjectMember.snapshot_id == snapshot_id,
-            PerformanceProjectMember.employee_no.in_(scope.scopes[project.id]),
-        ))).scalars().all()) if snapshot_id is not None else []
+        statement = select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == snapshot_id)
+        if scopes[project.id] is not None:
+            statement = statement.where(PerformanceProjectMember.employee_no.in_(scopes[project.id]))
+        members = list((await db.execute(statement)).scalars().all()) if snapshot_id is not None else []
+        project_employees = {member.employee_no for member in members}
+        if reject_conflicts and employees & project_employees:
+            raise HTTPException(409, "CYCLE_MEMBER_OVERLAP_UNRESOLVED")
+        employees.update(project_employees)
         people = {member.employee_no: _matrix_person(member, project.id, member.id) for member in members}
         await hydrate_member_identities(
             db, [(people[member.employee_no], project.id, member.snapshot_id) for member in members],
             context=context,
             verified_view_keys={(project.id, member.snapshot_id, member.employee_no) for member in members},
         )
-        project_ratings, final_values, _ = await _project_final_ratings(project, set(people), db, member_snapshot_id=snapshot_id)
+        project_ratings, final_values, scales = await _project_final_ratings(project, set(people), db, member_snapshot_id=snapshot_id)
+        for scale in scales:
+            if reject_conflicts and rating_scale is not None and scale != rating_scale:
+                raise HTTPException(409, "RATING_SCALE_CONFLICT")
+            rating_scale = scale
         for rating in project_ratings:
             if not any(item["key"] == rating["key"] for item in ratings):
                 ratings.append(rating)
@@ -3339,6 +3389,43 @@ async def result_view_matrix(
         pending_rows=[MatrixRowResponse(**row) for row in pending_rows],
         completed_rows=[MatrixRowResponse(**row) for row in _matrix_rows(completed_groups, ratings)],
     )
+
+
+@router.get("/project-management/matrix", response_model=ProjectMatrixResponse)
+async def project_management_matrix(
+    cycle_id: int = Query(..., ge=1),
+    project_id: int | None = None,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    if context.management_role:
+        from app.performance.management_scope import management_projects
+        scoped = replace(context, management_project_id=project_id if isinstance(project_id, int) else context.management_project_id)
+        permitted = await management_projects(cycle_id, scoped, db, ("performance.frontend.data-view",))
+    else:
+        cycle = await _get_cycle(db, cycle_id)
+        if isinstance(project_id, int):
+            project = await _get_project(db, project_id)
+            if project.cycle_ref != cycle.cycle_ref:
+                raise HTTPException(404, "PROJECT_NOT_FOUND")
+            candidates = [project]
+        else:
+            candidates = list((await db.execute(select(PerformanceProject).where(
+                PerformanceProject.cycle_ref == cycle.cycle_ref, PerformanceProject.status == PROJECT_STATUS_STARTED,
+            ).order_by(PerformanceProject.id))).scalars().all())
+        permitted = []
+        for project in candidates:
+            try:
+                scope = await _project_data_scope(context, project, db, "performance.frontend.data-view")
+            except HTTPException as exc:
+                if exc.status_code != 403:
+                    raise
+                continue
+            permitted.append((project, scope))
+        if not permitted:
+            raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
+    return await _aggregate_project_matrix([project for project, _scope in permitted],
+        {project.id: scope for project, scope in permitted}, context, db, reject_conflicts=True)
 
 
 @router.get("/result-views/{kind}/projects/{project_id}/members/{employee_no}/detail")
@@ -3710,7 +3797,9 @@ async def _project_member_detail(
     visibility_role 由调用方传入（评估人视角用 resolve_subject_visibility_role 的结果），
     None 时按管理视角计算（_member_visibility_role）。
     """
-    if not skip_scope:
+    if context.management_role:
+        visibility_role = "hrbp" if context.management_role == "hrbp" else "activity_manager"
+    if not skip_scope or context.management_role:
         scope = await _project_data_scope(context, project, db, "performance.frontend.data-view")
         if scope is not None and employee_no not in scope:
             raise HTTPException(status_code=404, detail="PROJECT_MEMBER_NOT_FOUND")
@@ -4082,14 +4171,14 @@ def _project_scope_refs(context: PerformanceAccessContext) -> set[str]:
 
 
 def _is_cycle_manager(context: PerformanceAccessContext) -> bool:
-    return "performance.cycles.manage" in context.permission_codes
+    return not context.management_role and "performance.cycles.manage" in context.permission_codes
 
 
 def _can_manage_project(context: PerformanceAccessContext, project: PerformanceProject) -> bool:
-    return _is_cycle_manager(context) or (
+    return not context.management_role and (_is_cycle_manager(context) or (
         "performance.projects.manage" in context.permission_codes
         and project.project_ref in _project_scope_refs(context)
-    )
+    ))
 
 
 async def _can_manage_project_like_overview(context: PerformanceAccessContext, project: PerformanceProject, db: AsyncSession) -> bool:
@@ -4098,6 +4187,16 @@ async def _can_manage_project_like_overview(context: PerformanceAccessContext, p
     overview 通过 resolve_frontend_access 已将项目管理员 / 范围内 HRBP 计入 manage_projects；
     添加被评估人三个接口复用该口径，避免「按钮可见却搜索 403」。
     """
+    if context.management_role:
+        from app.performance.management_scope import MANAGEMENT_FEATURES
+        for key in MANAGEMENT_FEATURES:
+            try:
+                await _project_data_scope(context, project, db, key)
+                return True
+            except HTTPException as exc:
+                if exc.status_code != 403:
+                    raise
+        return False
     if _can_manage_project(context, project):
         return True
     access = await resolve_frontend_access(db, context)
@@ -4105,6 +4204,9 @@ async def _can_manage_project_like_overview(context: PerformanceAccessContext, p
 
 
 async def _project_data_scope(context: PerformanceAccessContext, project: PerformanceProject, db: AsyncSession, function_key: str) -> set[str] | None:
+    if context.management_role:
+        from app.performance.management_scope import named_project_scope
+        return await named_project_scope(context, project, db, function_key)
     if _is_cycle_manager(context):
         return None
     custom_codes = {grant.code for grant in context.role_grants if grant.code.startswith("custom.")}
@@ -4935,6 +5037,9 @@ async def frontend_navigation(
 
 
 async def _managed_completion_projects(cycle_id: int, context: PerformanceAccessContext, db: AsyncSession) -> list[tuple[PerformanceProject, set[str] | None]]:
+    if context.management_role:
+        from app.performance.management_scope import management_projects
+        return await management_projects(cycle_id, context, db, ("performance.frontend.progress",))
     access = await resolve_frontend_access(db, context)
     cycle = next((cycle for cycle in access.cycles if cycle.id == cycle_id), None)
     if cycle is None:
@@ -4985,7 +5090,7 @@ async def _completion_reconsideration_valid(db, task, *, lock=False):
 async def _completion_reminder_rows(cycle_id: int, node_key: str, context: PerformanceAccessContext, db: AsyncSession, keyword: str | None = None, department: str | None = None, result_kind: str | None = None) -> list[dict]:
     if node_key not in {key for key, _title in _COMPLETION_NODE_DEFINITIONS} or node_key == "view-result":
         raise HTTPException(status_code=422, detail="REMINDER_NODE_NOT_SUPPORTED")
-    if result_kind == "team":
+    if result_kind == "team" and not context.management_role:
         from app.performance.result_view_scope import TEAM_RESULT_KIND, resolve_result_view_scope
         result_scope = await resolve_result_view_scope(db, context, cycle_id=cycle_id, kind=TEAM_RESULT_KIND)
         if not result_scope.employee_nos:
@@ -5148,6 +5253,15 @@ async def _task_authorization_view_scope(context, project, db, function_key):
 
 
 async def _authorize_task_delegation(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, project: PerformanceProject, context: PerformanceAccessContext, actor_ref: str, db: AsyncSession, active_by_task: dict[int, list[PerformanceNodeTaskAuthorization]] | None = None, progress_scope: set[str] | None | object = _SCOPE_NOT_PROVIDED) -> bool:
+    if context.management_role:
+        try:
+            named_scope = await _task_management_scope(context, project, db, _task_authorization_key(node))
+        except HTTPException as exc:
+            if exc.status_code == 403:
+                return False
+            raise
+        if named_scope is not None and task.target_employee_no not in named_scope:
+            return False
     if getattr(task, "revoked_at", None) is not None:
         return False
     if node.node_type == "calibration":
@@ -5361,6 +5475,10 @@ async def create_task_delegation(
     if not materialize:
         project = await _lock_task_context(db, task, node, validate=False)
     actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
+    if context.management_role:
+        scope = await _task_management_scope(context, project, db, _task_authorization_key(node))
+        if scope is not None and task.target_employee_no not in scope:
+            raise HTTPException(403, "TASK_AUTHORIZATION_FORBIDDEN")
     if payload.idempotency_key and not materialize:
         existing = await db.scalar(select(PerformanceNodeTaskAuthorization).where(
             PerformanceNodeTaskAuthorization.task_id == task.id,
@@ -5521,7 +5639,7 @@ async def revoke_task_delegation(
     actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
     if record.status != "ACTIVE":
         raise HTTPException(status_code=409, detail="TASK_AUTHORIZATION_NOT_ACTIVE")
-    if record.grantor_employee_no != actor.actor_ref:
+    if context.management_role or record.grantor_employee_no != actor.actor_ref:
         scope = await _task_management_scope(context, project, db, _task_authorization_key(node))
         if scope is not None and task.target_employee_no not in scope:
             raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_REVOKE_FORBIDDEN")
@@ -5647,7 +5765,7 @@ async def project_management_remind(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    if payload.result_kind == "team":
+    if payload.result_kind == "team" and not context.management_role:
         from app.performance.result_view_scope import TEAM_RESULT_KIND, resolve_result_view_scope
         result_scope = await resolve_result_view_scope(db, context, cycle_id=payload.cycle_id, kind=TEAM_RESULT_KIND)
         if not result_scope.employee_nos:
@@ -5739,13 +5857,86 @@ async def project_management_remind(
     return {"accepted_task_ids": accepted, "skipped_task_ids": skipped, "failed_task_ids": failed, "preview_task_ids": preview, "delivery_status": status_value, "errors": errors}
 
 
+async def _named_management_overview(cycle_id, project_id, context, db):
+    from app.performance.management_scope import management_projects
+    access = await resolve_frontend_access(db, replace(context, management_role=None, management_project_id=None))
+    cycles = [cycle_payload(cycle) for cycle in access.cycles]
+    selected = cycle_id if isinstance(cycle_id, int) else context.management_cycle_id
+    active_cycle = next((item for item in cycles if item["cycle_id"] == selected), None) if selected else (cycles[0] if cycles else None)
+    if active_cycle is None:
+        raise HTTPException(404, "CYCLE_NOT_FOUND")
+    categories = []
+    by_role = {}
+    for role, label in (("hrbp", "HRBP"), ("project_admin", "项目管理员")):
+        role_context = replace(context, management_role=role, management_cycle_id=active_cycle["cycle_id"], management_project_id=None)
+        try:
+            permitted = await management_projects(active_cycle["cycle_id"], role_context, db)
+        except HTTPException as exc:
+            if exc.status_code != 403:
+                raise
+            continue
+        by_role[role] = permitted
+        categories.append({"key": role, "label": label, "projects": sorted([
+            {"project_id": project.id, "project_name": project.name, "project_ref": project.project_ref, "status": project.status}
+            for project, _scope in permitted], key=lambda item: item["project_name"])})
+    role = context.management_role or next(iter(by_role), None)
+    if role not in by_role:
+        raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
+    selected_project = project_id if isinstance(project_id, int) else context.management_project_id
+    content_context = replace(context, management_role=role, management_cycle_id=active_cycle["cycle_id"], management_project_id=selected_project)
+    permitted = await management_projects(active_cycle["cycle_id"], content_context, db)
+    scopes, active_projects = {}, []
+    for project, _scope in permitted:
+        try:
+            scopes[project.id] = await _project_data_scope(content_context, project, db, "performance.frontend.progress")
+        except HTTPException as exc:
+            if exc.status_code != 403:
+                raise
+            continue
+        active_projects.append(project)
+    completion_nodes = await _project_completion_nodes(active_projects, db, scopes=scopes) if active_projects else []
+    opening_rows = await _opening_project_members(db, active_cycle["cycle_id"])
+    allowed_ids = {project.id for project, _scope in permitted}
+    opening_rows = [(project, member) for project, member in opening_rows if project.id in allowed_ids]
+    opening_projects = list({project.id: project for project, _member in opening_rows}.values())
+    grants = await _opening_access_grants(db, content_context, opening_projects)
+    eligible, _reasons = await _result_opening_candidates(opening_rows, grants, db)
+    result_scopes = {project_id: None if scope is None else set(scope) for project_id, scope in scopes.items()}
+    for project, member in opening_rows:
+        if _result_opening_scope(content_context, grants, project, member):
+            if project.id not in result_scopes:
+                result_scopes[project.id] = set()
+            if result_scopes[project.id] is not None:
+                result_scopes[project.id].add(member.employee_no)
+    result_projects = [project for project in opening_projects if project.id in result_scopes]
+    if result_projects:
+        result_nodes = await _project_completion_nodes(result_projects, db, scopes=result_scopes)
+        result_node = next(item for item in result_nodes if item["key"] == "view-result")
+        completion_nodes = [item for item in completion_nodes if item["key"] != "view-result"] + [result_node]
+        order = {key: index for index, (key, _title) in enumerate(_COMPLETION_NODE_DEFINITIONS)}
+        completion_nodes.sort(key=lambda item: order[item["key"]])
+    result_node = next((item for item in completion_nodes if item["key"] == "view-result"), None)
+    if result_node is not None:
+        result_node.update(openable_count=len(eligible), can_open_result=bool(eligible))
+    return {"cycles": cycles, "active_cycle": active_cycle, "categories": categories, "active_role": role,
+        "projects": next(item["projects"] for item in categories if item["key"] == role),
+        "completion_nodes": completion_nodes,
+        "hrbp_scope": sorted(project.project_ref for project, scope in by_role[role] if scope is not None),
+        "category": dict(_PROJECT_MANAGEMENT_CATEGORY)}
+
+
 @router.get("/project-management/overview")
 async def project_management_overview(
     cycle_id: int | None = Query(default=None, ge=1),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    project_id: int | None = None,
 ):
+    if context.management_role:
+        return await _named_management_overview(cycle_id, project_id, context, db)
     access = await resolve_frontend_access(db, context)
+    if context.management_role or project_id is not None or getattr(access, "management_projects_by_role", {}):
+        return await _named_management_overview(cycle_id, project_id, context, db)
     cycles = [cycle_payload(cycle) for cycle in access.cycles]
     active_cycle = next((item for item in cycles if item["cycle_id"] == cycle_id), None) if cycle_id is not None else (cycles[0] if cycles else None)
     if cycle_id is not None and active_cycle is None:
@@ -5863,6 +6054,9 @@ async def project_management_department_completion(
 
 
 async def _task_authorization_projects(cycle_id, context, db, function_key):
+    if context.management_role:
+        from app.performance.management_scope import management_projects
+        return await management_projects(cycle_id, context, db, ("performance.frontend.progress", "performance.frontend.data-view", function_key))
     cycle = await db.get(PerformanceCycle, cycle_id)
     if cycle is None:
         raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
@@ -6065,8 +6259,11 @@ async def project_management_statistics(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
     result_kind: Literal["team", "focus"] | None = Query(default=None),
+    project_id: int | None = None,
 ):
     result_kind = result_kind if result_kind in {"team", "focus"} else None
+    if context.management_role and result_kind is not None:
+        raise HTTPException(422, "MANAGEMENT_RESULT_SCOPE_CONFLICT")
     cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.id == cycle_id))
     if cycle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
@@ -6074,10 +6271,21 @@ async def project_management_statistics(
         PerformanceProject.cycle_ref == cycle.cycle_ref,
         PerformanceProject.status == PROJECT_STATUS_STARTED,
     ).order_by(PerformanceProject.id))).scalars().all())
+    if isinstance(project_id, int):
+        selected_project = await db.get(PerformanceProject, project_id)
+        if selected_project is None or selected_project.cycle_ref != cycle.cycle_ref:
+            raise HTTPException(404, "PROJECT_NOT_FOUND")
+        projects = [project for project in projects if project.id == project_id]
     empty_cycle_allowed = not projects and _is_cycle_manager(context)
     scopes = {}
     visible_projects = []
-    if result_kind is not None:
+    if context.management_role:
+        from app.performance.management_scope import management_projects
+        scoped_context = replace(context, management_project_id=project_id if isinstance(project_id, int) else context.management_project_id)
+        permitted = await management_projects(cycle_id, scoped_context, db, ("performance.frontend.data-view",))
+        scopes = {project.id: scope for project, scope in permitted}
+        visible_projects = [project for project, _scope in permitted]
+    elif result_kind is not None:
         from app.performance.result_view_scope import resolve_result_view_scope
         result_scope = await resolve_result_view_scope(db, context, cycle_id=cycle_id, kind=result_kind)
         if not result_scope.employee_nos:
@@ -6208,8 +6416,11 @@ async def project_management_self_final_comparison(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
     result_kind: Literal["team", "focus"] | None = Query(default=None),
+    project_id: int | None = None,
 ):
     result_kind = result_kind if result_kind in {"team", "focus"} else None
+    if context.management_role and result_kind is not None:
+        raise HTTPException(422, "MANAGEMENT_RESULT_SCOPE_CONFLICT")
     cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.id == cycle_id))
     if cycle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
@@ -6217,10 +6428,21 @@ async def project_management_self_final_comparison(
         PerformanceProject.cycle_ref == cycle.cycle_ref,
         PerformanceProject.status == PROJECT_STATUS_STARTED,
     ).order_by(PerformanceProject.id))).scalars().all())
+    if isinstance(project_id, int):
+        selected_project = await db.get(PerformanceProject, project_id)
+        if selected_project is None or selected_project.cycle_ref != cycle.cycle_ref:
+            raise HTTPException(404, "PROJECT_NOT_FOUND")
+        projects = [project for project in projects if project.id == project_id]
     empty_cycle_allowed = not projects and _is_cycle_manager(context)
     scopes = {}
     visible_projects = []
-    if result_kind is not None:
+    if context.management_role:
+        from app.performance.management_scope import management_projects
+        scoped_context = replace(context, management_project_id=project_id if isinstance(project_id, int) else context.management_project_id)
+        permitted = await management_projects(cycle_id, scoped_context, db, ("performance.frontend.data-view",))
+        scopes = {project.id: scope for project, scope in permitted}
+        visible_projects = [project for project, _scope in permitted]
+    elif result_kind is not None:
         from app.performance.result_view_scope import resolve_result_view_scope
         result_scope = await resolve_result_view_scope(db, context, cycle_id=cycle_id, kind=result_kind)
         if not result_scope.employee_nos:
@@ -6547,22 +6769,44 @@ async def workbench_projects(
     return result
 
 
+@router.get("/project-management/timeline")
+async def project_management_timeline(
+    cycle_id: int = Query(..., ge=1),
+    project_id: int = Query(..., ge=1),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    cycle = await _get_cycle(db, cycle_id)
+    project = await _get_project(db, project_id)
+    if project.cycle_ref != cycle.cycle_ref:
+        raise HTTPException(404, "PROJECT_NOT_FOUND")
+    if not await _can_manage_project_like_overview(context, project, db):
+        raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
+    return await _project_timeline(project, db, include_reconsideration=True)
+
+
+async def _project_timeline(project, db, *, include_reconsideration=False):
+    template_names = await _template_node_names(db, project)
+    statement = select(PerformanceProjectNodeSnapshot).where(PerformanceProjectNodeSnapshot.project_id == project.id)
+    if not include_reconsideration:
+        statement = statement.where(PerformanceProjectNodeSnapshot.node_type.not_in({"result_reconsideration"}))
+    nodes = (await db.execute(statement.order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all()
+    now = datetime.now(UTC)
+    return [{"node_id": node.node_id, "node_name": template_names.get(node.node_id, node.name),
+        "node_type": node.node_type, "node_order": node.node_order,
+        "executor_label": ((node.config or {}).get("template") or {}).get("executor_label"),
+        "start_at": (_node_timing(project, node) or {}).get("start_at"),
+        "end_at": (_node_timing(project, node) or {}).get("end_at"),
+        "status": _timeline_node_state((_node_timing(project, node) or {}).get("start_at"), (_node_timing(project, node) or {}).get("end_at"), now)} for node in nodes]
+
+
 @router.get("/workbench/projects/{project_id}/timeline")
 async def workbench_timeline(project_id: int, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session)):
     access = await resolve_frontend_access(db, context)
     project = next((project for project, _cycle in access.workbench_projects if project.id == project_id), None)
     if project is None:
         raise HTTPException(status_code=403, detail="无权查看当前项目工作台")
-    template_names = await _template_node_names(db, project)
-    nodes = (await db.execute(select(PerformanceProjectNodeSnapshot).where(PerformanceProjectNodeSnapshot.project_id == project_id, PerformanceProjectNodeSnapshot.node_type.not_in({"result_reconsideration"})).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all()
-    now = datetime.now(UTC)
-    result = []
-    for node in nodes:
-        timing = _node_timing(project, node) or {}
-        start_at = timing.get("start_at")
-        end_at = timing.get("end_at")
-        result.append({"node_id": node.node_id, "node_name": template_names.get(node.node_id, node.name), "node_type": node.node_type, "node_order": node.node_order, "executor_label": (node.config.get("template") or {}).get("executor_label"), "start_at": start_at, "end_at": end_at, "status": _timeline_node_state(start_at, end_at, now)})
-    return result
+    return await _project_timeline(project, db)
 
 
 @router.get("/workbench/tasks")
@@ -7274,6 +7518,19 @@ async def _project_started(db: AsyncSession, project_id: int) -> PerformanceProj
     return project
 
 
+async def _reviewee_management_scope(context, project, people, db):
+    if not context.management_role:
+        return None
+    from app.performance.management_scope import MANAGEMENT_FEATURES, named_project_scope
+    for key in MANAGEMENT_FEATURES:
+        try:
+            return await named_project_scope(context, project, db, key, candidates=people)
+        except HTTPException as exc:
+            if exc.status_code != 403:
+                raise
+    raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
+
+
 @router.get("/projects/{project_id}/reviewees/search", response_model=RevieweeSearchResult)
 async def search_project_reviewees(
     project_id: int,
@@ -7293,6 +7550,9 @@ async def search_project_reviewees(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     if snapshot.status != AUTHORIZATION_SNAPSHOT_STATUS_LOCKED:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CYCLE_SNAPSHOT_NOT_LOCKED")
+    scope = await _reviewee_management_scope(context, project, people, db)
+    if scope is not None:
+        people = [person for person in people if person.employee_no in scope]
     member_snapshot_id = _latest_member_snapshot_statement(project_id)
     current_members = set((await db.execute(select(PerformanceProjectMember.employee_no).where(
         PerformanceProjectMember.snapshot_id == member_snapshot_id,
@@ -7351,6 +7611,11 @@ async def check_project_reviewee_conflict(
     cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
     if cycle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="周期不存在")
+    if context.management_role:
+        _snapshot, people = await PerformanceProjectService(db)._cycle_snapshot_people(cycle)
+        scope = await _reviewee_management_scope(context, project, people, db)
+        if scope is not None and payload.employee_no not in scope:
+            raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
     member_snapshot_id = _latest_member_snapshot_statement(project_id)
     already = await db.scalar(select(PerformanceProjectMember.id).where(
         PerformanceProjectMember.snapshot_id == member_snapshot_id,
@@ -7402,6 +7667,9 @@ async def add_project_reviewee(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     if snapshot.status != AUTHORIZATION_SNAPSHOT_STATUS_LOCKED:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CYCLE_SNAPSHOT_NOT_LOCKED")
+    scope = await _reviewee_management_scope(context, project, people, db)
+    if scope is not None and payload.employee_no not in scope:
+        raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
     person = next((item for item in people if item.employee_no == payload.employee_no), None)
     if person is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="被评估人不在当前周期人员快照中")
@@ -7604,6 +7872,10 @@ async def remove_project_member(
     ).with_for_update())
     if member is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="被评估人不在当前项目中")
+    if context.management_role:
+        scope = await _reviewee_management_scope(context, project, [member], db)
+        if scope is not None and employee_no not in scope:
+            raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
     if root_review_id is not None and root_review_id != member.id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ROOT_REVIEW_ID_MISMATCH")
     service = PerformanceProjectService(db)

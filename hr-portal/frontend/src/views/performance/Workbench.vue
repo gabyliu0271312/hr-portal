@@ -30,23 +30,23 @@
       </div>
 
       <p v-if="error" role="alert">{{ error }} <button type="button" @click="loadCycle">重新加载</button></p>
-      <el-select v-if="projects.length > 1" :model-value="activeProjectId" aria-label="当前周期项目" @change="selectProject">
-        <el-option v-for="project in projects" :key="project.project_id" :label="project.project_name" :value="project.project_id" />
-      </el-select>
-      <div class="timeline-card">
-        <div class="timeline-card-content">
-          <PerformanceWorkbenchTimeline :key="activeProjectId ?? 'empty'" :nodes="visibleNodes" />
+      <section v-for="project in projects" :key="project.project_id" class="project-section">
+        <h2 class="project-title">{{ project.project_name }}</h2>
+        <div class="timeline-card">
+          <div class="timeline-card-content">
+            <PerformanceWorkbenchTimeline :nodes="projectNodes(project.project_id)" />
+          </div>
         </div>
-      </div>
-
-      <section v-if="activeProject?.result_published" class="result-card">
-        <div class="result-icon"><el-icon><Document /></el-icon></div>
-        <div class="result-copy">
-          <strong>查看绩效结果</strong>
-          <span>查看你的绩效评估结果，请注意信息保密</span>
-        </div>
-        <UiButton variant="secondary" @click="goToResults">查看</UiButton>
+        <section v-if="project.result_published" class="result-card">
+          <div class="result-icon"><el-icon><Document /></el-icon></div>
+          <div class="result-copy">
+            <strong>{{ project.project_name }} · 查看绩效结果</strong>
+            <span>查看你的绩效评估结果，请注意信息保密</span>
+          </div>
+          <UiButton variant="secondary" @click="goToResults(project.project_id)">查看</UiButton>
+        </section>
       </section>
+      <p v-if="!loading && !projects.length && !error" role="status">当前周期暂无相关绩效项目</p>
 
       <section class="todo-section">
         <p class="todo-title">我的待办</p>
@@ -60,10 +60,11 @@
             </button>
           </div>
           <div v-if="visibleTodos.length" class="todo-list">
-            <a v-for="todo in visibleTodos" :key="`${todo.node_id}-${todo.task_id || todo.completed}`" class="todo-item" :href="todoHref(todo)" @click="openTodo(todo, $event)">
+            <a v-for="todo in visibleTodos" :key="`${todo.project_id}-${todo.node_id}-${todo.task_id || todo.completed}`" class="todo-item" :href="todoHref(todo)" @click="openTodo(todo, $event)">
               <span class="todo-icon"><component :is="todo.icon" /></span>
               <span class="todo-content">
                 <span class="todo-heading">
+                  <small v-if="projects.length > 1" class="todo-project">{{ todo.project_name }}</small>
                   <span class="todo-name">{{ todo.node_name }}</span>
                   <em v-if="todo.deadline_label">{{ todo.deadline_label }}</em>
                 </span>
@@ -82,7 +83,7 @@
         <div class="quick-title">快捷入口</div>
         <div class="quick-group">
           <div class="quick-group-label">我的绩效</div>
-          <button class="quick-link" type="button" @click="goToResults">
+          <button class="quick-link" type="button" @click="goToResults()">
             <span class="quick-icon-slot"><FileLinkOtherfileOutlinedIcon /></span>
             <div class="quick-link-text">我的绩效结果</div>
             <span class="quick-result-spacer" aria-hidden="true"></span>
@@ -134,7 +135,6 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
-import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { Document, Tickets, User } from '@element-plus/icons-vue'
 import DownOutlinedIcon from '@/components/performance/DownOutlinedIcon.vue'
@@ -146,10 +146,14 @@ import RightOutlinedIcon from '@/components/performance/RightOutlinedIcon.vue'
 import WorkSummaryTaskIcon from '@/components/performance/WorkSummaryTaskIcon.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceWorkbenchTimeline from '@/components/performance/PerformanceWorkbenchTimeline.vue'
-import { performanceApi, performanceWorkbenchApi, type PerformanceWorkbenchAnnouncementFeedItem, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup, type PerformanceWorkbenchTimelineNode } from '@/api/performance'
+import { performanceApi, performanceWorkbenchApi, type PerformanceWorkbenchAnnouncementFeedItem, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup } from '@/api/performance'
 import { usePerformanceProjectContextStore, type PerformanceWorkbenchSnapshot } from '@/stores/performanceProjectContext'
 
-interface Todo extends PerformanceWorkbenchTaskGroup {
+interface ProjectTodo extends PerformanceWorkbenchTaskGroup {
+  project_id: number
+  project_name: string
+}
+interface Todo extends ProjectTodo {
   completed: boolean
   icon: Component
   deadline_label: string
@@ -165,16 +169,17 @@ const todoTab = ref<'pending' | 'completed'>('pending')
 const projects = ref<PerformanceWorkbenchProject[]>(projectContext.workbenchProjects || [])
 const activeProjectId = computed(() => projectContext.activeProjectId)
 const activeCycleId = computed(() => projectContext.activeCycleId)
-const visibleNodes = ref<Array<PerformanceWorkbenchTimelineNode & { ended: boolean; current: boolean; range: string }>>([])
-const pendingTodos = ref<PerformanceWorkbenchTaskGroup[]>([])
-const completedTodos = ref<PerformanceWorkbenchTaskGroup[]>([])
+const snapshots = ref<Record<number, PerformanceWorkbenchSnapshot>>({})
+const projectNodes = (projectId: number) => (snapshots.value[projectId]?.timeline || []).map(node => ({ ...node, range: formatRange(node.start_at, node.end_at), ended: node.status === 'ended', current: node.status === 'in_progress' }))
+const projectTodos = (state: 'pending' | 'completed') => projects.value.flatMap(project => (snapshots.value[project.project_id]?.[state] || []).map(todo => ({ ...todo, project_id: project.project_id, project_name: project.project_name })))
+const pendingTodos = computed(() => projectTodos('pending'))
+const completedTodos = computed(() => projectTodos('completed'))
 const loading = ref(true)
 const error = ref('')
 const devAdminDebug = ref(false)
 const activeCycle = computed(() => projectContext.cycles.find(cycle => cycle.cycle_id === projectContext.activeCycleId))
-const activeProject = computed(() => projects.value.find((project) => project.project_id === activeProjectId.value))
 const visibleTodos = computed<Todo[]>(() => (todoTab.value === 'pending' ? pendingTodos.value : completedTodos.value).map((todo) => {
-  const dueAt = todo.due_at || visibleNodes.value.find((node) => node.node_id === todo.node_id)?.end_at || null
+  const dueAt = todo.due_at || snapshots.value[todo.project_id]?.timeline.find((node) => node.node_id === todo.node_id)?.end_at || null
   return {
     ...todo,
     due_at: dueAt,
@@ -194,9 +199,8 @@ let announcementVersion = 0
 
 watch(activeCycleId, () => {
   projects.value = []
-  visibleNodes.value = []
-  pendingTodos.value = []
-  completedTodos.value = []
+  selectionVersion += 1
+  snapshots.value = {}
   announcementVersion += 1
   announcements.value = []
   announcementLoading.value = false
@@ -262,13 +266,10 @@ function resolveTodoIcon(nodeType: string): Component {
   if (nodeType.includes('evaluation')) return User
   return Document
 }
-function applyProjectSnapshot(snapshot: PerformanceWorkbenchSnapshot) {
-  visibleNodes.value = snapshot.timeline.map((node) => ({ ...node, range: formatRange(node.start_at, node.end_at), ended: node.status === 'ended', current: node.status === 'in_progress' }))
-  pendingTodos.value = snapshot.pending
-  completedTodos.value = snapshot.completed
+function restoreSnapshots() {
+  snapshots.value = Object.fromEntries(projects.value.map(project => [project.project_id, projectContext.workbenchSnapshot(project.project_id) || { timeline: [], pending: [], completed: [] }]))
 }
-const initialSnapshot = projectContext.workbenchSnapshot(activeProjectId.value)
-if (initialSnapshot) applyProjectSnapshot(initialSnapshot)
+restoreSnapshots()
 
 const disposed = ref(false)
 onBeforeUnmount(() => { disposed.value = true; selectionVersion += 1 })
@@ -283,13 +284,10 @@ async function loadProject(projectId: number) {
     const cached = projectContext.workbenchSnapshot(projectId)
     const snapshot = { timeline: [], pending: [], completed: [], ...cached, [key]: value } as PerformanceWorkbenchSnapshot
     projectContext.setWorkbenchSnapshot(projectId, snapshot)
-    if (activeProjectId.value !== projectId) return
-    if (key === 'timeline') visibleNodes.value = snapshot.timeline.map(node => ({ ...node, range: formatRange(node.start_at, node.end_at), ended: node.status === 'ended', current: node.status === 'in_progress' }))
-    else if (key === 'pending') pendingTodos.value = snapshot.pending
-    else completedTodos.value = snapshot.completed
+    snapshots.value = { ...snapshots.value, [projectId]: snapshot }
   }
   const sectionFailed = () => {
-    if (current() && activeProjectId.value === projectId) error.value = '部分工作台数据加载失败，请稍后重试'
+    if (current()) error.value = '部分工作台数据加载失败，请稍后重试'
   }
   await Promise.allSettled([
     performanceWorkbenchApi.timeline(projectId).then(value => applySection('timeline', value)).catch(sectionFailed),
@@ -297,28 +295,11 @@ async function loadProject(projectId: number) {
     performanceWorkbenchApi.tasks(projectId, 'completed').then(value => applySection('completed', value)).catch(sectionFailed),
   ])
 }
-async function selectProject(rawId: number | string) {
-  const id = Number(rawId)
-  if (!Number.isFinite(id) || id <= 0) return
-  selectionVersion += 1
-  projectContext.setActiveProjectId(id)
-  const cached = projectContext.workbenchSnapshot(id)
-  applyProjectSnapshot(cached || { timeline: [], pending: [], completed: [] })
-  error.value = ''
-  await router.replace({ query: { ...route.query, project_id: String(id) } })
-  const project = projects.value.find((item) => item.project_id === id)
-  try {
-    await Promise.all([
-      loadProject(id),
-      loadAnnouncements(project?.cycle_ref),
-    ])
-  } catch { ElMessage.error('工作台数据加载失败') }
-}
-function reviewQuery(entry: string) { return { name: 'PerformanceReview', query: { entry, cycle_id: String(activeCycleId.value || ''), project_id: String(activeProjectId.value || '') } } }
-function goToResults() { router.push(reviewQuery('results')) }
+function reviewQuery(entry: string, projectId = activeProjectId.value) { return { name: 'PerformanceReview', query: { entry, cycle_id: String(activeCycleId.value || ''), project_id: String(projectId || '') } } }
+function goToResults(projectId?: number) { router.push(reviewQuery('results', projectId)) }
 function openTeam() { router.push(reviewQuery('team')) }
 function todoHref(todo: Todo) {
-  const query = new URLSearchParams({ cycle_id: String(activeCycleId.value || ''), project_id: String(activeProjectId.value || ''), node: todo.node_id })
+  const query = new URLSearchParams({ cycle_id: String(activeCycleId.value || ''), project_id: String(todo.project_id), node: todo.node_id })
   return `/performance/review?${query.toString()}`
 }
 
@@ -332,16 +313,16 @@ async function loadCycle() {
   if (disposed.value) return
   const version = ++selectionVersion
   const cycleId = projectContext.activeCycleId
+  const cacheVersion = projectContext.cacheVersion
   if (!cycleId) { error.value = '当前没有可用的绩效周期'; loading.value = false; return }
   const cachedProjects = projectContext.workbenchProjects
   if (cachedProjects) projects.value = cachedProjects
-  const cachedSnapshot = projectContext.workbenchSnapshot(activeProjectId.value)
-  if (cachedSnapshot) applyProjectSnapshot(cachedSnapshot)
-  loading.value = !cachedSnapshot
+  restoreSnapshots()
+  loading.value = !projects.value.length
   error.value = ''
   try {
     const loadedProjects = await performanceWorkbenchApi.listProjects(undefined, cycleId)
-    if (version !== selectionVersion || cycleId !== projectContext.activeCycleId) return
+    if (version !== selectionVersion || cycleId !== projectContext.activeCycleId || cacheVersion !== projectContext.cacheVersion) return
     if (disposed.value) return
     projects.value = loadedProjects
     projectContext.setWorkbenchProjects(loadedProjects)
@@ -350,17 +331,15 @@ async function loadCycle() {
       : loadedProjects[0]?.project_id || null
     projectContext.setActiveProjectId(preferredId)
     const preferredProject = loadedProjects.find(project => project.project_id === preferredId)
+    restoreSnapshots()
     if (!preferredId) {
-      applyProjectSnapshot({ timeline: [], pending: [], completed: [] })
       void loadAnnouncements(null)
       return
     }
-    const snapshot = projectContext.workbenchSnapshot(preferredId)
-    applyProjectSnapshot(snapshot || { timeline: [], pending: [], completed: [] })
     if (String(route.query.project_id || '') !== String(preferredId)) await router.replace({ query: { ...route.query, cycle_id: cycleId ? String(cycleId) : undefined, project_id: String(preferredId) } })
-    if (disposed.value) return
+    if (disposed.value || version !== selectionVersion || cycleId !== activeCycleId.value) return
     void loadAnnouncements(preferredProject?.cycle_ref)
-    await loadProject(preferredId)
+    await Promise.all(loadedProjects.map(project => loadProject(project.project_id)))
   } catch {
     if (version === selectionVersion) error.value = '工作台数据加载失败，请稍后重试'
   } finally {
@@ -403,6 +382,9 @@ onMounted(async () => {
 .cycle-picker { display: inline-flex; min-width: 0; max-width: 760px; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"; }
 .cycle-picker-text { overflow: hidden; color: #1f2329; font-size: 20px; font-weight: 600; line-height: 26px; text-overflow: ellipsis; white-space: nowrap; }
 .cycle-picker-icon { width: 20px; height: 20px; flex: 0 0 20px; color: #646a73; }
+.project-title { margin: 0 0 12px; color: var(--color-text-primary); font-size: 16px; font-weight: 600; }
+.project-section { margin-bottom: 24px; }
+.todo-project { overflow: hidden; max-width: 40%; text-overflow: ellipsis; white-space: nowrap; }
 .timeline-card, .side-card { border: 1px solid #dee0e3; border-radius: 8px; background: #fff; box-shadow: none; }
 .timeline-card { margin-bottom: 28px; padding: 24px; overflow: hidden; border-width: 0.666667px; box-shadow: none; }
 .timeline-card-content { margin: -4px 0; }

@@ -24,6 +24,8 @@ class FrontendAccess:
     workbench_projects: list = field(default_factory=list)
     management_scopes: dict = field(default_factory=dict)
     management_features: dict = field(default_factory=dict)
+    management_projects_by_role: dict = field(default_factory=dict)
+    management_scopes_by_role: dict = field(default_factory=dict)
     manageable_cycle_refs: set = field(default_factory=set)
     own_task_project_ids: set = field(default_factory=set)
     task_ids_by_project: dict = field(default_factory=dict)
@@ -88,6 +90,9 @@ def _context_cache_key(context: PerformanceAccessContext) -> tuple:
         context.role_grants,
         context.permission_codes,
         context.display_name,
+        context.management_role,
+        context.management_cycle_id,
+        context.management_project_id,
     )
 
 
@@ -262,6 +267,22 @@ async def _resolve_frontend_access(db: AsyncSession, context: PerformanceAccessC
             result.voluntary_node_ids_by_project[project.id] = voluntary_ids
             related_refs.add(project.cycle_ref)
 
+        admin_people = [person for person in people if person.display_name in (project.administrators or [])]
+        own_person = next((person for person in admin_people if person.employee_no == actor_ref), None)
+        unique_admin = own_person is not None and sum(person.display_name == own_person.display_name for person in people) == 1
+        selected = (project.settings or {}).get("data_managers", ["HRBP"])
+        admin_features = management_roles.get("performance.project_admin", set())
+        hrbp_features = management_roles.get("performance.hrbp", set())
+        permission = next((item for item in hrbp_permissions if item.cycle_ref == project.cycle_ref and item.hrbp_employee_no == actor_ref), None)
+        if "PROJECT_ADMIN" in selected and unique_admin and frontend_features.intersection(admin_features):
+            result.management_projects_by_role.setdefault("project_admin", []).append((project, cycle))
+            result.management_scopes_by_role.setdefault("project_admin", {})[project.id] = None
+        if "HRBP" in selected and permission and frontend_features.intersection(hrbp_features):
+            invisible = await _global_hrbp_invisible_people(db, scopes=permission.scope or [])
+            hrbp_scope = {member.employee_no for member in members if member.employee_no not in (permission.invisible_people or []) and member.employee_no not in invisible and any(member.organization_ref == org or str(member.organization_ref or "").startswith(f"{org}/") for org in permission.scope)}
+            if hrbp_scope:
+                result.management_projects_by_role.setdefault("hrbp", []).append((project, cycle))
+                result.management_scopes_by_role.setdefault("hrbp", {})[project.id] = hrbp_scope
         if custom_global_features:
             related_refs.add(project.cycle_ref)
             result.manageable_cycle_refs.add(project.cycle_ref)

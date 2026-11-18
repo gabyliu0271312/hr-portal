@@ -1,7 +1,7 @@
 """Authentication and authorization context for the performance application."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -54,6 +54,32 @@ class PerformanceAccessContext:
     effective_employee_no: str | None = None
     operator_user_id: int | None = None
     switch_session_id: str | None = None
+    management_role: str | None = None
+    management_cycle_id: int | None = None
+    management_project_id: int | None = None
+
+
+def management_request_context(request, context):
+    query = getattr(request, "query_params", {})
+    role = query.get("management_role")
+    if role is None:
+        return context
+    if role not in {"hrbp", "project_admin"}:
+        raise HTTPException(status_code=422, detail="INVALID_MANAGEMENT_ROLE")
+    path = getattr(request, "path_params", {})
+    values = {}
+    for key in ("cycle_id", "project_id"):
+        raw = path.get(key, query.get(key))
+        try:
+            value = int(raw) if raw is not None else None
+            if value is not None and value < 1:
+                raise ValueError
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail="INVALID_MANAGEMENT_SCOPE") from None
+        if key in path and key in query and str(path[key]) != query[key]:
+            raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND" if key == "project_id" else "CYCLE_NOT_FOUND")
+        values[f"management_{key}"] = value
+    return replace(context, management_role=role, **values)
 
 
 @dataclass(frozen=True)
@@ -80,6 +106,8 @@ PERFORMANCE_PORTAL_ADMIN_PERMISSIONS = (
 
 
 def performance_admin_preview_enabled(context: PerformanceAccessContext) -> bool:
+    if getattr(context, "management_role", None):
+        return False
     if getattr(context, "effective_employee_no", None):
         return False
     if settings.APP_ENV.lower() != "dev" or not settings.PERFORMANCE_DEV_ADMIN_DEBUG:
@@ -330,6 +358,7 @@ async def get_performance_access_context(
         if secret:
             from app.identity_switch.context import switched_context
             context = await switched_context(db, user, secret, request)
+            context = management_request_context(request, context)
             request.state.performance_access_context = context
             return context
         portal_entry_permissions = []
@@ -367,6 +396,7 @@ async def get_performance_access_context(
             raise _unauthorized("身份切换仅支持 Portal 操作者")
         from app.identity_switch.context import switched_context
         context = await switched_context(db, user, secret, request)
+    context = management_request_context(request, context)
     request.state.performance_access_context = context
     return context
 

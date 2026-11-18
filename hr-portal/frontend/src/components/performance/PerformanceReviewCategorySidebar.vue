@@ -17,22 +17,6 @@
           </template>
         </el-dropdown>
       </div>
-      <div v-if="filterOptions && projects.length > 1 && !sidebarCollapsed" class="project-section">
-        <el-dropdown trigger="click" @command="emit('select-project', $event)">
-          <button class="cycle-picker project-picker" type="button">
-            <span>{{ activeProject?.project_name || '选择项目' }}</span>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M11.22 18.46a1 1 0 0 0 1.56 0l8.305-10.334a1 1 0 0 0-.78-1.626H3.696a1 1 0 0 0-.78 1.626L11.22 18.46Z" fill="currentColor" /></svg>
-          </button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item v-for="project in projects" :key="project.project_id" :command="project.project_id">
-                <span>{{ project.project_name }}</span>
-                <small>{{ project.cycle_name }}</small>
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </div>
       <slot name="cycle-actions" />
       <div v-if="!sidebarCollapsed" class="sidebar-divider" aria-hidden="true"></div>
 
@@ -40,7 +24,7 @@
       <div v-for="category in visibleCategories" :key="category.key" class="review-category">
         <button
           class="category-toggle"
-          :class="{ active: category.nodes.some(node => node.node_id === selectedNodeId) }"
+          :class="{ active: category.nodes.some(node => nodeKey(node) === selectedNodeId) }"
           type="button"
           :aria-expanded="sidebarCollapsed ? openFlyoutKey === category.key : !collapsed[category.key]"
           @mouseenter="showFlyout(category.key)"
@@ -60,14 +44,14 @@
         <div v-show="!sidebarCollapsed && !collapsed[category.key]" class="review-node-list">
           <button
             v-for="node in category.nodes"
-            :key="node.node_id"
+            :key="nodeKey(node)"
             class="review-node"
-            :class="{ active: node.node_id === selectedNodeId }"
+            :class="{ active: nodeKey(node) === selectedNodeId }"
             type="button"
             @click="emit('select-node', node)"
           >
             <span class="node-group">
-              <span class="node-label">{{ node.node_name }}</span>
+              <span class="node-label">{{ node.node_name }}<small v-if="node.project_name"> · {{ node.project_name }}</small></span>
               <em v-if="showNodeStatus && node.node_type !== 'result_view' && node.show_status !== false && node.status !== 'completed'" :class="`status-${node.status}`">{{ statusLabel[node.status] }}</em>
             </span>
           </button>
@@ -78,12 +62,12 @@
     <nav v-if="sidebarCollapsed && activeFlyoutCategory" class="sidebar-flyout" :aria-label="activeFlyoutCategory.label">
       <button
         v-for="node in activeFlyoutCategory.nodes"
-        :key="node.node_id"
+        :key="nodeKey(node)"
         type="button"
         class="flyout-node"
-        :class="{ active: node.node_id === selectedNodeId }"
+        :class="{ active: nodeKey(node) === selectedNodeId }"
         @click="selectFlyoutNode(node)"
-      >{{ node.node_name }}</button>
+      >{{ node.node_name }}<small v-if="node.project_name"> · {{ node.project_name }}</small></button>
       <p v-if="!activeFlyoutCategory.nodes.length" class="flyout-empty">暂无事项</p>
     </nav>
     <button class="sidebar-collapse" type="button" :aria-label="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'" :aria-expanded="!sidebarCollapsed" @click="toggleSidebar">
@@ -104,8 +88,16 @@ export interface SidebarFilterOption {
   secondary?: string
 }
 
+export interface ReviewNavigationNode extends PerformanceReviewNode {
+  navigation_id?: string
+  project_id?: number
+  project_name?: string
+}
+
+const nodeKey = (node: ReviewNavigationNode) => node.navigation_id || node.node_id
+
 const props = withDefaults(defineProps<{
-  categories: PerformanceReviewCategory[]
+  categories: Array<Omit<PerformanceReviewCategory, 'nodes'> & { nodes: ReviewNavigationNode[] }>
   projects: PerformanceReviewOverview['projects']
   activeProject: PerformanceReviewOverview['active_project']
   selectedNodeId: string

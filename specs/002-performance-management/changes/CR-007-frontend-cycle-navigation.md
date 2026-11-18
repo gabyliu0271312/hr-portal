@@ -61,7 +61,7 @@
 
 - 共享状态保存 `activeCycleId`，本地只记周期，不再把项目 ID 当作全局周期上下文。
 - 任一周期选择器调用同一导航接口更新共享上下文；周期改变时清理旧周期项目、overview和任务缓存。
-- 工作台、绩效评估、项目管理的周期选择器使用同一周期列表和当前值；周期内多个项目仍按页面既有项目选择交互隔离。
+- 工作台、绩效评估、项目管理的周期选择器使用同一周期列表和当前值。原“周期内多个项目仍按页面既有项目选择交互隔离”由 CR-007-F17 的最新用户要求替代：不再显示额外项目筛选，保留真实项目、节点与任务标识及跨项目可达性。F17 UI 蓝图确认前不执行正式 UI 开发。
 - 导航加载期间只展示工作台，避免旧周期权限闪现；导航失败清空旧权限，不继续显示受保护 Tab。
 - 保留现有布局、组件和视觉样式；属于既有筛选/权限修正，不新增页面或信息架构，因此无需新蓝图。
 
@@ -331,3 +331,50 @@
 - 查询断言：完成率2个和10个项目的基础数据读取均5次（测试替身计数，不是生产SQL计数）；催办重复检查不再补任务/授权查询，发送重新校验；周期第一页仅enrich所选成员、跨项目列稳定、姓名/动态评级/完成率/状态排序及非法键拒绝。
 - 前端主线程：7文件212通过（Review93、ProjectManagement44、Workbench13、store7、Drawer32、360Preview11、Statistics12）；最后overview竞态增量再跑Review/Workbench/store共113通过。npm run build 已通过vue-tsc+Vite（3694模块，既有VueUse PURE注释及大chunk提示）；最终构建结果如有后续补录以其为准。git diff --check通过，仅LF/CRLF提示。
 - 未验证/剩余：未采生产请求瀑布、TTFB/响应字节/长任务或真实SQL/EXPLAIN，不能承诺提速倍数/P95达标；统计仍逐项目解析评级，部分派生排序仍需全范围计算；身份切换续期锁、物化统计、索引迁移和打包/网关调整不凭静态猜测变更，待真实度量后判断必要性。无生产操作、真实外发、commit/push/deploy。停止仅撤销本卡增量，不整体回滚或删除快照、任务和审计。
+
+## CR-007-F17 双角色项目管理与周期视图统一
+
+- 发布授权：本地验收后，用户明确要求在 main 提交并推送本卡代码、测试、蓝图及实现截图；不包含无关临时文件，不执行部署。下文“未commit／push”指开发验收时点。
+- 状态：用户已明确确认 v1 蓝图及全部开发（2026-11-18）；本地前后端开发、定向自动化、完整构建及隔离数据浏览器验收完成。真实JWT登录API／PostgreSQL／生产尚未验收，整体任务保持未勾选，不将本地证据当作生产完成。
+- 用户决定：无论项目数量均取消额外项目筛选；HRBP／项目管理员分入口共用内容，周期／项目共用四页签；项目复用工作台时间节点；HRBP 成员范围仅前端 UI，后端切换暂不实现。
+- 权威修订：第5章原多项目筛选交互被本次决定替代；PM-001-T08 的双角色合并继续用于未显式选择身份的原有业务路径，新的具名管理入口必须按所选角色收窄，不得以另一角色或周期管理员旁路补权。不得据此改写历史周期快照。
+- UI 蓝图：`ui-blueprints/CR-007-F17-project-management-v1.html`（v1）；独立预览 PNG `ui-blueprints/CR-007-F17-project-management-v1.png` 已生成并读取。仅布局／交互示例，非业务完成、像素验收或真实权限证明。
+- 入口：`/performance/project-management` 沿用路由，使用 `management_role=hrbp|project_admin` 并保留 `cycle_id`／可选 `project_id`；默认仅在合法入口集合中选择，显式非法角色／无权项目拒绝，不回退到更大范围。浏览器前进后退、刷新及同页换角色均保持真实上下文；缓存包含身份、角色、周期、项目、页签与原写后失效版本。
+- 数据契约：周期人员为所选角色合法项目人员；项目人员为其与指定项目的交集。进度、查看、导出、开通、任务授权各自按原独立功能裁决。服务端校验项目属于周期，按范围过滤后再统计／分页；详情、成员催办、周期催办、开通、授权记录／写操作不得因跳转恢复合并范围。现有未带管理入口的评估任务路径不改变。
+- 共用：四页签复用 CompletionRatePanel、ProjectMemberListPanel、ProjectPerformanceMatrix、ProjectStatisticsReportPanel、现有详情及操作组件；周期矩阵不得回退首个项目。保留既有不兼容评级／重复成员冲突规则，不凭本次 UI 调整新增跨项目加权或评级换算。
+- 时间轴：复用 PerformanceWorkbenchTimeline，在具体项目总览内容顶部显示该项目配置节点（含结果复议），周期页不显示伪合并时间轴。其余页签不常驻时间轴，依据本次 REA。
+- 成员范围：仅 HRBP，默认本周期，支持本周期／当前／双选、全选／半选，无确定取消；外部点击和 Escape 关闭，仅前端状态，无后端查询参数和授权变化。v1 最小假设：至少保留一项；蓝图确认时明确，不宣称已实采空选行为。
+- 多项目可达：工作台待办覆盖合法周期全部项目；评估节点按真实项目／节点／任务标识保持可达，不按同名静默合并，不使用首项目代替周期内容。无额外项目下拉。
+
+### 原子任务与文件边界（UI 确认后执行）
+
+- [ ] CR-007-F17-T01 后端角色／项目范围契约与真实查询接入
+  - 前置：v1 范围确认；已读002基线、PM-001、执行契约与现有API／权限解析。
+  - 允许：backend/app/performance/{navigation_service,projects_router,member_reminders,result_view_scope}.py、必要的既有授权／结果开通共享服务、既有 tests/test_performance_{projects,auth_context,member_reminders,subject_visibility}.py；新增范围模块仅限 backend/app/performance/ 且不得另建业务计算链。共享文件串行精确编辑。
+  - 输出：合法角色入口及各自合法项目；统一角色／项目人员范围传递；周期矩阵聚合、项目统计、全节点时间轴。既有无具名入口调用保留原语义；未知枚举422、无权403、跨周期项目404，不吞真实异常。
+  - 验收：双角色下 HRBP 小范围不读管理员全范围、单角色拒绝另一入口、功能撤销／不可见人员／跨周期、统计分页导出详情同范围；写操作重验范围，不改原审计／通知语义。
+  - 测试：上述既有 pytest 文件的定向及联合回归；真实SQL/API与替身测试证据分开，未运行或跳过不得当通过。
+- [ ] CR-007-F17-T02 前端双角色／周期项目共用页签与范围浮层
+  - 前置：T01 DTO／API契约冻结和 v1 蓝图明确确认。
+  - 允许：frontend/src/api/performance.ts、stores/performanceProjectContext.ts、views/performance/{ProjectManagement,ProjectManagementReminder,ProjectAuthorizationRecords,ProjectCalibrationAuthorization,Workbench,Review}.vue、现有绩效侧栏／成员／矩阵／统计／时间轴／提醒组件、对应既有测试与 tokens.css；新增单职责成员范围组件限 components/performance/。
+  - 输出：角色分导航、项目四页签、总览时间轴、成员范围多选浮层、取消额外项目筛选且全部项目任务可达；缓存／旧响应／选择状态不跨身份角色项目串用。
+  - UI：加载、空、错误、403、刷新、前进后退、角色切换、项目切换、无额外项目下拉；共用原token／组件，无新视觉体系。
+  - 测试：现有 ProjectManagement／Workbench／Review／成员／矩阵／统计／store 组件测试及必要新浮层测试；npm build；真实Vue路由隔离数据交互及本任务独立实现PNG，不把蓝图PNG冒充实现证据。
+- [ ] CR-007-F17-T03 联合验收与证据回填
+  - 主线程核对diff、pytest、Vitest、build、实际浏览器；允许／拒绝、多项目、角色重叠、快照／匿名／字段裁剪、并发旧响应、导出和危险操作确认回归。
+  - 本地合成接口／真实后端API／SQL／部署／生产分别记录。缺少真实环境不宣布生产完成，不将跳过项计通过。
+- 禁止：模型／迁移、改写快照／任务／答案／历史审计、角色配置数据、生产、真实通知、自动commit／push／deploy；不触及021或UCP。不新增脚本、调研报告或测试文档。停止仅撤回本卡增量，不重置工作区或整包回滚。
+
+### 本地交付与验收证据（2026-11-18）
+
+- 后端：新增 `management_scope.py` 统一所选角色合法项目／人员范围；`auth_context.py` 以请求级字段解析角色及周期项目，路径／query 冲突404。`projects_router.py`、`navigation_service.py`、`member_reminders.py`、`subject_visibility_service.py` 接入；具名入口不借周期管理员、自定义角色、任务处理人或授权发起人补权，字段固定所选 hrbp／activity_manager。未具名旧路径保留原语义。
+- API：overview 增加 categories／active_role，侧栏 projects 保留所选角色完整列表；新增 `/project-management/matrix` 与 `/project-management/timeline`，后者含复议；statistics／self-final-comparison 支持所选项目。管理上下文走 query，原POST body不变。重复成员与评级不兼容继续返回409，不新增合成规则。
+- 前端：`api/client.ts` 统一透传管理上下文并拒绝旧范围响应；`api/performance.ts` 增加DTO／范围方法和在途key隔离。ProjectManagement 共用四页签与原时间轴／详情／操作组件；工作台和Review取消项目下拉并逐项目加载合法内容，同node_id用独立UI身份且请求保留真实ID。授权、校准、催办子页面保留往返范围；新增单职责 `PerformanceManagementMemberScope.vue`，不改 tokens 或共享store。
+- 组件回归最终主线程命令：`npm --prefix hr-portal/frontend test -- src/views/performance/ProjectManagement.spec.ts src/components/performance/ProjectPerformanceMatrix.spec.ts src/components/performance/PerformanceManagementMemberScope.spec.ts src/components/performance/ProjectStatisticsReportPanel.spec.ts src/api/performanceManagementContext.spec.ts src/api/performanceTagFillQuestionApi.spec.ts src/views/performance/ProjectManagementNavigation.spec.ts src/views/performance/Workbench.spec.ts src/views/performance/Review.spec.ts --silent --maxWorkers=2 --minWorkers=1` → **9文件225 passed，48.50s，exit0**。此前管理专项4文件79通过、多项目＋API专项5文件146通过；最终225不重复累加。早期watch重载导致的挂起任务已停止，多source监听修复后通过；新增浮层测试attachTo body及3处必填DTO夹具已补，不通过删除业务断言绕过。
+- 后端主线程命令：`DB_HOST=127.0.0.1 DB_PORT=1 PYTHONPATH=hr-portal/backend hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_management_scope.py hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_auth_context.py hr-portal/backend/tests/test_performance_member_reminders.py hr-portal/backend/tests/test_performance_subject_visibility.py -q --tb=short` → **974 passed／5 skipped／1既有python_multipart弃用警告，30.92s，exit0**。新增20项范围测试包含真实SQLite SELECT／范围过滤以及FastAPI TestClient实际路由；身份依赖受控替换，非真实JWT。现有大部分回归使用替身；5跳过不计通过，SQLite不替代PostgreSQL验证。
+- 完整构建：`npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite exit0，3782模块，45.25s**；仅既有VueUse PURE注释提示。此前在途组件类型错误和新增测试夹具缺必填字段已修复后完整重跑通过。`git diff --check`通过，换行转换提示不等同格式错误。
+- 实际UI：本地Vite真实Vue路由／Chromium 1440×1000，全部 `/api/v1/*` 由浏览器隔离为合成数据。默认active_role写回URL；双角色各自项目、四页签、项目成员请求携角色项目、周期matrix不含project_id、管理员隐藏成员范围、刷新保留tab通过。HRBP双选显示全部且选择本身新增API请求0；项目总览时间轴含复议，项目时间按Asia/Shanghai显示；不执行真实管理写入。
+- 多项目UI：工作台显示两项目时间轴和两个同node_id待办，链接准确携project29／30；项目下拉数量0。进入评估后两独立节点保留，点另项目准确切换；管理场景及多项目场景均pageerror0、未匹配API0。首次管理预检曾有一个未配置auth/context的隔离路由，最终补齐后场景重跑0，不冒充真实登录。
+- 独立实现PNG（均已读取，不是蓝图替代）：`ui-blueprints/CR-007-F17-T02-project-overview-20261118.png`、`CR-007-F17-T02-member-scope-20261118.png`、`CR-007-F17-T02-project-reports-20261118.png`、`CR-007-F17-T02-multi-project-workbench-20261118.png`、`CR-007-F17-T02-multi-project-review-20261118.png`。沿原token组件，不声明像素完全一致或生产数据验收。
+- 已知边界：成员范围仅前端状态，切页签保持，换角色／项目后恢复默认；周期矩阵钻取使用聚合响应的people，项目钻取仍用原分页组件。原统计中未实现的绩效维度／历史对比章节、原筛选预留及跨项目重复成员合成不在本次新增范围，不伪造数据。
+- 未运行：真实JWT登录完整API链、真实PostgreSQL新连接回读、生产权限／生产数据、真实通知、部署；没有模型或迁移，不适用迁移upgrade／downgrade。本轮未commit／push／deploy，既有无关临时文件保留。T01／T02本地开发完成，T03真实环境部分待后续验收，三卡整体不勾选。

@@ -101,9 +101,23 @@ async function confirmRevoke() {
   try { for (const record of row.authorizations) await projectManagementApi.revokeTaskAuthorization(row.project_id, record.task_id, record.id); await load(); notice.value = '授权已撤销，历史内容保留' } catch { notice.value = '部分撤销结果未确认，请刷新后重试' } finally { saving.value = false; revokeTarget.value = null }
 }
 function formatDate(value: string | null) { return value ? new Date(value).toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(0, 16) + '（GMT+8）' : '--' }
-function selectCycle(value: string | string[] | null) { cycleId.value = Number(value); page.value = 1; void router.replace({ query: { ...route.query, cycle_id: String(cycleId.value) } }) }
-function goBack() { void router.push({ name: 'PerformanceProjectManagement', query: { cycle_id: String(cycleId.value) } }) }
-watch(cycleId, () => void load())
+function selectCycle(value: string | string[] | null) {
+  cycleId.value = Number(value)
+  page.value = 1
+  const { project_id: _project, ...query } = route.query
+  void router.replace({ query: { ...query, cycle_id: String(cycleId.value) } })
+}
+function goBack() { void router.push({ name: 'PerformanceProjectManagement', query: { cycle_id: String(cycleId.value), management_role: route.query.management_role, project_id: route.query.project_id } }) }
+watch(() => [route.query.cycle_id, route.query.management_role, route.query.project_id], () => {
+  cycleId.value = Number(route.query.cycle_id || cycleStore.activeCycleId || 0)
+  dialogOpen.value = false
+  confirmOpen.value = false
+  target.value = null
+  revokeTarget.value = null
+  stageWindow.value = null
+  notice.value = ''
+  void load()
+})
 onMounted(async () => { try { if (!cycleStore.navigationReady) await cycleStore.ensureNavigation(cycleId.value); await load() } catch { error.value = '校准授权加载失败，请稍后重试' } })
 </script>
 

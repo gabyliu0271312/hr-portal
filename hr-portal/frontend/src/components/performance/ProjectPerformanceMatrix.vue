@@ -89,8 +89,14 @@
           </table>
         </div>
       </section>
+      <PerformanceDialogShell v-if="props.cycleId && drilldown && !props.readonly" v-model="peopleOpen" title="人员列表">
+        <p>{{ props.cycleName || '当前周期' }} · {{ drilldown.level }} · {{ drilldown.rating.label }}</p>
+        <div class="cycle-matrix-people">
+          <button v-for="(person, index) in drilldownPeople" :key="`${person.project_id}:${person.employee_no}:${person.root_review_id}:${index}`" type="button" :disabled="!person.can_view_detail" @click="onPersonSelect(person)">{{ person.display_name }}</button>
+        </div>
+      </PerformanceDialogShell>
       <MatrixPeopleDialog
-        v-if="drilldown && !props.readonly"
+        v-else-if="drilldown && !props.readonly"
         v-model="peopleOpen"
         :project-id="props.projectId"
         :cycle-name="props.cycleName || '当前周期'"
@@ -106,12 +112,13 @@
 <script setup lang="ts">
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import MatrixPeopleDialog from './MatrixPeopleDialog.vue'
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import { projectManagementApi, type ProjectMatrix, type ProjectMatrixRating, type ProjectMatrixRow } from '@/api/performance'
 import PerformanceSurfaceCard from './PerformanceSurfaceCard.vue'
 import { performanceLevelBackground } from './performanceColorOptions'
 
-const props = defineProps<{ projectId: number; cycleName?: string; provider?: () => Promise<ProjectMatrix>; readonly?: boolean }>()
+const props = defineProps<{ projectId: number; cycleId?: number; scopeKey?: string; cycleName?: string; provider?: () => Promise<ProjectMatrix>; readonly?: boolean }>()
 const emit = defineEmits<{ 'open-member': [member: { project_id?: number; employee_no: string; root_review_id?: number; can_view_detail?: boolean }] }>()
 const matrix = ref<ProjectMatrix>({ source: 'template_final_result', dimension: 'rating', display_modes: ['name', 'count'], total: 0, completed_count: 0, pending_count: 0, ratings: [], pending_rows: [], completed_rows: [] })
 const loading = ref(false)
@@ -121,6 +128,7 @@ const expanded = ref(new Set<string>())
 const rootEl = ref<HTMLElement | null>(null)
 const peopleOpen = ref(false)
 const drilldown = ref<{ level: string; rating: ProjectMatrixRating } | null>(null)
+const drilldownPeople = computed(() => drilldown.value ? matrix.value.completed_rows.find(row => row.level === drilldown.value!.level)?.cells[drilldown.value.rating.key]?.people || [] : [])
 
 function openPeople(level: string, rating: ProjectMatrixRating) {
   if (props.readonly) return
@@ -173,18 +181,25 @@ function syncColumnWidths() {
   }
 }
 
+let requestId = 0
 async function load() {
+  const request = ++requestId
+  peopleOpen.value = false
+  drilldown.value = null
   if (!props.provider && !props.projectId) return
   loading.value = true
   error.value = ''
   try {
-    matrix.value = props.provider ? await props.provider() : await projectManagementApi.matrix(props.projectId)
+    const loaded = props.provider ? await props.provider() : await projectManagementApi.matrix(props.projectId)
+    if (request !== requestId) return
+    matrix.value = loaded
     expanded.value = new Set()
   } catch {
-    error.value = '矩阵分析加载失败，请稍后重试'
+    if (request === requestId) error.value = '矩阵分析加载失败，请稍后重试'
   } finally {
-    loading.value = false
+    if (request === requestId) loading.value = false
   }
+  if (request !== requestId) return
   await nextTick()
   syncColumnWidths()
 }
@@ -250,7 +265,8 @@ function countStyle(row: ProjectMatrixRow, rating: ProjectMatrixRating) {
 }
 
 onMounted(load)
-watch(() => [props.projectId, props.provider], load)
+watch(() => [props.projectId, props.cycleId, props.scopeKey, props.provider], load)
+onBeforeUnmount(() => { requestId++ })
 watch(displayMode, () => nextTick(syncColumnWidths))
 </script>
 
@@ -283,6 +299,9 @@ export default { components: { PeopleCell } }
 </script>
 
 <style scoped>
+.cycle-matrix-people { display: flex; flex-wrap: wrap; gap: var(--spacing-3); }
+.cycle-matrix-people button { padding: 0; border: 0; background: transparent; color: var(--color-primary); font: inherit; cursor: pointer; }
+.cycle-matrix-people button:disabled { color: var(--color-text-primary); cursor: default; }
 .project-matrix.surface-card { display: block; flex: none; padding: 0 20px 20px; }
 .matrix-toolbar { position: sticky; top: calc(var(--performance-tab-area-height) - var(--performance-review-surface-inset)); z-index: 4; display: flex; align-items: center; justify-content: space-between; min-height: 72px; background: #fff; }
 .matrix-scope-tabs { display: flex; align-items: center; min-width: 0; }

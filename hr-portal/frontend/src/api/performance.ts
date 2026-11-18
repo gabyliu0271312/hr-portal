@@ -6,7 +6,8 @@ const inFlightRequests = new Map<string, Promise<unknown>>()
 watch(employeeSwitchEpoch, () => inFlightRequests.clear(), { flush: 'sync' })
 
 function requestKey(path: string, params?: Record<string, unknown>) {
-  return JSON.stringify([employeeSwitchEpoch.value, getToken(), path, Object.entries(params || {}).filter(([, value]) => value !== undefined && value !== null).sort(([a], [b]) => a.localeCompare(b))])
+  const management = typeof window === 'undefined' ? [] : ['management_role', 'cycle_id', 'project_id'].map(key => [key, new URLSearchParams(window.location.search).get(key)])
+  return JSON.stringify([employeeSwitchEpoch.value, getToken(), management, path, Object.entries(params || {}).filter(([, value]) => value !== undefined && value !== null).sort(([a], [b]) => a.localeCompare(b))])
 }
 
 function mergeInFlight<T>(key: string, loader: () => Promise<T>): Promise<T> {
@@ -985,7 +986,15 @@ export interface ProjectManagementCompletionNode {
   reminder_description?: string | null
 }
 
+export type PerformanceManagementRole = 'hrbp' | 'project_admin'
+export interface PerformanceManagementScope {
+  management_role?: PerformanceManagementRole
+  project_id?: number
+}
+
 export interface ProjectManagementOverview {
+  categories?: Array<{ key: PerformanceManagementRole; label: string; projects: ProjectManagementProject[] }>
+  active_role?: PerformanceManagementRole | null
   cycles: ProjectManagementCycle[]
   active_cycle: ProjectManagementCycle | null
   has_management_access?: boolean
@@ -1211,9 +1220,9 @@ export const resultViewApi = {
 }
 
 export const projectManagementApi = {
-  async overview(cycleId?: number): Promise<ProjectManagementOverview> {
+  async overview(cycleId?: number, scope?: PerformanceManagementScope): Promise<ProjectManagementOverview> {
     const { data } = await api.get<ProjectManagementOverview>('/performance/project-management/overview', {
-      params: cycleId ? { cycle_id: cycleId } : undefined,
+      params: { ...(cycleId ? { cycle_id: cycleId } : {}), ...scope },
     })
     return data
   },
@@ -1327,6 +1336,14 @@ export const projectManagementApi = {
     const { data } = await api.post<PerformanceReminderResult>(`/performance/projects/${encodeURIComponent(String(projectId))}/members/${encodeURIComponent(employeeNo)}/remind`, context)
     return data
   },
+  async managementMatrix(cycleId: number, scope?: PerformanceManagementScope): Promise<ProjectMatrix> {
+    const { data } = await api.get<ProjectMatrix>('/performance/project-management/matrix', { params: { cycle_id: cycleId, ...scope } })
+    return data
+  },
+  async timeline(cycleId: number, projectId: number, role?: PerformanceManagementRole): Promise<PerformanceWorkbenchTimelineNode[]> {
+    const { data } = await api.get<PerformanceWorkbenchTimelineNode[]>('/performance/project-management/timeline', { params: { cycle_id: cycleId, project_id: projectId, management_role: role } })
+    return data
+  },
   async matrix(projectId: number | string): Promise<ProjectMatrix> {
     const { data } = await api.get<ProjectMatrix>(`/performance/projects/${encodeURIComponent(String(projectId))}/matrix`)
     return data
@@ -1363,12 +1380,12 @@ export const projectManagementApi = {
     const { data } = await api.post(`/performance/projects/${encodeURIComponent(String(projectId))}/result-reconsiderations/withdraw`, { version })
     return data
   },
-  async levelStatistics(cycleId: number, dimension: 'department' | 'team' | 'sequence' | 'level' | 'tenure' = 'level'): Promise<ProjectStatisticsReport> {
-    const { data } = await api.get<ProjectStatisticsReport>('/performance/project-management/statistics', { params: { cycle_id: cycleId, dimension } })
+  async levelStatistics(cycleId: number, dimension: 'department' | 'team' | 'sequence' | 'level' | 'tenure' = 'level', scope?: PerformanceManagementScope): Promise<ProjectStatisticsReport> {
+    const { data } = await api.get<ProjectStatisticsReport>('/performance/project-management/statistics', { params: { cycle_id: cycleId, dimension, ...scope } })
     return data
   },
-  async selfFinalComparison(cycleId: number): Promise<ProjectReportComparisonData> {
-    const { data } = await api.get<ProjectReportComparisonData>('/performance/project-management/self-final-comparison', { params: { cycle_id: cycleId } })
+  async selfFinalComparison(cycleId: number, scope?: PerformanceManagementScope): Promise<ProjectReportComparisonData> {
+    const { data } = await api.get<ProjectReportComparisonData>('/performance/project-management/self-final-comparison', { params: { cycle_id: cycleId, ...scope } })
     return data
   },
   async revieweeSearch(projectId: number | string, keyword: string): Promise<RevieweeSearchResult> {

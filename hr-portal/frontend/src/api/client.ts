@@ -1,7 +1,7 @@
 import axios, { CanceledError, type AxiosInstance, type InternalAxiosRequestConfig, AxiosError } from 'axios'
 import { employeeSwitchSession, employeeSwitchEpoch, employeeSwitchRequests, clearEmployeeSwitch } from '@/stores/identitySwitch'
 
-type SwitchRequestConfig = InternalAxiosRequestConfig & { switchEpoch?: number; switchAbort?: AbortController }
+type SwitchRequestConfig = InternalAxiosRequestConfig & { switchEpoch?: number; switchAbort?: AbortController; managementContextKey?: string }
 import { ElMessage } from 'element-plus'
 
 const TOKEN_KEY = 'hr_portal.token'
@@ -13,6 +13,18 @@ export function setToken(t: string | null) {
   if (!t) clearEmployeeSwitch()
   if (t) localStorage.setItem(TOKEN_KEY, t)
   else localStorage.removeItem(TOKEN_KEY)
+}
+
+function managementRouteContext() {
+  if (!window.location.pathname.startsWith('/performance/')) return null
+  const query = new URLSearchParams(window.location.search)
+  const role = query.get('management_role')
+  if (!role) return null
+  return { management_role: role, cycle_id: query.get('cycle_id') || undefined, project_id: query.get('project_id') || undefined }
+}
+
+function managementContextKey() {
+  return JSON.stringify(managementRouteContext())
 }
 
 export const api: AxiosInstance = axios.create({
@@ -30,6 +42,12 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const session = employeeSwitchSession.value
   if (isPerformanceRequest) {
     const tracked = config as SwitchRequestConfig
+    const management = managementRouteContext()
+    const scopedRequest = /^\/performance\/(project-management(?:\/|$)|projects(?:\/|$)|cycles\/\d+\/result-opening(?:\/|$)|tasks\/)/.test(config.url || '')
+    if (management && scopedRequest) {
+      config.params = { ...management, ...config.params }
+      tracked.managementContextKey = managementContextKey()
+    }
     tracked.switchEpoch = employeeSwitchEpoch.value
     if (!config.signal) {
       tracked.switchAbort = new AbortController()
@@ -77,12 +95,13 @@ api.interceptors.response.use(
     const config = resp.config as SwitchRequestConfig
     if (config.switchAbort) employeeSwitchRequests.delete(config.switchAbort)
     if (config.switchEpoch !== undefined && config.switchEpoch !== employeeSwitchEpoch.value) throw new CanceledError('旧身份响应已丢弃')
+    if (config.managementContextKey !== undefined && config.managementContextKey !== managementContextKey()) throw new CanceledError('旧管理范围响应已丢弃')
     return resp
   },
   (error: AxiosError<any>) => {
     const config = error.config as SwitchRequestConfig | undefined
     if (config?.switchAbort) employeeSwitchRequests.delete(config.switchAbort)
-    if (axios.isCancel(error) || (config?.switchEpoch !== undefined && config.switchEpoch !== employeeSwitchEpoch.value)) return Promise.reject(new CanceledError('身份已变化'))
+    if (axios.isCancel(error) || (config?.switchEpoch !== undefined && config.switchEpoch !== employeeSwitchEpoch.value) || (config?.managementContextKey !== undefined && config.managementContextKey !== managementContextKey())) return Promise.reject(new CanceledError('身份或管理范围已变化'))
     const rawDetail = (error.response?.data as any)?.detail
     const status = error.response?.status
     // 5xx 属于服务端瞬时故障，不能据此结束切换会话；只有明确拒绝才作废

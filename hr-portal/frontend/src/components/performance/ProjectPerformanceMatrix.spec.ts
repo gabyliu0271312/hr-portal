@@ -52,6 +52,46 @@ describe('ProjectPerformanceMatrix', () => {
     wrapper.unmount()
   })
 
+  it('loads the cycle provider with project zero, drills into real people and preserves detail permissions', async () => {
+    const data = matrixOf()
+    data.completed_rows[0].cells.one.people = [
+      { employee_no: 'E1', display_name: '合法项目四人员', employment_status: 'ACTIVE', project_id: 4, root_review_id: 41, can_view_detail: true },
+      { employee_no: 'E2', display_name: '无详情人员', employment_status: 'ACTIVE', project_id: 5, can_view_detail: false },
+    ]
+    const provider = vi.fn().mockResolvedValue(data)
+    const wrapper = mount(ProjectPerformanceMatrix, { props: { projectId: 0, cycleId: 1, scopeKey: 'hrbp:1', provider }, global: { stubs: { PerformanceDialogShell: { props: ['modelValue'], template: '<div v-if="modelValue" class="cycle-drilldown"><slot /></div>' } } } })
+    try {
+      await flushPromises()
+      expect(provider).toHaveBeenCalledOnce()
+      expect(mockedApi.matrix).not.toHaveBeenCalled()
+      wrapper.getComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', 'count')
+      await flushPromises()
+      await wrapper.get('button[aria-label="查看J61星1人"]').trigger('click')
+      const buttons = wrapper.findAll('.cycle-drilldown button')
+      expect(buttons.map(button => button.text())).toEqual(['合法项目四人员', '无详情人员'])
+      expect(buttons[1].attributes('disabled')).toBeDefined()
+      await buttons[0].trigger('click')
+      expect(wrapper.emitted('open-member')?.[0]?.[0]).toMatchObject({ project_id: 4, root_review_id: 41, can_view_detail: true })
+    } finally { wrapper.unmount() }
+  })
+
+  it('discards a prior scope response and closes the prior drilldown', async () => {
+    let resolve!: (value: ProjectMatrix) => void
+    const first = vi.fn(() => new Promise<ProjectMatrix>(done => { resolve = done }))
+    const second = vi.fn().mockResolvedValue(matrixOf({ total: 19 }))
+    const wrapper = mount(ProjectPerformanceMatrix, { props: { projectId: 0, cycleId: 1, scopeKey: 'hrbp', provider: first } })
+    try {
+      await flushPromises()
+      await wrapper.setProps({ scopeKey: 'project_admin', provider: second })
+      await flushPromises()
+      expect(wrapper.text()).toContain('(2/19)')
+      resolve(matrixOf({ total: 99 }))
+      await flushPromises()
+      expect(wrapper.text()).toContain('(2/19)')
+      expect(wrapper.text()).not.toContain('(2/99)')
+    } finally { wrapper.unmount() }
+  })
+
   it('keeps the entire matrix inside one shared white surface across loading and empty states', async () => {
     let resolve!: (value: ProjectMatrix) => void
     vi.mocked(mockedApi.matrix).mockReturnValue(new Promise(value => { resolve = value }))
