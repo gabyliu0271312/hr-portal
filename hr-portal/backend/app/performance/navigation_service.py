@@ -32,6 +32,8 @@ class FrontendAccess:
     member_project_ids: set = field(default_factory=set)
     actor_refs_by_cycle: dict = field(default_factory=dict)
     actor_ref: str | None = None
+    team_result_cycle_refs: set = field(default_factory=set)
+    focus_result_cycle_refs: set = field(default_factory=set)
 
     @property
     def cycle_ids(self):
@@ -288,6 +290,17 @@ async def _resolve_frontend_access(db: AsyncSession, context: PerformanceAccessC
                 result.manage_projects.append((project, cycle))
                 result.management_scopes[project.id] = scope
                 result.management_features[project.id] = hrbp_features
+    if hasattr(db, "get"):
+        from app.performance.result_view_scope import FOCUS_RESULT_KIND, TEAM_RESULT_KIND, resolve_result_view_scope
+        for cycle in cycles:
+            team_scope = await resolve_result_view_scope(db, context, cycle_id=cycle.id, kind=TEAM_RESULT_KIND)
+            if team_scope.employee_nos:
+                result.team_result_cycle_refs.add(cycle.cycle_ref)
+                related_refs.add(cycle.cycle_ref)
+            focus_scope = await resolve_result_view_scope(db, context, cycle_id=cycle.id, kind=FOCUS_RESULT_KIND)
+            if focus_scope.employee_nos:
+                result.focus_result_cycle_refs.add(cycle.cycle_ref)
+                related_refs.add(cycle.cycle_ref)
     result.cycles = [cycle for cycle in cycles if cycle.cycle_ref in related_refs]
     workbench_ids = result.member_project_ids | result.own_task_project_ids | set(result.voluntary_node_ids_by_project) | {project.id for project, _cycle in result.manage_projects}
     result.workbench_projects = [(project, cycles_by_ref[project.cycle_ref]) for project in projects if project.status == PROJECT_STATUS_STARTED and project.id in workbench_ids]

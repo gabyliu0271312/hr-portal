@@ -69,6 +69,8 @@ export interface PerformanceNavigationContext {
   active_cycle: PerformanceCycleNavigationItem | null
   can_review: boolean
   can_manage: boolean
+  can_view_team_results?: boolean
+  can_view_focus_results?: boolean
   review_projects: Array<Pick<PerformanceWorkbenchProject, 'project_id' | 'project_name' | 'cycle_name' | 'cycle_start_at' | 'cycle_end_at'>>
 }
 
@@ -1173,6 +1175,41 @@ export interface PerformanceResultOpeningResponse {
   notification_status: 'pending_integration'
 }
 
+export interface PerformanceResultViewOverview {
+  kind: 'team' | 'focus'
+  cycle: ProjectManagementCycle
+  projects: Array<{ project_id: number; project_name: string }>
+  member_count: number
+  completion_nodes: ProjectManagementCompletionNode[]
+}
+
+export const resultViewApi = {
+  async overview(kind: 'team' | 'focus', cycleId: number): Promise<PerformanceResultViewOverview> {
+    const { data } = await api.get<PerformanceResultViewOverview>(`/performance/result-views/${kind}/overview`, { params: { cycle_id: cycleId } })
+    return data
+  },
+  async members(kind: 'team' | 'focus', cycleId: number, keyword?: string, page = 1, pageSize = 50, sortBy?: string, sortOrder?: 'asc' | 'desc'): Promise<ProjectMemberPage> {
+    const { data } = await api.get<ProjectMemberPage>(`/performance/result-views/${kind}/members`, { params: { cycle_id: cycleId, keyword, page, page_size: pageSize, sort_by: sortBy, sort_order: sortOrder } })
+    return data
+  },
+  async matrix(kind: 'team' | 'focus', cycleId: number): Promise<ProjectMatrix> {
+    const { data } = await api.get<ProjectMatrix>(`/performance/result-views/${kind}/matrix`, { params: { cycle_id: cycleId } })
+    return data
+  },
+  async detail(kind: 'team' | 'focus', cycleId: number, projectId: number, employeeNo: string, rootReviewId?: number, activeTab?: string): Promise<PerformanceManagementDetail> {
+    const { data } = await api.get<PerformanceManagementDetail>(`/performance/result-views/${kind}/projects/${projectId}/members/${encodeURIComponent(employeeNo)}/detail`, { params: { cycle_id: cycleId, root_review_id: rootReviewId, ...(activeTab !== undefined ? { view: 'drawer', ...(activeTab ? { tab: activeTab } : {}) } : {}) } })
+    return data
+  },
+  async statistics(kind: 'team' | 'focus', cycleId: number, dimension: 'department' | 'team' | 'sequence' | 'level' | 'tenure' = 'department'): Promise<ProjectStatisticsReport> {
+    const { data } = await api.get<ProjectStatisticsReport>('/performance/project-management/statistics', { params: { cycle_id: cycleId, dimension, result_kind: kind } })
+    return data
+  },
+  async selfFinalComparison(kind: 'team' | 'focus', cycleId: number): Promise<ProjectReportComparisonData> {
+    const { data } = await api.get<ProjectReportComparisonData>('/performance/project-management/self-final-comparison', { params: { cycle_id: cycleId, result_kind: kind } })
+    return data
+  },
+}
+
 export const projectManagementApi = {
   async overview(cycleId?: number): Promise<ProjectManagementOverview> {
     const { data } = await api.get<ProjectManagementOverview>('/performance/project-management/overview', {
@@ -1184,16 +1221,16 @@ export const projectManagementApi = {
     const { data } = await api.get<ProjectManagementDepartmentCompletion>('/performance/project-management/department-completion', { params: { cycle_id: cycleId } })
     return data
   },
-  async reminderPeople(cycleId: number, nodeKey: string, keyword = '', page = 1, pageSize = 50, department?: string): Promise<ReminderPeoplePage> {
-    const { data } = await api.get<ReminderPeoplePage>('/performance/project-management/reminder-people', { params: { cycle_id: cycleId, node_key: nodeKey, keyword: keyword || undefined, department: department || undefined, page, page_size: pageSize } })
+  async reminderPeople(cycleId: number, nodeKey: string, keyword = '', page = 1, pageSize = 50, department?: string, resultKind?: 'team'): Promise<ReminderPeoplePage> {
+    const { data } = await api.get<ReminderPeoplePage>('/performance/project-management/reminder-people', { params: { cycle_id: cycleId, node_key: nodeKey, keyword: keyword || undefined, department: department || undefined, result_kind: resultKind, page, page_size: pageSize } })
     return data
   },
-  async remindCycleTasks(cycleId: number, nodeKey: string, taskIds: number[], department?: string, skipRecentlyReminded = false): Promise<PerformanceReminderResult> {
+  async remindCycleTasks(cycleId: number, nodeKey: string, taskIds: number[], department?: string, skipRecentlyReminded = false, resultKind?: 'team'): Promise<PerformanceReminderResult> {
     const merged: PerformanceReminderResult = { accepted_task_ids: [], skipped_task_ids: [], failed_task_ids: [], preview_task_ids: [], delivery_status: 'failed', errors: [] }
     for (let index = 0; index < taskIds.length; index += 500) {
       const batch = taskIds.slice(index, index + 500)
       try {
-        const { data } = await api.post<PerformanceReminderResult>('/performance/project-management/remind', { cycle_id: cycleId, node_key: nodeKey, department: department || undefined, skip_recently_reminded: skipRecentlyReminded || undefined, task_ids: batch })
+        const { data } = await api.post<PerformanceReminderResult>('/performance/project-management/remind', { cycle_id: cycleId, node_key: nodeKey, department: department || undefined, result_kind: resultKind, skip_recently_reminded: skipRecentlyReminded || undefined, task_ids: batch })
         merged.accepted_task_ids.push(...data.accepted_task_ids)
         merged.skipped_task_ids.push(...data.skipped_task_ids)
         merged.failed_task_ids!.push(...(data.failed_task_ids || []))

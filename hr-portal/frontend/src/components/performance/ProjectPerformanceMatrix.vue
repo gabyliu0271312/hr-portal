@@ -90,7 +90,7 @@
         </div>
       </section>
       <MatrixPeopleDialog
-        v-if="drilldown"
+        v-if="drilldown && !props.readonly"
         v-model="peopleOpen"
         :project-id="props.projectId"
         :cycle-name="props.cycleName || '当前周期'"
@@ -111,7 +111,7 @@ import { projectManagementApi, type ProjectMatrix, type ProjectMatrixRating, typ
 import PerformanceSurfaceCard from './PerformanceSurfaceCard.vue'
 import { performanceLevelBackground } from './performanceColorOptions'
 
-const props = defineProps<{ projectId: number; cycleName?: string }>()
+const props = defineProps<{ projectId: number; cycleName?: string; provider?: () => Promise<ProjectMatrix>; readonly?: boolean }>()
 const emit = defineEmits<{ 'open-member': [member: { project_id?: number; employee_no: string; root_review_id?: number; can_view_detail?: boolean }] }>()
 const matrix = ref<ProjectMatrix>({ source: 'template_final_result', dimension: 'rating', display_modes: ['name', 'count'], total: 0, completed_count: 0, pending_count: 0, ratings: [], pending_rows: [], completed_rows: [] })
 const loading = ref(false)
@@ -123,6 +123,7 @@ const peopleOpen = ref(false)
 const drilldown = ref<{ level: string; rating: ProjectMatrixRating } | null>(null)
 
 function openPeople(level: string, rating: ProjectMatrixRating) {
+  if (props.readonly) return
   drilldown.value = { level, rating }
   peopleOpen.value = true
 }
@@ -177,7 +178,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    matrix.value = await projectManagementApi.matrix(props.projectId)
+    matrix.value = props.provider ? await props.provider() : await projectManagementApi.matrix(props.projectId)
     expanded.value = new Set()
   } catch {
     error.value = '矩阵分析加载失败，请稍后重试'
@@ -249,7 +250,7 @@ function countStyle(row: ProjectMatrixRow, rating: ProjectMatrixRating) {
 }
 
 onMounted(load)
-watch(() => props.projectId, load)
+watch(() => [props.projectId, props.provider], load)
 watch(displayMode, () => nextTick(syncColumnWidths))
 </script>
 

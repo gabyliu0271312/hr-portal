@@ -16,7 +16,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { projectManagementApi, type ProjectManagementCompletionNode } from '@/api/performance'
+import { projectManagementApi, resultViewApi, type ProjectManagementCompletionNode } from '@/api/performance'
 import { useRoute, useRouter } from 'vue-router'
 import PerformanceTaskHeader from '@/components/performance/PerformanceTaskHeader.vue'
 import PerformanceReminderPanel from '@/components/performance/PerformanceReminderPanel.vue'
@@ -27,6 +27,7 @@ const router = useRouter()
 const nodeKey = computed(() => String(route.query.node_key || 'manager-review'))
 const cycleId = computed(() => Number(route.query.cycle_id || 0))
 const department = computed(() => String(route.query.department || ''))
+const resultKind = computed(() => route.query.source === 'team-results' ? 'team' as const : undefined)
 const node = ref<ProjectManagementCompletionNode | null>(null)
 const error = ref('')
 let sequence = 0
@@ -44,7 +45,9 @@ watch([nodeKey, cycleId], async () => {
   node.value = null
   error.value = ''
   try {
-    const result = await projectManagementApi.overview(cycleId.value)
+    const result = resultKind.value
+      ? await resultViewApi.overview(resultKind.value, cycleId.value)
+      : await projectManagementApi.overview(cycleId.value)
     if (current === sequence) node.value = result.completion_nodes?.find(item => item.key === nodeKey.value) || null
   } catch { if (current === sequence) error.value = '绩效环节加载失败，请返回后重试' }
 }, { immediate: true })
@@ -57,9 +60,14 @@ const context = computed<ReminderContext>(() => ({
   title: title.value,
   sectionTitle: '未完成的被评估人',
   departmentPath: department.value || undefined,
+  resultKind: resultKind.value,
 }))
 
 function goBack() {
+  if (resultKind.value) {
+    void router.push({ name: 'PerformanceReview', query: { cycle_id: String(cycleId.value), node: '__team-results__' } })
+    return
+  }
   void router.push({ name: 'PerformanceProjectManagement', query: { cycle_id: String(cycleId.value), view: String(route.query.view || '') } })
 }
 </script>

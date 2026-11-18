@@ -245,7 +245,9 @@ function openingColumns(items: ReminderListResult['items'], ratingColumns: Array
 
 async function defaultProvider(query: Parameters<ReminderProvider>[0]): Promise<ReminderListResult> {
   if (props.mode === 'cycle-remind') {
-    const result = await projectManagementApi.reminderPeople(query.context.cycleId, query.context.nodeId, query.keyword.trim(), query.page, query.pageSize, query.context.departmentPath)
+    const result = query.context.resultKind
+      ? await projectManagementApi.reminderPeople(query.context.cycleId, query.context.nodeId, query.keyword.trim(), query.page, query.pageSize, query.context.departmentPath, query.context.resultKind)
+      : await projectManagementApi.reminderPeople(query.context.cycleId, query.context.nodeId, query.keyword.trim(), query.page, query.pageSize, query.context.departmentPath)
     return {
       items: result.items,
       total: result.total,
@@ -430,7 +432,9 @@ async function confirmRemind() {
   notice.value = ''
   try {
     const result = props.mode === 'cycle-remind'
-      ? await projectManagementApi.remindCycleTasks(props.context.cycleId, props.context.nodeId, submittedKeys.map(Number), props.context.departmentPath, skipRecentlyReminded.value)
+      ? props.context.resultKind
+        ? await projectManagementApi.remindCycleTasks(props.context.cycleId, props.context.nodeId, submittedKeys.map(Number), props.context.departmentPath, skipRecentlyReminded.value, props.context.resultKind)
+        : await projectManagementApi.remindCycleTasks(props.context.cycleId, props.context.nodeId, submittedKeys.map(Number), props.context.departmentPath, skipRecentlyReminded.value)
       : await projectManagementApi.remindTasks(props.context.projectId, props.context.nodeId, submittedKeys.map(Number))
     if (disposed) return
     const accepted = result.accepted_task_ids.length

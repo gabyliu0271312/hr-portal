@@ -302,6 +302,21 @@
 - 构建：`npm --prefix hr-portal/frontend run build`最终vue-tsc＋Vite **exit0**，3776模块、58.19s；仅既有VueUse PURE注释提示。前三次被并行校准文件在途类型错误阻塞（DetailTable旧枚举、ProjectSettingsPage测试导入、FlowSettings组织树level），由对应会话修复后完整构建通过，未跨改其业务文件；tokens并行rule-summary/table块保留。本卡diff --check通过，仅LF/CRLF提示。未执行真实登录API/PostgreSQL/生产、迁移或外发，未自动提交推送部署。
 - UI证据：本地真实Vue成员表格＋隔离合成API，1440×900与390×844；组标签84×20、12px、圆角4、内距0 6px、#151b70/rgba(91,101,245,.2)与REA一致；长标签最大120px并省略/title，hover无授权弹窗。多标签初测挤没姓名，已改为保留姓名、空间不足时标签换行；最终390px姓名区域clientWidth=scrollWidth=200、姓名宽56、pageerror0。改名刷新和响应移除标签通过；独立截图 `ui-blueprints/CR-007-F15-G01-member-group-tags-20261118.png` 已查看，不是生产权限或真实后端验收证据。Spec012 UI交互/守则已读，无UCP、数仓重复配置或危险操作。
 
+## 2026-11-18 CR-007-F16 团队与关注人员绩效结果只读视图
+
+- [ ] CR-007-F16：完成“查看团队绩效结果”和“关注人员的绩效结果”前台闭环；本地代码、自动化、构建和浏览器验收完成后才能勾选，真实生产部署另行验收。
+- 入口与显隐：两个入口位于“绩效评估 → 我团队的绩效”。团队入口仅在所选周期快照中存在参加绩效项目的直接或间接下级时显示；关注入口对可见人员组计算成员并集，再与当前用户绩效结果读取范围求交，结果非空才显示。空组、无可见组、求交后为空均不显示；直接访问接口仍执行同一权限判断。
+- 快照口径：上下级只读取周期授权快照，直接下级和间接下级按快照直属上级链递归计算；实时花名册变化不得静默改写已启动周期。后续变化必须通过显式更新功能处理，本卡不实现快照更新功能。
+- 人员组可见枚举：线上 REA 已确认 `view_permission=0` 为“仅关注人可见”，`view_permission=1` 为“有组内人员绩效查看权限的用户”；未知值拒绝。两种模式最终人员均与对象级 `RESULT_READ` 范围求交；人员组维护权、项目管理操作权和结果开通权不替代结果读取权。
+- 页面结构：团队结果包含“总览、成员列表、矩阵分析、统计报表”；关注结果只包含后三项。团队总览复用周期概览完成率，限“填写工作总结、自评、360°反馈（自愿评估）、上级评估、绩效沟通并开通结果、查看绩效结果”，不展示绩效校准、结果复议、授权管理、其他模块或添加被评估人。
+- 只读能力：成员列表无 checkbox、无批量底栏、无新增/删除、授权/转交、成员级催办；详情侧栏无右上角管理菜单且不可编辑。团队总览节点级“去催办”保留，并继续走现有周期催办权限和通知链；不因结果页入口扩大可催办范围。
+- 复用与实现：复用 `CompletionRatePanel`、`ProjectMemberListPanel`、`ProjectPerformanceMatrix`、`ProjectStatisticsReportPanel` 和 `PerformanceReviewEvaluationDrawer`；组件通过显式 readonly/provider 能力参数切换，不用 CSS 隐藏管理能力。后端提供一个权威结果范围解析器，成员、总览、矩阵、统计和详情共同消费按项目分组的范围。
+- 测试：后端覆盖直接/间接下级、周期快照、无下级、两个 `view_permission`、未知值、非关注人、空交集、跨周期、详情越权和四视图同范围；前端覆盖动态菜单、团队4页签/关注3页签、六完成率节点、无管理控件、只读详情、空态/403/旧响应丢弃；执行定向 pytest、Vitest、build 和真实 Vue 路由隔离 API 浏览器验收。
+- 非范围：不改模型/迁移、实时花名册、周期快照生成/更新、项目管理管理能力、结果算法、角色配置、生产数据或通知总闸；不部署、不实际外发消息。停止仅撤销本卡增量，不删除快照、任务、结果或审计。
+- 实现：新增共享 `result_view_scope.py`，统一团队直接/间接下级和关注人员组结果范围；导航返回团队/关注入口资格；新增只读总览、成员、矩阵、统计和详情接口，团队总览催办 GET/POST 继续沿现有通知链并在发送时重校验同一结果范围。前端在绩效评估侧栏接入两个入口，新增 `PerformanceResultScopeView`，共享成员/矩阵/报表/详情组件通过 readonly/provider 参数复用；团队4页签、关注3页签，详情 readonly 时不渲染右上角管理菜单。人员组标签同步修正为线上真实枚举0/1。
+- 自动化证据：`python -m pytest hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_member_reminders.py hr-portal/backend/tests/test_performance_member_identity.py -q --tb=short` → **974 passed / 5 skipped / 1 python_multipart 第三方弃用警告**；前端 `Review.spec.ts`、`ProjectManagement.spec.ts`、`PerformanceReminderPanel.spec.ts`、`PerformanceReviewEvaluationDrawer.spec.ts` → **4文件268 passed**；另一次含矩阵/统计组件组合 → **5文件247 passed**。`npm --prefix hr-portal/frontend run build` → vue-tsc + Vite exit 0，3779模块，仅既有 VueUse PURE 注释提示。后端 py_compile、`git diff --check` 通过（仅 focus_group_tag_service 换行提示）。
+- 浏览器证据与阻塞：本地 Vite 成功启动；REA 场景 `ev_b3b6e7ac8def992a16511ec8bca97b84a6e98acc7233c8d7b5e792b2249a4d74` 完整、无缺失段，但临时 Chrome 无登录存储，被路由守卫重定向到 `/login`。未使用生产登录态或伪造凭据，因此尚未完成真实登录下团队4页签、关注3页签及详情只读截图验收；本卡保持未勾选，不宣称生产验收或部署完成。
+
 ## 2026-11-13 CR-007-F13 前台读链路性能优化
 
 - [ ] CR-007-F13：本地实现及自动化回归通过；真实登录/API/PostgreSQL、运行时前后对比与生产验收未完成，不勾选整体验收。

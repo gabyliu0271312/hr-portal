@@ -540,8 +540,8 @@ def _insert_tag(db, **values):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode,followers,actor,visible", [
-    (1, [], "M1", True), (2, ["M1"], "M1", True), (2, ["M1"], "R1", False),
-    (2, ["99", "同名人员"], "M1", False), (0, ["M1"], "M1", False), (3, ["M1"], "M1", False),
+    (1, [], "M1", True), (0, ["M1"], "M1", True), (0, ["M1"], "R1", False),
+    (0, ["99", "同名人员"], "M1", False), (2, ["M1"], "M1", False), (3, ["M1"], "M1", False),
 ])
 async def test_group_tags_modes_use_trusted_employee_and_fail_closed(identity_db, mode, followers, actor, visible):
     _insert_tag(identity_db, view_permission=mode, followee_user_ids=followers)
@@ -629,7 +629,7 @@ async def test_group_tags_management_scope_runs_once_per_project_after_candidate
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", [1, 2])
+@pytest.mark.parametrize("mode", [0, 1])
 async def test_group_tags_follower_does_not_grant_performance_access(identity_db, monkeypatch, mode):
     from app.performance import projects_router as routes
     _insert_tag(identity_db, view_permission=mode, followee_user_ids=["M1"])
@@ -680,7 +680,7 @@ async def test_group_tags_cycle_and_snapshot_mismatch_do_not_share_membership(id
 
 @pytest.mark.asyncio
 async def test_group_tags_verified_member_wrapper_and_switched_identity_read_again(identity_db):
-    _insert_tag(identity_db, view_permission=2, followee_user_ids=["M1"])
+    _insert_tag(identity_db, view_permission=0, followee_user_ids=["M1"])
     row = {"project_id": 1, "root_review_id": 10, "employee_no": "E1"}
     await service.hydrate_project_member_rows(identity_db, [row], context=_tag_context("M1"), verified_view=True)
     assert row["identity_status"]["group_tags"]
@@ -692,7 +692,7 @@ async def test_group_tags_verified_member_wrapper_and_switched_identity_read_aga
 @pytest.mark.asyncio
 async def test_group_tags_follower_never_matches_system_account_id(identity_db):
     from dataclasses import replace
-    _insert_tag(identity_db, view_permission=2, followee_user_ids=["99"])
+    _insert_tag(identity_db, view_permission=0, followee_user_ids=["99"])
     row = {"employee_no": "E1"}
     context = replace(_tag_context(None), subject_type="SYSTEM_ACCOUNT")
     await service.hydrate_member_identities(identity_db, [(row, 1, 10)], context=context, verified_view_keys={(1, 10, "E1")})

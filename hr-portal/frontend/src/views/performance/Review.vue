@@ -13,7 +13,9 @@
       @select-node="selectNode"
     >
     </PerformanceReviewCategorySidebar>
+    <PerformanceResultScopeView v-if="resultScopeKind && projectContext.activeCycleId" :kind="resultScopeKind" :cycle-id="projectContext.activeCycleId" />
     <PerformanceReviewContent
+      v-else
       :loading="loading"
       :error="error"
       :template-name="overview?.template_name || ''"
@@ -91,6 +93,7 @@ import PerformanceTemplateRenderer from '@/components/performance/PerformanceTem
 import PerformanceResultReviewer360Block, { hasVisibleReviewer360Content } from '@/components/performance/PerformanceResultReviewer360Block.vue'
 import PerformanceOkrPanel from '@/components/performance/PerformanceOkrPanel.vue'
 import PerformanceReviewCategorySidebar from '@/components/performance/PerformanceReviewCategorySidebar.vue'
+import PerformanceResultScopeView from '@/components/performance/PerformanceResultScopeView.vue'
 import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
 import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
@@ -177,10 +180,24 @@ async function loadMyResults() {
     if (request === resultRequest) resultLoading.value = false
   }
 }
-const visibleCategories = computed(() => (overview.value?.categories || []).filter(category => category.nodes.length > 0))
+const TEAM_RESULT_NODE_ID = '__team-results__'
+const FOCUS_RESULT_NODE_ID = '__focus-results__'
+const resultScopeKind = computed<'team' | 'focus' | null>(() => selectedNodeId.value === TEAM_RESULT_NODE_ID ? 'team' : selectedNodeId.value === FOCUS_RESULT_NODE_ID ? 'focus' : null)
+const resultScopeNodes = computed<PerformanceReviewNode[]>(() => [
+  ...(projectContext.navigation?.can_view_team_results ? [{ node_id: TEAM_RESULT_NODE_ID, node_name: '查看团队绩效结果', node_type: 'team_results', entry_mode: 'none' as const, executor_label: '', status: 'completed' as const, start_at: null, end_at: null, action_url: '' }] : []),
+  ...(projectContext.navigation?.can_view_focus_results ? [{ node_id: FOCUS_RESULT_NODE_ID, node_name: '关注人员的绩效结果', node_type: 'focus_results', entry_mode: 'none' as const, executor_label: '', status: 'completed' as const, start_at: null, end_at: null, action_url: '' }] : []),
+])
+const visibleCategories = computed(() => {
+  const categories = (overview.value?.categories || []).filter(category => category.nodes.length > 0).map(category => ({ ...category, nodes: [...category.nodes] }))
+  if (!resultScopeNodes.value.length) return categories
+  const team = categories.find(category => category.key === 'team')
+  if (team) team.nodes.push(...resultScopeNodes.value)
+  else categories.push({ key: 'team', label: '我团队的绩效', nodes: resultScopeNodes.value })
+  return categories
+})
 const cycleOptions = computed(() => projectContext.cycles.map(cycle => ({ value: cycle.cycle_id, label: cycle.cycle_name })))
 const allNodes = computed(() => visibleCategories.value.flatMap(category => category.nodes))
-const selectedNode = computed(() => overview.value?.active_project?.project_id === activeProjectId.value ? allNodes.value.find(node => node.node_id === selectedNodeId.value) || null : null)
+const selectedNode = computed(() => resultScopeKind.value ? allNodes.value.find(node => node.node_id === selectedNodeId.value) || null : overview.value?.active_project?.project_id === activeProjectId.value ? allNodes.value.find(node => node.node_id === selectedNodeId.value) || null : null)
 const calibrationCompletion = ref<PerformanceCalibrationCompletion | null>(null)
 const calibrationConfirmOpen = ref(false)
 const calibrationBusy = ref(false)
@@ -338,7 +355,7 @@ async function loadOverview(projectId?: number, silent = false) {
     if (!current()) return
     error.value = ''
     applyOverview(loaded)
-    if (projectContext.navigation && projectContext.navigation.can_review !== (loaded.projects.length > 0)) {
+    if (projectContext.navigation && projectContext.navigation.can_review !== (loaded.projects.length > 0 || Boolean(projectContext.navigation.can_view_team_results || projectContext.navigation.can_view_focus_results))) {
       const navigation = await projectContext.refreshNavigation(projectContext.activeCycleId || undefined, true)
       if (current() && !navigation.can_review) await router.replace('/performance/workbench')
     }
@@ -383,6 +400,12 @@ async function selectNode(node: PerformanceReviewNode) {
   resultsEntry.value = false
   error.value = ''
   selectedNodeId.value = node.node_id
+  if (node.node_id === TEAM_RESULT_NODE_ID || node.node_id === FOCUS_RESULT_NODE_ID) {
+    drawerMember.value = null
+    const { task_id: _taskId, entry: _entry, project_id: _projectId, ...query } = clearDrawerQuery()
+    await router.replace({ query: { ...query, cycle_id: String(projectContext.activeCycleId || ''), node: node.node_id } })
+    return
+  }
   if (activeProjectId.value) projectContext.setSelectedReviewNode(activeProjectId.value, node.node_id)
   drawerMember.value = null
   const { task_id: _taskId, entry: _entry, ...query } = clearDrawerQuery()

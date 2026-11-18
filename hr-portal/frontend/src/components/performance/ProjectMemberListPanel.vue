@@ -28,9 +28,13 @@ const props = withDefaults(defineProps<{
   cycleId?: number
   reviewContext?: { nodeId: string; state: 'pending' | 'completed' | 'all'; phaseId?: string | null }
   showExport?: boolean
+  readonly?: boolean
+  provider?: (query: { keyword?: string; page: number; pageSize: number; sortBy?: string; sortOrder?: 'asc' | 'desc' }) => Promise<{ items: ProjectMember[]; total: number; rating_columns?: Array<{ key: string; label: string }> }>
 }>(), {
   reviewContext: undefined,
   showExport: true,
+  readonly: false,
+  provider: undefined,
 })
 const emit = defineEmits<{
   filter: []
@@ -154,7 +158,13 @@ const loadMembers = async () => {
   loading.value = true
   error.value = ''
   try {
-    if (props.reviewContext) {
+    if (props.provider) {
+      const result = await props.provider({ keyword: keyword.value.trim() || undefined, page: page.value, pageSize: pageSize.value, sortBy: sortBy.value || undefined, sortOrder: sortOrder.value || undefined })
+      if (sequence !== requestSequence) return
+      members.value = result.items
+      total.value = result.total
+      if (result.rating_columns) updateRatingColumns(result.rating_columns)
+    } else if (props.reviewContext) {
       const result = await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.reviewContext.nodeId, props.reviewContext.state, keyword.value.trim() || undefined, props.reviewContext.phaseId, page.value, pageSize.value, sortBy.value || undefined, sortOrder.value || undefined)
       if (sequence !== requestSequence) return
       remoteReviewPaging.value = !Array.isArray(result)
@@ -238,14 +248,18 @@ const tableColumns = computed<PerformanceTableColumn[]>(() => visibleColumns.val
 
 async function exportRows() {
   const context = props.reviewContext
-  const result = context
+  const result = props.provider
+    ? await props.provider({ keyword: keyword.value.trim() || undefined, page: 1, pageSize: 100, sortBy: sortBy.value || undefined, sortOrder: sortOrder.value || undefined })
+    : context
     ? await performanceWorkbenchApi.taskPeople(Number(props.projectId), context.nodeId, context.state, keyword.value.trim() || undefined, context.phaseId)
     : null
-  const rows: MemberRow[] = context
-    ? sortPerformanceRows((Array.isArray(result) ? result : ((result as { items?: PerformanceWorkbenchTaskPerson[] } | null)?.items || [])) as MemberRow[], sortBy.value, sortOrder.value, memberSortValue)
-    : (props.cycleId
-      ? await projectManagementApi.cycleExportMembers(props.cycleId, keyword.value.trim() || undefined, sortBy.value || undefined, sortOrder.value || undefined)
-      : await projectManagementApi.exportMembers(props.projectId, keyword.value.trim() || undefined, sortBy.value || undefined, sortOrder.value || undefined)).items
+  const rows: MemberRow[] = props.provider
+    ? (result as { items: MemberRow[] }).items
+    : context
+      ? sortPerformanceRows((Array.isArray(result) ? result : ((result as { items?: PerformanceWorkbenchTaskPerson[] } | null)?.items || [])) as MemberRow[], sortBy.value, sortOrder.value, memberSortValue)
+      : (props.cycleId
+        ? await projectManagementApi.cycleExportMembers(props.cycleId, keyword.value.trim() || undefined, sortBy.value || undefined, sortOrder.value || undefined)
+        : await projectManagementApi.exportMembers(props.projectId, keyword.value.trim() || undefined, sortBy.value || undefined, sortOrder.value || undefined)).items
   return [
     visibleColumns.value.map(column => column.label),
     ...rows.map(member => visibleColumns.value.map(column => String(cellValue(member, column.key)))),
@@ -305,7 +319,7 @@ onMounted(() => void loadMembers())
       @filter="emit('filter')"
     >
       <template v-if="showExport" #actions>
-        <PerformanceExportButton :load-rows="exportRows" :filename="`项目成员_${props.projectId}`" :disabled="loading || Boolean(error) || !total" @success="exportNotice = '导出成功'" @error="exportNotice = '导出失败，请稍后重试'" />
+        <PerformanceExportButton :load-rows="exportRows" :filename="`成员列表_${props.cycleId || props.projectId}`" :disabled="loading || Boolean(error) || !total" @success="exportNotice = '导出成功'" @error="exportNotice = '导出失败，请稍后重试'" />
       </template>
     </PerformanceListToolbar>
     <PerformanceTableSummary :total="total" :hidden-column-count="hiddenColumnCount" @columns="columnDrawerOpen = true" />
@@ -326,9 +340,9 @@ onMounted(() => void loadMembers())
       scroll-mode="page"
       :columns="tableColumns"
       sticky-header-top="var(--performance-table-sticky-top, 0px)"
-      :selectable="!reviewContext"
+      :selectable="!reviewContext && !readonly"
       :selection-key="cycleId ? 'root_review_id' : 'employee_no'"
-      :show-selection-bar="!reviewContext"
+      :show-selection-bar="!reviewContext && !readonly"
       :row-key="cycleId ? 'root_review_id' : 'employee_no'"
       :clickable-rows="Boolean(reviewContext) || members.some(member => member.can_view_detail)"
       @page-change="changePage"

@@ -18,6 +18,7 @@ vi.mock('vue-router', () => ({
 import Review from './Review.vue'
 import SelfSummaryTask from './SelfSummaryTask.vue'
 import PerformanceDialogShell from '@/components/performance/PerformanceDialogShell.vue'
+import PerformanceResultScopeView from '@/components/performance/PerformanceResultScopeView.vue'
 import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
 import ProjectMemberListPanel from '@/components/performance/ProjectMemberListPanel.vue'
 import PerformanceReview360FeedbackPanel from '@/components/performance/PerformanceReview360FeedbackPanel.vue'
@@ -95,6 +96,28 @@ function mountView() {
 }
 
 describe('PerformanceReview', () => {
+  it('adds team and focus result entries and opens the scoped readonly view', async () => {
+    pinia = createPinia()
+    setActivePinia(pinia)
+    Object.keys(routeQuery).forEach(key => delete routeQuery[key])
+    push.mockReset()
+    replace.mockReset()
+    const navigation = navigationOf(1, { can_view_team_results: true, can_view_focus_results: true })
+    usePerformanceProjectContextStore().setNavigation(navigation)
+    vi.spyOn(performanceNavigationApi, 'get').mockResolvedValue(navigation)
+    vi.spyOn(performanceReviewApi, 'overview').mockResolvedValue(structuredClone(overview))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).toContain('查看团队绩效结果')
+    expect(wrapper.text()).toContain('关注人员的绩效结果')
+    const teamNode = wrapper.findAll('button').find(button => button.text().includes('查看团队绩效结果'))!
+    await teamNode.trigger('click')
+    await flushPromises()
+    const scoped = wrapper.getComponent(PerformanceResultScopeView)
+    expect(scoped.props()).toMatchObject({ kind: 'team', cycleId: 1 })
+    wrapper.unmount()
+  })
+
   it('lets completed cards grow with content instead of shrinking inside the scroll viewport', () => {
     expect(reviewContentSource).toContain("'review-body--completed': !resultUnavailable && (node.node_type === 'result_view' || node.status === 'completed'")
     expect(reviewContentSource).toMatch(/\.review-body--completed\s*\{[^}]*flex:\s*1 0 auto/)

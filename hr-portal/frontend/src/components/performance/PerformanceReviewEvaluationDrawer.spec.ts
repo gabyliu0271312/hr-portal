@@ -38,6 +38,19 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue(structuredClone(task))
   })
 
+  it('does not render the member management menu in readonly result views', async () => {
+    const member = { project_id: 1, employee_no: 'E001', display_name: '成员' }
+    const detailLoader = vi.fn().mockResolvedValue(structuredClone(task))
+    const readonly = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, readonly: true, member, detailLoader } })
+    await flushPromises()
+    expect(readonly.findComponent({ name: 'PerformanceMemberMoreMenu' }).exists()).toBe(false)
+    readonly.unmount()
+    const managed = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, readonly: false, member, detailLoader } })
+    await flushPromises()
+    expect(managed.findComponent({ name: 'PerformanceMemberMoreMenu' }).exists()).toBe(true)
+    managed.unmount()
+  })
+
   it.each(['task', 'reference', 'locked-reference', 'management', 'locked-management'] as const)('shows each authorized historical comparison reason in the %s readonly branch', async entry => {
     const group = { rule_id: 'r1', matches: [], show_notice_in_review: false, fill_in_diff_reason: false, reason_required: false, context: 'context-1', reason: '第一组历史理由', active: false, historical: true }
     const comparison = { ...group, reason: '不可使用旧汇总理由', groups: [group, { ...group, rule_id: 'r2', context: 'context-2', reason: '第二组历史理由' }] }

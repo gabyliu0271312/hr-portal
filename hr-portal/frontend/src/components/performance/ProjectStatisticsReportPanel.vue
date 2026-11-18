@@ -83,7 +83,7 @@ const defaultProvider: ProjectReportProvider = async ({ cycleId, dimension = 'de
   return { ...report, ratings: report.ratings.map(rating => ({ ...rating, color: rating.color ?? undefined })) }
 }
 
-const props = defineProps<{ cycleId: number; cycleName?: string; provider?: ProjectReportProvider }>()
+const props = defineProps<{ cycleId: number; cycleName?: string; provider?: ProjectReportProvider; selfFinalProvider?: () => Promise<ProjectReportComparisonData> }>()
 const reportStore = usePerformanceProjectContextStore()
 const emit = defineEmits<{ filter: []; compare: [] }>()
 const root = ref<HTMLElement | null>(null)
@@ -109,7 +109,9 @@ async function loadSelfFinal() {
   selfFinalError.value = ''
   selfFinalLoading.value = true
   try {
-    const report = await reportStore.loadReport(`self-final:${props.cycleId}`, () => projectManagementApi.selfFinalComparison(props.cycleId))
+    const report = props.selfFinalProvider
+      ? await props.selfFinalProvider()
+      : await reportStore.loadReport(`self-final:${props.cycleId}`, () => projectManagementApi.selfFinalComparison(props.cycleId))
     if (id === selfFinalRequestId.value) selfFinal.value = { ...report, ratings: report.ratings.map(rating => ({ ...rating, color: rating.color ?? undefined })) }
   } catch (cause) {
     const failure = cause as { response?: { status?: number; data?: { detail?: string } } }
@@ -163,7 +165,7 @@ function requestAction(action: 'filter' | 'compare') {
   else emit('compare')
 }
 
-watch(() => [props.cycleId, props.provider, reportStore.cacheVersion], () => {
+watch(() => [props.cycleId, props.provider, props.selfFinalProvider, reportStore.cacheVersion], () => {
   for (const dimension of Object.keys(requestIds) as ProjectReportDimension[]) requestIds[dimension]++
   selfFinalRequestId.value++
   selfFinal.value = null

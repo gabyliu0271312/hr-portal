@@ -15,6 +15,7 @@ export type ReminderContext = {
   sourceTaskId?: number
   targetTaskId?: number
   departmentPath?: string
+  resultKind?: 'team'
 }
 
 export type ReminderPerson = Omit<PerformanceWorkbenchTaskPerson, 'task_id'> & { task_id: number | string; selectable?: boolean; unavailable_reason?: string | null; project_name?: string; project_id?: number; can_authorize?: boolean; task_map?: ProjectMemberTaskOption[]; rating?: string | null; organization_path?: string | null }

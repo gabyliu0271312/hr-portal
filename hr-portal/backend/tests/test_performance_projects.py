@@ -3798,6 +3798,42 @@ async def test_frontend_navigation_uses_selected_related_cycle_and_rejects_unrel
 
 
 @pytest.mark.asyncio
+async def test_frontend_navigation_returns_result_view_capabilities(monkeypatch):
+    from app.performance import projects_router
+
+    cycle = _pm_cycle(1, "周期")
+    access = _frontend_access(cycles=[cycle])
+    access.team_result_cycle_refs.add(cycle.cycle_ref)
+    access.focus_result_cycle_refs.add(cycle.cycle_ref)
+    monkeypatch.setattr(projects_router, "resolve_frontend_access", lambda _db, _context: _async_value(access))
+    result = await projects_router.frontend_navigation(1, context(), object())
+    assert result["can_review"] is True
+    assert result["can_view_team_results"] is True
+    assert result["can_view_focus_results"] is True
+
+
+def _async_value(value):
+    async def resolve():
+        return value
+    return resolve()
+
+
+def test_result_view_focus_group_modes_and_project_binding():
+    from app.performance.result_view_scope import focus_group_members_for_project, visible_focus_groups
+
+    groups = [
+        SimpleNamespace(id=1, view_permission=0, followee_user_ids=["M1"], tab="semester", employee_nos=["E1"], activity_ids=[], project_ref=None),
+        SimpleNamespace(id=2, view_permission=1, followee_user_ids=[], tab="project", employee_nos=["E2"], activity_ids=["11"], project_ref=None),
+        SimpleNamespace(id=3, view_permission=2, followee_user_ids=["M1"], tab="semester", employee_nos=["LEAK"], activity_ids=[], project_ref=None),
+    ]
+    visible = visible_focus_groups(groups, "M1")
+    assert [group.id for group in visible] == [1, 2]
+    assert focus_group_members_for_project(visible, SimpleNamespace(id=11, project_ref="P11")) == {"E1", "E2"}
+    assert focus_group_members_for_project(visible, SimpleNamespace(id=12, project_ref="P12")) == {"E1"}
+    assert [group.id for group in visible_focus_groups(groups, "R1")] == [2]
+
+
+@pytest.mark.asyncio
 async def test_review_overview_explicit_cycle_rejects_cross_project(monkeypatch):
     from fastapi import HTTPException
     from app.performance import projects_router

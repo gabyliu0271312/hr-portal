@@ -186,6 +186,7 @@ class CycleReminderTasksPayload(BaseModel):
     node_key: str = Field(min_length=1, max_length=64)
     department: str | None = Field(default=None, max_length=256)
     skip_recently_reminded: bool = False
+    result_kind: Literal["team"] | None = None
     task_ids: list[int] = Field(min_length=1, max_length=500)
 
 
@@ -3217,6 +3218,153 @@ async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db
     return items, rating_columns, total
 
 
+@router.get("/result-views/{kind}/overview")
+async def result_view_overview(
+    kind: Literal["team", "focus"],
+    cycle_id: int = Query(..., ge=1),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    from app.performance.result_view_scope import TEAM_RESULT_KIND, resolve_result_view_scope
+
+    scope = await resolve_result_view_scope(db, context, cycle_id=cycle_id, kind=kind)
+    if scope.cycle is None:
+        raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
+    if not scope.employee_nos:
+        raise HTTPException(status_code=403, detail="RESULT_VIEW_FORBIDDEN")
+    completion_nodes = []
+    if kind == TEAM_RESULT_KIND:
+        completion_nodes = await _project_completion_nodes(scope.projects, db, scopes=scope.scopes)
+        allowed = {"work-summary", "self-review", "review-360", "manager-review", "communicate", "view-result"}
+        completion_nodes = [item for item in completion_nodes if item["key"] in allowed and item.get("configured") is not False]
+    return {
+        "kind": kind,
+        "cycle": cycle_payload(scope.cycle),
+        "projects": [{"project_id": project.id, "project_name": project.name} for project in scope.projects],
+        "member_count": len(scope.employee_nos),
+        "completion_nodes": completion_nodes,
+    }
+
+
+async def _result_view_member_rows(kind, cycle_id, keyword, sort_by, sort_order, context, db):
+    from app.performance.result_view_scope import resolve_result_view_scope
+
+    scope = await resolve_result_view_scope(db, context, cycle_id=cycle_id, kind=kind)
+    if scope.cycle is None:
+        raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
+    if not scope.employee_nos:
+        raise HTTPException(status_code=403, detail="RESULT_VIEW_FORBIDDEN")
+    items, columns = [], {}
+    for project in scope.projects:
+        project_items, project_columns = await _project_member_rows(
+            project, scope.scopes[project.id], keyword, None, None, context, db, readonly=True,
+        )
+        items.extend(project_items)
+        for column in project_columns:
+            columns.setdefault(column["key"], column)
+    items.sort(key=lambda item: (item.display_name, item.employee_no, item.project_id or 0, item.id))
+    rating_columns = list(columns.values())
+    _sort_member_rows(items, sort_by, sort_order, rating_columns)
+    return scope, items, rating_columns
+
+
+@router.get("/result-views/{kind}/members", response_model=ProjectMemberPage)
+async def result_view_members(
+    kind: Literal["team", "focus"],
+    cycle_id: int = Query(..., ge=1),
+    keyword: str | None = Query(default=None, max_length=128),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    sort_by: str | None = Query(default=None, max_length=256),
+    sort_order: str | None = Query(default=None, pattern="^(asc|desc)$"),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    _scope, items, columns = await _result_view_member_rows(kind, cycle_id, keyword, sort_by, sort_order, context, db)
+    total = len(items)
+    items = items[(page - 1) * page_size:page * page_size]
+    await hydrate_project_member_rows(db, items, context=context, verified_view=True)
+    return ProjectMemberPage(items=items, total=total, page=page, page_size=page_size, rating_columns=columns)
+
+
+@router.get("/result-views/{kind}/matrix", response_model=ProjectMatrixResponse)
+async def result_view_matrix(
+    kind: Literal["team", "focus"],
+    cycle_id: int = Query(..., ge=1),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    from app.performance.result_view_scope import resolve_result_view_scope
+
+    scope = await resolve_result_view_scope(db, context, cycle_id=cycle_id, kind=kind)
+    if scope.cycle is None:
+        raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
+    if not scope.employee_nos:
+        raise HTTPException(status_code=403, detail="RESULT_VIEW_FORBIDDEN")
+    ratings, pending_groups, completed_groups, people_rows = [], {}, {}, []
+    for project in scope.projects:
+        snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
+        members = list((await db.execute(select(PerformanceProjectMember).where(
+            PerformanceProjectMember.snapshot_id == snapshot_id,
+            PerformanceProjectMember.employee_no.in_(scope.scopes[project.id]),
+        ))).scalars().all()) if snapshot_id is not None else []
+        people = {member.employee_no: _matrix_person(member, project.id, member.id) for member in members}
+        await hydrate_member_identities(
+            db, [(people[member.employee_no], project.id, member.snapshot_id) for member in members],
+            context=context,
+            verified_view_keys={(project.id, member.snapshot_id, member.employee_no) for member in members},
+        )
+        project_ratings, final_values, _ = await _project_final_ratings(project, set(people), db, member_snapshot_id=snapshot_id)
+        for rating in project_ratings:
+            if not any(item["key"] == rating["key"] for item in ratings):
+                ratings.append(rating)
+        for member in members:
+            person = people[member.employee_no]
+            people_rows.append(person)
+            level = _matrix_level(member.position_level)
+            selected = final_values.get(member.employee_no)
+            if selected is None:
+                pending_groups.setdefault(level, []).append(person)
+            else:
+                completed_groups.setdefault(level, {}).setdefault(selected[3]["key"], []).append(person)
+    pending_rows = [
+        {"level": level, "total": len(items), "cells": {"pending": {"count": len(items), "people": sorted(items, key=lambda item: item["display_name"])}}}
+        for level, items in sorted(pending_groups.items(), key=lambda item: _matrix_level_sort_key(item[0]))
+    ]
+    completed_count = sum(len(items) for cells in completed_groups.values() for items in cells.values())
+    return ProjectMatrixResponse(
+        source="template_final_result", dimension="rating", display_modes=["name", "count"],
+        total=len(people_rows), completed_count=completed_count, pending_count=len(people_rows) - completed_count,
+        ratings=[MatrixRatingResponse(**rating) for rating in ratings],
+        pending_rows=[MatrixRowResponse(**row) for row in pending_rows],
+        completed_rows=[MatrixRowResponse(**row) for row in _matrix_rows(completed_groups, ratings)],
+    )
+
+
+@router.get("/result-views/{kind}/projects/{project_id}/members/{employee_no}/detail")
+async def result_view_member_detail(
+    kind: Literal["team", "focus"],
+    project_id: int,
+    employee_no: str,
+    cycle_id: int = Query(..., ge=1),
+    root_review_id: int | None = Query(default=None, ge=1),
+    view: Literal["drawer"] | None = None,
+    tab: str | None = Query(default=None, max_length=128),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    from app.performance.result_view_scope import resolve_result_view_scope
+
+    scope = await resolve_result_view_scope(db, context, cycle_id=cycle_id, kind=kind)
+    if project_id not in scope.scopes or employee_no not in scope.scopes[project_id]:
+        raise HTTPException(status_code=404, detail="PROJECT_MEMBER_NOT_FOUND")
+    project = next(project for project in scope.projects if project.id == project_id)
+    return await _project_member_detail(
+        project, employee_no, context, db, root_review_id, skip_scope=True, visibility_role="leader",
+        **({"view": view, "tab": tab if isinstance(tab, str) else None} if view == "drawer" else {}),
+    )
+
+
 @router.get("/project-management/cycles/{cycle_id}/members", response_model=ProjectMemberPage)
 async def cycle_project_members(
     cycle_id: int,
@@ -3255,7 +3403,7 @@ async def _member_visibility_role(context, project, member, scope, actor_ref, db
     return "hrbp" if scope is not None else "activity_manager"
 
 
-async def _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db, *, page=None, page_size=50, employee_nos=None):
+async def _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db, *, page=None, page_size=50, employee_nos=None, readonly=False):
     project_id = project.id
     snapshot_id = _latest_member_snapshot_statement(project_id)
     statement = select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == snapshot_id)
@@ -3305,7 +3453,10 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
         PerformanceNodeTask.target_employee_no.in_({member.employee_no for member in members}),
         PerformanceNodeTask.revoked_at.is_(None),
     ))).scalars().all()) if members and (stages or final_node is not None) else []
-    if stages:
+    if readonly:
+        active_by_task = {}
+        progress_scope = set()
+    elif stages:
         task_ids = [task.id for task in tasks]
         active_by_task: dict[int, list[PerformanceNodeTaskAuthorization]] = {}
         if task_ids:
@@ -3326,7 +3477,8 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
     items = []
     people_cache = {}
     from app.performance.member_reminders import preload_member_reminders
-    await preload_member_reminders(project, members, context, db)
+    if not readonly:
+        await preload_member_reminders(project, members, context, db)
     for member in members:
         item = _serialize_project_member(member, project.id).model_dump()
         item["can_view_detail"] = True
@@ -3342,7 +3494,7 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
         item["completion"] = progress.get(member.employee_no, "0/0")
         item["evaluate_ratio"] = progress_detail.get(member.employee_no)
         from app.performance.member_reminders import can_remind_member
-        item["can_remind"] = await can_remind_member(project, member.employee_no, context, db)
+        item["can_remind"] = False if readonly else await can_remind_member(project, member.employee_no, context, db)
         item["direct_supervisor"] = supervisor_names.get((member.snapshot_id, getattr(member, "direct_supervisor_employee_no", None)))
         visible_fields = visible_fields_by_member[member.id]
         item["visible_profile_fields"] = visible_fields
@@ -3361,10 +3513,15 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
             "employee_type": item.get("employee_type"),
         }
         item.update(mask_profile_values(profile_values, visible_fields))
-        options = await _member_task_options(member, by_employee.get(member.employee_no, []), stages, active_by_task, progress_scope, project, context, actor_ref, db, people_cache, management_only=True)
-        item["task_id"] = options[0].task_id if options and options[0].can_authorize else None
-        item["can_authorize"] = bool(options) and any(option.can_authorize for option in options)
-        item["task_map"] = [option.model_dump() for option in options]
+        if readonly:
+            item["task_id"] = None
+            item["can_authorize"] = False
+            item["task_map"] = []
+        else:
+            options = await _member_task_options(member, by_employee.get(member.employee_no, []), stages, active_by_task, progress_scope, project, context, actor_ref, db, people_cache, management_only=True)
+            item["task_id"] = options[0].task_id if options and options[0].can_authorize else None
+            item["can_authorize"] = bool(options) and any(option.can_authorize for option in options)
+            item["task_map"] = [option.model_dump() for option in options]
         items.append(ProjectMemberResponse(**item))
     _sort_member_rows(items, sort_by, sort_order, rating_columns)
     return (items, rating_columns, member_total) if page is not None else (items, rating_columns)
@@ -4761,8 +4918,14 @@ async def frontend_navigation(
     return {
         "cycles": cycles,
         "active_cycle": active_cycle,
-        "can_review": bool(active_cycle_id and any(cycle.id == active_cycle_id for _project, cycle in access.review_projects)),
+        "can_review": bool(active_cycle_id and (
+            any(cycle.id == active_cycle_id for _project, cycle in access.review_projects)
+            or next((cycle.cycle_ref for cycle in access.cycles if cycle.id == active_cycle_id), None) in access.team_result_cycle_refs
+            or next((cycle.cycle_ref for cycle in access.cycles if cycle.id == active_cycle_id), None) in access.focus_result_cycle_refs
+        )),
         "can_manage": bool(active_cycle and next((cycle.cycle_ref for cycle in access.cycles if cycle.id == active_cycle_id), None) in access.manageable_cycle_refs),
+        "can_view_team_results": bool(active_cycle and next((cycle.cycle_ref for cycle in access.cycles if cycle.id == active_cycle_id), None) in access.team_result_cycle_refs),
+        "can_view_focus_results": bool(active_cycle and next((cycle.cycle_ref for cycle in access.cycles if cycle.id == active_cycle_id), None) in access.focus_result_cycle_refs),
         "review_projects": [
             project_payload(project, cycle)
             for project, cycle in access.review_projects
@@ -4819,10 +4982,17 @@ async def _completion_reconsideration_valid(db, task, *, lock=False):
     return appeal.withdrawn_at is None and appeal.closed_at is None
 
 
-async def _completion_reminder_rows(cycle_id: int, node_key: str, context: PerformanceAccessContext, db: AsyncSession, keyword: str | None = None, department: str | None = None) -> list[dict]:
+async def _completion_reminder_rows(cycle_id: int, node_key: str, context: PerformanceAccessContext, db: AsyncSession, keyword: str | None = None, department: str | None = None, result_kind: str | None = None) -> list[dict]:
     if node_key not in {key for key, _title in _COMPLETION_NODE_DEFINITIONS} or node_key == "view-result":
         raise HTTPException(status_code=422, detail="REMINDER_NODE_NOT_SUPPORTED")
-    projects = await _managed_completion_projects(cycle_id, context, db)
+    if result_kind == "team":
+        from app.performance.result_view_scope import TEAM_RESULT_KIND, resolve_result_view_scope
+        result_scope = await resolve_result_view_scope(db, context, cycle_id=cycle_id, kind=TEAM_RESULT_KIND)
+        if not result_scope.employee_nos:
+            raise HTTPException(status_code=403, detail="RESULT_VIEW_FORBIDDEN")
+        projects = [(project, result_scope.scopes[project.id]) for project in result_scope.projects]
+    else:
+        projects = await _managed_completion_projects(cycle_id, context, db)
     visibility_rules = await load_subject_visibility_rules(db)
     actor = await resolve_trusted_performance_actor(db, context)
     search = (keyword or '').strip().lower()
@@ -5389,8 +5559,9 @@ async def project_management_reminder_people(
     page_size: int = Query(default=50, ge=1, le=100),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    result_kind: Literal["team"] | None = Query(default=None),
 ):
-    rows = await _completion_reminder_rows(cycle_id, node_key, context, db, keyword, department)
+    rows = await _completion_reminder_rows(cycle_id, node_key, context, db, keyword, department, result_kind)
     start = (page - 1) * page_size
     items = rows[start:start + page_size]
     await hydrate_task_people_rows(db, items, context=context)
@@ -5476,12 +5647,19 @@ async def project_management_remind(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    projects = await _managed_completion_projects(payload.cycle_id, context, db)
+    if payload.result_kind == "team":
+        from app.performance.result_view_scope import TEAM_RESULT_KIND, resolve_result_view_scope
+        result_scope = await resolve_result_view_scope(db, context, cycle_id=payload.cycle_id, kind=TEAM_RESULT_KIND)
+        if not result_scope.employee_nos:
+            raise HTTPException(status_code=403, detail="RESULT_VIEW_FORBIDDEN")
+        projects = [(project, result_scope.scopes[project.id]) for project in result_scope.projects]
+    else:
+        projects = await _managed_completion_projects(payload.cycle_id, context, db)
     project_ids = {project.id for project, _scope in projects}
     scopes = {project.id: scope for project, scope in projects}
     snapshot_ids = {project.id: await db.scalar(select(_latest_member_snapshot_statement(project.id))) for project, _scope in projects}
     actor = await resolve_trusted_performance_actor(db, context)
-    eligible_rows = await _completion_reminder_rows(payload.cycle_id, payload.node_key, context, db, department=payload.department)
+    eligible_rows = await _completion_reminder_rows(payload.cycle_id, payload.node_key, context, db, department=payload.department, result_kind=payload.result_kind)
     eligible_ids = {row["task_id"] for row in eligible_rows if row["selectable"]}
     task_ids = list(dict.fromkeys(payload.task_ids))
     recently_reminded_ids: set[int] = set()
@@ -5886,7 +6064,9 @@ async def project_management_statistics(
     dimension: str = Query(default="level", pattern="^(level|tenure|department|team|sequence)$"),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    result_kind: Literal["team", "focus"] | None = Query(default=None),
 ):
+    result_kind = result_kind if result_kind in {"team", "focus"} else None
     cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.id == cycle_id))
     if cycle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
@@ -5897,14 +6077,22 @@ async def project_management_statistics(
     empty_cycle_allowed = not projects and _is_cycle_manager(context)
     scopes = {}
     visible_projects = []
-    for project in projects:
-        try:
-            scopes[project.id] = await _project_data_scope(context, project, db, "performance.frontend.data-view")
-        except HTTPException as exc:
-            if exc.status_code != status.HTTP_403_FORBIDDEN:
-                raise
-            continue
-        visible_projects.append(project)
+    if result_kind is not None:
+        from app.performance.result_view_scope import resolve_result_view_scope
+        result_scope = await resolve_result_view_scope(db, context, cycle_id=cycle_id, kind=result_kind)
+        if not result_scope.employee_nos:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="RESULT_VIEW_FORBIDDEN")
+        scopes = result_scope.scopes
+        visible_projects = result_scope.projects
+    else:
+        for project in projects:
+            try:
+                scopes[project.id] = await _project_data_scope(context, project, db, "performance.frontend.data-view")
+            except HTTPException as exc:
+                if exc.status_code != status.HTTP_403_FORBIDDEN:
+                    raise
+                continue
+            visible_projects.append(project)
     projects = visible_projects
     if not projects and not empty_cycle_allowed:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
@@ -6019,7 +6207,9 @@ async def project_management_self_final_comparison(
     cycle_id: int = Query(..., ge=1),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    result_kind: Literal["team", "focus"] | None = Query(default=None),
 ):
+    result_kind = result_kind if result_kind in {"team", "focus"} else None
     cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.id == cycle_id))
     if cycle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
@@ -6030,14 +6220,22 @@ async def project_management_self_final_comparison(
     empty_cycle_allowed = not projects and _is_cycle_manager(context)
     scopes = {}
     visible_projects = []
-    for project in projects:
-        try:
-            scopes[project.id] = await _project_data_scope(context, project, db, "performance.frontend.data-view")
-        except HTTPException as exc:
-            if exc.status_code != status.HTTP_403_FORBIDDEN:
-                raise
-            continue
-        visible_projects.append(project)
+    if result_kind is not None:
+        from app.performance.result_view_scope import resolve_result_view_scope
+        result_scope = await resolve_result_view_scope(db, context, cycle_id=cycle_id, kind=result_kind)
+        if not result_scope.employee_nos:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="RESULT_VIEW_FORBIDDEN")
+        scopes = result_scope.scopes
+        visible_projects = result_scope.projects
+    else:
+        for project in projects:
+            try:
+                scopes[project.id] = await _project_data_scope(context, project, db, "performance.frontend.data-view")
+            except HTTPException as exc:
+                if exc.status_code != status.HTTP_403_FORBIDDEN:
+                    raise
+                continue
+            visible_projects.append(project)
     projects = visible_projects
     if not projects and not empty_cycle_allowed:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
