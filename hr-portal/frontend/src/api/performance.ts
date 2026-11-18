@@ -2166,6 +2166,11 @@ export interface PerformanceCalibrationAssignment {
 export interface PerformanceCalibrationPerson {
   employee_no: string
   display_name: string
+  hire_date: string | null
+  company_org: string | null
+  department_2: string | null
+  department_3: string | null
+  hrbp_name: string | null
   direct_supervisor_name: string | null
   dotted_supervisor_name: string | null
   department: string | null

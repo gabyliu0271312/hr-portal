@@ -1324,10 +1324,18 @@ class PerformanceProjectService:
         rows = []
         for employee_no, person in sorted(people_by_no.items()):
             supervisor = people_by_no.get(getattr(person, "direct_supervisor_employee_no", None))
+            hrbp_no = normalize_roster_text(getattr(person, "hrbp_employee_no", None))
+            hrbp = people_by_no.get(hrbp_no)
+            hire_date = getattr(person, "hire_date", None)
             path = normalize_roster_text(getattr(person, "organization_ref", None)) or organization_path(person)
             rows.append({
                 "employee_no": employee_no,
                 "display_name": person.display_name,
+                "hire_date": hire_date.isoformat() if hire_date else None,
+                "company_org": normalize_roster_text(getattr(person, "company_org", None)),
+                "department_2": normalize_roster_text(getattr(person, "department_2", None)),
+                "department_3": normalize_roster_text(getattr(person, "department_3", None)),
+                "hrbp_name": hrbp.display_name if hrbp else hrbp_no or normalize_roster_text(getattr(person, "hrbp_source_value", None)),
                 "direct_supervisor_name": supervisor.display_name if supervisor else None,
                 "dotted_supervisor_name": None,
                 "department": normalize_roster_text(getattr(person, "department", None)),

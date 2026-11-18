@@ -25,7 +25,7 @@ let request = 0
 const calibrators = computed(() => [...new Set(details.value?.phases.flatMap(phase => phase.assignments.map(item => item.handler_ref)) || [])])
 const peopleById = computed(() => new Map(details.value?.people.map(person => [person.employee_no, person]) || []))
 const assignedIds = computed(() => new Set(details.value?.phases.flatMap(phase => phase.assignments.map(item => item.employee_no)) || []))
-const unassignedPeople = computed(() => (details.value?.evaluated_employee_nos || []).filter(id => !assignedIds.value.has(id)).map(id => peopleById.value.get(id) || { employee_no: id, display_name: id, direct_supervisor_name: null, dotted_supervisor_name: null, department: null, leaf_department: null, job_family: null, job_category: null, standard_position: null, employment_status: null }))
+const unassignedPeople = computed(() => (details.value?.evaluated_employee_nos || []).filter(id => !assignedIds.value.has(id)).map(id => peopleById.value.get(id) || { employee_no: id, display_name: id, hire_date: null, company_org: null, department_2: null, department_3: null, hrbp_name: null, direct_supervisor_name: null, dotted_supervisor_name: null, department: null, leaf_department: null, job_family: null, job_category: null, standard_position: null, employment_status: null }))
 const personName = (id: string) => peopleById.value.get(id)?.display_name || id
 const calibratorOptions = computed(() => calibrators.value.map(value => ({ value, label: personName(value) })))
 const revieweeOptions = computed(() => (details.value?.evaluated_employee_nos || []).map(value => ({ value, label: personName(value) })))
@@ -55,19 +55,35 @@ onBeforeUnmount(() => { request++ })
 function toggleFilter() { filterAnchor.value = document.querySelector<HTMLElement>('.calibration-detail-screen .filter-button'); filterOpen.value = !filterOpen.value }
 function applyFilter(calibratorsValue: string[], revieweesValue: string[]) { calibratorFilter.value = calibratorsValue; revieweeFilter.value = revieweesValue }
 async function exportRows() {
-  const rows = [['阶段', '校准规则', '校准人', '人数', '校准范围']]
-  details.value?.phases.forEach((phase, phaseIndex) => {
-    const sources = phase.rule_sources ?? [{ rule_id: '', assignments: phase.assignments }]
-    sources.forEach((source, ruleIndex) => {
-      const handlers = new Map<string, Set<string>>()
-      source.assignments.forEach(item => {
-        if (calibratorFilter.value.length && !calibratorFilter.value.includes(item.handler_ref) || revieweeFilter.value.length && !revieweeFilter.value.includes(item.employee_no)) return
-        if (!handlers.has(item.handler_ref)) handlers.set(item.handler_ref, new Set())
-        handlers.get(item.handler_ref)!.add(item.employee_no)
-      })
-      handlers.forEach((members, handler) => rows.push([`第 ${phaseIndex + 1} 阶段`, phase.rule_sources ? `校准规则 ${ruleIndex + 1}` : '历史阶段分配', personName(handler), String(members.size), [...members].map(personName).join('、')]))
-    })
+  const phases = details.value?.phases || []
+  const stageLabel = (index: number) => `第${['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][index] || index + 1}阶段`
+  const rows = [['工号', '姓名', '入职时间', '公司级组织', '一级部门', '二级部门', '三级部门', 'HRBP', '校准规则', ...phases.map((_, index) => `${stageLabel(index)}校准人`)]]
+  const assignmentsByPerson = new Map<string, { handlers: Set<string>[]; rules: Set<string> }>()
+  const entryFor = (employeeNo: string) => {
+    if (!assignmentsByPerson.has(employeeNo)) assignmentsByPerson.set(employeeNo, { handlers: phases.map(() => new Set<string>()), rules: new Set<string>() })
+    return assignmentsByPerson.get(employeeNo)!
+  }
+  phases.forEach((phase, phaseIndex) => {
+    const matches = (item: typeof phase.assignments[number]) => !calibratorFilter.value.length || calibratorFilter.value.includes(item.handler_ref)
+    phase.assignments.filter(matches).forEach(item => entryFor(item.employee_no).handlers[phaseIndex].add(item.handler_ref))
+    if (phase.rule_sources == null) {
+      phase.assignments.filter(matches).forEach(item => entryFor(item.employee_no).rules.add(`${stageLabel(phaseIndex)}：历史快照未保留规则来源`))
+    } else {
+      phase.rule_sources.forEach((source, ruleIndex) => source.assignments.filter(matches).forEach(item => entryFor(item.employee_no).rules.add(`${stageLabel(phaseIndex)} - 校准规则 ${ruleIndex + 1}`)))
+    }
   })
+  for (const employeeNo of new Set(details.value?.evaluated_employee_nos || [])) {
+    if (revieweeFilter.value.length && !revieweeFilter.value.includes(employeeNo)) continue
+    const entry = assignmentsByPerson.get(employeeNo)
+    if (calibratorFilter.value.length && !entry?.handlers.some(handlers => handlers.size)) continue
+    const person = peopleById.value.get(employeeNo)
+    rows.push([
+      employeeNo, personName(employeeNo), person?.hire_date || '--', person?.company_org || '--',
+      person?.department || '--', person?.department_2 || '--', person?.department_3 || '--', person?.hrbp_name || '--',
+      [...entry?.rules || []].join('；') || '--',
+      ...phases.map((_, index) => [...entry?.handlers[index] || []].map(personName).join('、') || '--'),
+    ])
+  }
   return rows
 }
 </script>

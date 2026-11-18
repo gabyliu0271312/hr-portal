@@ -6834,6 +6834,11 @@ async def test_calibration_details_draft_uses_payload_snapshot_filters_and_rule_
     people["E1"].job_family = "技术序列"
     people["E1"].job_category = "研发子序列"
     people["E1"].standard_position = "软件工程师"
+    people["E1"].hire_date = date(2022, 3, 4)
+    people["E1"].company_org = "集团公司"
+    people["E1"].department_2 = "研发部"
+    people["E1"].department_3 = "平台组"
+    people["E1"].hrbp_employee_no = "C1"
     people["E3"].project_manager_employee_no = "C1"
     cycle = SimpleNamespace(cycle_ref="cycle:one", leaver_enabled=True, leaver_start_date=date(2026, 1, 1),
         leaver_end_date=date(2026, 12, 31), leaver_participation_mode="REPORT_ONLY")
@@ -6888,6 +6893,7 @@ async def test_calibration_details_draft_uses_payload_snapshot_filters_and_rule_
     rows = {row["employee_no"]: row for row in result["people"]}
     assert set(rows) == set(people)
     assert rows["E1"] == {"employee_no": "E1", "display_name": "快照E1", "direct_supervisor_name": "快照M1",
+        "hire_date": "2022-03-04", "company_org": "集团公司", "department_2": "研发部", "department_3": "平台组", "hrbp_name": "快照C1",
         "dotted_supervisor_name": None, "department": "新疆事业部", "leaf_department": "平台",
         "job_family": "技术序列", "job_category": "研发子序列", "standard_position": "软件工程师", "employment_status": "在职"}
     assert rows["E3"]["direct_supervisor_name"] is None and rows["E3"]["dotted_supervisor_name"] is None
@@ -6918,6 +6924,11 @@ async def test_calibration_details_started_reads_frozen_members_and_not_current_
         direct_supervisor_employee_no="C1" if no == "E1" else None, department="研发", organization_ref="集团/研发/平台")
         for no in ["E1", "E2", "E3", "C1", "RULE_PERSON"]]
     members = [SimpleNamespace(employee_no=no, display_name=f"成员快照{no}") for no in ["E1", "E2", "E3"]]
+    people[0].hire_date = date(2020, 5, 6)
+    people[0].company_org = "冻结公司"
+    people[0].department_2 = "冻结二级部门"
+    people[0].department_3 = "冻结三级部门"
+    people[0].hrbp_employee_no = "C1"
 
     class Db:
         async def scalar(self, statement):
@@ -6950,6 +6961,10 @@ async def test_calibration_details_started_reads_frozen_members_and_not_current_
     assert set(rows) == {person.employee_no for person in people}
     assert rows["E1"]["display_name"] == "周期快照E1" and rows["E1"]["direct_supervisor_name"] == "周期快照C1"
     assert rows["E1"]["employment_status"] == "离职" and rows["E1"]["leaf_department"] == "平台"
+    assert rows["E1"]["hire_date"] == "2020-05-06" and rows["E1"]["company_org"] == "冻结公司"
+    assert rows["E1"]["department_2"] == "冻结二级部门" and rows["E1"]["department_3"] == "冻结三级部门"
+    assert rows["E1"]["hrbp_name"] == "周期快照C1"
+    assert rows["E3"]["hire_date"] is None and rows["E3"]["hrbp_name"] is None
     assert frozen == before
 
 

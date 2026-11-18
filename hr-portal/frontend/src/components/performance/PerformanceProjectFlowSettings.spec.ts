@@ -4,6 +4,8 @@ import { performanceProjectApi } from '@/api/performance'
 import type { PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceCalibrationDetailScreen from './PerformanceCalibrationDetailScreen.vue'
 import PerformanceCalibrationDetailTable from './PerformanceCalibrationDetailTable.vue'
+import PerformanceExportButton from './PerformanceExportButton.vue'
+import PerformanceCalibrationDetailFilter from './PerformanceCalibrationDetailFilter.vue'
 import PerformanceCalibrationPeopleScreen from './PerformanceCalibrationPeopleScreen.vue'
 import PerformanceProjectFlowSettings from './PerformanceProjectFlowSettings.vue'
 import PerformanceCalibrationConditionGroup from './PerformanceCalibrationConditionGroup.vue'
@@ -79,7 +81,7 @@ describe('PerformanceProjectFlowSettings', () => {
   })
 
   it('uses the requested node and opens only unassigned snapshot employees', async () => {
-    const person = (employee_no: string) => ({ employee_no, display_name: employee_no, direct_supervisor_name: null, dotted_supervisor_name: null, department: null, leaf_department: null, job_family: null, job_category: null, standard_position: null, employment_status: null })
+    const person = (employee_no: string) => ({ employee_no, display_name: employee_no, hire_date: null, company_org: null, department_2: null, department_3: null, hrbp_name: null, direct_supervisor_name: null, dotted_supervisor_name: null, department: null, leaf_department: null, job_family: null, job_category: null, standard_position: null, employment_status: null })
     const detail = { role_code: 'assessment.calibrator' as const, evaluated_count: 2, assigned_count: 1, unassigned_count: 1, evaluated_employee_nos: ['E1', 'E2'], people: [person('E1'), person('E2')], phases: [{ phase_id: 'p1', assignments: [{ handler_ref: 'H1', employee_no: 'E1', allow_authorize: false }], rule_sources: null }] }
     const api = vi.spyOn(performanceProjectApi, 'calibrationDetails').mockResolvedValue({ other: { ...detail, assigned_count: 0 }, calibration: detail })
     const wrapper = mount(PerformanceCalibrationDetailScreen, { props: { modelValue: true, projectId: 12, nodeId: 'calibration', payload: { name: '项目', description: null, administrators: [] }, stats: null, organizations: [] }, global: { stubs: { PerformanceCalibrationPeopleScreen: true } } })
@@ -89,6 +91,42 @@ describe('PerformanceProjectFlowSettings', () => {
     expect(wrapper.text()).toContain('历史快照未保留规则来源')
     await wrapper.get('.unassigned-count').trigger('click')
     expect(wrapper.getComponent(PerformanceCalibrationPeopleScreen).props('people').map((row: any) => row.employee_no)).toEqual(['E2'])
+    wrapper.unmount()
+  })
+
+  it('exports one reviewee per row with snapshot fields, all stage columns and deduplicated calibrators', async () => {
+    const person = (employee_no: string, display_name = employee_no) => ({ employee_no, display_name, hire_date: null, company_org: null, department: null, department_2: null, department_3: null, hrbp_name: null, direct_supervisor_name: null, dotted_supervisor_name: null, leaf_department: null, job_family: null, job_category: null, standard_position: null, employment_status: null })
+    const assignment = (handler_ref: string, employee_no = 'E1') => ({ handler_ref, employee_no, allow_authorize: false })
+    const first = [assignment('H1'), assignment('H1'), assignment('H2'), assignment('H1', 'E2')]
+    const rule = { subject_type: 'PERSON' as const, operator: 'INCLUDE' as const, scope: 'PROJECT_ALL' as const, allow_authorize: false }
+    const detail = {
+      role_code: 'assessment.calibrator' as const, evaluated_count: 3, assigned_count: 2, unassigned_count: 1,
+      evaluated_employee_nos: ['E1', 'E2', 'E3', 'E1'],
+      people: [{ ...person('E1', '员工甲'), hire_date: '2022-03-04', company_org: '公司甲', department: '部门一', department_2: '部门二', department_3: '部门三', hrbp_name: 'HR甲' }, person('E2'), person('E3'), person('H1', '校准甲'), person('H2', '校准乙')],
+      phases: [
+        { phase_id: 'p1', assignments: first, rule_sources: [{ rule_id: 'r1', rule, assignments: first }, { rule_id: 'r2', rule, assignments: [assignment('H2')] }] },
+        { phase_id: 'p2', assignments: [assignment('H2')], rule_sources: null },
+        { phase_id: 'p3', assignments: [], rule_sources: [] },
+      ],
+    }
+    vi.spyOn(performanceProjectApi, 'calibrationDetails').mockResolvedValue({ calibration: detail })
+    const wrapper = mount(PerformanceCalibrationDetailScreen, { props: { modelValue: true, projectId: 12, nodeId: 'calibration', payload: { name: '项目', description: null, administrators: [] }, stats: null, organizations: [] } })
+    await flushPromises()
+    const exportRows = wrapper.getComponent(PerformanceExportButton).props('loadRows')
+    const rows = await exportRows()
+    expect(rows[0]).toEqual(['工号', '姓名', '入职时间', '公司级组织', '一级部门', '二级部门', '三级部门', 'HRBP', '校准规则', '第一阶段校准人', '第二阶段校准人', '第三阶段校准人'])
+    expect(rows).toHaveLength(4)
+    expect(rows.every(row => row.length === rows[0].length)).toBe(true)
+    expect(rows[1]).toEqual(['E1', '员工甲', '2022-03-04', '公司甲', '部门一', '部门二', '部门三', 'HR甲', '第一阶段 - 校准规则 1；第一阶段 - 校准规则 2；第二阶段：历史快照未保留规则来源', '校准甲、校准乙', '校准乙', '--'])
+    expect(rows[3]).toEqual(['E3', 'E3', '--', '--', '--', '--', '--', '--', '--', '--', '--', '--'])
+    wrapper.getComponent(PerformanceCalibrationDetailFilter).vm.$emit('apply', ['H2'], [])
+    await wrapper.vm.$nextTick()
+    const filtered = await exportRows()
+    expect(filtered).toHaveLength(2)
+    expect(filtered[1][9]).toBe('校准乙')
+    wrapper.getComponent(PerformanceCalibrationDetailFilter).vm.$emit('apply', [], ['E3'])
+    await wrapper.vm.$nextTick()
+    expect((await exportRows()).map(row => row[0])).toEqual(['工号', 'E3'])
     wrapper.unmount()
   })
 
