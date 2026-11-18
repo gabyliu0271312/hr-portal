@@ -95,6 +95,10 @@ async def test_result_opening_live_employment_controls_get_post_and_overview(mon
             return SimpleNamespace(all=lambda: [])
         if query.column_descriptions[0]["entity"] is router.PerformanceNodeTaskAuthorization:
             return SimpleNamespace(all=lambda: [])
+        from app.performance.models import PerformanceFocusGroup
+        if query.column_descriptions[0]["entity"] is PerformanceFocusGroup:
+            assert "show_group_tag IS true" in sql and "performance_project_members" in sql
+            return SimpleNamespace(all=lambda: [])
         assert "source_snapshot_id" in sql and "live_employment_status" in sql
         values = [(1, 10, "E1", live, frozen)] if "performance_projects" in sql else [(10, "E1", live, frozen)]
         return SimpleNamespace(all=lambda: values)
@@ -102,7 +106,7 @@ async def test_result_opening_live_employment_controls_get_post_and_overview(mon
     page = await router.result_opening_people(1, page=1, page_size=50, keyword=None, context=context(), db=db)
     assert page.total == 1 and page.items[0].can_open is can_open
     assert page.items[0].unavailable_reason == (None if can_open else "EMPLOYEE_NOT_ACTIVE")
-    assert db.execute.await_count == 4
+    assert db.execute.await_count == 5
     result = await router.open_cycle_results(1, router.ResultOpeningBatchPayload(employee_nos=["E1"]), context(), db)
     assert result.accepted_employee_nos == (["E1"] if can_open else [])
     assert result.skipped_reasons == ({} if can_open else {"E1": "EMPLOYEE_NOT_ACTIVE"})
@@ -216,6 +220,10 @@ async def test_result_opening_people_returns_snapshot_profiles_and_multiple_rati
                 values = [(1, *row) for row in values]
             return SimpleNamespace(all=lambda: values)
         if entity is router.PerformanceNodeTaskAuthorization:
+            return SimpleNamespace(all=lambda: [])
+        from app.performance.models import PerformanceFocusGroup
+        if entity is PerformanceFocusGroup:
+            assert "show_group_tag IS true" in str(query) and "performance_project_members" in str(query)
             return SimpleNamespace(all=lambda: [])
         assert entity is router.PerformanceProjectMemberSnapshot
         assert "performance_authorization_snapshot_people" in str(query)

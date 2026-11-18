@@ -121,9 +121,17 @@ export interface PerformanceMemberDelegation {
   revoked_by_name: string | null
 }
 
+export interface PerformanceMemberGroupTag {
+  group_id: number
+  name: string
+  text_color: string
+  bg_color: string
+}
+
 export interface PerformanceMemberIdentityStatus {
   live_employment_status: string | null
   delegations: PerformanceMemberDelegation[]
+  group_tags?: PerformanceMemberGroupTag[]
 }
 
 export interface PerformanceMemberProfile {

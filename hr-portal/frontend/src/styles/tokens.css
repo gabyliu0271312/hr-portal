@@ -291,6 +291,8 @@
   --performance-member-status-padding-x: 6px;
   --performance-member-status-radius: var(--radius-sm);
   --performance-member-status-gap: var(--spacing-1);
+  --performance-member-group-tag-max-width: 120px;
+  --performance-member-group-name-max-width: 200px;
   --performance-member-status-focus-offset: 2px;
   --performance-member-status-delegation-background: rgba(53, 189, 75, 0.2);
   --performance-member-status-delegation-color: #022c07;

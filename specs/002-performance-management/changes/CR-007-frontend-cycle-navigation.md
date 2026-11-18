@@ -288,6 +288,20 @@
 - 实现：snapshot_service.refresh_live_employment_statuses按固定ID顺序锁定绩效人员行，工号查询与状态写入每1000项分段；两个状态字段都存在时跳过空值，规范化中文/既有英文枚举，同工号跨列及重复源行冲突不更新。只改live_employment_status及ORM自动updated_at，无内部commit；调度kind长度27、09:00上海时区、ON CONFLICT DO NOTHING保留已有设置。GET和前端零改动，空绩效名单不查源表；无身份、答案、任务或授权操作。
 - 最终本地证据：`DB_HOST=127.0.0.1 DB_PORT=1 PYTHONPATH=hr-portal/backend hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_member_identity.py hr-portal/backend/tests/test_quality_dependency_hardening.py hr-portal/backend/tests/test_performance_cycles.py hr-portal/backend/tests/test_performance_snapshot_service.py hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_comparison_notifications.py -q --tb=short` → **976 passed / 7 skipped / 1 python_multipart第三方弃用警告，19.46s，exit0**。SQL测试含1001工号分段、真实新会话回读、引擎失败回滚/失败历史/重试成功及二次bootstrap不重置管理员disabled和cron；SQLite不验证PostgreSQL行锁语义，生产/真实PostgreSQL与调度时刻实际运行未执行，跳过项不计通过。本卡diff --check通过，无前端构建（未改前端）、迁移、生产写入、真实外发、提交推送或部署；本地开发完成，整体仍未勾选。
 
+### 2026-11-18 CR-007-F15-G01 人员组姓名标签及可见权限
+
+- 发布授权：本地验收后用户明确要求在main提交推送，仅本卡代码/测试/人员组token及截图；并行校准规则修改保留，不部署。下文未提交推送指开发验收时点。
+- [ ] CR-007-F15-G01：本地开发、自动化、构建及合成UI验证完成；真实登录API/PostgreSQL/生产未验收，整体保持未勾选。用户确认标签受show_group_tag和人员组对谁可见共同控制。原姓名列原位增强，无新页面/蓝图/迁移，不纳入每日09:00在职同步。
+- 契约：identity_status增加可选group_tags数组，项为{group_id,name,text_color,bg_color}；后端按周期/项目/员工真实归组、开关和查看者过滤；mode1复用目标员工绩效查看范围，mode2仅可信员工身份匹配关注人工号，无管理角色旁路。无context不返回组标签，授权/开通/催办操作范围不自动当查看范围；未知可见模式拒绝。隐藏组ID/名称不传前端，项目组限定其关联项目，当前配置下次名单读取生效，不改冻结人员信息和原业务权限。
+- 入口/职责：批量身份补全服务传递context及精确(project_id,snapshot_id,employee_no)已验证查看集合；项目成员/矩阵沿原data-view范围，taskPeople/360反馈沿已验证目标任务查看权，结果开通/催办在有候选组时按项目核验；360邀请保持评估人live-only，不把任务被评估人标签贴到评估人。人员组维护人不自动取得标签或绩效查看权。
+- 前端：PerformanceMemberIdentity复用20px/12px/左右6px/4px圆角/4px间距，新增最大宽度120px token；普通文本标签、不附操作历史弹窗，配置色经颜色字面量校验；默认状态顺序保持授权→转交→离职，组标签排其后且按稳定组ID顺序。长组名省略，title展示完整名称；旧响应缺group_tags兼容。
+- 文件范围：backend身份服务/必要专用组标签服务、project/360路由、身份/项目测试；frontend performance.ts、姓名组件及既有测试、tokens.css、本记录和独立实现截图。共享文件精确Edit，保留并行校准改动；不改人员组存储/维护、花名册/调度、模型/迁移或生产，不自动commit/push/deploy。
+- 验收：开关关闭/非关注人/未知模式/身份歧义/仅有操作权限→接口不含隐藏标签；mode1目标有查看权/mode2关注人且原名单可见→显示真实名称颜色；跨项目周期不串用、身份切换及组删除改名改色移人刷新生效、SQL批量；组件+现有名单回归、build和真实Vue合成API浏览器分别记录，不以mock证明生产权限。
+- 后端最终证据（执行者实际回归，代码/fixture已停止写入）：身份与组标签单文件 **58 passed**；`python -m pytest hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_member_identity.py -q --tb=short` → **882 passed / 5 skipped / 1既有python_multipart弃用警告，27.63s，exit0**。首轮13个失败由两处严格SQL夹具尚未接受新增候选组查询引起，已精确补空结果分支并保留原业务断言。覆盖真实SQLite执行、组开关/两个可见模式/未知模式/可信关注人匹配/跨项目周期快照/批量/当前配置删除改名移人/匿名及taskPeople入口；不是生产鉴权API或PostgreSQL验收，跳过项不计通过。
+- 前端本地证据：`npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceMemberIdentity.spec.ts src/components/performance/ProjectPerformanceMatrix.spec.ts src/components/performance/PerformanceReminderPanel.spec.ts src/views/performance/ProjectManagement.spec.ts src/views/performance/Review.spec.ts --pool=threads --poolOptions.threads.singleThread=true --silent` → **5文件224 passed**。新增组名/配置色、响应改名/移除、纯姓名模式、CSS字面量限制与文本转义回归；旧授权/离职及名单行为保留。
+- 构建：`npm --prefix hr-portal/frontend run build`最终vue-tsc＋Vite **exit0**，3776模块、58.19s；仅既有VueUse PURE注释提示。前三次被并行校准文件在途类型错误阻塞（DetailTable旧枚举、ProjectSettingsPage测试导入、FlowSettings组织树level），由对应会话修复后完整构建通过，未跨改其业务文件；tokens并行rule-summary/table块保留。本卡diff --check通过，仅LF/CRLF提示。未执行真实登录API/PostgreSQL/生产、迁移或外发，未自动提交推送部署。
+- UI证据：本地真实Vue成员表格＋隔离合成API，1440×900与390×844；组标签84×20、12px、圆角4、内距0 6px、#151b70/rgba(91,101,245,.2)与REA一致；长标签最大120px并省略/title，hover无授权弹窗。多标签初测挤没姓名，已改为保留姓名、空间不足时标签换行；最终390px姓名区域clientWidth=scrollWidth=200、姓名宽56、pageerror0。改名刷新和响应移除标签通过；独立截图 `ui-blueprints/CR-007-F15-G01-member-group-tags-20261118.png` 已查看，不是生产权限或真实后端验收证据。Spec012 UI交互/守则已读，无UCP、数仓重复配置或危险操作。
+
 ## 2026-11-13 CR-007-F13 前台读链路性能优化
 
 - [ ] CR-007-F13：本地实现及自动化回归通过；真实登录/API/PostgreSQL、运行时前后对比与生产验收未完成，不勾选整体验收。

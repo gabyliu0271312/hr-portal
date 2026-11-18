@@ -2091,7 +2091,8 @@ async def project_matrix(
         for member in members
     }
     people = {member.employee_no: _matrix_person(member, project.id, getattr(member, "id", None)) for member in members}
-    await hydrate_member_identities(db, [(people[member.employee_no], project.id, member.snapshot_id) for member in members])
+    await hydrate_member_identities(db, [(people[member.employee_no], project.id, member.snapshot_id) for member in members],
+                                    context=context, verified_view_keys={(project.id, member.snapshot_id, member.employee_no) for member in members})
     ratings, final_values, _ = await _project_final_ratings(project, set(people), db)
 
     pending_groups: dict[str, list[dict]] = {}
@@ -2535,7 +2536,7 @@ async def result_opening_people(
     selected = filtered[(page - 1) * page_size:page * page_size]
     items, _page_columns = await _result_opening_rows(selected, states, context, db)
     snapshots = {(project.id, member.employee_no): member.snapshot_id for project, member in selected}
-    await hydrate_member_identities(db, [(item, item.project_id, snapshots.get((item.project_id, item.employee_no))) for item in items])
+    await hydrate_member_identities(db, [(item, item.project_id, snapshots.get((item.project_id, item.employee_no))) for item in items], context=context)
     for item in items:
         item.unavailable_reason = reasons.get((item.project_id, item.employee_no))
         item.can_open = item.unavailable_reason is None
@@ -3065,7 +3066,7 @@ async def _task_authorization_members(project, scope, context, db, keyword, page
             task_id=next((option.task_id for option in options if option.can_authorize), None),
             can_authorize=any(option.can_authorize for option in options), task_map=options,
         ))
-    await hydrate_member_identities(db, [(item, project.id, member.snapshot_id) for item, member in zip(items, members)])
+    await hydrate_member_identities(db, [(item, project.id, member.snapshot_id) for item, member in zip(items, members)], context=context)
     return ProjectMemberPage(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -3088,7 +3089,7 @@ async def export_project_members(
         raise HTTPException(status_code=403, detail="PERFORMANCE_MEMBER_EXPORT_FORBIDDEN") from None
     scope = export_scope if view_scope is None else view_scope if export_scope is None else view_scope & export_scope
     items, rating_columns = await _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db)
-    await hydrate_project_member_rows(db, items)
+    await hydrate_project_member_rows(db, items, context=context, verified_view=True)
     return ProjectMemberPage(items=items, total=len(items), page=1, page_size=len(items), rating_columns=rating_columns)
 
 
@@ -3122,13 +3123,13 @@ async def list_project_members(
         scope = await _matrix_drilldown_scope(project, scope, matrix_level, matrix_rating, db)
     if isinstance(page, int) and sort_by in (None, "name") and sort_order != "desc":
         items, rating_columns, total = await _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db, page=page, page_size=page_size)
-        await hydrate_project_member_rows(db, items)
+        await hydrate_project_member_rows(db, items, context=context, verified_view=True)
         return ProjectMemberPage(items=items, total=total, page=page, page_size=page_size, rating_columns=rating_columns)
     items, rating_columns = await _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db)
     total = len(items)
     start = (page - 1) * page_size
     items = items[start:start + page_size]
-    await hydrate_project_member_rows(db, items)
+    await hydrate_project_member_rows(db, items, context=context, verified_view=True)
     return ProjectMemberPage(items=items, total=total, page=page, page_size=page_size, rating_columns=rating_columns)
 
 
@@ -3230,7 +3231,7 @@ async def cycle_project_members(
     items, columns, total = await _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, page=page, page_size=page_size)
     if sort_by not in {None, "name"}:
         items = items[(page - 1) * page_size:page * page_size]
-    await hydrate_project_member_rows(db, items)
+    await hydrate_project_member_rows(db, items, context=context, verified_view=True)
     return ProjectMemberPage(items=items, total=total, page=page, page_size=page_size, rating_columns=columns)
 
 
@@ -3244,7 +3245,7 @@ async def export_cycle_project_members(
     db: AsyncSession = Depends(get_session),
 ):
     items, columns, _total = await _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, export=True)
-    await hydrate_project_member_rows(db, items)
+    await hydrate_project_member_rows(db, items, context=context, verified_view=True)
     return ProjectMemberPage(items=items, total=len(items), page=1, page_size=len(items), rating_columns=columns)
 
 
@@ -5392,7 +5393,7 @@ async def project_management_reminder_people(
     rows = await _completion_reminder_rows(cycle_id, node_key, context, db, keyword, department)
     start = (page - 1) * page_size
     items = rows[start:start + page_size]
-    await hydrate_task_people_rows(db, items)
+    await hydrate_task_people_rows(db, items, context=context)
     return {"items": items, "total": len(rows), "page": page, "page_size": page_size}
 
 
@@ -6774,7 +6775,9 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
     tasks_by_id = {task.id: task for task, _node, _member in rows}
     await hydrate_member_identities(db, [
         (item, project_id, tasks_by_id[item["task_id"]].member_snapshot_id) for item in result
-    ])
+    ], context=context, verified_view_keys={
+        (project_id, tasks_by_id[item["task_id"]].member_snapshot_id, item["employee_no"]) for item in result
+    })
     if not paged:
         return result
     rating_columns = []

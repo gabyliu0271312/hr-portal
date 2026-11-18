@@ -32,7 +32,7 @@ def _time(value):
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value
 
 
-async def hydrate_project_member_rows(db, items):
+async def hydrate_project_member_rows(db, items, *, context=None, verified_view=False):
     keys = {(_value(item, "project_id"), _value(item, "root_review_id", _value(item, "id"))) for item in items}
     keys = {(project_id, member_id) for project_id, member_id in keys if project_id is not None and member_id is not None}
     if not keys:
@@ -45,14 +45,16 @@ async def hydrate_project_member_rows(db, items):
         .where(tuple_(snapshot.project_id, member.id).in_(keys))
     )).all()
     snapshots = {(project_id, member_id, employee): snapshot_id for project_id, member_id, snapshot_id, employee in rows}
-    await hydrate_member_identities(db, [
+    bindings = [
         (item, _value(item, "project_id"), snapshots.get((
             _value(item, "project_id"), _value(item, "root_review_id", _value(item, "id")), _value(item, "employee_no"))))
         for item in items
-    ])
+    ]
+    verified = {(project_id, snapshot_id, str(_value(item, "employee_no"))) for item, project_id, snapshot_id in bindings} if verified_view else None
+    await hydrate_member_identities(db, bindings, context=context, verified_view_keys=verified)
 
 
-async def hydrate_task_people_rows(db, items):
+async def hydrate_task_people_rows(db, items, *, context=None):
     keys = {(_value(item, "project_id"), _value(item, "task_id")) for item in items}
     if not keys:
         return
@@ -66,10 +68,10 @@ async def hydrate_task_people_rows(db, items):
         (item, _value(item, "project_id"), snapshots.get((
             _value(item, "project_id"), _value(item, "task_id"), _value(item, "employee_no"))))
         for item in items
-    ])
+    ], context=context)
 
 
-async def hydrate_member_identities(db, bindings, *, include_delegations=True):
+async def hydrate_member_identities(db, bindings, *, include_delegations=True, context=None, verified_view_keys=None):
     """Bindings are (output row, project id, member snapshot id), after filtering/paging.
 
     Reviewer/plain-person lists opt out of reviewee delegation history. Revoked tasks
@@ -110,6 +112,9 @@ async def hydrate_member_identities(db, bindings, *, include_delegations=True):
         valid_keys.add(key)
         for identity in by_key[key]:
             identity["live_employment_status"] = live or frozen or identity["live_employment_status"]
+    if context is not None and valid_keys:
+        from app.performance.focus_group_tag_service import hydrate_focus_group_tags
+        await hydrate_focus_group_tags(db, {key: by_key[key] for key in valid_keys}, context, verified_view_keys)
     if not include_delegations or not valid_keys:
         return
 

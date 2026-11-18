@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.performance import member_identity_service as service
 from app.performance.models import (
     PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson,
-    PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceProject,
+    PerformanceFocusGroup, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceProject,
     PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot,
 )
 
@@ -25,7 +25,7 @@ def identity_db():
     metadata = MetaData()
     models = [PerformanceProject, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson,
               PerformanceProjectMemberSnapshot, PerformanceProjectMember, PerformanceNodeTask,
-              PerformanceNodeTaskAuthorization, PerformanceProjectNodeSnapshot, PerformanceAuditEvent]
+              PerformanceNodeTaskAuthorization, PerformanceProjectNodeSnapshot, PerformanceAuditEvent, PerformanceFocusGroup]
     tables = {}
     for model in models:
         tables[model] = Table(model.__tablename__, metadata, *[
@@ -268,13 +268,15 @@ async def test_feedback_reviewee_and_invite_reviewer_use_different_history_bound
     monkeypatch.setattr(feedback, "_reviewer_tasks", AsyncMock(return_value=[task]))
     monkeypatch.setattr(feedback, "_feedback_source_labels", AsyncMock(return_value={}))
     monkeypatch.setattr(feedback, "_voluntary_permission_error", AsyncMock(return_value=(403, "VOLUNTARY_NOT_ALLOWED")))
-    result = await feedback.list_feedback(1, keyword=None, context=object(), db=identity_db)
+    _insert_tag(identity_db)
+    result = await feedback.list_feedback(1, keyword=None, context=_tag_context(), db=identity_db)
     assert result.items[0].identity_status["delegations"]
+    assert result.items[0].identity_status["group_tags"][0]["name"] == "人才组"
     monkeypatch.setattr(invites, "_resolve_reviewee_employee", AsyncMock(return_value="ACTOR"))
     monkeypatch.setattr(invites, "_invite_tasks", AsyncMock(return_value=[task]))
     monkeypatch.setattr(invites, "_invite_audit_events", AsyncMock(return_value=[SimpleNamespace(
         subject_ref="E1", after_state={"project_id": 1, "source_type": "SELF"}, event_type="REVIEWER_360_INVITED", event_at=NOW)]))
-    result = await invites.list_invites(1, keyword=None, context=object(), db=identity_db)
+    result = await invites.list_invites(1, keyword=None, context=_tag_context(), db=identity_db)
     assert result.items[0].identity_status == {"live_employment_status": "离职", "delegations": []}
 
 
@@ -518,3 +520,213 @@ async def test_daily_status_engine_records_failure_rolls_back_and_retries(monkey
         assert reopened.get(PerformanceAuthorizationSnapshotPerson, 1001).live_employment_status == "离职"
         assert reopened.get(PerformanceAuthorizationSnapshotPerson, 1001).employment_status == "在职"
         assert [run.status for run in reopened.scalars(select(JobRun).order_by(JobRun.id))] == ["failed", "success"]
+
+
+def _tag_context(employee="M1", permissions=()):
+    from app.performance.auth_context import PerformanceAccessContext
+    return PerformanceAccessContext(subject_type="PORTAL_USER", subject_id=99, display_name="同名人员",
+                                    account_type=None, portal_entry_permissions=(), role_grants=(),
+                                    permission_codes=permissions, effective_employee_no=employee)
+
+
+def _insert_tag(db, **values):
+    db.insert(PerformanceFocusGroup, **{
+        "id": 1, "cycle_ref": "C1", "tab": "semester", "name": "人才组", "show_group_tag": True,
+        "employee_nos": ["E1"], "view_permission": 1, "followee_user_ids": [], "activity_ids": [],
+        "text_color": "#2f0080", "bg_color": "rgba(141,85,237,0.2)", **values,
+    })
+    db.session.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode,followers,actor,visible", [
+    (1, [], "M1", True), (2, ["M1"], "M1", True), (2, ["M1"], "R1", False),
+    (2, ["99", "同名人员"], "M1", False), (0, ["M1"], "M1", False), (3, ["M1"], "M1", False),
+])
+async def test_group_tags_modes_use_trusted_employee_and_fail_closed(identity_db, mode, followers, actor, visible):
+    _insert_tag(identity_db, view_permission=mode, followee_user_ids=followers)
+    row = {"employee_no": "E1"}
+    await service.hydrate_member_identities(identity_db, [(row, 1, 10)], context=_tag_context(actor),
+                                           verified_view_keys={(1, 10, "E1")})
+    assert bool(row["identity_status"].get("group_tags")) is visible
+    if visible:
+        assert row["identity_status"]["group_tags"] == [{"group_id": 1, "name": "人才组", "text_color": "#2f0080", "bg_color": "rgba(141,85,237,0.2)"}]
+    else:
+        assert "group_tags" not in row["identity_status"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["disabled", "other_cycle", "other_project", "unknown_tab", "empty_binding", "not_member", "invalid_snapshot", "no_context", "denied_view"])
+async def test_group_tags_never_expose_hidden_group_metadata(identity_db, change):
+    options = {
+        "disabled": {"show_group_tag": False}, "other_cycle": {"cycle_ref": "C2"},
+        "other_project": {"tab": "project", "activity_ids": ["2"]}, "unknown_tab": {"tab": "other"},
+        "empty_binding": {"tab": "project"}, "not_member": {"employee_nos": ["M1"]},
+    }
+    _insert_tag(identity_db, **options.get(change, {}))
+    row = {"employee_no": "E1"}
+    await service.hydrate_member_identities(identity_db, [(row, 1, 20 if change == "invalid_snapshot" else 10)],
+                                           context=None if change == "no_context" else _tag_context(),
+                                           verified_view_keys=set() if change == "denied_view" else {(1, 10, "E1")})
+    assert "group_tags" not in row["identity_status"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("binding", ["id", "ref", "project_ref"])
+async def test_group_tags_project_binding_isolated_and_current_configuration_reopens(identity_db, binding):
+    db = identity_db
+    _insert_tag(db, tab="project", **({"project_ref": "P1"} if binding == "project_ref" else {"activity_ids": ["1" if binding == "id" else "P1"]}))
+    async def read():
+        rows = [{"employee_no": "E1"}, {"employee_no": "E1"}]
+        await service.hydrate_member_identities(db, [(rows[0], 1, 10), (rows[1], 2, 20)], context=_tag_context(),
+                                               verified_view_keys={(1, 10, "E1"), (2, 20, "E1")})
+        assert "group_tags" not in rows[1]["identity_status"]
+        return rows[0]["identity_status"].get("group_tags", [])
+    assert (await read())[0]["name"] == "人才组"
+    db.session.execute(update(PerformanceFocusGroup).values(name="改名组", text_color="rgb(1, 2, 3)", bg_color="#abcd"))
+    db.session.commit()
+    assert await read() == [{"group_id": 1, "name": "改名组", "text_color": "rgb(1, 2, 3)", "bg_color": "#abcd"}]
+    db.session.execute(update(PerformanceFocusGroup).values(employee_nos=[]))
+    db.session.commit()
+    assert await read() == []
+    db.session.execute(update(PerformanceFocusGroup).values(employee_nos=["E1"]))
+    db.session.commit()
+    assert await read()
+    from sqlalchemy import delete
+    db.session.execute(delete(PerformanceFocusGroup))
+    db.session.commit()
+    assert await read() == []
+    assert db.session.get(PerformanceProjectMember, 10).display_name == "冻结员工"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("color", ["red; background:url(https://invalid)", "var(--secret)", "rgb(999,0,0)", "rgba(1,2,3,2)", "url(x)", "rgba(1,2,3)"])
+async def test_group_tags_colors_reject_arbitrary_css(identity_db, color):
+    _insert_tag(identity_db, text_color=color, bg_color=color)
+    row = {"employee_no": "E1"}
+    await service.hydrate_member_identities(identity_db, [(row, 1, 10)], context=_tag_context(), verified_view_keys={(1, 10, "E1")})
+    tag = row["identity_status"]["group_tags"][0]
+    assert tag["text_color"] == "#2f0080" and tag["bg_color"] == "rgba(141,85,237,0.2)"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("count", [1, 100])
+async def test_group_tags_management_scope_runs_once_per_project_after_candidates(identity_db, monkeypatch, count):
+    from app.performance import projects_router as routes
+    _insert_tag(identity_db)
+    rows = [{"employee_no": "E1"} for _ in range(count)]
+    scope = AsyncMock(return_value={"E1"})
+    monkeypatch.setattr(routes, "_project_data_scope", scope)
+    identity_db.execute.reset_mock()
+    await service.hydrate_member_identities(identity_db, [(row, 1, 10) for row in rows], context=_tag_context())
+    scope.assert_awaited_once()
+    assert identity_db.execute.await_count == 5
+    assert all(row["identity_status"]["group_tags"][0]["group_id"] == 1 for row in rows)
+    scope.reset_mock()
+    identity_db.session.execute(update(PerformanceFocusGroup).values(show_group_tag=False))
+    await service.hydrate_member_identities(identity_db, [(rows[0], 1, 10)], context=_tag_context())
+    scope.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [1, 2])
+async def test_group_tags_follower_does_not_grant_performance_access(identity_db, monkeypatch, mode):
+    from app.performance import projects_router as routes
+    _insert_tag(identity_db, view_permission=mode, followee_user_ids=["M1"])
+    scope = AsyncMock(side_effect=HTTPException(403, "PROJECT_DATA_FORBIDDEN"))
+    monkeypatch.setattr(routes, "_project_data_scope", scope)
+    row = {"employee_no": "E1", "can_authorize": True, "can_open": True}
+    await service.hydrate_member_identities(identity_db, [(row, 1, 10)], context=_tag_context())
+    assert "group_tags" not in row["identity_status"]
+    scope.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_group_tags_verified_task_reviewee_needs_no_management_permission(identity_db, monkeypatch):
+    from app.performance import projects_router as routes
+    _insert_tag(identity_db)
+    scope = AsyncMock(side_effect=AssertionError("already verified task detail"))
+    monkeypatch.setattr(routes, "_project_data_scope", scope)
+    row = {"employee_no": "E1"}
+    await service.hydrate_member_identities(identity_db, [(row, 1, 10)], context=_tag_context(), verified_view_keys={(1, 10, "E1")})
+    assert row["identity_status"]["group_tags"][0]["name"] == "人才组"
+    scope.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_group_tags_anonymous_reviewer_stays_live_only(identity_db):
+    _insert_tag(identity_db, employee_nos=["M1"])
+    row = {"employee_no": "M1"}
+    await service.hydrate_member_identities(identity_db, [(row, 1, 10)], include_delegations=False)
+    assert row["identity_status"] == {"live_employment_status": "在职", "delegations": []}
+
+
+@pytest.mark.asyncio
+async def test_group_tags_cycle_and_snapshot_mismatch_do_not_share_membership(identity_db):
+    db = identity_db
+    _insert_tag(db)
+    db.insert(PerformanceProject, id=3, cycle_ref="C2", project_ref="P3", name="另一周期")
+    db.insert(PerformanceAuthorizationSnapshot, id=200, cycle_ref="C2", status="LOCKED")
+    db.insert(PerformanceAuthorizationSnapshotPerson, id=4000, snapshot_id=200, employee_no="E1", display_name="另一周期员工", employment_status="在职")
+    db.insert(PerformanceProjectMemberSnapshot, id=30, project_id=3, cycle_ref="C2", source_snapshot_id=200)
+    db.insert(PerformanceProjectMember, id=30, snapshot_id=30, employee_no="E1", display_name="另一周期员工")
+    db.session.commit()
+    rows = [{"employee_no": "E1"} for _ in range(3)]
+    await service.hydrate_member_identities(db, [(rows[0], 1, 10), (rows[1], 3, 30), (rows[2], 1, 30)],
+                                           context=_tag_context(), verified_view_keys={(1, 10, "E1"), (3, 30, "E1"), (1, 30, "E1")})
+    assert rows[0]["identity_status"]["group_tags"]
+    assert all("group_tags" not in row["identity_status"] for row in rows[1:])
+
+
+@pytest.mark.asyncio
+async def test_group_tags_verified_member_wrapper_and_switched_identity_read_again(identity_db):
+    _insert_tag(identity_db, view_permission=2, followee_user_ids=["M1"])
+    row = {"project_id": 1, "root_review_id": 10, "employee_no": "E1"}
+    await service.hydrate_project_member_rows(identity_db, [row], context=_tag_context("M1"), verified_view=True)
+    assert row["identity_status"]["group_tags"]
+    await service.hydrate_project_member_rows(identity_db, [row], context=_tag_context("R1"), verified_view=True)
+    assert "group_tags" not in row["identity_status"]
+    assert row["identity_status"]["live_employment_status"] == "离职"
+
+
+@pytest.mark.asyncio
+async def test_group_tags_follower_never_matches_system_account_id(identity_db):
+    from dataclasses import replace
+    _insert_tag(identity_db, view_permission=2, followee_user_ids=["99"])
+    row = {"employee_no": "E1"}
+    context = replace(_tag_context(None), subject_type="SYSTEM_ACCOUNT")
+    await service.hydrate_member_identities(identity_db, [(row, 1, 10)], context=context, verified_view_keys={(1, 10, "E1")})
+    assert "group_tags" not in row["identity_status"]
+
+
+@pytest.mark.asyncio
+async def test_task_people_group_tag_uses_admitted_reviewee_not_management_permission(identity_db, monkeypatch):
+    from app.performance import projects_router as routes
+    db = identity_db
+    _insert_tag(db)
+    task = db.session.get(PerformanceNodeTask, 2)
+    node = db.session.get(PerformanceProjectNodeSnapshot, 2)
+    member = db.session.get(PerformanceProjectMember, 20)
+    original_execute = db.execute.side_effect
+    def execute(query):
+        entities = [column["entity"] for column in query.column_descriptions]
+        if entities == [PerformanceNodeTask, PerformanceProjectNodeSnapshot, PerformanceProjectMember]:
+            assert "handler_ref" in str(query) and "performance_node_tasks.project_id = 2" in str(query.compile(compile_kwargs={"literal_binds": True}))
+            return SimpleNamespace(all=lambda: [(task, node, member)])
+        return original_execute(query)
+    db.execute.side_effect = execute
+    db.get = AsyncMock(side_effect=db.session.get)
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="M1")))
+    for name, value in [("_self_summary_template", {"content": []}), ("_communication_progress_detail", {}),
+                        ("_snapshot_supervisor_names", {}), ("_communication_final_rating_values", ([], {})),
+                        ("load_subject_visibility_rules", {"other": []}), ("resolve_subject_visibility_role", "other")]:
+        monkeypatch.setattr(routes, name, AsyncMock(return_value=value))
+    monkeypatch.setattr(routes, "_task_window", lambda *args: (None, None))
+    monkeypatch.setattr(routes, "_review_task_status", lambda *args: "pending")
+    monkeypatch.setattr(routes, "_task_completed", lambda *args: False)
+    forbidden = AsyncMock(side_effect=AssertionError("task view does not require management data view"))
+    monkeypatch.setattr(routes, "_project_data_scope", forbidden)
+    rows = await routes.workbench_task_people("node", 2, state="all", context=_tag_context(), db=db, keyword=None)
+    assert len(rows) == 1 and rows[0]["employee_no"] == "E1"
+    assert rows[0]["identity_status"]["group_tags"][0]["name"] == "人才组"
+    forbidden.assert_not_awaited()

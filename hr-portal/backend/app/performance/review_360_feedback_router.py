@@ -298,7 +298,8 @@ async def list_feedback(
             item for item in items
             if lowered in item.display_name.lower() or lowered in item.employee_no.lower()
         ]
-    await hydrate_member_identities(db, [(item, project.id, member_snapshot_id) for item in items])
+    await hydrate_member_identities(db, [(item, project.id, member_snapshot_id) for item in items], context=context,
+                                    verified_view_keys={(project.id, member_snapshot_id, item.employee_no) for item in items})
     return FeedbackListOut(
         items=items,
         total=len(items),

@@ -56,6 +56,39 @@ describe('PerformanceMemberIdentity', () => {
     wrapper.unmount()
   })
 
+  it('渲染后端允许的人员组名称及配置色，保留状态标签顺序', () => {
+    const wrapper = mount(PerformanceMemberIdentity, { props: { displayName: '员工示例', identityStatus: {
+      live_employment_status: '离职', delegations: [record({ authorization_type: 'TRANSFER', id: 2 }), record()],
+      group_tags: [{ group_id: 11, name: '核心管理干部', text_color: '#151b70', bg_color: 'rgba(91,101,245,0.2)' }, { group_id: 12, name: '同名组', text_color: '#2f0080', bg_color: 'rgba(141,85,237,0.2)' }],
+    } } })
+    expect(wrapper.findAll('.member-status-tag').map(tag => tag.text())).toEqual(['已授权', '已转交', '已离职', '核心管理干部', '同名组'])
+    const group = wrapper.get('.member-status-tag--group')
+    expect(group.attributes('style')).toContain('rgb(21, 27, 112)')
+    expect(group.attributes('style')).toContain('rgba(91, 101, 245, 0.2)')
+    expect(group.attributes('title')).toBe('核心管理干部')
+    expect(wrapper.findAll('button')).toHaveLength(2)
+    wrapper.unmount()
+  })
+
+  it('刷新组配置后名称颜色及成员标签跟随响应，纯姓名模式同样复用', async () => {
+    const wrapper = mount(PerformanceMemberIdentity, { props: { displayName: '员工示例', showAvatar: false, identityStatus: { live_employment_status: '在职', delegations: [], group_tags: [{ group_id: 1, name: '旧组名', text_color: '#151b70', bg_color: 'rgba(91,101,245,0.2)' }] } } })
+    expect(wrapper.find('.member-avatar').exists()).toBe(false)
+    expect(wrapper.find('button').exists()).toBe(false)
+    await wrapper.setProps({ identityStatus: { live_employment_status: '在职', delegations: [], group_tags: [{ group_id: 1, name: '修改后组名', text_color: '#2f0080', bg_color: 'rgba(141,85,237,0.2)' }] } })
+    expect(wrapper.text()).not.toContain('旧组名')
+    expect(wrapper.get('.member-status-tag--group').text()).toBe('修改后组名')
+    await wrapper.setProps({ identityStatus: { live_employment_status: '在职', delegations: [], group_tags: [] } })
+    expect(wrapper.find('.member-status-tag--group').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('人员组标签拒绝非颜色CSS值且组名按文本渲染', () => {
+    const wrapper = mount(PerformanceMemberIdentity, { props: { displayName: '员工示例', identityStatus: { live_employment_status: '在职', delegations: [], group_tags: [{ group_id: 1, name: '<img src=x onerror=alert(1)>', text_color: 'url(https://example.test/)', bg_color: 'var(--untrusted)' }] } } })
+    expect(wrapper.find('img').exists()).toBe(false)
+    expect(wrapper.get('.member-status-tag--group').attributes('style')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('暂停账号不当作离职', () => {
     const wrapper = mount(PerformanceMemberIdentity, { props: { displayName: '员工示例', identityStatus: { live_employment_status: '暂停', delegations: [] } } })
     expect(wrapper.find('.member-status-tag--departed').exists()).toBe(false)
