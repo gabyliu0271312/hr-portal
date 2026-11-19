@@ -10846,6 +10846,21 @@ def management_member_data(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_team_detail_shared_response_never_exposes_member_actions(management_member_data, monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import result_view_scope
+    data = management_member_data
+    monkeypatch.setattr(data.routes, "load_subject_visibility_rules", AsyncMock(return_value={"activity_manager": [], "hrbp": [], "leader": []}))
+    shared = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    assert "member_actions" not in shared
+    monkeypatch.setattr(result_view_scope, "resolve_result_view_scope", AsyncMock(return_value=SimpleNamespace(
+        scopes={1: {"E1"}}, projects=[data.project],
+    )))
+    team = await data.routes.result_view_member_detail("team", 1, "E1", cycle_id=1, root_review_id=1, context=context(), db=data.db)
+    assert "member_actions" not in team
+
+
+@pytest.mark.asyncio
 async def test_management_reconsideration_tab_keeps_frozen_final_and_separate_edit_permission(management_member_data, monkeypatch):
     from unittest.mock import AsyncMock
     from app.performance import reconsideration_service
@@ -12104,9 +12119,10 @@ async def test_task_delegation_idempotency_key_returns_existing_without_new_reco
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("scenario", ["active", "report_only", "last_member", "denied", "archived", "repeated"])
+@pytest.mark.parametrize("scenario", ["active", "report_only", "last_member", "denied", "archived", "repeated", "revoked_after_lock", "outside_scope_after_lock"])
 async def test_remove_project_member_deletes_member_tasks_and_maintains_snapshot(monkeypatch, scenario):
     from unittest.mock import AsyncMock
+    from fastapi import HTTPException
     from app.performance import projects_router as routes
     from app.performance import models as pm_models
     project = SimpleNamespace(id=1, cycle_ref="C1", status="STARTED", evaluated_count=2, project_ref="P1",
@@ -12168,15 +12184,18 @@ async def test_remove_project_member_deletes_member_tasks_and_maintains_snapshot
             pass
 
     monkeypatch.setattr(routes, "_project_started", AsyncMock(return_value=project))
-    monkeypatch.setattr(routes, "_can_manage_project_like_overview", AsyncMock(return_value=scenario != "denied"))
+    scope = AsyncMock(side_effect=HTTPException(403, "PROJECT_DATA_FORBIDDEN")) if scenario == "denied" else AsyncMock(return_value=None)
+    if scenario == "revoked_after_lock": scope.side_effect = [None, HTTPException(403, "PROJECT_DATA_FORBIDDEN")]
+    if scenario == "outside_scope_after_lock": scope.side_effect = [None, {"E2"}]
+    monkeypatch.setattr(routes, "_project_data_scope", scope)
     audit = SimpleNamespace(append_event=lambda _input: None)
     monkeypatch.setattr(routes, "PerformanceAuditService", lambda _db: audit)
     monkeypatch.setattr(PerformanceProjectService, "project_audience", AsyncMock(return_value=([member], [SimpleNamespace(employee_no=no) for no in generation], [])))
-    if scenario in {"denied", "archived"}:
-        from fastapi import HTTPException
+    if scenario in {"denied", "archived", "revoked_after_lock", "outside_scope_after_lock"}:
         with pytest.raises(HTTPException) as rejected:
             await routes.remove_project_member(1, "E1", context(), Db(), root_review_id=5)
-        assert rejected.value.status_code == (403 if scenario == "denied" else 409)
+        assert rejected.value.status_code == (409 if scenario == "archived" else 403)
+        assert all(call.args[-1] == "performance.frontend.manage-evaluatees" for call in scope.await_args_list)
         assert not deleted_member and not deleted_tasks
         return
     result = await routes.remove_project_member(1, "E1", context(), Db(), root_review_id=5)
@@ -12232,7 +12251,7 @@ async def test_remove_project_member_guards_missing_member_and_root_mismatch(mon
             return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
 
     monkeypatch.setattr(routes, "_project_started", AsyncMock(return_value=project))
-    monkeypatch.setattr(routes, "_can_manage_project_like_overview", AsyncMock(return_value=True))
+    monkeypatch.setattr(routes, "_project_data_scope", AsyncMock(return_value=None))
     with pytest.raises(HTTPException) as missing:
         await routes.remove_project_member(1, "E1", context(), Db(), root_review_id=None)
     assert missing.value.status_code == 404

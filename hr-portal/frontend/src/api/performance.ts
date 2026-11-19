@@ -1639,6 +1639,7 @@ export type PerformanceStageView = {
 }
 export type PerformanceManagementDetail = Omit<PerformanceTemplateTask, 'task_id'> & {
   task_id: string | number | null
+  member_actions?: { can_remove: boolean; task_map: ProjectMemberTaskOption[] }
   stage_views?: PerformanceStageView[]
   cycle?: { name: string; start_at?: string | null; end_at?: string | null }
 }

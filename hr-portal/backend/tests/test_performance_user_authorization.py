@@ -48,7 +48,12 @@ def api(monkeypatch):
     compiles(JSONB, 'sqlite')(lambda *_args, **_kwargs: 'JSON')
     compiles(BigInteger, 'sqlite')(lambda *_args, **_kwargs: 'INTEGER')
     engine = create_engine('sqlite://', connect_args={'check_same_thread': False}, poolclass=StaticPool)
-    tables = [model.__table__ for model in (User, Role, Menu, RoleMenu, UserRole, PerformanceRole, PerformancePermission, PerformanceRolePermission, PerformanceRoleAssignment, PerformanceIdentityLink, PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceProject, PerformanceProjectNodeSnapshot, PerformanceProjectMemberSnapshot, PerformanceProjectMember, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherSetting)]
+    import json
+    from app.performance.models import PerformanceCycle, PerformanceSubjectVisibilitySetting
+    connection = engine.raw_connection()
+    connection.create_function('jsonb_typeof', 1, lambda value: 'array' if isinstance(json.loads(value), list) else 'object')
+    connection.close()
+    tables = [model.__table__ for model in (User, Role, Menu, RoleMenu, UserRole, PerformanceCycle, PerformanceSubjectVisibilitySetting, PerformanceRole, PerformancePermission, PerformanceRolePermission, PerformanceRoleAssignment, PerformanceIdentityLink, PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceProject, PerformanceProjectNodeSnapshot, PerformanceProjectMemberSnapshot, PerformanceProjectMember, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherSetting)]
     Base.metadata.create_all(engine, tables=tables)
     session = Session(engine, expire_on_commit=False)
     now = datetime.now(UTC)
@@ -237,7 +242,7 @@ def test_actual_task_delegation_endpoints_consume_assigned_keys_and_revoke_immed
     from dataclasses import replace
     from datetime import timedelta
     from app.performance.models import PerformanceCycle
-    PerformanceCycle.__table__.create(session.get_bind())
+    PerformanceCycle.__table__.create(session.get_bind(), checkfirst=True)
     session.add(PerformanceCycle(id=1, cycle_ref='C1', name='周期', period_year=2026, period_type='YEAR', start_at=now, end_at=now + timedelta(days=365), lock_rule='IMMEDIATE', created_by_type='PORTAL_USER', created_by_ref='8'))
     target_project = session.get(PerformanceProject, 1)
     target_project.administrators = ['授权管理员']
@@ -269,3 +274,123 @@ def test_actual_task_delegation_endpoints_consume_assigned_keys_and_revoke_immed
     session.commit()
     assert client.get('/api/v1/performance/project-management/authorization-records?cycle_id=1').status_code == 403
     assert client.get('/api/v1/performance/project-management/calibration-authorization?cycle_id=1').status_code == 403
+
+
+@pytest.fixture
+def member_actions_api(api):
+    from datetime import timedelta
+    from app.performance.models import PerformanceCycle, PerformanceHrbpPermission, PerformanceOtherPermissionSetting, PerformanceSubjectVisibilitySetting
+    client, db, session, app = api
+    for model in (PerformanceCycle, PerformanceHrbpPermission, PerformanceOtherPermissionSetting, PerformanceSubjectVisibilitySetting):
+        model.__table__.create(session.get_bind(), checkfirst=True)
+    now = datetime.now(UTC)
+    session.add_all([
+        PerformanceCycle(id=1, cycle_ref='C1', name='周期', period_year=2026, period_type='YEAR', start_at=now, end_at=now + timedelta(days=365), lock_rule='IMMEDIATE', created_by_type='PORTAL_USER', created_by_ref='8'),
+        PerformanceAuthorizationSnapshot(id=1, cycle_ref='C1', status='LOCKED'),
+        PerformanceAuthorizationSnapshotPerson(id=1, snapshot_id=1, employee_no='E8', display_name='管理员'),
+        PerformanceAuthorizationSnapshotPerson(id=2, snapshot_id=1, employee_no='OWNER', display_name='原处理人'),
+        PerformanceProject(id=1, project_ref='P1', cycle_ref='C1', name='项目', status='STARTED', administrators=['管理员'], settings={'data_managers': ['PROJECT_ADMIN', 'HRBP']}),
+        PerformanceProjectMemberSnapshot(id=1, project_id=1, cycle_ref='C1', snapshot_version=1, source_snapshot_id=1),
+        PerformanceProjectMemberSnapshot(id=2, project_id=1, cycle_ref='C1', snapshot_version=2, source_snapshot_id=1),
+        PerformanceProjectMember(id=1, snapshot_id=1, employee_no='TARGET', display_name='历史人员', organization_ref='集团/旧部门'),
+        PerformanceProjectMember(id=2, snapshot_id=2, employee_no='TARGET', display_name='当前人员', organization_ref='集团/研发', direct_supervisor_employee_no='OWNER'),
+        PerformanceProjectMember(id=3, snapshot_id=2, employee_no='OUTSIDE', display_name='范围外人员', organization_ref='集团/销售'),
+        PerformanceRole(id=16, code='performance.project_admin', name='项目管理员', role_type='MANAGEMENT', is_active=True, function_permission_keys=['performance.frontend.data-view', 'performance.frontend.progress', 'performance.frontend.manage-evaluatees', projects.TASK_EVALUATION_AUTHORIZATION_KEY]),
+        PerformanceRole(id=17, code='performance.hrbp', name='HRBP', role_type='MANAGEMENT', is_active=True, function_permission_keys=['performance.frontend.data-view', 'performance.frontend.manage-evaluatees']),
+        PerformanceHrbpPermission(id=1, cycle_ref='C1', hrbp_employee_no='E8', scope=['集团/研发'], invisible_people=[]),
+    ])
+    session.commit()
+    context = PerformanceAccessContext('EMPLOYEE', 0, '管理员', None, ('performance.app',), (), (), effective_employee_no='E8', management_role='project_admin', management_cycle_id=1)
+    app.dependency_overrides[get_performance_access_context] = lambda: context
+    return client, db, session, app, context
+
+
+@pytest.mark.parametrize('role_key', ['project_admin', None])
+def test_member_detail_empty_tabs_remove_capability_and_live_role_revocation(member_actions_api, role_key):
+    from dataclasses import replace
+    client, db, session, app, context = member_actions_api
+    context = replace(context, management_role=role_key)
+    app.dependency_overrides[get_performance_access_context] = lambda: context
+    detail_path = '/api/v1/performance/projects/1/members/TARGET/detail'
+    delete_path = '/api/v1/performance/projects/1/members/TARGET'
+    result = client.get(detail_path)
+    assert result.status_code == 200, result.text
+    assert result.json()['management_tabs'] == []
+    assert result.json()['member_actions'] == {'can_remove': True, 'task_map': []}
+    assert client.delete(delete_path, params={'root_review_id': 1}).status_code == 409
+    assert session.get(PerformanceProjectMember, 1) is not None and session.get(PerformanceProjectMember, 2) is not None
+    assert client.get(detail_path, params={'root_review_id': 1}).json()['member_actions'] == {'can_remove': False, 'task_map': []}
+    role = session.get(PerformanceRole, 16)
+    for change in ('function', 'role', 'selection', 'administrator'):
+        role.function_permission_keys = ['performance.frontend.data-view', 'performance.frontend.progress', 'performance.frontend.manage-evaluatees']
+        role.is_active = True
+        project = session.get(PerformanceProject, 1)
+        project.settings = {'data_managers': ['PROJECT_ADMIN']}
+        project.administrators = ['管理员']
+        if change == 'function':
+            role.function_permission_keys = ['performance.frontend.data-view', 'performance.frontend.progress']
+        if change == 'role': role.is_active = False
+        if change == 'selection': project.settings = {'data_managers': []}
+        if change == 'administrator': project.administrators = []
+        session.commit()
+        result = client.get(detail_path)
+        if change == 'function':
+            assert result.status_code == 200, result.text
+            assert result.json()['member_actions'] == {'can_remove': False, 'task_map': []}
+        else:
+            assert result.status_code == 403, result.text
+        assert client.delete(delete_path).status_code == 403
+        assert session.get(PerformanceProjectMember, 2) is not None
+
+
+@pytest.mark.parametrize('role_key', ['hrbp', None])
+def test_member_delete_scope_rejects_outside_and_invisible_without_management_role_bypass(member_actions_api, role_key):
+    from dataclasses import replace
+    from app.performance.models import PerformanceHrbpPermission, PerformanceOtherPermissionSetting
+    client, db, session, app, context = member_actions_api
+    context = replace(context, management_role=role_key)
+    app.dependency_overrides[get_performance_access_context] = lambda: context
+    project = session.get(PerformanceProject, 1)
+    project.settings = {'data_managers': ['HRBP']}
+    session.commit()
+    assert client.get('/api/v1/performance/projects/1/members/TARGET/detail').json()['member_actions']['can_remove'] is True
+    assert client.delete('/api/v1/performance/projects/1/members/OUTSIDE').status_code == 403
+    assert client.get('/api/v1/performance/projects/1/members/OUTSIDE/detail').status_code == 404
+    permission = session.get(PerformanceHrbpPermission, 1)
+    permission.invisible_people = ['TARGET']
+    session.commit()
+    assert client.delete('/api/v1/performance/projects/1/members/TARGET').status_code == 403
+    permission.invisible_people = []
+    session.add(PerformanceOtherPermissionSetting(id=1, hrbp_invisible_people=['TARGET']))
+    session.commit()
+    assert client.delete('/api/v1/performance/projects/1/members/TARGET').status_code == 403
+    assert session.get(PerformanceProjectMember, 2) is not None
+    assert session.get(PerformanceProjectMember, 3) is not None
+
+
+def test_member_detail_task_map_uses_latest_tasks_and_independent_authorization_permission(member_actions_api, monkeypatch):
+    from unittest.mock import AsyncMock
+    client, db, session, app, context = member_actions_api
+    session.add_all([
+        PerformanceProjectNodeSnapshot(id=1, project_id=1, node_id='eval', name='上级评价', node_type='evaluation', node_order=1, config={'template': {'executor_role_code': 'assessment.line_manager'}}),
+        PerformanceNodeTask(id=1, project_id=1, cycle_ref='C1', member_snapshot_id=1, node_snapshot_id=1, target_employee_no='TARGET', handler_ref='OWNER', task_kind='evaluation', phase_id=''),
+        PerformanceNodeTask(id=2, project_id=1, cycle_ref='C1', member_snapshot_id=2, node_snapshot_id=1, target_employee_no='TARGET', handler_ref='OWNER', task_kind='evaluation', phase_id=''),
+    ])
+    session.commit()
+    monkeypatch.setattr(projects, '_project_member_detail', AsyncMock(return_value={'root_review_id': 2}))
+    path = '/api/v1/performance/projects/1/members/TARGET/detail'
+    actions = client.get(path).json()['member_actions']
+    assert actions['can_remove'] is True
+    assert [option['task_id'] for option in actions['task_map']] == [2]
+    assert actions['task_map'][0]['handler_ref'] == 'OWNER' and actions['task_map'][0]['can_authorize'] is True
+    role = session.get(PerformanceRole, 16)
+    role.function_permission_keys = ['performance.frontend.data-view', 'performance.frontend.manage-evaluatees']
+    session.commit()
+    assert client.get(path).json()['member_actions'] == {'can_remove': True, 'task_map': []}
+    role.function_permission_keys = ['performance.frontend.data-view', projects.TASK_EVALUATION_AUTHORIZATION_KEY]
+    session.commit()
+    assert client.get(path).json()['member_actions']['can_remove'] is False
+    assert len(client.get(path).json()['member_actions']['task_map']) == 1
+    session.get(PerformanceNodeTask, 2).revoked_at = datetime.now(UTC)
+    session.commit()
+    assert client.get(path).json()['member_actions']['task_map'] == []

@@ -163,6 +163,52 @@ describe('ProjectManagement', () => {
     wrapper.unmount()
   })
 
+  it.each([false, true])('restores the real readonly member drawer with server actions=%s', async allowed => {
+    Object.assign(routeQuery, { rootReviewId: '5', member_project_id: '3', employee_no: 'E001' })
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+    vi.mocked(mockedApi.memberDetail).mockResolvedValue({ task_id: null, task_kind: 'evaluation', entry_mode: 'template_task', node_name: '评估', person: { employee_no: 'E001', display_name: '成员' }, editable: false, submit_allowed: false, form_schema: [], answers: {}, member_actions: { can_remove: allowed, task_map: [] } } as any)
+    const remove = vi.spyOn(projectManagementApi, 'removeMember').mockResolvedValue({ code: 0, data: {}, msg: 'ok' })
+    const wrapper = mount(ProjectManagement, { global: { plugins: [pinia], stubs: { PerformanceReviewCategorySidebar: true, ProjectMemberListPanel: true, CompletionRatePanel: true } } })
+    try {
+      await flushPromises()
+      expect(wrapper.getComponent(PerformanceReviewEvaluationDrawer).props('readonly')).toBe(true)
+      expect(Boolean(document.body.querySelector('[aria-label="更多成员操作"]'))).toBe(allowed)
+      expect(mockedApi.memberDetail).toHaveBeenCalledWith(3, 'E001', 5, '')
+      if (allowed) {
+        ;(document.body.querySelector('[aria-label="更多成员操作"]') as HTMLButtonElement).click()
+        await flushPromises()
+        const deletion = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(item => item.textContent === '删除')!
+        deletion.click()
+        await flushPromises()
+        const confirm = [...document.body.querySelectorAll<HTMLButtonElement>('.performance-confirm-dialog__footer button')].find(button => button.textContent?.trim() === '删除')!
+        expect(confirm).toBeTruthy()
+        confirm.click()
+        await flushPromises()
+        expect(remove).toHaveBeenCalledWith(3, 'E001', 5)
+      } else expect(remove).not.toHaveBeenCalled()
+    } finally { wrapper.unmount(); remove.mockRestore() }
+  })
+
+  it('reloads member permissions after closing and restoring the same detail link', async () => {
+    Object.assign(routeQuery, { rootReviewId: '5', member_project_id: '3', employee_no: 'E001' })
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+    const detail = { task_id: null, task_kind: 'evaluation', entry_mode: 'template_task', node_name: '评估', person: { employee_no: 'E001', display_name: '成员' }, editable: false, submit_allowed: false, form_schema: [], answers: {}, member_actions: { can_remove: true, task_map: [] } }
+    vi.mocked(mockedApi.memberDetail).mockResolvedValue(detail as any)
+    const wrapper = mount(ProjectManagement, { global: { plugins: [pinia], stubs: { PerformanceReviewCategorySidebar: true, ProjectMemberListPanel: true, CompletionRatePanel: true } } })
+    try {
+      await flushPromises()
+      const link = { ...route.query }
+      expect(document.body.querySelector('[aria-label="更多成员操作"]')).not.toBeNull()
+      wrapper.getComponent(PerformanceReviewEvaluationDrawer).vm.$emit('close')
+      await flushPromises()
+      vi.mocked(mockedApi.memberDetail).mockResolvedValue({ ...detail, member_actions: { can_remove: false, task_map: [] } } as any)
+      route.query = reactive(link)
+      await flushPromises()
+      expect(mockedApi.memberDetail).toHaveBeenCalledTimes(2)
+      expect(document.body.querySelector('[aria-label="更多成员操作"]')).toBeNull()
+    } finally { wrapper.unmount() }
+  })
+
   it('keeps selected member payloads across server pages and clears them for another cycle', async () => {
     const { default: MemberList } = await import('@/components/performance/ProjectMemberListPanel.vue')
     const member = (id: number) => ({ id, root_review_id: id, project_id: 3, employee_no: `E${id}`, display_name: `员工${id}`, can_authorize: true, task_id: id, avatar_url: null, rating: null, rating_tone: null, completion: '0/0', job_family: null, job_category: null, job_sequence: null, position_level: null, hire_date: null, department: null, employee_type: null, employment_status: null })

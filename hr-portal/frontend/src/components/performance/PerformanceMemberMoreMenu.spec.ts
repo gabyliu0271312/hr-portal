@@ -8,6 +8,7 @@ const member = {
   root_review_id: 5,
   display_name: 'alice.xiao肖惠方',
   task_id: 10,
+  can_remove: true,
   task_map: [{ task_id: 10, stage_id: 'stage-1', stage_key: 'manager', stage_label: '评估', role_key: 'DIRECT_SUPERVISOR', role_label: '直属上级', handler_ref: 'M1', can_authorize: true }],
 }
 
@@ -31,6 +32,22 @@ describe('PerformanceMemberMoreMenu', () => {
   it('renders no trigger without member context', () => {
     const wrapper = mount(PerformanceMemberMoreMenu, { props: { member: null } })
     expect(wrapper.find('[aria-label="更多成员操作"]').exists()).toBe(false)
+  })
+
+  it('hides the trigger without any permitted member action', () => {
+    const wrapper = mount(PerformanceMemberMoreMenu, { props: { member: { ...member, can_remove: false, task_map: member.task_map.map(option => ({ ...option, can_authorize: false })) } } })
+    expect(wrapper.find('[aria-label="更多成员操作"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('does not emit deletion without remove permission even when authorization is allowed', async () => {
+    const wrapper = mount(PerformanceMemberMoreMenu, { props: { member: { ...member, can_remove: false } } })
+    await wrapper.get('[aria-label="更多成员操作"]').trigger('click')
+    const deletion = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')][3]
+    expect(deletion.disabled).toBe(true)
+    deletion.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(wrapper.emitted('delete')).toBeUndefined()
+    wrapper.unmount()
   })
 
   it('opens a 4-item menu and emits on select', async () => {

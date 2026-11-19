@@ -4040,6 +4040,8 @@ async def _project_member_detail(
                 okrs = await fetch_employee_okrs(db, employee_no)
             okr = okrs[0] if okrs else None
         tabs.append({"key": "management-okr", "kind": "okr", "node_id": "", "node_name": (okr_relation.get("reference_settings") or {}).get("page_name") or okr_relation.get("name") or "OKR", "task_id": None, "task_kind": None, "employee_no": employee_no, "status": "completed" if okr is not None else "not_started", "deadline_at": None, "submitted_at": None, "submitted_by": None, "form_schema": [], "answers": {}, "can_remind": False, "content_loaded": okr_loaded, "okr": okr, "okrs": okrs})
+    if not tabs:
+        raise HTTPException(status_code=404, detail="PROJECT_MEMBER_DETAIL_NOT_FOUND")
     selected_tab = next(tab for tab in tabs if tab["node_id"] == selected_node.node_id)
     if visibility_role is None:
         visibility_role = await _member_visibility_role(context, project, member, scope, str(actor.actor_ref), db)
@@ -4142,7 +4144,62 @@ async def project_member_detail(
     tab: str | None = Query(default=None, max_length=128),
 ):
     project = await _get_project(db, project_id)
-    return await _project_member_detail(project, employee_no, context, db, root_review_id, **({"view": view, "tab": tab if isinstance(tab, str) else None} if view == "drawer" else {}))
+    try:
+        detail = await _project_member_detail(project, employee_no, context, db, root_review_id, **({"view": view, "tab": tab if isinstance(tab, str) else None} if view == "drawer" else {}))
+    except HTTPException as exc:
+        if exc.status_code != 404 or exc.detail != "PROJECT_MEMBER_DETAIL_NOT_FOUND":
+            raise
+        scope = await _project_data_scope(context, project, db, "performance.frontend.data-view")
+        if scope is not None and employee_no not in scope:
+            raise HTTPException(404, "PROJECT_MEMBER_NOT_FOUND") from None
+        statement = select(PerformanceProjectMember).join(
+            PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id,
+        ).where(PerformanceProjectMemberSnapshot.project_id == project.id, PerformanceProjectMember.employee_no == employee_no)
+        statement = statement.where(PerformanceProjectMember.id == root_review_id) if isinstance(root_review_id, int) else statement.where(PerformanceProjectMember.snapshot_id == _latest_member_snapshot_statement(project.id))
+        member = await db.scalar(statement)
+        if member is None:
+            raise HTTPException(404, "PROJECT_MEMBER_NOT_FOUND") from None
+        actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
+        role = await _member_visibility_role(context, project, member, scope, str(actor.actor_ref), db)
+        visible = (await load_subject_visibility_rules(db))[role]
+        supervisors = await _snapshot_supervisor_names(db, [member])
+        supervisor_name = supervisors.get((member.snapshot_id, member.direct_supervisor_employee_no))
+        detail = {
+            "project_id": project.id, "root_review_id": member.id, "task_id": None,
+            "management_tabs": [], "stage_views": [], "reference_tabs": [], "default_active_tab": None,
+            "form_schema": [], "answers": {}, "editable": False, "submit_allowed": False,
+            "person": {"employee_no": employee_no, "display_name": member.display_name,
+                "department": organization_leaf(member) if "department" in visible else None,
+                "direct_supervisor_name": supervisor_name if "direct_supervisor" in visible else None,
+                "visibility_role": role, "profile_fields": subject_profile_items(member, visible, direct_supervisor_name=supervisor_name)},
+        }
+    detail["member_actions"] = {"can_remove": False, "task_map": []}
+    member = await db.scalar(select(PerformanceProjectMember).where(
+        PerformanceProjectMember.snapshot_id == _latest_member_snapshot_statement(project.id),
+        PerformanceProjectMember.employee_no == employee_no,
+    ))
+    if project.status != PROJECT_STATUS_STARTED or member is None or member.id != detail["root_review_id"]:
+        return detail
+    try:
+        remove_scope = await _project_data_scope(context, project, db, "performance.frontend.manage-evaluatees")
+    except HTTPException as exc:
+        if exc.status_code != 403:
+            raise
+    else:
+        detail["member_actions"]["can_remove"] = remove_scope is None or employee_no in remove_scope
+    delegation_scope = await _task_management_scope_or_empty(context, project, db, TASK_EVALUATION_AUTHORIZATION_KEY)
+    if delegation_scope is not None and employee_no not in delegation_scope:
+        return detail
+    stages = await _delegatable_stages(db, project)
+    if stages:
+        tasks = list((await db.execute(select(PerformanceNodeTask).where(
+            PerformanceNodeTask.project_id == project.id, PerformanceNodeTask.member_snapshot_id == member.snapshot_id,
+            PerformanceNodeTask.target_employee_no == employee_no, PerformanceNodeTask.revoked_at.is_(None),
+        ).order_by(PerformanceNodeTask.id))).scalars().all())
+        actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
+        options = await _member_task_options(member, tasks, stages, None, delegation_scope, project, context, str(actor.actor_ref), db, management_only=True)
+        detail["member_actions"]["task_map"] = [option.model_dump() for option in options if option.can_authorize]
+    return detail
 
 
 class MemberRemindPayload(BaseModel):
@@ -8014,16 +8071,18 @@ async def remove_project_member(
 ):
     """删除当前项目本周期的被评估人及其评估数据，同步范围条件和实际成员统计。"""
     project = await _project_started(db, project_id)
-    if not await _can_manage_project_like_overview(context, project, db):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权管理当前项目")
+    scope = await _project_data_scope(context, project, db, "performance.frontend.manage-evaluatees")
+    if scope is not None and employee_no not in scope:
+        raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
     cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref).with_for_update())
     if cycle is None:
         raise HTTPException(status_code=404, detail="周期不存在")
     await db.refresh(project, with_for_update=True)
     if project.status != PROJECT_STATUS_STARTED:
         raise HTTPException(status_code=409, detail="PROJECT_NOT_STARTED")
-    if not await _can_manage_project_like_overview(context, project, db):
-        raise HTTPException(status_code=403, detail="无权管理当前项目")
+    scope = await _project_data_scope(context, project, db, "performance.frontend.manage-evaluatees")
+    if scope is not None and employee_no not in scope:
+        raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
     member_snapshot = await db.scalar(select(PerformanceProjectMemberSnapshot).where(
         PerformanceProjectMemberSnapshot.project_id == project.id,
     ).order_by(PerformanceProjectMemberSnapshot.id.desc()).limit(1).with_for_update())
@@ -8035,10 +8094,6 @@ async def remove_project_member(
     ).with_for_update())
     if member is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="被评估人不在当前项目中")
-    if context.management_role:
-        scope = await _reviewee_management_scope(context, project, [member], db)
-        if scope is not None and employee_no not in scope:
-            raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
     if root_review_id is not None and root_review_id != member.id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ROOT_REVIEW_ID_MISMATCH")
     service = PerformanceProjectService(db)

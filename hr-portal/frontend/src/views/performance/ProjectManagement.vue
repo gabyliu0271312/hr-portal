@@ -61,6 +61,7 @@
       :detail-loader="memberDetailLoader"
       :active-tab="drawerActiveTab"
       :member="drawerMember"
+      member-management
       readonly
       @update:active-tab="updateMemberTab"
       @close="closeMember"
@@ -160,11 +161,7 @@ const drawerActiveTab = ref(String(route.query.activeTab || ''))
 const drawerSourceTab = ref('')
 const memberDetailLoader = computed(() => {
   const member = drawerMember.value
-  const key = scopeKey.value
-  return member ? (tab?: string) => projectContext.loadDrawerDetail(
-    JSON.stringify(['management', key, member.project_id, member.employee_no, member.root_review_id, tab || '']),
-    () => projectManagementApi.memberDetail(member.project_id, member.employee_no, member.root_review_id, tab ?? ''),
-  ) : undefined
+  return member ? (tab?: string) => projectManagementApi.memberDetail(member.project_id, member.employee_no, member.root_review_id, tab ?? '') : undefined
 })
 function memberQuery() {
   return { ...route.query, ...managementQuery(), tab: activeTab.value, member_project_id: String(drawerMember.value?.project_id || ''), employee_no: drawerMember.value?.employee_no, rootReviewId: String(drawerMember.value?.root_review_id || ''), activeTab: drawerActiveTab.value || undefined }

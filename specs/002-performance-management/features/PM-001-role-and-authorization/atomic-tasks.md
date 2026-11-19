@@ -135,6 +135,20 @@ PM-001-T02 + PM-001-T03 -> PM-001-T04 -> PM-001-T05
   - 本增量前端：ProjectManagement.spec.ts（37）/PerformanceMemberMoreMenu.spec.ts（4）/PerformanceReminderPanel.spec.ts（25）/PerformanceReviewEvaluationDrawer.spec.ts（13）共79 passed；覆盖成员多选授权/转交按钮有权/无权、校准有记录但两按钮disabled且无候选/写请求、成员更多菜单禁用无事件，保留共享弹窗及详情回归。既有NONE分布选项旧断言与已确认新决策冲突，同步断言为可选，不改业务实现。`npm --prefix hr-portal/frontend run build`：vue-tsc与Vite通过（49.41s），保留VueUse PURE与大包提示；`git diff --check`通过，有LF/CRLF提示。后续新增测试夹具曾缺role_key/role_label及ProjectMember必填字段导致最终类型检查失败；已补齐，最终`npm --prefix hr-portal/frontend exec -- vue-tsc --noEmit -p hr-portal/frontend/tsconfig.json` exit0，测试数据修正后两文件41 passed；user_authorization独立9 passed。最终完整`npm --prefix hr-portal/frontend run build`已重跑通过，vue-tsc + Vite exit0（57.86s），保留第三方PURE/大包提示。
   - 本增量广泛回归：projects/user_authorization/auth_context三文件625 passed、5 skipped、6 failed；6失败均在`_communication_progress_detail`的IdentityLink查询旧Db夹具缺scalars，现有T11记录已列同类阻塞，本轮未改该沟通实现或掩盖失败。独立浏览器PNG、真实PG/生产验收未运行；本次无commit/push/deploy，T09/T11/F04整体状态保持未勾选。
 
+## PM-001-T11-M01 成员详情管理入口与删除权限修复（2026-11-19用户批准）
+
+- [ ] PM-001-T11-M01
+  - Goal/type：修复项目管理共享只读抽屉误隐藏更多入口；删除操作接入角色功能和对象范围；既有UI/API权限修复。
+  - Prerequisites/reading：PM001 spec/interaction/T11、002基线、012 UI门禁、execution-contract/task-card-template/acceptance-evidence、根及hr-portal CLAUDE；用户确认底部批量操作无权置灰、详情更多全部无权隐藏。
+  - Allowed：backend performance/projects_router.py、management_scope.py、现有test_performance_projects.py/test_performance_user_authorization.py；frontend api/performance.ts、PerformanceMemberMoreMenu.vue/.spec.ts、PerformanceReviewEvaluationDrawer.vue/.spec.ts、ProjectManagement.vue/.spec.ts；本目录spec/ui-interaction/atomic-tasks。共享文件仅局部串行合并，保留其他会话修改。
+  - Contract：原成员detail GET新增member_actions={can_remove:boolean,task_map:ProjectMemberTaskOption[]}，默认拒绝；仅项目管理endpoint提供，任务权限复用原授权服务、当前最新成员快照和原任务映射；删除同一功能及目标范围加锁前后验证，不传management_role也不能借查看权限扩权，原cycle管理员边界保持。无新接口/迁移/身份来源/通知。
+  - UI：项目管理显式member-management，readonly仅限制内容编辑；团队结果不启用；全部无权隐藏更多，有权菜单内其他操作置灰；底部选择栏保持无权置灰。加载/错误/缺能力隐藏，重开/复制链接重新请求，删除确认切成员即清空。沿既有交互，不需新完整蓝图；独立PNG ../../ui-blueprints/PM-001-T11-M01-member-actions-implemented.png。
+  - Test contract：Given合法管理员有/无对应功能或HRBP范围；When打开真实抽屉/重开链接/删除或授权；Then入口及底部状态正确、成功有审计、无权/范围外403且无写入；历史快照不可管理，切人旧确认不生效。现有菜单/抽屉/项目管理组件测试、后端真实API allow/deny与撤权、build、浏览器分别记录。
+  - Non-scope/stop：不重写授权/转交/删除业务、不启用转移占位、不修改默认角色、不触碰报表并行改动或生产，不提交推送；仅撤销本卡差异即可停止。完整证据后主线程才勾选；未运行项如实记录。
+  - 后端证据：backend下`.venv/Scripts/python.exe -m pytest tests/test_performance_user_authorization.py tests/test_performance_projects.py -k "member_actions or member_detail_empty or member_detail_task_map or member_delete_scope or remove_project_member or actual_task_delegation_endpoints or member_task_options_disable or delegation_idempotency or management_detail_denies or team_detail_shared" -q --tb=short`：33 passed、864 deselected；覆盖SQLite真实API撤权/停用/移出名单/HRBP范围与不可见/无management_role拒绝、最新任务与撤销、历史root DELETE409、加锁后撤权与范围收紧、团队共享详情无成员能力字段。主线程复核wrapper及删除权限差异、测试断言；无数据库迁移，未跑真实PostgreSQL/生产API/部署。整卡保留未勾选，仅开发与本地验证完成。
+  - 前端补充：关闭并恢复同一成员链接重新请求撤权能力，3 passed、53按筛选未运行；不复用跨次详情缓存。整工作区`git diff --check`通过，仅LF/CRLF提示。
+  - 前端证据：菜单/抽屉/ProjectManagement/Review四文件256 passed；`npm --prefix hr-portal/frontend run build` vue-tsc与Vite通过（43.59s），保留既有VueUse PURE提示。真实本地组件浏览器运行：有删除权显示更多、删除确认可打开/取消、全部无权隐藏、团队入口隐藏、底部两操作disabled；捕获脚本异常[]。独立PNG已保存并查看，仅受控数据组件运行，不代表生产或真实登录路由/API联调；REA导航场景因跳登录超时失败，随后CDP组件交互成功，二者证据分开。后端API测试另行补充。
+
 ## PM-001-T10 HRBP 不可见范围规则闭环（2026-11-06）
 
 - [ ] PM-001-T10（代码及本地定向回归完成，真实数据库和负责人来源验收受阻）

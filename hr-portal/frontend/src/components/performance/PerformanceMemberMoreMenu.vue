@@ -1,5 +1,5 @@
 <template>
-  <div v-if="member" ref="rootRef" class="performance-member-more-menu">
+  <div v-if="member && (canRemove || canAuthorize)" ref="rootRef" class="performance-member-more-menu">
     <button
       ref="triggerRef"
       type="button"
@@ -25,7 +25,7 @@
           <svg class="performance-member-more-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-icon="MoveOutlined"><path fill-rule="evenodd" clip-rule="evenodd" d="M4.756 4.415a2.05 2.05 0 114.1.001 2.05 2.05 0 01-4.1-.001zM6.805 1a3.415 3.415 0 10.001 6.83A3.415 3.415 0 006.805 1zM2.45 12.268a2.734 2.734 0 012.647-2.049h2.407a.683.683 0 100-1.365H5.098A4.097 4.097 0 001 12.95v1.366c0 .377.307.683.683.683H7.504a.683.683 0 000-1.366H2.367v-.683c0-.236.03-.465.085-.683z" fill="currentColor"/><path d="M10.956 9.47L9.78 10.646a.5.5 0 00.027.731l1.15.996" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M10 11h1.9c.026 0 .05 0 .076.002.179.008.963.05 1.46.167.267.064 1.054.402 1.054 1.379 0 .976-.754 1.279-.93 1.374-.176.096-.624.173-.858.173h-.785" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
           <span>转移</span>
         </button>
-        <button type="button" class="performance-member-more-menu__item" role="menuitem" @click="select('delete')">
+        <button type="button" class="performance-member-more-menu__item" role="menuitem" :disabled="!canRemove" @click="select('delete')">
           <svg class="performance-member-more-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-icon="DeleteTrashOutlined"><path d="M8 4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2h5a1 1 0 1 1 0 2h-1v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6H3a1 1 0 0 1 0-2h5ZM6 6v14h12V6H6Zm4 3a1 1 0 0 1 1 1v6a1 1 0 1 1-2 0v-6a1 1 0 0 1 1-1Zm4 0a1 1 0 0 1 1 1v6a1 1 0 1 1-2 0v-6a1 1 0 0 1 1-1Z" fill="currentColor"/></svg>
           <span>删除</span>
         </button>
@@ -48,9 +48,11 @@ export type PerformanceMemberContext = {
   root_review_id?: number
   display_name?: string
   task_id?: number | null
+  can_remove?: boolean
   task_map?: ProjectMemberTaskOption[]
 }
 const props = defineProps<{ member?: PerformanceMemberContext | null }>()
+const canRemove = computed(() => props.member?.can_remove === true)
 const canAuthorize = computed(() => props.member?.task_map?.some(option => option.can_authorize) === true)
 const canTransfer = computed(() => props.member?.task_map?.some(option => option.can_authorize && Boolean(option.handler_ref)) === true)
 const emit = defineEmits<{
@@ -119,7 +121,7 @@ function close(restoreFocus = false) {
 }
 function toggle() { if (expanded.value) close(); else open() }
 function select(action: 'authorize' | 'transfer' | 'delete') {
-  if (!props.member || (action === 'authorize' && !canAuthorize.value) || (action === 'transfer' && !canTransfer.value)) return
+  if (!props.member || (action === 'delete' && !canRemove.value) || (action === 'authorize' && !canAuthorize.value) || (action === 'transfer' && !canTransfer.value)) return
   const payload = { ...props.member }
   if (action === 'authorize') emit('authorize', payload)
   else if (action === 'transfer') emit('transfer', payload)

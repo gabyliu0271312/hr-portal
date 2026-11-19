@@ -12,7 +12,7 @@ from app.performance.models import (
 MANAGEMENT_FEATURES = (
     "performance.frontend.progress", "performance.frontend.data-view",
     "performance.frontend.result-open", "performance.frontend.authorize-evaluation-tasks",
-    "performance.frontend.authorize-calibration-tasks",
+    "performance.frontend.authorize-calibration-tasks", "performance.frontend.manage-evaluatees",
 )
 
 

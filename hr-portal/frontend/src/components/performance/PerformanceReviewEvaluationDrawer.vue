@@ -1,7 +1,7 @@
 <template>
   <UiDrawerShell v-model="open" :title="title" aria-label="绩效评估详情" width="720px" :initial-width="1000" variant="evaluation" body-class="performance-drawer__body--flush" :resizable="true" :min-width="720" :mask="false" cache-key="perf-drawer" :keyboard="false" @close="emit('close')" @closed="emit('closed')">
     <template #header>
-      <div class="performance-review-evaluation-drawer__person"><PerformanceReviewPersonHeader :person="displayPerson" @translate="notifyTranslationUnavailable" @translate-menu="notifyTranslationUnavailable" @copy-link="emit('copy-link')"><template #actions-end><PerformanceMemberMoreMenu v-if="props.member && !props.readonly" :member="props.member" @authorize="onMoreAuthorize" @transfer="onMoreTransfer" @delete="deleteOpen = true" /></template></PerformanceReviewPersonHeader><PerformancePromptNotice v-if="task?.opened_at" type="info" multiline class="performance-review-evaluation-drawer__opening">{{ task.opened_by?.trim() ? `本次绩效结果已由 ${task.opened_by} 在 ${formatDate(task.opened_at)} 开通。` : `本次绩效结果已于 ${formatDate(task.opened_at)} 开通。` }}</PerformancePromptNotice></div>
+      <div class="performance-review-evaluation-drawer__person"><PerformanceReviewPersonHeader :person="displayPerson" @translate="notifyTranslationUnavailable" @translate-menu="notifyTranslationUnavailable" @copy-link="emit('copy-link')"><template #actions-end><PerformanceMemberMoreMenu v-if="managementMember" :member="managementMember" @authorize="onMoreAuthorize" @transfer="onMoreTransfer" @delete="deleteOpen = true" /></template></PerformanceReviewPersonHeader><PerformancePromptNotice v-if="task?.opened_at" type="info" multiline class="performance-review-evaluation-drawer__opening">{{ task.opened_by?.trim() ? `本次绩效结果已由 ${task.opened_by} 在 ${formatDate(task.opened_at)} 开通。` : `本次绩效结果已于 ${formatDate(task.opened_at)} 开通。` }}</PerformancePromptNotice></div>
     </template>
     <div class="performance-review-evaluation-drawer__scroll">
       <PerformanceLineTabs v-model="selectedTab" :tabs="tabs" sticky flush>
@@ -83,6 +83,7 @@ type DrawerPerson = SelfSummaryPerson & PerformanceReviewMemberContext
 const props = withDefaults(defineProps<{
   modelValue: boolean
   readonly?: boolean
+  memberManagement?: boolean
   taskId?: number | string | null
   employeeNo?: string
   projectId?: number | string
@@ -108,6 +109,9 @@ function notifyTranslationUnavailable() { ElMessage.info('当前尚未接入翻�
 const task = ref<PerformanceManagementDetail | null>(null)
 const loading = ref(false)
 const error = ref('')
+const managementMember = computed(() => props.memberManagement && props.member && !loading.value && !error.value && task.value?.member_actions
+  ? { ...props.member, ...task.value.member_actions }
+  : null)
 const activeTab = ref(props.activeTab || 'evaluation')
 const deleteOpen = ref(false)
 const selectedTab = computed({ get: () => activeReference.value?.key || activeTab.value, set: value => { activeTab.value = value; emit('update:activeTab', value) } })
@@ -283,15 +287,16 @@ function onMoreTransfer(payload: PerformanceMemberContext) {
   emit('transfer', payload)
 }
 function confirmDelete() {
-  if (!props.member) return
+  if (!managementMember.value?.can_remove) return
   deleteOpen.value = false
-  emit('delete', { ...props.member })
+  emit('delete', { ...managementMember.value })
 }
 watch(() => [props.modelValue, props.taskId, props.employeeNo, props.projectId, props.detailLoader, employeeSwitchEpoch.value], () => {
   ++contextSequence
   ++loadSequence
   pendingDetails.clear()
   task.value = null
+  deleteOpen.value = false
   loading.value = false
   error.value = ''
   if (props.modelValue) {

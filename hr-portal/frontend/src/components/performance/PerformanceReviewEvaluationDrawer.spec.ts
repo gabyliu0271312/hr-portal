@@ -38,17 +38,36 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue(structuredClone(task))
   })
 
-  it('does not render the member management menu in readonly result views', async () => {
+  it.each([false, true])('isolates member management from readonly results with allowed=%s', async allowed => {
     const member = { project_id: 1, employee_no: 'E001', display_name: '成员' }
-    const detailLoader = vi.fn().mockResolvedValue(structuredClone(task))
+    const detailLoader = vi.fn().mockResolvedValue({ ...structuredClone(task), member_actions: { can_remove: allowed, task_map: [] } })
     const readonly = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, readonly: true, member, detailLoader } })
     await flushPromises()
     expect(readonly.findComponent({ name: 'PerformanceMemberMoreMenu' }).exists()).toBe(false)
     readonly.unmount()
-    const managed = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, readonly: false, member, detailLoader } })
+    const managed = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, readonly: true, memberManagement: true, member, detailLoader } })
     await flushPromises()
-    expect(managed.findComponent({ name: 'PerformanceMemberMoreMenu' }).exists()).toBe(true)
+    expect(Boolean(document.body.querySelector('[aria-label="更多成员操作"]'))).toBe(allowed)
+    expect(document.body.querySelector('.performance-review-completion-notice button')).toBeNull()
     managed.unmount()
+  })
+
+  it('fails closed when capabilities are missing and clears a pending delete on member change', async () => {
+    const detailLoader = vi.fn().mockResolvedValue({ ...structuredClone(task), member_actions: { can_remove: true, task_map: [] } })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, readonly: true, memberManagement: true, member: { project_id: 1, employee_no: 'E001' }, employeeNo: 'E001', detailLoader } })
+    await flushPromises()
+    ;(document.body.querySelector('[aria-label="更多成员操作"]') as HTMLButtonElement).click()
+    await flushPromises()
+    const deletion = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(item => item.textContent === '删除')!
+    deletion.click()
+    await flushPromises()
+    expect(wrapper.getComponent({ name: 'PerformanceConfirmDialog' }).props('modelValue')).toBe(true)
+    detailLoader.mockResolvedValue(structuredClone(task) as any)
+    await wrapper.setProps({ employeeNo: 'E002', member: { project_id: 1, employee_no: 'E002' } })
+    await flushPromises()
+    expect(document.body.querySelector('[aria-label="更多成员操作"]')).toBeNull()
+    expect(wrapper.getComponent({ name: 'PerformanceConfirmDialog' }).props('modelValue')).toBe(false)
+    wrapper.unmount()
   })
 
   it.each(['task', 'reference', 'locked-reference', 'management', 'locked-management'] as const)('shows each authorized historical comparison reason in the %s readonly branch', async entry => {
