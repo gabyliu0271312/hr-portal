@@ -25,6 +25,13 @@
 
 - 后端周期逐人映射接口：`PATCH /api/v1/performance/cycles/{cycle_id}/people/project-managers`，请求 `{reason, people:[{target_employee_no, manager_employee_no}]}`；仅 `performance.cycles.manage`，未知/重复/自身编号为 422，已有启动项目为 409，周期不存在为 404。`GET /people` 回读 `project_manager_employee_no`；项目启动在周期行锁内冻结关系，补建只读项目成员快照。该接口可供后续导入 UI 调用，但未确认蓝图前不新增复杂 UI。
 
+## 360°邀请与确认统一任务框架（2026-11-20）
+
+- 本轮用户明确要求修复邀请首页空态和模板驱动，并将确认环节接入沟通式六列人员表、模板填写、完成后侧栏及公共提示/催办；完成口径经用户选择为“以正式提交为准”。详细任务与证据见 [PM-T004-T05-F41](../features/PM-T004-template-create/atomic-tasks.md) 和对应 ui-interaction 运行态小节。
+- 两真实task_kind接入原template-task GET/draft/submit，名单按source_task_id授权且通过名单版本防止旧列表提交；服务端生成正式快照，默认查看快照、编辑读取最新名单。默认邀请与人工来源分离，名单增量不完成任务，多确认处理人独立提交；不新增评估审批门槛或撤销确认。
+- 复用CR-008工作区、CR-010表格/侧栏、CompletionNotice及成员催办预览/六小时去重。确认六列按实际字段权限裁剪。周期删除策略缺口仍默认拒绝，不扩建配置、不物理删除历史；本节不表示CR-005-T05周期三开关全部完成。
+- 本地验证：后端三文件1088 passed/5 skipped，前端六文件426 passed，vue-tsc+Vite构建和diff检查通过；独立Vite5181真实Vue路由与隔离API验证邀请空态/填写/提交、确认未开始/六列/填写/提交返回侧栏，pageerror与未匹配API均0，截图见F41任务证据。真实数据库持久化/双事务并发、实际通知、生产部署及提交推送未执行，完整任务仍保留未勾选。
+
 ## 360°周期规则与冲突解决
 
 - 2026-11-06 开发交底与证据索引：[360°周期配置、结果可见性与成员列设置交接](CR-005-360-development-handoff.md)。包含原始证据纠错、待补采状态和待确认契约；不是新增实施授权或完成验收。

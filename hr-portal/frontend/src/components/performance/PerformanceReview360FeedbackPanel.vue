@@ -24,21 +24,21 @@ import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.v
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from './ProjectMemberColumnDrawer.vue'
 import { type PerformanceTableColumn } from './performanceTableColumns'
 import { sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
-import { communicationColumns } from './performanceReviewDisplay'
+import { communicationColumns, reviewer360ConfirmColumns } from './performanceReviewDisplay'
 import { formatDisplayDateTime } from '@/utils/datetime'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 
 const props = withDefaults(defineProps<{
   projectId: number | string
   nodeId: string
-  mode?: 'feedback' | 'communication'
+  mode?: 'feedback' | 'communication' | 'taskPeople'
   sources?: PerformanceReview360Source[]
 }>(), { mode: 'feedback' })
 const emit = defineEmits<{
   'remind-evaluate': [{ member: FeedbackRow; pendingCount: number }]
   'open-task': [{ task_id: number; employee_no: string; display_name: string; status: string; project_id?: number; node_id?: string }]
 }>()
-const aggregateMode = computed(() => !communicationMode.value && (props.sources?.length || 0) > 1)
+const aggregateMode = computed(() => !taskPeopleMode.value && (props.sources?.length || 0) > 1)
 const voluntarySources = ref<PerformanceReview360Source[]>([])
 
 const projectContext = usePerformanceProjectContextStore()
@@ -51,7 +51,10 @@ const total = ref(0)
 const allowVoluntary = ref(false)
 const voluntaryEnabled = ref(false)
 const voluntaryDisabledReason = ref('')
-const communicationMode = computed(() => props.mode === 'communication')
+const taskPeopleMode = computed(() => props.mode !== 'feedback')
+const taskPeopleColumns = computed(() => props.mode === 'taskPeople' ? reviewer360ConfirmColumns : communicationColumns)
+const tableTitle = computed(() => props.mode === 'taskPeople' ? '360°邀请确认' : '结果沟通')
+const emptyText = computed(() => taskPeopleMode.value ? (props.mode === 'taskPeople' ? '暂无待确认人员' : '暂无可沟通人员') : '暂无 360° 评估邀请，可以自愿评估其他同事')
 const ratingColumns = ref<MemberColumnOption[]>([])
 function updateRatingColumns(next: MemberColumnOption[]) {
   const previousKeys = new Set(activeColumns.value.map(column => column.key))
@@ -71,7 +74,7 @@ const columns: MemberColumnOption[] = [
 ]
 const selectedColumnKeys = ref<string[]>([])
 watch(() => props.mode, () => {
-  selectedColumnKeys.value = communicationMode.value ? communicationColumns.map(column => column.key) : ['name', 'status', 'source_label', 'relationship', 'due_at', 'job_sequence']
+  selectedColumnKeys.value = taskPeopleMode.value ? taskPeopleColumns.value.map(column => column.key) : ['name', 'status', 'source_label', 'relationship', 'due_at', 'job_sequence']
 }, { immediate: true })
 const columnDrawerOpen = ref(false)
 const profileFields: Record<string, string> = {
@@ -83,11 +86,11 @@ const profileFields: Record<string, string> = {
   previous_position_level: 'position_level',
 }
 const activeColumns = computed(() => {
-  if (!communicationMode.value) return columns
+  if (!taskPeopleMode.value) return columns
   const configuredRows = items.value.filter(item => Array.isArray(item.visible_profile_fields))
-  if (!configuredRows.length) return communicationColumns.flatMap(column => column.key === 'rating' && ratingColumns.value.length ? ratingColumns.value : [column])
+  if (!configuredRows.length && props.mode !== 'taskPeople') return taskPeopleColumns.value.flatMap(column => column.key === 'rating' && ratingColumns.value.length ? ratingColumns.value : [column])
   const allowed = new Set(configuredRows.flatMap(item => item.visible_profile_fields || []))
-  return communicationColumns.filter(column => !profileFields[column.key] || allowed.has(profileFields[column.key])).flatMap(column => column.key === 'rating' && ratingColumns.value.length ? ratingColumns.value : [column])
+  return taskPeopleColumns.value.filter(column => !profileFields[column.key] || allowed.has(profileFields[column.key])).flatMap(column => column.key === 'rating' && ratingColumns.value.length ? ratingColumns.value : [column])
 })
 watch(activeColumns, (available, previous) => {
   const previousKeys = new Set(previous.map(column => column.key))
@@ -95,7 +98,8 @@ watch(activeColumns, (available, previous) => {
   selectedColumnKeys.value = available.filter(column => selected.has(column.key) || !previousKeys.has(column.key)).map(column => column.key)
 })
 function canViewProfile(item: FeedbackRow, key: string) {
-  return !communicationMode.value || !profileFields[key] || !Array.isArray(item.visible_profile_fields) || item.visible_profile_fields.includes(profileFields[key])
+  if (props.mode === 'taskPeople' && profileFields[key]) return item.visible_profile_fields?.includes(profileFields[key]) === true
+  return !taskPeopleMode.value || !profileFields[key] || !Array.isArray(item.visible_profile_fields) || item.visible_profile_fields.includes(profileFields[key])
 }
 const hiddenColumnCount = computed(() => Math.max(0, activeColumns.value.length - selectedColumnKeys.value.length))
 const visibleColumns = computed(() => selectedColumnKeys.value.map(key => activeColumns.value.find(column => column.key === key)).filter((column): column is MemberColumnOption => Boolean(column)))
@@ -110,7 +114,7 @@ async function load() {
   voluntaryEnabled.value = false
   voluntaryDisabledReason.value = ''
   try {
-    if (communicationMode.value) {
+    if (taskPeopleMode.value) {
       const result = await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.nodeId, 'all', keyword.value.trim() || undefined, undefined, page.value, pageSize.value, sortKey.value || undefined, sortOrder.value || undefined)
       if (sequence !== requestSequence) return
       remotePaging.value = !Array.isArray(result)
@@ -150,7 +154,7 @@ async function load() {
     allowVoluntary.value = false
     voluntaryEnabled.value = false
     voluntarySources.value = []
-    error.value = communicationMode.value ? '结果沟通列表加载失败，请稍后重试' : '360° 评估列表加载失败，请稍后重试'
+    error.value = taskPeopleMode.value ? `${tableTitle.value}列表加载失败，请稍后重试` : '360° 评估列表加载失败，请稍后重试'
   } finally {
     if (sequence === requestSequence) loading.value = false
   }
@@ -240,7 +244,7 @@ function cellValue(item: FeedbackRow, key: string) {
   if (!canViewProfile(item, key)) return '--'
   switch (key) {
     case 'name': return item.display_name
-    case 'status': return performanceTaskStatusLabel(normalizePerformanceTaskStatus(item.status, item.due_at, !communicationMode.value))
+    case 'status': return performanceTaskStatusLabel(normalizePerformanceTaskStatus(item.status, item.due_at, !taskPeopleMode.value))
     case 'source_label': return item.source_label
     case 'relationship': return item.relationship
     case 'due_at': return formatDisplayDateTime(item.due_at, '--')
@@ -287,7 +291,7 @@ function sortValue(item: FeedbackRow, key: string) {
   if (!canViewProfile(item, key)) return null
   switch (key) {
     case 'name': return item.display_name
-    case 'status': return { pending: 0, completed: 1, overdue: 2, rejected: 3 }[normalizePerformanceTaskStatus(item.status, item.due_at, !communicationMode.value)]
+    case 'status': return { pending: 0, completed: 1, overdue: 2, rejected: 3 }[normalizePerformanceTaskStatus(item.status, item.due_at, !taskPeopleMode.value)]
     case 'source_label': return item.source_label
     case 'relationship': return item.relationship
     case 'due_at': return item.due_at ? new Date(item.due_at).getTime() : null
@@ -322,7 +326,7 @@ defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVo
 </script>
 
 <template>
-  <section class="feedback-panel" :aria-label="communicationMode ? '绩效结果沟通' : '360° 反馈'">
+  <section class="feedback-panel" :aria-label="taskPeopleMode ? tableTitle : '360° 反馈'">
     <div class="card-sticky-mask" aria-hidden="true"></div>
     <PerformanceListToolbar
       v-model:keyword="keyword"
@@ -337,10 +341,10 @@ defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVo
     <PerformanceManagementTable
       :rows="pagedItems"
       :loading="loading"
-      :loading-text="communicationMode ? '正在加载结果沟通…' : '正在加载 360° 评估…'"
-      :empty-text="error || (communicationMode ? '暂无可沟通人员' : '暂无 360° 评估邀请，可以自愿评估其他同事')"
-      :table-aria-label="communicationMode ? '结果沟通列表' : '360° 评估列表'"
-      :pagination-aria-label="communicationMode ? '结果沟通列表分页' : '360° 评估列表分页'"
+      :loading-text="taskPeopleMode ? `正在加载${tableTitle}…` : '正在加载 360° 评估…'"
+      :empty-text="error || emptyText"
+      :table-aria-label="taskPeopleMode ? `${tableTitle}列表` : '360° 评估列表'"
+      :pagination-aria-label="taskPeopleMode ? `${tableTitle}列表分页` : '360° 评估列表分页'"
       :page="page"
       :page-size="pageSize"
       :total="total"
@@ -362,10 +366,10 @@ defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVo
           <PerformanceMemberIdentity :display-name="row.display_name" :identity-status="row.identity_status" />
           <small v-if="aggregateMode">{{ sources?.find(source => source.project_id === row.project_id && source.node_id === row.node_id)?.project_name }} · {{ sources?.find(source => source.project_id === row.project_id && source.node_id === row.node_id)?.node_name }}</small>
         </div>
-        <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" :allow-rejected="!communicationMode" />
+        <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" :allow-rejected="!taskPeopleMode" />
         <PerformanceRatingTag v-else-if="column.key.startsWith('rating:') && row.ratings?.[column.key]" :label="row.ratings[column.key].label" :color="row.ratings[column.key].color || undefined" :foreground="row.ratings[column.key].foreground || undefined" />
         <span v-else-if="column.key === 'completion'" class="feedback-panel__completion">
-          <PerformanceEvaluateRatioPopover v-if="communicationMode && row.evaluate_ratio" :completion="cellValue(row, column.key)" :ratio="row.evaluate_ratio" :can-remind="row.can_remind === true" @remind="emit('remind-evaluate', { member: row, pendingCount: $event })" />
+          <PerformanceEvaluateRatioPopover v-if="taskPeopleMode && row.evaluate_ratio" :completion="cellValue(row, column.key)" :ratio="row.evaluate_ratio" :can-remind="row.can_remind === true" @remind="emit('remind-evaluate', { member: row, pendingCount: $event })" />
           <template v-else>{{ cellValue(row, column.key) }}</template>
         </span>
         <span v-else>{{ cellValue(row, column.key) }}</span>
@@ -375,13 +379,13 @@ defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVo
         <div v-else-if="error" class="feedback-empty feedback-empty--text" role="alert">{{ error }}<UiButton variant="secondary" @click="load">重新加载</UiButton></div>
         <div v-else class="feedback-empty" role="status">
           <MetricTemplateEmptyIllustration />
-          <p class="feedback-empty__text">{{ communicationMode ? '暂无可沟通人员' : '暂无 360° 评估邀请，可以自愿评估其他同事' }}</p>
+          <p class="feedback-empty__text">{{ emptyText }}</p>
         </div>
       </template>
     </PerformanceManagementTable>
     <ProjectMemberColumnDrawer v-model="columnDrawerOpen" :columns="activeColumns" :selected-keys="selectedColumnKeys" @confirm="applyColumns" />
 
-    <PerformanceDialogShell v-if="!communicationMode" v-model="dialogOpen" title="自愿评估" width="600px" :loading="submitting">
+    <PerformanceDialogShell v-if="!taskPeopleMode" v-model="dialogOpen" title="自愿评估" width="600px" :loading="submitting">
       <template #description>你可以自愿评估其他同事，为 Ta 本次绩效提供更加全面的 360° 评估信息</template>
       <PerformancePersonSelect
         v-model="selectedTarget"

@@ -24,6 +24,25 @@ const sections = [
 ]
 
 describe('PerformanceTemplateRenderer', () => {
+  it('keeps business elements in schema order without fields and forwards only data and busy events', async () => {
+    const data = { items: [], total: 0, minimum_invited_count: 0, maximum_invited_count: null, maximum_invite_mode: 'LIMIT', second_prompt_enabled: false, second_prompt_count: null, second_prompt_mode: 'SUGGESTED', exclude_default_invite_from_limit: false, project_id: 3, task_id: 8, version: 'v1', editable: true, can_invite: true }
+    const prompt = { title: '提示', content: '名单后说明', color: '#3370ff', scope: 'all' as const }
+    const schema: PerformanceTemplateSection[] = [{ id: 'business', name: '', fields: [], elements: [{ kind: 'reviewer_360', id: 'reviewers', data }, { kind: 'prompt', id: 'after', prompt }] }]
+    const wrapper = mount(PerformanceTemplateRenderer, { props: { mode: 'edit', editable: true, sections: schema, answers: {} }, global: { stubs: { PerformanceReview360InvitePanel: { name: 'PerformanceReview360InvitePanel', props: ['data', 'readonly', 'disabled'], emits: ['change', 'busy'], template: '<div class="business-panel" />' } } } })
+    expect(Array.from(wrapper.get('.template-section-instance').element.children).map(element => element.getAttribute('data-reviewer-360-id') || element.getAttribute('data-prompt-id'))).toEqual(['reviewers', 'after'])
+    const panel = wrapper.getComponent({ name: 'PerformanceReview360InvitePanel' })
+    expect(panel.props()).toMatchObject({ data, readonly: false, disabled: false })
+    panel.vm.$emit('change', { ...data, version: 'v2' })
+    panel.vm.$emit('busy', true)
+    expect(wrapper.emitted('reviewer-360-change')?.[0]).toEqual([{ ...data, version: 'v2' }])
+    expect(wrapper.emitted('reviewer-360-busy')?.[0]).toEqual([true])
+    expect(wrapper.emitted('submit')).toBeUndefined()
+    expect(performanceTemplateWritableAnswers(schema, { reviewers: ['forged'] })).toEqual({})
+    await wrapper.setProps({ mode: 'readonly', editable: false })
+    expect(wrapper.getComponent({ name: 'PerformanceReview360InvitePanel' }).props()).toMatchObject({ readonly: true, disabled: true })
+    wrapper.unmount()
+  })
+
   it('gates tag input hover eligibility on editability without changing readonly answers', async () => {
     const answer = { tags: ['a'], notes: { a: '保留答案' } }
     const wrapper = mount(PerformanceTagRichTextInput, { props: { modelValue: answer, options: [{ id: 'a', label: '标签A' }], editable: true } })

@@ -1,6 +1,10 @@
 import type { PerformanceWorkbenchTaskPerson, ProjectMemberTaskOption } from '@/api/performance'
 import { normalizePerformanceTaskStatus, performanceTaskStatusLabel } from './performanceTaskStatus'
 
+export function supportsReminderSourceTask(taskKind?: string | null) {
+  return ['evaluation', 'calibration', 'result_communication', 'reviewer_360_confirm'].includes(taskKind || '')
+}
+
 export type ReminderContext = {
   projectId: number
   cycleId: number

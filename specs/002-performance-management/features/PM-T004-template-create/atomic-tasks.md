@@ -1,5 +1,19 @@
 # PM-T004 原子任务
 
+- [ ] PM-T004-T05-F41 360°邀请与确认接入统一任务框架（2026-11-19）
+  - Goal/确认：用户要求邀请未正式提交时使用共享空态（默认邀请不算本人操作）；确认未开始使用共享图标，开始后复用沟通人员表六列，未完成进入模板填写、已完成进入共享侧栏；用户明确选择名单调整与正式提交分离。
+  - Reading/复用：Spec002基线、CR-005-T05、CR-008工作区、CR-010沟通表与侧栏、F12共享配置预览；Spec012 UI护栏及execution-contract/acceptance-evidence。原路由、工作区和组件接入，无新页面或视觉体系。
+  - Allowed/shared：backend performance projects_router/review_360_invites_router/project_service/member_reminders及名单专属服务；frontend performance API、Review/SelfSummaryTask、共享列表/Renderer/InvitePanel/Drawer/提醒能力；对应代码测试与本任务/ui-interaction/CR-005。同文件唯一写入者，保留已有报表等diff，不新建脚本、调研报告或测试文档。
+  - Contract：两个真实task_kind沿原template-task GET/draft/submit；task.reviewer_360及schema reviewer_360元素包含名单与版本。名单读写绑定source_task_id，目标员工由任务解析；正式提交携带reviewer_360_version，服务端生成并保存提交名单快照，普通answers不能注入名单；版本变化409。已完成只读快照，view=edit读取最新名单。
+  - State/permission：仅正式提交更新当前任务completed与提交审计；多确认上级独立提交，确认不作为评价审批门槛。默认来源按审计DEFAULT识别；目标360节点歧义409不混名单。沿冻结关系/时间窗/处理人授权，未落地的周期删除策略默认拒绝，逐行can_revoke=false；不物理删除历史，不自动重开其他任务。
+  - UI：邀请统一未开始/未提交/完成内容；确认六列为姓名、360°邀请确认状态、截止时间、360°评估率、序列、职级，个人字段权限继续裁剪。工作区/侧栏按模板页面名、业务名单、提示及参考投影，顶部真实提交人/时间及截止前编辑复用；催办沿共享确认/预览/六小时去重和source_task_id。
+  - Test/acceptance：扩展projects/member_reminders/member_identity及Review/SelfSummaryTask/Renderer/InvitePanel/Drawer测试；覆盖默认名单空态、名单增量不完成、正式提交和快照重开、跨人/项目/只读/时间拒绝、版本冲突、多上级独立状态、六列/分页/侧栏/催办来源及普通任务回归。运行定向pytest/Vitest、vue-tsc+Vite与diff检查；真实Vue受控API截图和真实SQL持久化分别记录，不将mock或skip记为通过。
+  - Backend evidence（2026-11-20）：`DB_HOST=127.0.0.1 DB_PORT=1 PYTHONPATH=hr-portal/backend hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_member_reminders.py hr-portal/backend/tests/test_performance_member_identity.py -q --tb=line` → **1088 passed、5 skipped、1 python_multipart弃用警告**。补齐旧节点binding-only内容读取，冻结标题/执行人不变；详情默认快照与view=edit最新名单同源测试通过。首次全回归既有成员API夹具缺project.status，HEAD核验同样缺失；仅在该API合同测试指定DRAFT以隔离未测试的催办/成员管理分支，最终全部通过。
+  - Frontend evidence：`npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/views/performance/SelfSummaryTask.spec.js src/components/performance/PerformanceTemplateRenderer.spec.ts src/components/performance/PerformanceReview360InvitePanel.spec.ts src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/components/performance/PerformanceMemberReminderDialog.spec.ts --silent --maxWorkers=2 --minWorkers=1` → **6文件426 passed**。首次联合5失败为toast全局alert选择器、360参考已迁浮层的旧入口断言及两项evaluation夹具错误task_kind，核对HEAD后收窄断言/纠正夹具，未放宽业务校验。最终`npm --prefix hr-portal/frontend run build` → **vue-tsc+Vite通过，3783模块、39.03秒**，既有VueUse PURE提示保留；git diff --check通过，仅换行提示。
+  - UI evidence：独立Vite5181、真实Vue路由、Chromium1440×1000与全量隔离合成API验证邀请空态→模板名单/提示→正式提交→完成内容，确认未开始图标→精确六列→待完成人员填写→正式提交返回本人侧栏。两个submit仅含answers={}、task version及reviewer_360_version；pageerror=0、未匹配API=0、真实业务/通知写入0。截图`PM-T004-T05-F41-invite-empty-20261120.png`、`PM-T004-T05-F41-template-fill-20261120.png`、`PM-T004-T05-F41-confirm-not-started-20261120.png`、`PM-T004-T05-F41-confirm-list-20261120.png`、`PM-T004-T05-F41-confirm-drawer-stable-20261120.png`位于ui-blueprints，已查看空态/填写/列表/稳定侧栏；原drawer截图为入场动画中间态，以stable图为准。首次5173走查被施工旧HMR编译错误挡住，改独立5181最终模块HTTP200后通过，不把失败样本计验收。
+  - 提交前复核（2026-11-20）：发现邀请新增API的source_task_id曾放入body，而服务端从query读取且body禁止未知字段；已修正为query，reviewer_360_version仍在body。扩展既有performanceManagementContext.spec.ts以真实Axios adapter断言URL/query/body，联合InvitePanel共28 passed。用户已明确授权在main提交并推送本卡代码、测试、规格与实现截图；生产部署不在本轮授权范围。
+  - Blockers/DoD：本地代码、定向回归、构建和受控UI已完成；真实PostgreSQL新连接持久化、双事务并发、真实登录API与通知投递未执行，保持未勾选，不声称生产验收。无新增模型/迁移、真实通知或生产部署。删除策略仍默认拒绝，周期删除开关及其完整生命周期不纳入本轮。
+
 - [ ] PM-T004-T02-F41 复议详情、立即生效与处理截止前再编辑（2026-11-16）
   - Goal/确认：用户确认每次正式提交立即生效、原最终结果Tab不变、角色分类取后台模板后要求完成开发；覆盖F40处理人提交即锁定，员工处理后申请锁定保留。
   - Required reading：Spec002启动/基线/本目录/CR010、012 UI门禁及既有UI；execution-contract/task-card-template/acceptance-evidence/migration-coordination；ui-interaction F41 V1和用户Ardot/REA交互，视为本轮已确认原界面交互版本。

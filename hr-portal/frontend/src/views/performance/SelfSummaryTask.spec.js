@@ -1,3 +1,4 @@
+import { ElMessage } from 'element-plus'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
@@ -15,12 +16,13 @@ import PerformanceWriteModeSwitch from '@/components/performance/PerformanceWrit
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
 import PerformanceMemberReminderDialog from '@/components/performance/PerformanceMemberReminderDialog.vue'
 import PerformanceReminderButton from '@/components/performance/PerformanceReminderButton.vue'
-import { performanceReviewApi } from '@/api/performance'
+import { performanceReviewApi, performanceReview360InviteApi } from '@/api/performance'
 import { api } from '@/api/client'
 import { clearEmployeeSwitch, employeeSwitchSession, employeeSwitchNotice, setEmployeeSwitch } from '@/stores/identitySwitch'
 import { useRoute, useRouter } from 'vue-router'
 
 enableAutoUnmount(afterEach)
+afterEach(() => ElMessage.closeAll())
 
 const back = vi.fn()
 const push = vi.fn()
@@ -44,6 +46,102 @@ const task = {
   ],
   answers: {},
 }
+
+describe('reviewer 360 business tasks', () => {
+  const roster = (version = 'roster-1') => ({ project_id: 3, task_id: 8, employee_no: 'E001', node_id: 'feedback', version, count: 0, manual_count: 0, editable: true, can_invite: true, items: [], total: 0, minimum_invited_count: 0, maximum_invited_count: null, maximum_invite_mode: 'LIMIT', second_prompt_enabled: false, second_prompt_count: null, second_prompt_mode: 'SUGGESTED', exclude_default_invite_from_limit: false })
+  const loaded = kind => ({ ...structuredClone(task), task_id: 8, project_id: 3, node_id: 'invite', task_kind: kind, reviewer_360: roster(), answers: {}, form_schema: [{ id: 'reviewers', name: '', fields: [], elements: [{ kind: 'reviewer_360', id: 'roster', data: roster() }] }] })
+  const stubs = { PerformanceReview360InvitePanel: { props: ['data', 'readonly', 'disabled'], emits: ['change', 'busy'], template: '<div class="business-roster">名单</div>' } }
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    vi.useFakeTimers()
+    push.mockReset()
+    vi.mocked(useRoute).mockReturnValue({ path: '/performance/review/template-task', query: { task_id: '8' } })
+    vi.mocked(useRouter).mockReturnValue({ back, push })
+    localStorage.setItem('userMode', 'fullScreenMode')
+    vi.spyOn(performanceReviewApi, 'saveTemplateTaskDraft').mockResolvedValue({ answers: {}, version: 2 })
+  })
+  afterEach(() => { ElMessage.closeAll(); vi.useRealTimers(); vi.mocked(useRoute).mockReturnValue({ query: { task_id: 'task-1' } }) })
+  it.each(['reviewer_360_invite', 'reviewer_360_confirm'])('allows zero-field %s and saves only its roster version without completing it', async kind => {
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue(loaded(kind))
+    const submit = vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockResolvedValue({ answers: {}, version: 3, reviewer_360: roster('roster-3'), editable: false, submit_allowed: false })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' }, global: { stubs } })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('暂无填写内容')
+    expect(wrapper.get('.self-summary-footer .performance-button--primary').element.disabled).toBe(false)
+    const renderer = wrapper.getComponent(PerformanceTemplateRenderer)
+    renderer.vm.$emit('reviewer-360-change', roster('roster-2'))
+    await vi.advanceTimersByTimeAsync(350)
+    expect(performanceReviewApi.saveTemplateTaskDraft).toHaveBeenCalledWith(8, {}, 1, undefined, undefined, undefined, 'roster-2')
+    expect(submit).not.toHaveBeenCalled()
+    expect(wrapper.emitted('submitted')).toBeUndefined()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(submit).toHaveBeenCalledWith(8, {}, 2, undefined, undefined, undefined, 'roster-2')
+    expect(renderer.props('answers')).toEqual({})
+    expect(renderer.props('sections')[0].elements[0].data.version).toBe('roster-3')
+  })
+  it('retains the workspace on version conflict and reloads only the roster before retrying', async () => {
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue(loaded('reviewer_360_confirm'))
+    vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockRejectedValueOnce({ response: { status: 409, data: { detail: 'REVIEWER_360_VERSION_CONFLICT' } } }).mockResolvedValue({ answers: {}, version: 2 })
+    vi.spyOn(performanceReview360InviteApi, 'list').mockResolvedValue(roster('fresh-version'))
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'reviewer_360_confirm' }, global: { stubs } })
+    await flushPromises()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('名单已变化')
+    expect(wrapper.find('.business-roster').exists()).toBe(true)
+    expect(push).not.toHaveBeenCalled()
+    vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({ ...loaded('reviewer_360_confirm'), version: 4, reviewer_360: roster('fresh-version') })
+    await wrapper.findAll('button').find(button => button.text() === '重新读取名单').trigger('click')
+    await flushPromises()
+    expect(performanceReviewApi.templateTask).toHaveBeenLastCalledWith(8, undefined, { view: 'edit' })
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(performanceReviewApi.submitTemplateTask).toHaveBeenLastCalledWith(8, {}, 4, undefined, undefined, undefined, 'fresh-version')
+  })
+  it.each(['reviewer_360_invite', 'reviewer_360_confirm'])('reloads submitted %s in edit view with the current roster and task version', async kind => {
+    const snapshot = { ...loaded(kind), submitted_at: '2026-11-01T00:00:00Z', version: 1, reviewer_360: { ...roster('old'), editable: false, can_invite: false } }
+    const editable = { ...loaded(kind), submitted_at: snapshot.submitted_at, version: 7, reviewer_360: roster('current') }
+    const load = vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValueOnce(snapshot).mockResolvedValueOnce(editable)
+    const submit = vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockResolvedValue({ answers: {}, version: 8 })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation', draftChoice: 'discard' }, global: { stubs } })
+    await flushPromises()
+    expect(load).toHaveBeenCalledTimes(2)
+    expect(load).toHaveBeenLastCalledWith('8', undefined, { view: 'edit' })
+    expect(wrapper.getComponent(PerformanceTemplateRenderer).props('sections')[0].elements[0].data).toMatchObject({ version: 'current', editable: true, can_invite: true })
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(submit).toHaveBeenCalledWith(8, {}, 7, undefined, undefined, undefined, 'current')
+  })
+  it.each(['VERSION_CONFLICT', 'SUBMISSION_NOT_ALLOWED'])('distinguishes %s from a roster conflict and refreshes task state', async code => {
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue(loaded('reviewer_360_confirm'))
+    vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockRejectedValue({ response: { status: 409, data: { detail: code } } })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' }, global: { stubs } })
+    await flushPromises()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('名单已变化')
+    expect(wrapper.text()).toContain(code === 'VERSION_CONFLICT' ? '最新任务版本' : '当前任务不允许提交')
+  })
+  it('keeps roster operations independent from ordinary required validation and blocks formal submit while busy', async () => {
+    const value = loaded('reviewer_360_invite')
+    value.form_schema.push({ id: 'legacy', name: '旧字段', fields: [{ id: 'required', type: 'rich_text', label: '旧必填', required: true }] })
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue(value)
+    const submit = vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockResolvedValue({ answers: {}, version: 2 })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'reviewer_360_invite' }, global: { stubs } })
+    await flushPromises()
+    const renderer = wrapper.getComponent(PerformanceTemplateRenderer)
+    renderer.vm.$emit('reviewer-360-busy', true)
+    renderer.vm.$emit('submit')
+    await flushPromises()
+    expect(submit).not.toHaveBeenCalled()
+    renderer.vm.$emit('reviewer-360-busy', false)
+    await wrapper.vm.$nextTick()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(submit).toHaveBeenCalledWith(8, {}, 1, undefined, undefined, undefined, 'roster-1')
+  })
+})
 
 describe('comparison runtime', () => {
   const match = { content_id: 'rating-section', item_id: 'rating', label: '绩效评级', operator: 'gt', threshold: 2, difference: 4, first_task_id: 91, second_task_id: 92, first_version: 1, second_version: 1, first_value: 'one', second_value: 'five', reference_node_name: '项目评价' }
@@ -106,7 +204,7 @@ describe('comparison runtime', () => {
     await flushPromises()
     document.querySelector('.comparison-reason-actions .performance-button--primary').click()
     await flushPromises()
-    expect(document.querySelector('[role="alert"]').textContent).toBe('请填写差异理由')
+    expect(document.querySelector('[role="dialog"] [role="alert"]').textContent).toBe('请填写差异理由')
     expect(textarea.getAttribute('aria-describedby')).toBe('comparison-reason-error')
     expect(textarea.getAttribute('aria-invalid')).toBe('true')
     expect(submit).not.toHaveBeenCalled()
@@ -574,7 +672,8 @@ describe('SelfSummaryTask', () => {
     const wrapper = mount(SelfSummaryTask, { global: { stubs: { PerformanceMemberReminderDialog: true } } })
     await flushPromises()
     await wrapper.findAll('.split-single-tabs .summary-tabs button')[1].trigger('click')
-    await wrapper.get('.performance-remind-button--outline').trigger('click')
+    wrapper.getComponent(PerformanceReferenceContent).vm.$emit('remind', reference)
+    await wrapper.vm.$nextTick()
     expect(wrapper.getComponent(PerformanceMemberReminderDialog).props()).toMatchObject({ modelValue: true, context: { sourceTaskId: 42, employeeNo: 'E001', nodeId: 'feedback', targetKind: 'reviewer_360', targetTaskId: undefined } })
   })
 
@@ -585,8 +684,13 @@ describe('SelfSummaryTask', () => {
     const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' }, global: { stubs: { PerformanceMemberReminderDialog: true } } })
     await flushPromises()
     await wrapper.findAll('.split-single-tabs .summary-tabs button')[1].trigger('click')
-    expect(wrapper.getComponent(PerformanceReminderButton).props('variant')).toBe('outline')
-    await wrapper.get('.performance-remind-button--outline').trigger('click')
+    if (is360) {
+      wrapper.getComponent(PerformanceReferenceContent).vm.$emit('remind', reference)
+      await wrapper.vm.$nextTick()
+    } else {
+      expect(wrapper.getComponent(PerformanceReminderButton).props('variant')).toBe('outline')
+      await wrapper.get('.performance-remind-button--outline').trigger('click')
+    }
     expect(wrapper.getComponent(PerformanceMemberReminderDialog).props()).toMatchObject({ modelValue: true, context: { sourceTaskId: 42, employeeNo: 'E001', nodeId, targetTaskId: is360 ? undefined : 77, targetKind: is360 ? 'reviewer_360' : undefined } })
     expect(push).not.toHaveBeenCalled()
   })
@@ -1723,7 +1827,7 @@ describe('overdue first submission confirmation', () => {
   const loaded = () => ({ ...structuredClone(task), task_id: 901, node_id: 'summary', task_kind: 'work_summary', return_view: 'node', deadline_at: new Date(Date.now() - 60000).toISOString(), submitted_at: null, version: 2, answers: { work: '待补交内容' }, form_schema: [{ id: 's', name: '总结', fields: [{ id: 'work', type: 'rich_text', label: '总结', required: true }] }] })
 
   it.each(['work_summary', 'evaluation'])('waits for explicit %s confirmation and leaves input intact after cancellation', async taskKind => {
-    vi.spyOn(performanceReviewApi, taskKind === 'work_summary' ? 'selfSummary' : 'templateTask').mockResolvedValue(loaded())
+    vi.spyOn(performanceReviewApi, taskKind === 'work_summary' ? 'selfSummary' : 'templateTask').mockResolvedValue({ ...loaded(), task_kind: taskKind })
     const submit = vi.spyOn(performanceReviewApi, taskKind === 'work_summary' ? 'submitSelfSummary' : 'submitTemplateTask').mockResolvedValue({ version: 3, answers: { work: '待补交内容' }, editable: false, submit_allowed: false })
     const wrapper = mount(SelfSummaryTask, { attachTo: document.body, props: { taskKind } })
     await flushPromises()
@@ -1810,7 +1914,7 @@ describe('global submitted success toast', () => {
   })
 
   it.each(['work_summary', 'evaluation'])('shows the shared success toast only once after %s succeeds and before navigation', async kind => {
-    vi.spyOn(performanceReviewApi, kind === 'work_summary' ? 'selfSummary' : 'templateTask').mockResolvedValue(loaded())
+    vi.spyOn(performanceReviewApi, kind === 'work_summary' ? 'selfSummary' : 'templateTask').mockResolvedValue({ ...loaded(), task_kind: kind })
     let resolveSubmit
     const submit = vi.spyOn(performanceReviewApi, kind === 'work_summary' ? 'submitSelfSummary' : 'submitTemplateTask').mockReturnValue(new Promise(resolve => { resolveSubmit = resolve }))
     const success = vi.spyOn(messages, 'success').mockImplementation(() => ({ close: vi.fn() }))

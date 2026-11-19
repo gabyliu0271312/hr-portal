@@ -1542,8 +1542,8 @@ class PerformanceProjectService:
                 final_node = next(node for node in nodes if node.get("include_final_result"))
                 raw_node = calibration_template(source_node, final_node, content_library)
             else:
-                raw_node = resolve_self_summary_content(source_node, content_library) if node_type in {"work_summary", "evaluation", "result_reconsideration"} else source_node
-            raw_node = await hydrate_self_summary_template(raw_node, self.db) if node_type in {"work_summary", "evaluation", "calibration", "result_reconsideration"} else raw_node
+                raw_node = resolve_self_summary_content(source_node, content_library) if node_type in {"work_summary", "evaluation", "result_reconsideration", "reviewer_360_invite", "reviewer_360_confirm"} else source_node
+            raw_node = await hydrate_self_summary_template(raw_node, self.db) if node_type in {"work_summary", "evaluation", "calibration", "result_reconsideration", "reviewer_360_invite", "reviewer_360_confirm"} else raw_node
             node_id = str(raw_node.get("node_id") or f"node-{index + 1}")
             node_snapshot = PerformanceProjectNodeSnapshot(
                 project_id=project.id,
@@ -1693,8 +1693,8 @@ class PerformanceProjectService:
                     raise ProjectValidationError("项目冻结终评来源不唯一，不能补建复议节点")
                 raw_node = calibration_template(source_node, (finals[0].config or {}).get("template") or {}, [])
             else:
-                raw_node = resolve_self_summary_content(source_node, list(workflow.content_library or [])) if node_type in {"work_summary", "evaluation"} else source_node
-            raw_node = await hydrate_self_summary_template(raw_node, self.db) if node_type in {"work_summary", "evaluation", "result_reconsideration"} else raw_node
+                raw_node = resolve_self_summary_content(source_node, list(workflow.content_library or [])) if node_type in {"work_summary", "evaluation", "reviewer_360_invite", "reviewer_360_confirm"} else source_node
+            raw_node = await hydrate_self_summary_template(raw_node, self.db) if node_type in {"work_summary", "evaluation", "result_reconsideration", "reviewer_360_invite", "reviewer_360_confirm"} else raw_node
             snapshot = PerformanceProjectNodeSnapshot(project_id=project.id, node_id=node_id, node_type=node_type, name=str(raw_node.get("name") or node_id), node_order=int(raw_node.get("order") or index + 1), config={"template": raw_node, "time": normalized_times[node_id]})
             self.db.add(snapshot)
             await self.db.flush()

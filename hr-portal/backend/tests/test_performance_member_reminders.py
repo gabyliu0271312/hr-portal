@@ -715,6 +715,34 @@ async def test_invalid_calibration_source_has_no_delivery_or_audit(environment, 
 
 
 @pytest.mark.asyncio
+async def test_confirm_source_reminds_only_bound_360_evaluation(environment, monkeypatch):
+    from app.performance import reviewer_360_task_service as service
+    db, context, sender = environment
+    db.nodes[13].node_type = db.tasks[3].task_kind = "reviewer_360_confirm"
+    monkeypatch.setattr(service, "evaluation_node", AsyncMock(return_value=db.nodes[12]))
+    response = await listing(db, context, source_task_id=3)
+    assert [item["task_id"] for item in response["items"]] == [2]
+    response = await sending(db, context, [1, 2], source_task_id=3)
+    assert response["accepted_task_ids"] == [2] and response["skipped_task_ids"] == [1]
+    assert sender.await_args.args[0].id == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["expired", "not_started", "readonly", "transfer"])
+async def test_confirm_source_denies_invalid_time_or_permissions(environment, reason):
+    db, context, sender = environment
+    db.nodes[13].node_type = db.tasks[3].task_kind = "reviewer_360_confirm"
+    if reason == "expired": db.tasks[3].due_at = datetime.now(UTC) - timedelta(days=1)
+    if reason == "not_started": db.tasks[3].available_at = datetime.now(UTC) + timedelta(days=1)
+    if reason == "readonly": db.tasks[3].handler_ref = "A1"; db.delegations = [delegation(3, "M1", read_only=True)]
+    if reason == "transfer": db.delegations = [delegation(3, "A1", "TRANSFER")]
+    with pytest.raises(HTTPException):
+        await sending(db, context, [2], source_task_id=3)
+    sender.assert_not_awaited()
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_360_filter_intersects_task_node_and_preloaded_scope_without_display_name_fallback(environment):
     db, context, sender = environment
     db.nodes[11].name = "360°评估人"

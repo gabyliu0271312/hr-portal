@@ -101,6 +101,7 @@ import { usePerformanceProjectContextStore } from '@/stores/performanceProjectCo
 import { performanceTaskEntryRoute } from '@/components/performance/performanceTaskEntry'
 import { isReviewer360Node, isSelfEvaluationNode } from '@/components/performance/performanceExecutorOptions'
 import { performanceReviewDisplay } from '@/components/performance/performanceReviewDisplay'
+import { supportsReminderSourceTask } from '@/components/performance/performanceReminder'
 
 const route = useRoute()
 const router = useRouter()
@@ -523,11 +524,11 @@ const { reminderOpen, reminderContext, openMemberReminder } = usePerformanceMemb
 function openEvaluateReminder(payload: { node: PerformanceReviewNode; member: PerformanceReviewMemberContext; pendingCount: number }) {
   if (!payload.pendingCount) return
   const sourceTaskId = payload.member.task_id || payload.member.aggregate_task_id || payload.node.task_id || undefined
-  openMemberReminder({ projectId: Number(activeProjectId.value), cycleId: projectContext.activeCycleId || undefined, employeeNo: payload.member.employee_no, displayName: payload.member.display_name, sourceTaskId: ['evaluation', 'calibration', 'result_communication'].includes(payload.node.task_kind || payload.node.node_type) ? sourceTaskId : undefined, targetKind: 'reviewer_360' })
+  openMemberReminder({ projectId: Number(activeProjectId.value), cycleId: projectContext.activeCycleId || undefined, employeeNo: payload.member.employee_no, displayName: payload.member.display_name, sourceTaskId: supportsReminderSourceTask(payload.node.task_kind || payload.node.node_type) ? sourceTaskId : undefined, targetKind: 'reviewer_360' })
 }
 function openDrawerReminder(reference: PerformanceReferenceTab, sourceTaskId?: number) {
   const member = drawerMember.value
-  openMemberReminder({ projectId: Number(activeProjectId.value), cycleId: projectContext.activeCycleId || undefined, employeeNo: reference.employee_no || member?.member.employee_no || '', displayName: member?.member.display_name, sourceTaskId: sourceTaskId || (member && ['evaluation', 'calibration', 'result_communication'].includes(member.node.task_kind || member.node.node_type) ? member.task_id : undefined), nodeId: reference.node_id, targetKind: reference.kind === 'reviewer_360' ? 'reviewer_360' : undefined, taskId: reference.kind === 'reviewer_360' ? undefined : reference.task_id || undefined })
+  openMemberReminder({ projectId: Number(activeProjectId.value), cycleId: projectContext.activeCycleId || undefined, employeeNo: reference.employee_no || member?.member.employee_no || '', displayName: member?.member.display_name, sourceTaskId: sourceTaskId || (member && supportsReminderSourceTask(member.node.task_kind || member.node.node_type) ? member.task_id : undefined), nodeId: reference.node_id, targetKind: reference.kind === 'reviewer_360' ? 'reviewer_360' : undefined, taskId: reference.kind === 'reviewer_360' ? undefined : reference.task_id || undefined })
 }
 async function editDrawerTask(payload: { task_id: string | number; employee_no: string; draft_choice?: 'use' | 'discard'; task_kind?: string; node_id?: string }) {
   const current = drawerMember.value

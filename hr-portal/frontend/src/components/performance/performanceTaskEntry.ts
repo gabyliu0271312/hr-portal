@@ -5,6 +5,8 @@ export function performanceTaskEntryRoute(node: PerformanceReviewNode, projectId
   const routes: Record<string, string> = {
     work_summary: '/performance/review/self-summary',
     evaluation: '/performance/review/template-task',
+    reviewer_360_invite: '/performance/review/template-task',
+    reviewer_360_confirm: '/performance/review/template-task',
     calibration: '/performance/review/template-task',
     result_communication: '/performance/review/template-task',
     result_reconsideration: '/performance/review/template-task',

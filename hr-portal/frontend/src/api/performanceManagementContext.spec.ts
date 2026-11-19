@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AxiosError, AxiosHeaders, type AxiosAdapter } from 'axios'
 import { api } from './client'
-import { performanceWorkbenchApi, projectManagementApi } from './performance'
+import { performanceWorkbenchApi, projectManagementApi, performanceReview360InviteApi } from './performance'
 
 vi.mock('element-plus', () => ({ ElMessage: { error: vi.fn() } }))
 
@@ -18,6 +18,16 @@ afterEach(() => {
 })
 
 describe('management request scope', () => {
+  it('sends reviewer invitation source task in the query and only roster fields in the body', async () => {
+    window.history.replaceState({}, '', '/performance/review?project_id=29&node=confirm')
+    const requests: Parameters<AxiosAdapter>[0][] = []
+    api.defaults.adapter = async config => { requests.push(config); return response(config) }
+    await performanceReview360InviteApi.submit(29, ['R1'], 42, 'roster-version')
+    expect(requests[0].url).toBe('/performance/review-360/invites/projects/29')
+    expect(requests[0].params).toEqual({ source_task_id: 42 })
+    expect(JSON.parse(requests[0].data)).toEqual({ employee_nos: ['R1'], reviewer_360_version: 'roster-version' })
+  })
+
   it('loads all workbench project pages while preserving the cycle filter', async () => {
     const requests: Parameters<AxiosAdapter>[0][] = []
     api.defaults.adapter = async config => {

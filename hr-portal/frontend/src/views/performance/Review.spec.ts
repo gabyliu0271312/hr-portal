@@ -536,7 +536,7 @@ describe('PerformanceReview', () => {
     vi.spyOn(performanceWorkbenchApi, 'taskPeople').mockResolvedValue([])
   })
 
-  it.each(['evaluation', 'calibration', 'result_communication'])('passes the real %s source and 360 scope to the member dialog', async taskKind => {
+  it.each(['evaluation', 'calibration', 'result_communication', 'reviewer_360_confirm'])('passes the real %s source and 360 scope to the member dialog', async taskKind => {
     const wrapper = mount(Review, { global: { plugins: [pinia], stubs: { PerformanceReviewCategorySidebar: true, PerformanceReviewContent: true, PerformanceMemberReminderDialog: true } } })
     await flushPromises()
     const node = { ...overview.categories[2].nodes[0], node_type: taskKind, task_kind: taskKind, task_id: 999 }
@@ -547,7 +547,7 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
-  it.each(['evaluation', 'calibration', 'result_communication'])('restores %s drawer reminders with reference employee and actual loaded source', async taskKind => {
+  it.each(['evaluation', 'calibration', 'result_communication', 'reviewer_360_confirm'])('restores %s drawer reminders with reference employee and actual loaded source', async taskKind => {
     const loaded = structuredClone(overview)
     const node = { ...loaded.categories[2].nodes[0], node_type: taskKind, task_kind: taskKind, status: 'completed' as const }
     loaded.categories[2].nodes = [node]
@@ -1105,6 +1105,7 @@ describe('PerformanceReview', () => {
     const registered = overview.categories[0].nodes[0]
     expect(performanceTaskEntryRoute(registered, 1)).toBe('/performance/review/self-summary?task_id=11&project_id=1&node=summary')
     expect(performanceTaskEntryRoute({ ...registered, task_id: 299, task_kind: 'evaluation' }, 3)).toBe('/performance/review/template-task?task_id=299&project_id=3&node=summary')
+    for (const task_kind of ['reviewer_360_invite', 'reviewer_360_confirm']) expect(performanceTaskEntryRoute({ ...registered, task_kind }, 1)).toBe('/performance/review/template-task?task_id=11&project_id=1&node=summary')
     expect(performanceTaskEntryRoute({ ...registered, entry_mode: 'route' }, 1)).toBeNull()
     expect(performanceTaskEntryRoute({ ...registered, task_kind: 'future_task' }, 1)).toBeNull()
     expect(performanceTaskEntryRoute({ ...registered, task_id: undefined }, 1)).toBeNull()
@@ -1439,6 +1440,118 @@ describe('PerformanceReview', () => {
     await flushPromises()
 
     expect(replace).toHaveBeenCalledWith('/performance/workbench')
+    wrapper.unmount()
+  })
+
+  it.each(['not_started', 'pending', 'overdue'] as const)('uses the shared invite home state for %s without loading an invite list', async status => {
+    const node = { ...overview.categories[0].nodes[0], node_id: 'invite', node_type: 'reviewer_360_invite', task_kind: 'reviewer_360_invite', status }
+    const list = vi.spyOn(performanceReview360InviteApi, 'list')
+    const wrapper = mount(PerformanceReviewContent, { props: { node, projectId: 1, loading: false, error: '', templateName: '模板' } })
+    expect(wrapper.get('.state-illustration img').attributes('src')).toBe(status === 'not_started' ? '/performance-not-started.svg' : '/performance-no-submit.svg')
+    expect(wrapper.findComponent(PerformanceReview360InvitePanel).exists()).toBe(false)
+    expect(list).not.toHaveBeenCalled()
+    if (status === 'not_started') expect(wrapper.find('.primary-button').exists()).toBe(false)
+    else {
+      await wrapper.get('.primary-button').trigger('click')
+      expect(wrapper.emitted('open-node')).toEqual([[node]])
+    }
+    wrapper.unmount()
+  })
+
+  it('passes the submitted invite schema to the shared readonly renderer', () => {
+    const formSchema = [{ id: 'invite', name: '已提交邀请名单', fields: [], elements: [{ kind: 'reviewer_360' as const, id: 'reviewer_360', data: { items: [], total: 0, minimum_invited_count: 0, maximum_invited_count: null, maximum_invite_mode: 'SUGGESTED', second_prompt_enabled: false, second_prompt_count: null, second_prompt_mode: 'SUGGESTED', exclude_default_invite_from_limit: false } }] }]
+    const node = { ...overview.categories[0].nodes[0], node_id: 'invite', node_type: 'reviewer_360_invite', task_kind: 'reviewer_360_invite', status: 'completed' as const, editable: false, form_schema: formSchema }
+    const wrapper = mount(PerformanceReviewContent, { props: { node, projectId: 1, loading: false, error: '', templateName: '' }, global: { stubs: { PerformanceTemplateRenderer: true, PerformanceReviewCompletionNotice: true } } })
+    expect(wrapper.getComponent({ name: 'PerformanceTemplateRenderer' }).props()).toMatchObject({ mode: 'readonly', sections: formSchema })
+    expect(wrapper.findComponent(PerformanceReview360InvitePanel).exists()).toBe(false)
+    expect(wrapper.find('.primary-button').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps unstarted confirm on the shared icon without requesting task people or feedback', async () => {
+    const node = { ...overview.categories[0].nodes[0], node_id: 'confirm', node_type: 'reviewer_360_confirm', task_kind: 'reviewer_360_confirm', status: 'not_started' as const }
+    const feedback = vi.spyOn(performanceReview360FeedbackApi, 'list')
+    const wrapper = mount(PerformanceReviewContent, { props: { node, projectId: 1, loading: false, error: '', templateName: '' } })
+    await flushPromises()
+    expect(wrapper.get('.state-illustration img').attributes('src')).toBe('/performance-not-started.svg')
+    expect(wrapper.text()).toContain('暂未启动')
+    expect(performanceWorkbenchApi.taskPeople).not.toHaveBeenCalled()
+    expect(feedback).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it.each(['pending', 'completed'] as const)('keeps the exact six-column confirm table when the node is %s', async status => {
+    const node = { ...overview.categories[0].nodes[0], node_id: 'confirm', node_type: 'reviewer_360_confirm', task_kind: 'reviewer_360_confirm', status }
+    const member = { task_id: 42, employee_no: 'E001', display_name: '确认成员', status, due_at: null, completion: '0/1', visible_profile_fields: ['job_sequence', 'position_level'], job_sequence: '技术', position_level: 'P6', can_remind: true, evaluate_ratio: { evaluated: [], pending: [{ name: '待评人' }], dimission_count: 0, invite_stage: 'in_progress' } }
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue({ items: [member], total: 1, rating_columns: [{ key: 'rating:final', label: '不应出现的终评' }] } as any)
+    const feedback = vi.spyOn(performanceReview360FeedbackApi, 'list')
+    const wrapper = mount(PerformanceReviewContent, { props: { node, projectId: 1, loading: false, error: '', templateName: '' }, global: { plugins: [pinia], stubs: { PerformancePopover: { template: '<div><slot /></div>' } } } })
+    await flushPromises()
+    const table = wrapper.getComponent({ name: 'PerformanceManagementTable' })
+    expect(table.props('columns').map((column: { label: string }) => column.label)).toEqual(['姓名', '360°邀请确认状态', '截止时间', '360°评估率', '序列', '职级'])
+    expect(performanceWorkbenchApi.taskPeople).toHaveBeenCalledWith(1, 'confirm', 'all', undefined, undefined, 1, 50, undefined, undefined)
+    expect(feedback).not.toHaveBeenCalled()
+    expect(wrapper.getComponent(PerformanceEvaluateRatioPopover).props('canRemind')).toBe(true)
+    await wrapper.get('.performance-remind-button').trigger('click')
+    expect(wrapper.emitted('remind-evaluate')?.[0]?.[0]).toMatchObject({ node, member: { task_id: 42, employee_no: 'E001' }, pendingCount: 1 })
+    table.vm.$emit('row-click', member)
+    expect(wrapper.emitted('open-member')?.[0]?.[0]).toMatchObject({ node, member: { task_id: 42, employee_no: 'E001', status } })
+    table.vm.$emit('page-change', 2)
+    await flushPromises()
+    expect(table.props('rows')).toHaveLength(1)
+    expect(performanceWorkbenchApi.taskPeople).toHaveBeenLastCalledWith(1, 'confirm', 'all', undefined, undefined, 2, 50, undefined, undefined)
+    table.vm.$emit('sort-change', { key: 'completion', order: 'desc' })
+    await flushPromises()
+    await wrapper.get('input').setValue('确认成员')
+    await wrapper.get('input').trigger('keyup.enter')
+    await flushPromises()
+    expect(performanceWorkbenchApi.taskPeople).toHaveBeenLastCalledWith(1, 'confirm', 'all', '确认成员', undefined, 1, 50, 'completion', 'desc')
+    expect(wrapper.find('.performance-review-completion-notice').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each([[], ['job_sequence'], undefined])('clips confirm profile columns to actual visible fields %j', async fields => {
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue({ items: [{ task_id: 42, employee_no: 'E001', display_name: '成员', status: 'pending', visible_profile_fields: fields, job_sequence: '技术', position_level: '禁止泄漏' }], total: 1, rating_columns: [] } as any)
+    const wrapper = mount(PerformanceReview360FeedbackPanel, { props: { projectId: 1, nodeId: 'confirm', mode: 'taskPeople' }, global: { plugins: [pinia] } })
+    await flushPromises()
+    const labels = wrapper.getComponent({ name: 'PerformanceManagementTable' }).props('columns').map((column: { label: string }) => column.label)
+    expect(labels).toEqual(['姓名', '360°邀请确认状态', '截止时间', '360°评估率', ...(fields?.includes('job_sequence') ? ['序列'] : [])])
+    expect(wrapper.text()).not.toContain('禁止泄漏')
+    wrapper.unmount()
+  })
+
+  it('routes unfinished confirm rows to the shared template task using the real kind', async () => {
+    const node = { ...overview.categories[0].nodes[0], node_id: 'confirm', node_type: 'reviewer_360_confirm', task_kind: 'reviewer_360_confirm' }
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...structuredClone(overview), categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
+    const wrapper = mountView()
+    await flushPromises()
+    push.mockClear()
+    wrapper.getComponent(PerformanceReviewContent).vm.$emit('open-member', { node, member: { task_id: 42, employee_no: 'E001', status: 'pending' } })
+    await flushPromises()
+    expect(push).toHaveBeenCalledWith('/performance/review/template-task?task_id=42&project_id=1&node=confirm&employee_no=E001')
+    expect(wrapper.findComponent(PerformanceReviewEvaluationDrawer).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each([true, false])('uses the shared drawer and server editable=%s for completed confirm rows', async editable => {
+    const node = { ...overview.categories[0].nodes[0], node_id: 'confirm', node_type: 'reviewer_360_confirm', task_kind: 'reviewer_360_confirm', status: 'completed' as const }
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...structuredClone(overview), categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ task_id: 42, task_kind: 'reviewer_360_confirm', entry_mode: 'template_task', node_name: '360°确认', person: { employee_no: 'E001', display_name: '成员' }, editable, submit_allowed: editable, form_schema: [], answers: {} })
+    const wrapper = mountView()
+    await flushPromises()
+    push.mockClear()
+    wrapper.getComponent(PerformanceReviewContent).vm.$emit('open-member', { node, member: { task_id: 42, employee_no: 'E001', status: 'completed' } })
+    await flushPromises()
+    const drawer = wrapper.getComponent(PerformanceReviewEvaluationDrawer)
+    expect(drawer.props('readonly')).toBe(false)
+    expect(performanceReviewApi.templateTask).toHaveBeenCalledWith(42, 'E001', { view: 'drawer', tab: undefined })
+    expect(Boolean(document.body.querySelector('.performance-drawer .performance-review-completion-notice__edit'))).toBe(editable)
+    expect(push).not.toHaveBeenCalled()
+    if (editable) {
+      drawer.vm.$emit('edit', { task_id: 42, employee_no: 'E001', task_kind: 'reviewer_360_confirm', node_id: 'confirm', draft_choice: 'use' })
+      await flushPromises()
+      expect(push).toHaveBeenCalledWith('/performance/review/template-task?task_id=42&project_id=1&node=confirm&employee_no=E001&draft_choice=use')
+    }
     wrapper.unmount()
   })
 

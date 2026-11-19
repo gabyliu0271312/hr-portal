@@ -27,22 +27,17 @@
         </div>
       </div>
       <div class="review-body" :class="{ 'review-body--completed': !resultUnavailable && (node.node_type === 'result_view' || node.status === 'completed' && !showsEvaluationWorkspace) }">
-        <div class="review-panel" :class="{ completed: !resultUnavailable && (node.node_type === 'result_view' || node.status === 'completed' && !showsEvaluationWorkspace), evaluation: showsEvaluationWorkspace, invite: node.node_type === 'reviewer_360_invite', feedback: showsFeedbackTable }">
+        <div class="review-panel" :class="{ completed: !resultUnavailable && (node.node_type === 'result_view' || node.status === 'completed' && !showsEvaluationWorkspace), evaluation: showsEvaluationWorkspace, feedback: showsFeedbackTable }">
         <template v-if="node.node_type === 'result_view' && resultUnavailable">
           <div class="state-illustration" aria-hidden="true"><img src="/performance-not-started.svg" alt="" width="120" height="121"></div>
           <p>暂未开通结果</p>
         </template>
         <div v-else-if="node.node_type === 'result_view'" class="completed-content"><slot /></div>
-        <PerformanceReview360InvitePanel
-          v-else-if="node.node_type === 'reviewer_360_invite' && props.projectId"
-          :project-id="props.projectId"
-          :node-id="node.node_id"
-        />
         <PerformanceReview360FeedbackPanel
           v-else-if="showsFeedbackTable && props.projectId"
           ref="feedbackPanel"
           :key="`${props.projectId}-${node.node_id}`"
-          :mode="displayConfig?.table === 'communication' ? 'communication' : 'feedback'"
+          :mode="displayConfig?.table === 'taskPeople' ? 'taskPeople' : displayConfig?.table === 'communication' ? 'communication' : 'feedback'"
           :project-id="props.projectId"
           :node-id="node.node_id"
           :sources="shows360Feedback ? feedbackSources : undefined"
@@ -107,7 +102,6 @@ import PerformanceDisabledReason from './PerformanceDisabledReason.vue'
 import UiButton from '../ui/UiButton.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from './PerformanceLineTabs.vue'
 import ProjectMemberListPanel from './ProjectMemberListPanel.vue'
-import PerformanceReview360InvitePanel from './PerformanceReview360InvitePanel.vue'
 import PerformanceReview360FeedbackPanel from './PerformanceReview360FeedbackPanel.vue'
 import PerformanceDistributionTipsPanel from './PerformanceDistributionTips.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
@@ -126,7 +120,7 @@ const props = defineProps<{
 }>()
 
 const displayConfig = computed(() => props.node ? performanceReviewDisplay(props.node.node_type) : null)
-const showsFeedbackTable = computed(() => shows360Feedback.value || Boolean(displayConfig.value?.table === 'communication' && props.node?.status !== 'not_started'))
+const showsFeedbackTable = computed(() => shows360Feedback.value || Boolean((displayConfig.value?.table === 'communication' || displayConfig.value?.table === 'taskPeople') && props.node?.status !== 'not_started'))
 const showsEvaluationWorkspace = computed(() => {
   const node = props.node
   return Boolean(node && node.status !== 'not_started' && (displayConfig.value?.table === 'manager' || displayConfig.value?.table === 'members' || (node.task_kind === 'evaluation' && !isSelfEvaluationNode(node))))
@@ -211,7 +205,6 @@ function formatStartTime(value: string) {
 .review-body--completed { flex: 1 0 auto; }
 .review-panel.completed { flex: 1 0 auto; min-height: 0; align-items: stretch; justify-content: flex-start; padding: var(--performance-review-surface-inset); }
 .review-panel.evaluation { align-items: stretch; justify-content: flex-start; padding: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.review-panel.invite { align-items: stretch; justify-content: flex-start; padding: 0; }
 .review-panel.feedback { align-items: stretch; justify-content: flex-start; padding: 0; }
 .completed-content { flex: none; min-width: 0; width: 100%; max-width: var(--performance-review-content-max-width); margin: 0 auto; }
 .completed-fallback { margin: auto !important; }

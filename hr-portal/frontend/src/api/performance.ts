@@ -378,11 +378,24 @@ export interface PerformanceReview360InvitedReviewer {
   position_level: string | null
   status: 'invited' | 'pending' | 'completed'
   source_label: string
+  source_type?: string
+  relationship?: string | null
+  can_revoke?: boolean
+  revoke_disabled_reason?: string | null
   invited_at: string | null
   due_at: string | null
 }
 
 export interface PerformanceReview360InviteList {
+  project_id?: number
+  task_id?: number
+  employee_no?: string
+  node_id?: string
+  version?: string | null
+  count?: number
+  manual_count?: number
+  can_invite?: boolean
+  editable?: boolean
   items: PerformanceReview360InvitedReviewer[]
   total: number
   minimum_invited_count: number
@@ -414,27 +427,32 @@ export interface PerformanceReview360InviteSubmitResult {
   accepted_count: number
   already_invited: string[]
   rejected: string[]
+  version?: string | null
+  reviewer_360?: PerformanceReview360InviteList
 }
 
 export const performanceReview360InviteApi = {
-  async list(projectId: number | string, keyword?: string): Promise<PerformanceReview360InviteList> {
+  async list(projectId: number | string, keyword?: string, sourceTaskId?: number): Promise<PerformanceReview360InviteList> {
+    const params = { ...(keyword ? { keyword } : {}), ...(sourceTaskId === undefined ? {} : { source_task_id: sourceTaskId }) }
     const { data } = await api.get<PerformanceReview360InviteList>(`/performance/review-360/invites/projects/${projectId}`, {
-      params: keyword ? { keyword } : undefined,
+      params: Object.keys(params).length ? params : undefined,
     })
     return data
   },
-  async candidates(projectId: number | string, keyword?: string): Promise<PerformanceReview360InviteCandidates> {
+  async candidates(projectId: number | string, keyword?: string, sourceTaskId?: number): Promise<PerformanceReview360InviteCandidates> {
+    const params = { ...(keyword ? { keyword } : {}), ...(sourceTaskId === undefined ? {} : { source_task_id: sourceTaskId }) }
     const { data } = await api.get<PerformanceReview360InviteCandidates>(`/performance/review-360/invites/projects/${projectId}/candidates`, {
-      params: keyword ? { keyword } : undefined,
+      params: Object.keys(params).length ? params : undefined,
     })
     return data
   },
-  async submit(projectId: number | string, employeeNos: string[]): Promise<PerformanceReview360InviteSubmitResult> {
-    const { data } = await api.post<PerformanceReview360InviteSubmitResult>(`/performance/review-360/invites/projects/${projectId}`, { employee_nos: employeeNos })
+  async submit(projectId: number | string, employeeNos: string[], sourceTaskId?: number, reviewer360Version?: string): Promise<PerformanceReview360InviteSubmitResult> {
+    const { data } = await api.post<PerformanceReview360InviteSubmitResult>(`/performance/review-360/invites/projects/${projectId}`, { employee_nos: employeeNos, ...(reviewer360Version === undefined ? {} : { reviewer_360_version: reviewer360Version }) }, sourceTaskId === undefined ? undefined : { params: { source_task_id: sourceTaskId } })
     return data
   },
-  async revoke(projectId: number | string, employeeNo: string): Promise<{ revoked: string }> {
-    const { data } = await api.delete<{ revoked: string }>(`/performance/review-360/invites/projects/${projectId}/${encodeURIComponent(employeeNo)}`)
+  async revoke(projectId: number | string, employeeNo: string, sourceTaskId?: number, reviewer360Version?: string): Promise<{ revoked: string; version?: string | null; reviewer_360?: PerformanceReview360InviteList }> {
+    const context = { ...(sourceTaskId === undefined ? {} : { source_task_id: sourceTaskId }), ...(reviewer360Version === undefined ? {} : { reviewer_360_version: reviewer360Version }) }
+    const { data } = await api.delete<{ revoked: string; version?: string | null; reviewer_360?: PerformanceReview360InviteList }>(`/performance/review-360/invites/projects/${projectId}/${encodeURIComponent(employeeNo)}`, Object.keys(context).length ? { params: context } : undefined)
     return data
   },
 }
@@ -528,7 +546,7 @@ export const performanceReviewApi = {
     const { data } = await api.post<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/self-summary/submit`, { answers, version }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
     return data
   },
-  async templateTask(taskId: number | string, employeeNo?: string, options?: { view?: 'drawer'; tab?: string }): Promise<PerformanceTemplateTask> {
+  async templateTask(taskId: number | string, employeeNo?: string, options?: { view?: 'drawer' | 'edit'; tab?: string }): Promise<PerformanceTemplateTask> {
     const params = {
       ...(employeeNo ? { employee_no: employeeNo } : {}),
       ...(options?.view ? { view: options.view } : {}),
@@ -541,12 +559,12 @@ export const performanceReviewApi = {
     const { data } = await api.post(`/performance/tasks/${encodeURIComponent(String(taskId))}/comparison/preview`, { answers, version, ...(resultVersion === undefined ? {} : { result_version: resultVersion }) }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
     return data
   },
-  async saveTemplateTaskDraft(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string, resultVersion?: number | null, comparison?: PerformanceComparisonSubmission): Promise<SelfSummarySaveResult> {
-    const { data } = await api.patch<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task/draft`, { answers, version, ...(resultVersion === undefined ? {} : { result_version: resultVersion }), ...comparison }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
+  async saveTemplateTaskDraft(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string, resultVersion?: number | null, comparison?: PerformanceComparisonSubmission, reviewer360Version?: string): Promise<SelfSummarySaveResult> {
+    const { data } = await api.patch<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task/draft`, { answers, version, ...(resultVersion === undefined ? {} : { result_version: resultVersion }), ...comparison, ...(reviewer360Version === undefined ? {} : { reviewer_360_version: reviewer360Version }) }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
     return data
   },
-  async submitTemplateTask(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string, resultVersion?: number | null, comparison?: PerformanceComparisonSubmission): Promise<SelfSummarySaveResult> {
-    const { data } = await api.post<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task/submit`, { answers, version, ...(resultVersion === undefined ? {} : { result_version: resultVersion }), ...comparison }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
+  async submitTemplateTask(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string, resultVersion?: number | null, comparison?: PerformanceComparisonSubmission, reviewer360Version?: string): Promise<SelfSummarySaveResult> {
+    const { data } = await api.post<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task/submit`, { answers, version, ...(resultVersion === undefined ? {} : { result_version: resultVersion }), ...comparison, ...(reviewer360Version === undefined ? {} : { reviewer_360_version: reviewer360Version }) }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
     return data
   },
 }
@@ -1469,7 +1487,7 @@ export type PerformanceTemplateField = {
      评级取示例档位 id、tag 取全选、文本取占位文案；真实填写时忽略 */
   previewValue?: unknown
 }
-export type PerformanceTemplateElement = { kind: 'field'; id: string } | { kind: 'prompt'; id: string; prompt: PerformancePromptValue }
+export type PerformanceTemplateElement = { kind: 'field'; id: string } | { kind: 'prompt'; id: string; prompt: PerformancePromptValue } | { kind: 'reviewer_360'; id: string; data: PerformanceReview360InviteList }
 export type PerformanceTemplateSection = { id: string; name: string; hide_name?: boolean; description?: string; allow_multiple?: boolean; fields: PerformanceTemplateField[]; elements?: PerformanceTemplateElement[] }
 export type PerformanceOkrStatus = 'unset' | 'normal' | 'risk' | 'extended' | (string & {})
 export type PerformanceOkrKeyResult = {
@@ -1580,6 +1598,8 @@ export type SelfSummaryPerson = {
 }
 export const FINAL_RESULT_LOCKED_MESSAGE = '当前结果已完成校准，你无法再次修改'
 export type PerformanceTemplateTask = {
+  reviewer_360?: PerformanceReview360InviteList
+  reviewer_360_version?: string
   comparison?: PerformanceComparisonResult | null
   draft_diff_reason?: string | null
   draft_comparison_context?: string | null
@@ -1663,7 +1683,7 @@ export type PerformanceReminderPreview = {
   assessee_name: string
 }
 export type SelfSummaryTask = PerformanceTemplateTask
-export type SelfSummarySaveResult = { comparison?: PerformanceComparisonResult | null; draft_diff_reason?: string | null; draft_comparison_context?: string | null; draft_comparison_reasons?: PerformanceComparisonReason[]; answers: Record<string, unknown>; version?: number; result_version?: number | null; draft_base_result_version?: number | null; answer_submissions?: Array<{ display_name: string; submitted_at: string }>; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean; reconsideration_closed?: boolean }
+export type SelfSummarySaveResult = { reviewer_360?: PerformanceReview360InviteList; reviewer_360_version?: string; comparison?: PerformanceComparisonResult | null; draft_diff_reason?: string | null; draft_comparison_context?: string | null; draft_comparison_reasons?: PerformanceComparisonReason[]; answers: Record<string, unknown>; version?: number; result_version?: number | null; draft_base_result_version?: number | null; answer_submissions?: Array<{ display_name: string; submitted_at: string }>; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean; reconsideration_closed?: boolean }
 
 export const performanceWorkbenchApi = {
   async listProjects(keyword?: string, cycleId?: number): Promise<PerformanceWorkbenchProject[]> {

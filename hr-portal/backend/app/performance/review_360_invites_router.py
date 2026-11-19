@@ -62,9 +62,23 @@ class InvitedReviewerOut(BaseModel):
     invited_at: str | None = None
     due_at: str | None = None
     identity_status: dict | None = None
+    source_type: str = "UNKNOWN"
+    relationship: str | None = None
+    can_revoke: bool = False
+    revoke_disabled_reason: str | None = None
+    is_manual_by_actor: bool = False
 
 
 class InviteListOut(BaseModel):
+    project_id: int | None = None
+    task_id: int | None = None
+    employee_no: str | None = None
+    node_id: str | None = None
+    version: str | None = None
+    count: int = 0
+    manual_count: int = 0
+    can_invite: bool = False
+    editable: bool = False
     items: list[InvitedReviewerOut]
     total: int
     minimum_invited_count: int
@@ -95,10 +109,13 @@ class InviteCandidatesOut(BaseModel):
 class InvitePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     employee_nos: list[str] = Field(min_length=1, max_length=100)
+    reviewer_360_version: str | None = Field(default=None, max_length=64)
 
 
 class InviteSubmitOut(BaseModel):
     accepted_count: int
+    reviewer_360: dict | None = None
+    version: str | None = None
     already_invited: list[str] = Field(default_factory=list)
     rejected: list[str] = Field(default_factory=list)
 
@@ -327,69 +344,17 @@ async def list_invites(
     keyword: str | None = Query(default=None, max_length=128),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    source_task_id: int | None = Query(default=None, ge=1),
 ):
-    project = await _get_project(db, project_id)
-    target_ref = await _resolve_reviewee_employee(db, context, project)
-    snapshot = await _locked_snapshot(db, project)
-    evaluation_node = await _evaluation_node(db, project.id)
-    member_snapshot_id = await _latest_member_snapshot_id(db, project.id)
-    task_rows = await _invite_tasks(db, project.id, evaluation_node.id if evaluation_node else None, target_ref)
-    audit_events = await _invite_audit_events(db, project, target_ref)
-    active_invites = _active_invites_from_audit(audit_events, project.id)
-    tasks_by_handler: dict[str, list[PerformanceNodeTask]] = {}
-    for task in task_rows:
-        if task.member_snapshot_id == member_snapshot_id:
-            tasks_by_handler.setdefault(str(task.handler_ref), []).append(task)
-    people_by_no = _people_by_no(await _snapshot_people(db, snapshot.id))
-    invite_settings = _invite_settings(project, evaluation_node.node_id if evaluation_node else None, nodes=await _project_nodes(db, project.id))
-    minimum_count = int(invite_settings.get("minimum_invited_count") or 0)
-    maximum_count = invite_settings.get("maximum_invited_count")
-    maximum_mode = invite_settings.get("maximum_invite_mode") or "SUGGESTED"
-    second_enabled = bool(invite_settings.get("second_prompt_enabled", False))
-    second_count = invite_settings.get("second_prompt_count")
-    second_mode = invite_settings.get("second_prompt_mode") or "SUGGESTED"
-    exclude_default = bool(invite_settings.get("exclude_default_invite_from_limit", False))
-    items = []
-    for employee_no, event in active_invites.items():
-        person = people_by_no.get(employee_no)
-        handler_tasks = tasks_by_handler.get(employee_no, [])
-        task = min(handler_tasks, key=lambda item: item.id) if handler_tasks else None
-        assigned_by_ref = (event.after_state or {}).get("assigned_by_ref")
-        source_type = (event.after_state or {}).get("source_type")
-        source_label = INVITE_SOURCE_LABELS["DEFAULT"] if source_type == "DEFAULT" else (INVITE_SOURCE_LABELS["SELF"] if assigned_by_ref == target_ref else INVITE_SOURCE_LABELS["VOLUNTARY"])
-        items.append(
-            InvitedReviewerOut(
-                employee_no=employee_no,
-                display_name=person.display_name if person else "",
-                department=organization_leaf(person) if person else None,
-                job_family=person.job_family if person else None,
-                job_category=person.job_category if person else None,
-                job_sequence=format_job_sequence(person.job_family, person.job_category) if person else None,
-                position_level=person.position_level if person else None,
-                status="completed" if task is not None and task.submitted_at is not None else ("pending" if task is not None else "invited"),
-                source_label=source_label,
-                invited_at=event.event_at.isoformat() if event.event_at else None,
-                due_at=task.due_at.isoformat() if task is not None and task.due_at else None,
-            )
-        )
+    from app.performance import reviewer_360_task_service as service
+
+    task, node, project, actor, snapshot, _target, editable = await service.task_context(db, context, project_id, source_task_id)
+    data = await service.roster(db, task, node, project, editable=editable, actor_ref=actor.actor_ref)
     if keyword:
         lowered = keyword.strip().lower()
-        items = [
-            item for item in items
-            if lowered in item.display_name.lower() or lowered in item.employee_no.lower()
-        ]
-    await hydrate_member_identities(db, [(item, project.id, member_snapshot_id) for item in items], include_delegations=False)
-    return InviteListOut(
-        items=items,
-        total=len(items),
-        minimum_invited_count=minimum_count,
-        maximum_invited_count=maximum_count,
-        maximum_invite_mode=maximum_mode,
-        second_prompt_enabled=second_enabled,
-        second_prompt_count=second_count,
-        second_prompt_mode=second_mode,
-        exclude_default_invite_from_limit=exclude_default,
-    )
+        data["items"] = [item for item in data["items"] if lowered in item["display_name"].lower() or lowered in item["employee_no"].lower()]
+    await hydrate_member_identities(db, [(item, project.id, snapshot.id) for item in data["items"]], include_delegations=False)
+    return InviteListOut(**data)
 
 
 @router.get("/projects/{project_id}/candidates", response_model=InviteCandidatesOut)
@@ -398,13 +363,17 @@ async def list_candidates(
     keyword: str | None = Query(default=None, max_length=128),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    source_task_id: int | None = Query(default=None, ge=1),
 ):
-    project = await _get_project(db, project_id)
-    target_ref = await _resolve_reviewee_employee(db, context, project)
-    snapshot = await _locked_snapshot(db, project)
-    events = await _invite_audit_events(db, project, target_ref)
-    invited_nos = set(_active_invites_from_audit(events, project.id))
-    people = await _snapshot_people(db, snapshot.id)
+    from app.performance import reviewer_360_task_service as service
+
+    task, node, project, actor, snapshot, _target, editable = await service.task_context(db, context, project_id, source_task_id)
+    if not editable:
+        raise HTTPException(409, "SUBMISSION_NOT_ALLOWED")
+    current = await service.roster(db, task, node, project, editable=editable, actor_ref=actor.actor_ref)
+    target_ref = task.target_employee_no
+    invited_nos = {item["employee_no"] for item in current["items"]}
+    people = await _snapshot_people(db, snapshot.source_snapshot_id)
     candidates = [
         person for person in people
         if person.employee_no != target_ref
@@ -429,20 +398,17 @@ async def submit_invites(
     payload: InvitePayload,
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    source_task_id: int | None = Query(default=None, ge=1),
 ):
-    project = await _get_project(db, project_id)
-    target_ref = await _resolve_reviewee_employee(db, context, project)
-    snapshot = await _locked_snapshot(db, project)
-    evaluation_node = await _evaluation_node(db, project.id)
-    if evaluation_node is None:
-        raise HTTPException(status_code=409, detail="REVIEWER_360_NODE_NOT_CONFIGURED")
-    member_snapshot_id = await _latest_member_snapshot_id(db, project.id)
-    if member_snapshot_id is None:
-        raise HTTPException(status_code=409, detail="PROJECT_MEMBER_SNAPSHOT_NOT_FOUND")
-    events = await _invite_audit_events(db, project, target_ref)
-    active_invites = _active_invites_from_audit(events, project.id)
-    existing_nos = set(active_invites)
-    people_by_no = _people_by_no(await _snapshot_people(db, snapshot.id))
+    from app.performance import reviewer_360_task_service as service
+
+    task, source_node, project, actor, snapshot, evaluation_node, _editable = await service.task_context(db, context, project_id, source_task_id, write=True)
+    current = await service.roster(db, task, source_node, project, editable=True, actor_ref=actor.actor_ref)
+    service.require_version(payload.reviewer_360_version, current["version"])
+    target_ref = task.target_employee_no
+    member_snapshot_id = snapshot.id
+    existing_nos = {item["employee_no"] for item in current["items"]}
+    people_by_no = _people_by_no(await _snapshot_people(db, snapshot.source_snapshot_id))
     accepted, already, rejected = [], [], []
     for employee_no in dict.fromkeys(payload.employee_nos):
         if employee_no in existing_nos:
@@ -457,12 +423,10 @@ async def submit_invites(
             continue
         accepted.append(employee_no)
 
-    invite_settings = _invite_settings(project, evaluation_node.node_id if evaluation_node else None, nodes=await _project_nodes(db, project.id))
-    maximum_count = invite_settings.get("maximum_invited_count")
-    maximum_mode = invite_settings.get("maximum_invite_mode") or "SUGGESTED"
-    exclude_default = bool(invite_settings.get("exclude_default_invite_from_limit", False))
+    maximum_count = current["maximum_invited_count"]
+    maximum_mode = current["maximum_invite_mode"]
     if accepted and maximum_count is not None and maximum_mode == "LIMIT":
-        capacity = int(maximum_count) - _invite_count_for_limit(active_invites, exclude_default=exclude_default)
+        capacity = int(maximum_count) - current["count"]
         if capacity <= 0:
             raise HTTPException(status_code=422, detail="INVITE_LIMIT_REACHED")
         accepted, overflow = accepted[:capacity], accepted[capacity:]
@@ -477,8 +441,8 @@ async def submit_invites(
             PerformanceAuditService(db).append_event(
                 AuditEventInput(
                     event_type="REVIEWER_360_INVITED",
-                    actor_type=DYNAMIC_ASSIGNMENT_ACTOR_TYPE_EMPLOYEE,
-                    actor_ref=target_ref,
+                    actor_type=actor.actor_type,
+                    actor_ref=actor.actor_ref,
                     cycle_ref=project.cycle_ref,
                     employee_no=target_ref,
                     subject_type=DYNAMIC_IDENTITY_TYPE_REVIEWER_360,
@@ -486,9 +450,10 @@ async def submit_invites(
                     after_state={
                         "project_id": project.id,
                         "node_id": evaluation_node.node_id,
-                        "source_type": "SELF",
-                        "assigned_by_type": DYNAMIC_ASSIGNMENT_ACTOR_TYPE_EMPLOYEE,
-                        "assigned_by_ref": target_ref,
+                        "source_type": "SELF" if str(actor.actor_ref) == target_ref else "MANUAL",
+                        "assigned_by_type": actor.actor_type,
+                        "assigned_by_ref": str(actor.actor_ref),
+                        "source_task_id": task.id,
                     },
                 )
             )
@@ -500,6 +465,7 @@ async def submit_invites(
                     PerformanceNodeTask.target_employee_no == target_ref,
                     PerformanceNodeTask.handler_ref == employee_no,
                     PerformanceNodeTask.task_kind == "evaluation",
+                    PerformanceNodeTask.revoked_at.is_(None),
                 )
             )
             if exists is None:
@@ -520,10 +486,13 @@ async def submit_invites(
                     )
                 )
         await db.commit()
+    current = await service.roster(db, task, source_node, project, editable=True, actor_ref=actor.actor_ref)
     return InviteSubmitOut(
         accepted_count=len(accepted),
         already_invited=already,
         rejected=rejected,
+        reviewer_360=current,
+        version=current["version"],
     )
 
 
@@ -533,54 +502,14 @@ async def revoke_invite(
     employee_no: str,
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    source_task_id: int | None = Query(default=None, ge=1),
+    reviewer_360_version: str | None = Query(default=None, max_length=64),
 ):
-    project = await _get_project(db, project_id)
-    target_ref = await _resolve_reviewee_employee(db, context, project)
-    await _locked_snapshot(db, project)
-    events = await _invite_audit_events(db, project, target_ref)
-    active_invites = _active_invites_from_audit(events, project.id)
-    invite_event = active_invites.get(employee_no)
-    if invite_event is None:
-        raise HTTPException(status_code=404, detail="INVITE_NOT_FOUND")
-    evaluation_node = await _evaluation_node(db, project.id)
-    member_snapshot_id = await _latest_member_snapshot_id(db, project.id)
-    if evaluation_node is not None and member_snapshot_id is not None:
-        reviewer_tasks = (
-            await db.execute(
-                select(PerformanceNodeTask).where(
-                    PerformanceNodeTask.project_id == project.id,
-                    PerformanceNodeTask.member_snapshot_id == member_snapshot_id,
-                    PerformanceNodeTask.node_snapshot_id == evaluation_node.id,
-                    PerformanceNodeTask.target_employee_no == target_ref,
-                    PerformanceNodeTask.handler_ref == employee_no,
-                    PerformanceNodeTask.task_kind == "evaluation",
-                )
-            )
-        ).scalars().all()
-        if any(task.submitted_at is not None for task in reviewer_tasks):
-            raise HTTPException(status_code=409, detail="INVITE_ALREADY_COMPLETED")
-        for task in reviewer_tasks:
-            await db.delete(task)
-    PerformanceAuditService(db).append_event(
-        AuditEventInput(
-            event_type="REVIEWER_360_REVOKED",
-            cycle_ref=project.cycle_ref,
-            employee_no=target_ref,
-            actor_type=DYNAMIC_ASSIGNMENT_ACTOR_TYPE_EMPLOYEE,
-            actor_ref=target_ref,
-            subject_type=DYNAMIC_IDENTITY_TYPE_REVIEWER_360,
-            subject_ref=employee_no,
-            before_state={
-                "project_id": project.id,
-                "node_id": evaluation_node.node_id if evaluation_node else None,
-                "invited_at": invite_event.event_at.isoformat() if invite_event.event_at else None,
-            },
-            after_state={
-                "project_id": project.id,
-                "node_id": evaluation_node.node_id if evaluation_node else None,
-                "is_active": False,
-            },
-        )
-    )
-    await db.commit()
-    return {"revoked": employee_no}
+    from app.performance import reviewer_360_task_service as service
+
+    task, node, project, actor, _snapshot, _target, _editable = await service.task_context(db, context, project_id, source_task_id, write=True)
+    current = await service.roster(db, task, node, project, editable=True, actor_ref=actor.actor_ref)
+    service.require_version(reviewer_360_version, current["version"])
+    if not any(item["employee_no"] == employee_no for item in current["items"]):
+        raise HTTPException(404, "INVITE_NOT_FOUND")
+    raise HTTPException(403, "REVIEWER_360_REVOKE_NOT_ENABLED")

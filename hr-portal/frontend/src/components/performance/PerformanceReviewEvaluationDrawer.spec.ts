@@ -84,7 +84,7 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     wrapper.unmount()
   })
 
-  it.each(['evaluation', 'calibration', 'result_communication'])('forwards the loaded %s source and the specific stage task with the outline button', async taskKind => {
+  it.each(['evaluation', 'calibration', 'result_communication', 'reviewer_360_confirm'])('forwards the loaded %s source and the specific stage task with the outline button', async taskKind => {
     const reference: PerformanceReferenceTab = { key: 'summary', node_id: 'summary', node_name: '工作总结', task_id: null, employee_no: '', status: 'pending', form_schema: [], answers: {}, can_remind: false }
     const detailLoader = vi.fn().mockResolvedValue({ ...structuredClone(task), task_kind: taskKind, task_id: 42, management_tabs: [reference], default_active_tab: 'summary', stage_views: [{ node_id: 'summary', task_id: 77, can_fill: false, can_remind: true, reminder_target: null }] })
     const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, detailLoader } })

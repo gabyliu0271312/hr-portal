@@ -6,6 +6,7 @@
       <template #default="{ index }">
         <template v-for="element in displayElements(section)" :key="`${element.kind}:${element.id}`">
           <PerformancePromptDisplay v-if="element.kind === 'prompt'" class="template-content-prompt" :data-prompt-id="element.id" :value="element.prompt" />
+          <PerformanceReview360InvitePanel v-else-if="element.kind === 'reviewer_360'" :data-reviewer-360-id="element.id" :data="element.data" :readonly="mode === 'readonly'" :disabled="!editable" @change="data => $emit('reviewer-360-change', data)" @busy="busy => $emit('reviewer-360-busy', busy)" />
           <PerformanceTemplateFieldRenderer v-else :data-field-id="fieldErrorKey(section, element.field, index)" :mode="mode === 'readonly' || element.field.readonly ? 'readonly' : 'edit'" :field="displayField(section, element.field, index)" :value="fieldValue(section, element.field, index)" :label="displayFieldLabel(section, element.field, index)" :placeholder-fallback="placeholderFallback" :editable="mode === 'edit' && editable && !element.field.readonly && (!performanceTemplateInstanceUnknown(section, index, answers) || element.field.type === 'rating')" :invalid="mode === 'edit' && !element.field.readonly && !performanceTemplateInstanceUnknown(section, index, answers) && Boolean(errors[fieldErrorKey(section, element.field, index)])" :error="errors[fieldErrorKey(section, element.field, index)]" @update:value="value => setFieldValue(section, element.field, index, value)" @queue-save="$emit('queue-save')" />
         </template>
       </template>
@@ -14,7 +15,8 @@
 </template>
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { PerformancePromptValue, PerformanceTemplateField, PerformanceTemplateSection as TemplateSection } from '@/api/performance'
+import type { PerformancePromptValue, PerformanceReview360InviteList, PerformanceTemplateField, PerformanceTemplateSection as TemplateSection } from '@/api/performance'
+import PerformanceReview360InvitePanel from './PerformanceReview360InvitePanel.vue'
 import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
 import PerformanceTemplateSection from './PerformanceTemplateSection.vue'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
@@ -32,12 +34,13 @@ const props = withDefaults(defineProps<{
   /** 字段无 placeholder 时的兜底文案（填写页为「提示」，预览传空串） */
   placeholderFallback?: string
 }>(), { title: '', errors: () => ({}), editable: false, showHeader: true, placeholderFallback: '提示' })
-const emit = defineEmits<{ 'update-answer': [id: string, value: unknown]; 'queue-save': []; submit: [] }>()
+const emit = defineEmits<{ 'update-answer': [id: string, value: unknown]; 'queue-save': []; 'reviewer-360-change': [data: PerformanceReview360InviteList]; 'reviewer-360-busy': [busy: boolean]; submit: [] }>()
 const formRef = ref<HTMLFormElement | null>(null)
-type DisplayElement = { kind: 'field'; id: string; field: PerformanceTemplateField } | { kind: 'prompt'; id: string; prompt: PerformancePromptValue }
+type DisplayElement = { kind: 'field'; id: string; field: PerformanceTemplateField } | { kind: 'prompt'; id: string; prompt: PerformancePromptValue } | { kind: 'reviewer_360'; id: string; data: PerformanceReview360InviteList }
 function displayElements(section: TemplateSection): DisplayElement[] {
   return (section.elements ?? section.fields.map(field => ({ kind: 'field' as const, id: field.id }))).flatMap((element): DisplayElement[] => {
     if (element.kind === 'prompt') return element.prompt.allowView === false || (element.prompt.onlyWhenFilling && (props.mode !== 'edit' || !props.editable)) ? [] : [element]
+    if (element.kind === 'reviewer_360') return [element]
     const field = section.fields.find(field => field.id === element.id)
     return field ? [{ ...element, field }] : []
   })

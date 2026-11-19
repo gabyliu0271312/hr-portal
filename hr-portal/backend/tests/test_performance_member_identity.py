@@ -276,7 +276,14 @@ async def test_feedback_reviewee_and_invite_reviewer_use_different_history_bound
     monkeypatch.setattr(invites, "_invite_tasks", AsyncMock(return_value=[task]))
     monkeypatch.setattr(invites, "_invite_audit_events", AsyncMock(return_value=[SimpleNamespace(
         subject_ref="E1", after_state={"project_id": 1, "source_type": "SELF"}, event_type="REVIEWER_360_INVITED", event_at=NOW)]))
-    result = await invites.list_invites(1, keyword=None, context=_tag_context(), db=identity_db)
+    from app.performance import reviewer_360_task_service as task_service
+    monkeypatch.setattr(task_service, "task_context", AsyncMock(return_value=(task, node, project,
+        SimpleNamespace(actor_ref="ACTOR"), SimpleNamespace(id=10), node, True)))
+    monkeypatch.setattr(task_service, "roster", AsyncMock(return_value={
+        "items": [{"employee_no": "E1", "display_name": "员工", "status": "pending", "source_label": "自己邀请"}],
+        "total": 1, "minimum_invited_count": 0,
+    }))
+    result = await invites.list_invites(1, keyword=None, context=_tag_context(), db=identity_db, source_task_id=1)
     assert result.items[0].identity_status == {"live_employment_status": "离职", "delegations": []}
 
 

@@ -116,6 +116,7 @@ class SelfSummaryAnswersPayload(BaseModel):
     answers: dict = Field(default_factory=dict)
     version: int | None = Field(default=None, ge=1)
     result_version: int | None = Field(default=None, ge=0)
+    reviewer_360_version: str | None = Field(default=None, max_length=64)
     diff_reason: str | None = Field(default=None, max_length=20000)
     comparison_context: str | None = Field(default=None, max_length=128)
     comparison_reasons: list[ComparisonReasonPayload] | None = None
@@ -246,7 +247,7 @@ async def _self_summary_task(task_id: int, actor: PerformanceAccessContext, db: 
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND") from None
     if not await _task_handler_allowed(db, row[0], trusted.actor_ref):
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
-    allowed_kinds = {"evaluation", "calibration", "result_communication", "result_reconsideration"} if task_kind == "evaluation" else {task_kind}
+    allowed_kinds = {"evaluation", "calibration", "result_communication", "result_reconsideration", "reviewer_360_invite", "reviewer_360_confirm"} if task_kind == "evaluation" else {task_kind}
     if row[0].task_kind == "result_reconsideration":
         from app.performance.reconsideration_service import reconsideration_for_task
         await reconsideration_for_task(db, row[0])
@@ -344,12 +345,13 @@ async def _self_summary_template(task: PerformanceNodeTask, node: PerformancePro
     template = (node.config or {}).get("template") or {}
     if getattr(node, "node_type", None) == "result_reconsideration":
         return template
-    if "template" not in (node.config or {}) and getattr(node, "node_type", None) != "calibration":
+    reviewer_bindings = getattr(node, "node_type", None) in {"reviewer_360_invite", "reviewer_360_confirm"} and bool(template.get("content_bindings"))
+    if ("template" not in (node.config or {}) or reviewer_bindings) and getattr(node, "node_type", None) != "calibration":
         project = await db.get(PerformanceProject, task.project_id)
         template_id = (project.settings or {}).get("template_id") if project else None
         workflow = await db.get(PerformanceTemplateWorkflow, int(template_id)) if template_id else None
         current_node = next((item for item in (workflow.nodes if workflow else []) if item.get("node_id") == node.node_id), None)
-        template = resolve_self_summary_content(current_node or template, list((workflow.content_library if workflow else []) or []))
+        template = resolve_self_summary_content(template if reviewer_bindings else current_node or template, list((workflow.content_library if workflow else []) or []))
     return await hydrate_self_summary_template(template, db)
 
 
@@ -905,6 +907,11 @@ async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProj
         return schema, submitted_answers(appeal.result_snapshot, task.answers)
     template = template if template is not None else await _self_summary_template(task, node, db)
     schema = build_self_summary_schema(template, include_prompts=True, filling=filling)
+    if getattr(task, "task_kind", None) in {"reviewer_360_invite", "reviewer_360_confirm"}:
+        from app.performance import reviewer_360_task_service as reviewer_tasks
+        project = await db.get(PerformanceProject, task.project_id)
+        roster = await reviewer_tasks.roster(db, task, node, project, editable=filling, snapshot=task.submitted_at is not None and not filling)
+        return [reviewer_tasks.schema_section(roster), *schema], project_self_summary_answers(schema, task.answers or {})
     result = None
     if isinstance(task, PerformanceNodeTask) and shared_results.participates(task, node):
         result = await _effective_member_result(task.project_id, task.cycle_ref, task.member_snapshot_id, task.target_employee_no, db, **result_options)
@@ -967,7 +974,10 @@ async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProj
 async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, context: PerformanceAccessContext, db: AsyncSession, *, view=None, tab=None):
     project = await db.get(PerformanceProject, task.project_id)
     available_at, due_at = _task_window(task, node, project)
-    overdue_allowed = False if getattr(task, "task_kind", None) in {"calibration", "result_reconsideration"} else await _overdue_submission_allowed(task, node, db)
+    reviewer_task = task.task_kind in {"reviewer_360_invite", "reviewer_360_confirm"}
+    if reviewer_task and (project is None or project.status != PROJECT_STATUS_STARTED or project.cycle_ref != task.cycle_ref):
+        raise HTTPException(404, "PROJECT_NOT_FOUND")
+    overdue_allowed = False if getattr(task, "task_kind", None) in {"calibration", "result_reconsideration", "reviewer_360_invite", "reviewer_360_confirm"} else await _overdue_submission_allowed(task, node, db)
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
     final_result_locked = await _final_result_locked(task, node, db)
     if final_result_locked:
@@ -977,7 +987,11 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
     manager_drawer = view == "drawer" and task.task_kind == "evaluation" and node_role_code({
         "node_type": getattr(node, "node_type", task.task_kind), **((node.config or {}).get("template") or {}),
     }) in MANAGER_ROLE_CODES
-    schema, answers = ([], {}) if manager_drawer else await _task_visible_content(task, node, db, filling=editable and submit_allowed, **content_options)
+    if reviewer_task:
+        schema = build_self_summary_schema(await _self_summary_template(task, node, db), include_prompts=True, filling=editable and submit_allowed and (task.submitted_at is None or view == "edit"))
+        answers = project_self_summary_answers(schema, task.answers or {})
+    else:
+        schema, answers = ([], {}) if manager_drawer else await _task_visible_content(task, node, db, filling=editable and submit_allowed, **content_options)
     if task.task_kind == "calibration":
         effective = await _effective_member_result(task.project_id, task.cycle_ref, task.member_snapshot_id, task.target_employee_no, db)
         if effective["calibrated"] or effective["source_kind"] == "result_reconsideration":
@@ -1056,6 +1070,12 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
             schema, answers = await _task_visible_content(task, node, db, filling=editable and submit_allowed)
         else:
             schema, answers = management_detail["form_schema"], management_detail["answers"]
+    reviewer_360 = None
+    if reviewer_task:
+        from app.performance import reviewer_360_task_service as reviewer_tasks
+        reviewer_360 = await reviewer_tasks.roster(db, task, node, project, editable=editable and (task.submitted_at is None or view == "edit"), snapshot=task.submitted_at is not None and view != "edit", actor_ref=actor_ref)
+        schema = [reviewer_tasks.schema_section(reviewer_360), *[section for section in schema if section.get("id") != "reviewer-360"]]
+        answer_submissions = await reviewer_tasks.submissions(db, task, node)
     shared = isinstance(task, PerformanceNodeTask) and shared_results.participates(task, node)
     shared_state = getattr(member, "shared_result_state", None) if shared and member is not None else None
     draft_entry = shared_results.private_draft(task, actor_ref) if shared else None
@@ -1069,6 +1089,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         comparison = None
     return {
         "comparison": comparison,
+        **({"reviewer_360": reviewer_360} if reviewer_task else {}),
         **comparison_service.actor_draft_projection(task, actor_ref, comparison),
         "result_version": (shared_state or {}).get("revision", 0) if shared else None,
         "draft_base_result_version": (draft_entry or {}).get("base_result_version") if shared else None,
@@ -1109,7 +1130,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         },
         "form_schema": schema,
         "answers": answers,
-        **({"answer_submissions": answer_submissions} if shared or task.task_kind in {"calibration", "result_reconsideration"} or manager_evaluation else {}),
+        **({"answer_submissions": answer_submissions} if shared or reviewer_task or task.task_kind in {"calibration", "result_reconsideration"} or manager_evaluation else {}),
         "has_draft": not final_result_locked and (visible_draft is not None or bool(comparison_service.actor_draft_projection(task, actor_ref, comparison)["draft_comparison_reasons"]) or comparison_service.actor_draft_projection(task, actor_ref, comparison)["draft_diff_reason"] is not None),
         "draft_answers": {} if final_result_locked else ({key: deepcopy(value) for key, value in (visible_draft or {}).items() if key == "keep_result" or any(field["id"] == key for section in schema for field in section.get("fields") or [])} if task.task_kind == "result_reconsideration" else project_self_summary_answers(schema, visible_draft or {})),
         "prompts": comparison_service.comparison_prompts(comparison),
@@ -1133,12 +1154,12 @@ async def get_self_summary(task_id: int, context: PerformanceAccessContext = Dep
 
 
 @router.get("/tasks/{task_id}/template-task")
-async def get_template_task(task_id: int, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), employee_no: str | None = Query(default=None), view: Literal["drawer"] | None = None, tab: str | None = Query(default=None, max_length=128)):
+async def get_template_task(task_id: int, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), employee_no: str | None = Query(default=None), view: Literal["drawer", "edit"] | None = None, tab: str | None = Query(default=None, max_length=128)):
     task_args = (task_id, context, db, "evaluation")
     if employee_no:
         task_args = (*task_args, employee_no)
     task, node = await _self_summary_task(*task_args)
-    return await _template_task_detail(task, node, context, db, **({"view": view, "tab": tab if isinstance(tab, str) else None} if view == "drawer" else {}))
+    return await _template_task_detail(task, node, context, db, **({"view": view, "tab": tab if isinstance(tab, str) else None} if view in {"drawer", "edit"} else {}))
 
 
 async def _lock_task_context(db, task, node, *, validate: bool = True):
@@ -1358,6 +1379,9 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
         raise HTTPException(status_code=409, detail="VERSION_REQUIRED")
     if payload.version is not None and payload.version != task.answer_version:
         raise HTTPException(status_code=409, detail="VERSION_CONFLICT")
+    if getattr(task, "task_kind", None) in {"reviewer_360_invite", "reviewer_360_confirm"}:
+        from app.performance.reviewer_360_task_service import save_task
+        return await save_task(db, task, node, project, actor, payload, submit)
     template = await _self_summary_template(task, node, db)
     reconsideration = getattr(task, "task_kind", None) == "result_reconsideration"
     if reconsideration:
@@ -6984,6 +7008,8 @@ _TASK_ENTRY_MODES = {
     "calibration": "template_task",
     "result_communication": "template_task",
     "result_reconsideration": "template_task",
+    "reviewer_360_invite": "template_task",
+    "reviewer_360_confirm": "template_task",
 }
 
 
@@ -7139,7 +7165,7 @@ async def review_overview(
             "executor_label": raw_node.get("executor_label") or "",
             "executor_role_code": node_role_code({"node_type": node.node_type, **raw_node}),
             "phase_id": getattr(selected_task, "phase_id", "") or None,
-            "status": _review_tasks_status(status_tasks, start_at, end_at, now) if is_template_task and node.node_type in {"evaluation", "calibration", "result_communication"} else (_review_task_status(selected_task, start_at, end_at, now) if is_template_task else _review_node_status(start_at, end_at, now)),
+            "status": _review_tasks_status(status_tasks, start_at, end_at, now) if is_template_task and node.node_type in {"evaluation", "calibration", "result_communication", "reviewer_360_confirm"} else (_review_task_status(selected_task, start_at, end_at, now) if is_template_task else _review_node_status(start_at, end_at, now)),
             "start_at": start_at,
             "end_at": end_at,
             "action_url": f"/performance/review?node={node.node_id}&project_id={project.id}",
@@ -7147,11 +7173,15 @@ async def review_overview(
         }
         if is_template_task and selected_task is not None:
             available_at, due_at = _task_window(selected_task, node, project)
-            editable, _ = _self_summary_state(selected_task, available_at, due_at, getattr(selected_task, "task_kind", None) != "calibration")
+            editable, _ = _self_summary_state(selected_task, available_at, due_at, getattr(selected_task, "task_kind", None) not in {"calibration", "reviewer_360_invite", "reviewer_360_confirm"})
             node_payload["editable"] = editable
             node_payload["submitted_at"] = selected_task.submitted_at
             if selected_task.submitted_at is not None:
                 node_payload["form_schema"], node_payload["answers"] = await _task_visible_content(selected_task, node, db)
+                if selected_task_kind in {"reviewer_360_invite", "reviewer_360_confirm"}:
+                    from app.performance import reviewer_360_task_service as reviewer_tasks
+                    node_payload["reviewer_360"] = node_payload["form_schema"][0]["elements"][0]["data"]
+                    node_payload["answer_submissions"] = await reviewer_tasks.submissions(db, selected_task, node)
                 _, node_payload["comparison"] = await comparison_service.evaluate_task(db, selected_task, node, project, selected_task.answers or {}, include_history=True)
         categories[category]["nodes"].append(node_payload)
 

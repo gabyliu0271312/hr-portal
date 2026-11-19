@@ -103,7 +103,7 @@ def _preloaded_edit_allowed(task, actor_ref, preloaded):
 def reminder_source_node(node):
     from app.performance import projects_router as shared
 
-    return node.node_type in {"calibration", "result_communication", "result_reconsideration"} or (
+    return node.node_type in {"calibration", "result_communication", "result_reconsideration", "reviewer_360_confirm"} or (
         node.node_type == "evaluation" and shared.node_role_code({
             "node_type": node.node_type, **((node.config or {}).get("template") or {}),
         }) in shared.MANAGER_ROLE_CODES
@@ -356,6 +356,11 @@ async def _member_tasks(project, employee_no, context, db, source_task_id=None, 
             "node_type": node.node_type, **((node.config or {}).get("template") or {}),
         }) == shared.ROLE_REVIEWER_360)
     )]
+    if manager_task is not None and manager_task.task_kind == "reviewer_360_confirm":
+        from app.performance.reviewer_360_task_service import evaluation_node
+        source_node = preloaded["nodes"].get(manager_task.node_snapshot_id) if preloaded else await db.get(PerformanceProjectNodeSnapshot, manager_task.node_snapshot_id)
+        target_node = await evaluation_node(db, project, source_node)
+        rows = [(task, node) for task, node in rows if task.task_kind == "evaluation" and node.id == target_node.id]
     if task_id is not None and not rows:
         raise HTTPException(404, "REMINDER_TARGET_NOT_FOUND")
     people_cache = _request_cache(db, "performance_member_reminder_people")

@@ -27,7 +27,7 @@
         <section v-else-if="loadError" class="state error"><p>{{ loadError }}</p><button type="button" @click="load()">重新加载</button></section>
         <template v-else>
           <div v-show="isSplit || activeTab === 'current'" class="task-content">
-            <section v-if="!isReconsiderationTask && !task.form_schema.length" class="state">暂无填写内容</section>
+            <section v-if="!isReconsiderationTask && !task.form_schema.length && !hasReviewer360Element" class="state">暂无填写内容</section>
             <div v-else ref="draftAnchor" class="task-form-shell">
               <div v-if="task.calibration_notice" class="task-notices task-notices--calibration"><PerformancePromptNotice type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice></div>
               <div class="task-notices task-notices--submission">
@@ -39,17 +39,18 @@
                 <h2>处理人</h2>
                 <p v-for="handler in task.reconsideration.handlers" :key="`${handler.task_id}-${handler.role_key}`">{{ handler.role_label }} {{ handler.display_name }}</p>
               </section>
+              <PerformancePromptNotice v-if="reviewer360Conflict" type="warning" multiline>{{ saveMessage }} <button type="button" @click="reloadReviewer360">重新读取名单</button></PerformancePromptNotice>
               <PerformanceReconsiderationContent v-if="isReconsiderationTask" class="task-reconsideration" :title="task.content_page_name || task.node_name" :reason="task.reconsideration_reason" :model-value="keepResultChoice" :show-result-and-modify="showResultAndModify" :interactive="canEdit && !submitting" @update:model-value="changeKeepResult">
-                <PerformanceTemplateRenderer ref="formRef" class="task-template-renderer" :mode="viewing || draftPending || reconsiderationClosed ? 'readonly' : 'edit'" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="canEdit" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()" />
+                <PerformanceTemplateRenderer ref="formRef" class="task-template-renderer" :mode="viewing || draftPending || reconsiderationClosed ? 'readonly' : 'edit'" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="canEdit" @update-answer="updateAnswer" @queue-save="queueSave" @reviewer-360-change="updateReviewer360" @reviewer-360-busy="reviewer360Busy = $event" @submit="submit()" />
               </PerformanceReconsiderationContent>
-              <PerformanceTemplateRenderer v-else ref="formRef" class="task-template-renderer" :mode="viewing || draftPending ? 'readonly' : 'edit'" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed && !task.final_result_locked && !submitting" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()">
+              <PerformanceTemplateRenderer v-else ref="formRef" class="task-template-renderer" :mode="viewing || draftPending ? 'readonly' : 'edit'" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed && !task.final_result_locked && !submitting" @update-answer="updateAnswer" @queue-save="queueSave" @reviewer-360-change="updateReviewer360" @reviewer-360-busy="reviewer360Busy = $event" @submit="submit()">
                 <template #after-title><PerformanceComparisonNotice :comparison="viewing || draftPending ? task.comparison : comparison" :task-id="task.task_id" :references="task.reference_tabs" :readonly="viewing || draftPending" /></template>
               </PerformanceTemplateRenderer>
             </div>
           </div>
           <PerformanceReferenceContent v-if="!isSplit && activeReference" class="task-reference-content" show-title :reference="activeReference" @remind="openReminder" />
         </template>
-        <template #footer><PerformanceSelfSummaryFooter v-if="!loading && !loadError && !viewing && !draftPending && !reconsiderationClosed && !task.final_result_locked" v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !task.final_result_locked && !loading" :editable="canEdit" :can-giveup="canGiveup && !submitting" :message="saveMessage" @submit="submit()" @cancel="closeTask" @giveup="giveupConfirmOpen = true" /></template>
+        <template #footer><PerformanceSelfSummaryFooter v-if="!loading && !loadError && !viewing && !draftPending && !reconsiderationClosed && !task.final_result_locked" v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !task.final_result_locked && !loading && !reviewer360Busy && !reviewer360Conflict" :editable="canEdit" :can-giveup="canGiveup && !submitting" :message="saveMessage" @submit="submit()" @cancel="closeTask" @giveup="giveupConfirmOpen = true" /></template>
       </PerformanceSplitWorkspace>
     </template>
   </PerformanceTaskWorkspace>
@@ -71,7 +72,7 @@ import { usePerformanceComparison, performanceComparisonContext, performanceComp
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceDraftChoice from '@/components/performance/PerformanceDraftChoice.vue'
 import PerformanceReviewCompletionNotice from '@/components/performance/PerformanceReviewCompletionNotice.vue'
-import { performanceReview360FeedbackApi, performanceReviewApi, FINAL_RESULT_LOCKED_MESSAGE, type PerformanceComparisonReason, type PerformanceComparisonSubmission, type PerformanceReferenceTab, type SelfSummaryTask } from '@/api/performance'
+import { performanceReview360FeedbackApi, performanceReviewApi, FINAL_RESULT_LOCKED_MESSAGE, type PerformanceReview360InviteList, type PerformanceComparisonReason, type PerformanceComparisonSubmission, type PerformanceReferenceTab, type SelfSummaryTask } from '@/api/performance'
 import PerformanceMemberReminderDialog from '@/components/performance/PerformanceMemberReminderDialog.vue'
 import { usePerformanceMemberReminder } from '@/composables/usePerformanceMemberReminder'
 import PerformanceTaskWorkspace from '@/components/performance/PerformanceTaskWorkspace.vue'
@@ -84,9 +85,10 @@ import PerformanceSelfSummaryHeader from '@/components/performance/PerformanceSe
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
 import PerformanceReconsiderationContent from '@/components/performance/PerformanceReconsiderationContent.vue'
 import PerformancePromptNotice, { promptDefinitions } from '@/components/performance/PerformancePromptNotice.vue'
+import { supportsReminderSourceTask } from '@/components/performance/performanceReminder'
 import { performanceTemplateFieldErrorKey, performanceTemplateFieldValue, performanceTemplateInstanceCount, performanceTemplateInitialAnswers, performanceTemplateInstanceUnknown, performanceTemplateWritableAnswers } from '@/components/performance/performanceTemplateAnswers'
 
-const props = withDefaults(defineProps<{ taskKind?: 'work_summary' | 'evaluation'; embedded?: boolean; taskId?: string | number; employeeNo?: string; projectId?: number; cycleId?: number; draftChoice?: 'use' | 'discard' }>(), { taskKind: 'work_summary', embedded: false })
+const props = withDefaults(defineProps<{ taskKind?: 'work_summary' | 'evaluation' | 'reviewer_360_invite' | 'reviewer_360_confirm'; embedded?: boolean; taskId?: string | number; employeeNo?: string; projectId?: number; cycleId?: number; draftChoice?: 'use' | 'discard' }>(), { taskKind: 'work_summary', embedded: false })
 const emit = defineEmits<{ close: []; submitted: [] }>()
 const route = useRoute()
 const router = useRouter()
@@ -157,6 +159,50 @@ const displayMode = computed<PerformanceWriteMode>(() => mode.value === 'basicWr
 const isSplit = computed(() => !props.embedded && displayMode.value === 'basicWriteMode')
 function changeMode(value: PerformanceWriteMode) { mode.value = value; activeTab.value = 'current' }
 const isReconsiderationTask = computed(() => task.value.task_kind === 'result_reconsideration')
+const isReviewer360Task = computed(() => ['reviewer_360_invite', 'reviewer_360_confirm'].includes(task.value.task_kind))
+const reviewer360Element = computed(() => task.value.form_schema.flatMap(section => section.elements || []).find(element => element.kind === 'reviewer_360'))
+const hasReviewer360Element = computed(() => Boolean(reviewer360Element.value))
+const reviewer360Busy = ref(false)
+const reviewer360Conflict = ref(false)
+const reviewer360Version = computed(() => task.value.reviewer_360?.version ?? task.value.reviewer_360_version ?? (reviewer360Element.value?.kind === 'reviewer_360' ? reviewer360Element.value.data.version : undefined) ?? undefined)
+let savedReviewer360Version: string | undefined
+function applyReviewer360(data: PerformanceReview360InviteList) {
+  task.value.reviewer_360 = data
+  task.value.reviewer_360_version = data.version ?? undefined
+  for (const section of task.value.form_schema) for (const element of section.elements || []) if (element.kind === 'reviewer_360') element.data = data
+}
+function updateReviewer360(data: PerformanceReview360InviteList) { applyReviewer360(data); queueSave() }
+async function reloadReviewer360() {
+  const epoch = taskEpoch
+  const request = loadRequest
+  const element = reviewer360Element.value
+  const projectId = task.value.project_id || (element?.kind === 'reviewer_360' ? element.data.project_id : undefined)
+  if (!projectId || reviewer360Busy.value) return
+  reviewer360Busy.value = true
+  try {
+    const refreshed = await performanceReviewApi.templateTask(task.value.task_id, contextEmployeeNo.value, { view: 'edit' })
+    if (disposed || epoch !== taskEpoch || request !== loadRequest) return
+    task.value.version = refreshed.version
+    task.value.editable = refreshed.editable
+    task.value.submit_allowed = refreshed.submit_allowed
+    task.value.form_schema = refreshed.form_schema
+    const data = refreshed.reviewer_360 || refreshed.form_schema.flatMap(section => section.elements || []).find(element => element.kind === 'reviewer_360')?.data
+    if (!data) throw new Error('missing roster')
+    applyReviewer360(data)
+    reviewer360Conflict.value = false
+    saveMessage.value = '名单已重新读取，请核对后提交'
+  } catch (error) {
+    if (!disposed && epoch === taskEpoch && request === loadRequest) saveMessage.value = errorMessage(error, '名单重新读取失败，请重试')
+  } finally { if (!disposed && epoch === taskEpoch && request === loadRequest) reviewer360Busy.value = false }
+}
+function reviewer360ConflictMessage(error: unknown) {
+  if (!isReviewer360Task.value || (error as { response?: { status?: number } })?.response?.status !== 409) return false
+  const code = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+  if (!['REVIEWER_360_VERSION_CONFLICT', 'VERSION_CONFLICT', 'VERSION_REQUIRED', 'SUBMISSION_NOT_ALLOWED'].includes(String(code))) return false
+  reviewer360Conflict.value = true
+  saveMessage.value = code === 'REVIEWER_360_VERSION_CONFLICT' ? '360°评估人名单已变化，当前内容已保留，请重新读取名单并核对后提交' : code === 'SUBMISSION_NOT_ALLOWED' ? '当前任务不允许提交，当前内容已保留，请重新读取任务状态' : '任务已被更新，当前内容已保留，请重新读取最新任务版本后提交'
+  return true
+}
 const showResultAndModify = computed(() => task.value.show_result_and_modify !== false)
 const clock = ref(Date.now())
 const reconsiderationClosed = computed(() => {
@@ -175,12 +221,13 @@ function changeKeepResult(value: 'keep' | 'change') {
   queueSave()
 }
 function writableAnswers(includeHiddenResults = false) {
+  if (isReviewer360Task.value) return {}
   const writable: Record<string, unknown> = isReconsiderationTask.value && (!showResultAndModify.value || effectiveKeepResult.value === 'keep' && !includeHiddenResults) ? {} : performanceTemplateWritableAnswers(task.value.form_schema, answers)
   if (isReconsiderationTask.value) writable.keep_result = effectiveKeepResult.value
   return writable
 }
 watch(() => task.value.reference_tabs, references => { if (!references?.some(reference => reference.key === referenceKey.value)) referenceKey.value = references?.[0]?.key || '' }, { immediate: true })
-const canEdit = computed(() => !task.value.final_result_locked && !viewing.value && !draftPending.value && !reconsiderationClosed.value && !loading.value && !loadError.value && (isReconsiderationTask.value || task.value.form_schema.some(section => section.fields.length > 0)) && task.value.editable && task.value.submit_allowed && (!isReconsiderationTask.value || task.value.reconsideration?.can_edit !== false))
+const canEdit = computed(() => !task.value.final_result_locked && !viewing.value && !draftPending.value && !reconsiderationClosed.value && !loading.value && !loadError.value && (isReconsiderationTask.value || hasReviewer360Element.value || task.value.form_schema.some(section => section.fields.length > 0)) && task.value.editable && task.value.submit_allowed && (!isReconsiderationTask.value || task.value.reconsideration?.can_edit !== false))
 const canGiveup = computed(() => !viewing.value && !draftPending.value && !loading.value && !loadError.value && Boolean(task.value.can_giveup) && !task.value.submitted_at)
 let saveTimer: number | undefined
 let saveChain: Promise<void> = Promise.resolve()
@@ -199,6 +246,8 @@ function resetTaskContext() {
   pendingSave = false
   saveChain = Promise.resolve()
   saving.value = false
+  reviewer360Busy.value = false
+  reviewer360Conflict.value = false
   submitting.value = false
   viewing.value = !props.embedded && route.query.view === '1'
   draftOpen.value = false
@@ -261,10 +310,15 @@ async function load(choice?: 'use' | 'discard' | 'edit') {
   try {
     const taskId = contextTaskId.value
     const employeeNo = contextEmployeeNo.value
-    const loaded = !props.embedded && props.taskKind === 'work_summary'
+    let loaded = !props.embedded && props.taskKind === 'work_summary'
       ? employeeNo ? await performanceReviewApi.selfSummary(taskId, employeeNo) : await performanceReviewApi.selfSummary(taskId)
       : employeeNo ? await performanceReviewApi.templateTask(taskId, employeeNo) : await performanceReviewApi.templateTask(taskId)
     if (!current()) return
+    const decision = choice || props.draftChoice || (!props.embedded ? route.query.draft_choice : undefined)
+    if (['reviewer_360_invite', 'reviewer_360_confirm'].includes(loaded.task_kind) && (!viewing.value || decision === 'use' || decision === 'discard' || decision === 'edit')) {
+      loaded = await performanceReviewApi.templateTask(taskId, employeeNo, { view: 'edit' })
+      if (!current()) return
+    }
     if (loaded.task_kind === 'result_reconsideration' && loaded.reconsideration) {
       loaded.form_schema = loaded.reconsideration.form_schema
       loaded.answers = loaded.reconsideration.answers
@@ -273,6 +327,9 @@ async function load(choice?: 'use' | 'discard' | 'edit') {
       loaded.deadline_at = loaded.reconsideration.deadline_at
     }
     task.value = loaded
+    if (loaded.reviewer_360) applyReviewer360(loaded.reviewer_360)
+    reviewer360Conflict.value = false
+    savedReviewer360Version = reviewer360Version.value
     activeTab.value = 'current'
     Object.keys(answers).forEach(key => delete answers[key])
     if (loaded.final_result_locked) {
@@ -294,13 +351,13 @@ async function load(choice?: 'use' | 'discard' | 'edit') {
       }
     }
     if (!current()) return
-    const decision = choice || props.draftChoice || (!props.embedded ? route.query.draft_choice : undefined)
     draftPending.value = !loaded.final_result_locked && !reconsiderationClosed.value && !viewing.value && Boolean(loaded.submitted_at && loaded.has_draft && decision !== 'use' && decision !== 'discard')
     draftOpen.value = draftPending.value
     const useDraft = !loaded.final_result_locked && !viewing.value && !draftPending.value && loaded.has_draft && decision !== 'discard'
     baseResultVersion.value = useDraft ? loaded.draft_base_result_version : loaded.result_version
     sharedResultConflict.value = false
-    const values = useDraft ? { ...loaded.answers, ...loaded.draft_answers } : loaded.answers || {}
+    loaded.answers = isReviewer360Task.value ? {} : loaded.answers
+    const values = isReviewer360Task.value ? {} : useDraft ? { ...loaded.answers, ...loaded.draft_answers } : loaded.answers || {}
     const restoredChoice = useDraft ? loaded.keep_result ?? values.keep_result : loaded.answers?.keep_result ?? (loaded.has_draft ? undefined : loaded.keep_result)
     keepResultChoice.value = restoredChoice === 'keep' ? 'keep' : 'change'
     Object.assign(answers, loaded.editable && loaded.submit_allowed && !viewing.value && !draftPending.value ? performanceTemplateInitialAnswers(loaded.form_schema, values) : values)
@@ -318,7 +375,7 @@ async function load(choice?: 'use' | 'discard' | 'edit') {
 }
 function updateAnswer(id: string, value: unknown) { if (canEdit.value && !submitting.value) answers[id] = value }
 function queueSave(delay = 350) {
-  if (!canEdit.value || sharedResultConflict.value || disposed || submitting.value) return
+  if (!canEdit.value || sharedResultConflict.value || reviewer360Conflict.value || disposed || submitting.value) return
   window.clearTimeout(saveTimer)
   if (saving.value) { pendingSave = true; return }
   saveTimer = window.setTimeout(() => { void saveDraft().catch(() => undefined) }, delay)
@@ -340,15 +397,21 @@ function saveDraft() {
         const reasonDraft = comparisonDraft()
         const serializedReason = JSON.stringify(reasonDraft)
         const saveReason = hasComparison.value && serializedReason !== savedComparisonDraft
-        if (serialized === savedAnswers && !saveReason) continue
+        const reviewerVersion = isReviewer360Task.value ? reviewer360Version.value : undefined
+        if (serialized === savedAnswers && !saveReason && reviewerVersion === savedReviewer360Version) continue
+        if (isReviewer360Task.value && !reviewerVersion?.trim()) { saveMessage.value = '360°评估人名单版本不可用，请重新读取名单'; reviewer360Conflict.value = true; return }
         const snapshot = JSON.parse(serialized) as Record<string, unknown>
         saveMessage.value = '正在保存…'
         const employeeNo = contextEmployeeNo.value
-        const result = !props.embedded && props.taskKind === 'work_summary'
+        const result = isReviewer360Task.value
+          ? await performanceReviewApi.saveTemplateTaskDraft(task.value.task_id, snapshot, task.value.version, employeeNo, baseResultVersion.value, undefined, reviewerVersion)
+          : !props.embedded && (task.value.task_kind || props.taskKind) === 'work_summary'
           ? employeeNo ? await performanceReviewApi.saveSelfSummaryDraft(task.value.task_id, snapshot, task.value.version, employeeNo) : await performanceReviewApi.saveSelfSummaryDraft(task.value.task_id, snapshot, task.value.version)
           : saveReason ? await performanceReviewApi.saveTemplateTaskDraft(task.value.task_id, snapshot, task.value.version, employeeNo, baseResultVersion.value, reasonDraft) : await performanceReviewApi.saveTemplateTaskDraft(task.value.task_id, snapshot, task.value.version, employeeNo, baseResultVersion.value)
         if (!current()) return
         task.value.version = result.version ?? task.value.version
+        if (result.reviewer_360 && reviewerVersion === reviewer360Version.value) applyReviewer360(result.reviewer_360)
+        savedReviewer360Version = reviewerVersion
         savedAnswers = serialized
         if (saveReason) savedComparisonDraft = serializedReason
         saveMessage.value = '已自动保存'
@@ -357,7 +420,7 @@ function saveDraft() {
       if (!current()) return
       pendingSave = false
       if ((error as { response?: { data?: { detail?: string } } })?.response?.data?.detail === 'SHARED_RESULT_VERSION_CONFLICT') sharedResultConflict.value = true
-      saveMessage.value = errorMessage(error, '自动保存失败，内容已保留')
+      if (!reviewer360ConflictMessage(error)) saveMessage.value = errorMessage(error, '自动保存失败，内容已保留')
       closeReconsiderationOnConflict(error)
       await lockFinalResultOnConflict(error)
       throw error
@@ -369,7 +432,7 @@ function saveDraft() {
 }
 
 function openReminder(reference: PerformanceReferenceTab) {
-  openMemberReminder({ projectId: Number(task.value.project_id || contextProjectId.value), cycleId: contextCycleId.value, employeeNo: reference.employee_no || task.value.person.employee_no, displayName: task.value.person.display_name, sourceTaskId: ['evaluation', 'calibration', 'result_communication'].includes(task.value.task_kind || '') ? Number(task.value.task_id) || undefined : undefined, nodeId: reference.node_id, targetKind: reference.kind === 'reviewer_360' ? 'reviewer_360' : undefined, taskId: reference.kind === 'reviewer_360' ? undefined : reference.task_id || undefined })
+  openMemberReminder({ projectId: Number(task.value.project_id || contextProjectId.value), cycleId: contextCycleId.value, employeeNo: reference.employee_no || task.value.person.employee_no, displayName: task.value.person.display_name, sourceTaskId: supportsReminderSourceTask(task.value.task_kind) ? Number(task.value.task_id) || undefined : undefined, nodeId: reference.node_id, targetKind: reference.kind === 'reviewer_360' ? 'reviewer_360' : undefined, taskId: reference.kind === 'reviewer_360' ? undefined : reference.task_id || undefined })
 }
 function selectedTags(value: unknown) { return Array.isArray(value) ? value as string[] : (value as { tags?: string[] } | undefined)?.tags || [] }
 function tagNotes(value: unknown) { return (value as { notes?: Record<string, string> } | undefined)?.notes || {} }
@@ -377,6 +440,7 @@ function legacyTagNote(value: unknown) { return (value as { note?: string } | un
 function hasContent(value: unknown) { const element = document.createElement('div'); element.innerHTML = String(value || ''); return Boolean(element.textContent?.replace(/​/g, '').trim()) }
 function validate() {
   Object.keys(errors).forEach(key => delete errors[key])
+  if (isReviewer360Task.value) return true
   if (isReconsiderationTask.value && effectiveKeepResult.value === 'keep') return true
   for (const section of task.value.form_schema) {
     for (let index = 0; index < performanceTemplateInstanceCount(section, answers); index += 1) {
@@ -427,7 +491,8 @@ async function giveup() {
 
 async function submit(overdueConfirmed = false, confirmedContext?: string) {
   clock.value = Date.now()
-  if (submitting.value || !canEdit.value || !validate()) return
+  if (submitting.value || reviewer360Busy.value || reviewer360Conflict.value || !canEdit.value || !validate()) return
+  if (isReviewer360Task.value && !reviewer360Version.value?.trim()) { saveMessage.value = '360°评估人名单版本不可用，请重新读取名单'; reviewer360Conflict.value = true; return }
   const epoch = taskEpoch
   const current = () => !disposed && epoch === taskEpoch
   const due = task.value.deadline_at ? new Date(task.value.deadline_at).getTime() : NaN
@@ -445,7 +510,7 @@ async function submit(overdueConfirmed = false, confirmedContext?: string) {
   pendingSave = false
   try {
     await saveChain.catch(() => undefined)
-    if (!current() || reconsiderationClosed.value || !canEdit.value || sharedResultConflict.value) return
+    if (!current() || reconsiderationClosed.value || !canEdit.value || sharedResultConflict.value || reviewer360Conflict.value || reviewer360Busy.value) return
     const payload = JSON.parse(JSON.stringify(writableAnswers()))
     const latestComparison = hasComparison.value ? await refreshComparison() : null
     if (!current() || latestComparison === undefined) return
@@ -466,7 +531,9 @@ async function submit(overdueConfirmed = false, confirmedContext?: string) {
       ? { comparison_reasons: activeGroups.map(group => ({ rule_id: group.rule_id, comparison_context: group.context, diff_reason: reasonGroups.includes(group) ? comparisonReasons.value.find(item => item.rule_id === group.rule_id)?.diff_reason ?? '' : null })) }
       : latestComparison && activeGroups.length ? { comparison_context: latestComparison.context, ...(needsReason ? { diff_reason: comparisonReason.value } : {}) } : undefined
     const employeeNo = contextEmployeeNo.value
-    const result = !props.embedded && props.taskKind === 'work_summary'
+    const result = isReviewer360Task.value
+      ? await performanceReviewApi.submitTemplateTask(task.value.task_id, payload, task.value.version, employeeNo, baseResultVersion.value, undefined, reviewer360Version.value)
+      : !props.embedded && (task.value.task_kind || props.taskKind) === 'work_summary'
       ? employeeNo ? await performanceReviewApi.submitSelfSummary(task.value.task_id, payload, task.value.version, employeeNo) : await performanceReviewApi.submitSelfSummary(task.value.task_id, payload, task.value.version)
       : comparisonPayload ? await performanceReviewApi.submitTemplateTask(task.value.task_id, payload, task.value.version, employeeNo, baseResultVersion.value, comparisonPayload) : await performanceReviewApi.submitTemplateTask(task.value.task_id, payload, task.value.version, employeeNo, baseResultVersion.value)
     if (!current()) return
@@ -479,7 +546,9 @@ async function submit(overdueConfirmed = false, confirmedContext?: string) {
     task.value.editable = result.editable ?? task.value.editable
     task.value.submit_allowed = result.submit_allowed ?? task.value.submit_allowed
     task.value.version = result.version ?? task.value.version
-    task.value.answers = task.value.task_kind === 'calibration' || isReconsiderationTask.value ? result.answers : { ...task.value.answers, ...result.answers, ...payload }
+    if (result.reviewer_360) applyReviewer360(result.reviewer_360)
+    else if (result.reviewer_360_version) task.value.reviewer_360_version = result.reviewer_360_version
+    task.value.answers = isReviewer360Task.value ? {} : task.value.task_kind === 'calibration' || isReconsiderationTask.value ? result.answers : { ...task.value.answers, ...result.answers, ...payload }
     if (isReconsiderationTask.value) {
       task.value.reconsideration_closed = result.reconsideration_closed ?? task.value.reconsideration_closed
       keepResultChoice.value = result.answers?.keep_result === 'keep' ? 'keep' : 'change'
@@ -538,7 +607,7 @@ async function submit(overdueConfirmed = false, confirmedContext?: string) {
   } catch (error) {
     if (!current()) return
     if ((error as { response?: { data?: { detail?: string } } })?.response?.data?.detail === 'SHARED_RESULT_VERSION_CONFLICT') sharedResultConflict.value = true
-    saveMessage.value = errorMessage(error, '提交失败，内容已保留，请稍后重试')
+    if (!reviewer360ConflictMessage(error)) saveMessage.value = errorMessage(error, '提交失败，内容已保留，请稍后重试')
     if (comparisonDialogOpen.value) comparisonDialogError.value = saveMessage.value
     const comparisonCode = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
     if (comparisonCode === 'COMPARISON_SOURCE_CHANGED' || comparisonCode === 'DIFF_REASON_REQUIRED') {

@@ -11,6 +11,192 @@ from app.performance.auth_context import PerformanceAccessContext, PerformanceRo
 from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time
 
 
+@pytest.fixture
+def reviewer_360_backend(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes, review_360_invites_router as invites, reviewer_360_task_service as service
+    from app.performance.models import PerformanceNodeTask, PerformanceProject, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot
+    task = PerformanceNodeTask(id=601, project_id=1, cycle_ref="C1", member_snapshot_id=10, node_snapshot_id=11,
+        task_kind="reviewer_360_invite", target_employee_no="E1", handler_ref="E1", status="pending", answer_version=1,
+        answers={}, draft_answers=None, available_at=None, due_at=None, revoked_at=None)
+    node = PerformanceProjectNodeSnapshot(id=11, project_id=1, node_id="invite", node_type=task.task_kind, name="邀请", config={})
+    target = PerformanceProjectNodeSnapshot(id=12, project_id=1, node_id="feedback", node_type="evaluation", config={"template": {"executor_role_code": "assessment.reviewer_360"}})
+    project = PerformanceProject(id=1, cycle_ref="C1", status="STARTED", settings={"flow_settings": {"node_settings": {"feedback": {"invite": {"minimum_invited_count": 2, "exclude_default_invite_from_limit": True}}}}})
+    snapshot = PerformanceProjectMemberSnapshot(id=10, project_id=1, cycle_ref="C1", source_snapshot_id=100)
+    evaluations = [PerformanceNodeTask(id=701 + i, project_id=1, cycle_ref="C1", member_snapshot_id=10, node_snapshot_id=12,
+        task_kind="evaluation", target_employee_no="E1", handler_ref=no, status="pending", answer_version=1, revoked_at=None) for i, no in enumerate(["D1", "R1"])]
+    events = [SimpleNamespace(id=i, event_type="REVIEWER_360_INVITED", subject_ref=no, actor_ref="E1", event_at=datetime(2026, 1, 1, tzinfo=UTC),
+        before_state=None, after_state={"project_id": 1, "node_id": "feedback", "source_type": source, "assigned_by_type": "EMPLOYEE", "assigned_by_ref": "E1"})
+        for i, (no, source) in enumerate([("D1", "DEFAULT"), ("R1", "SELF")], 1)]
+    people = [SimpleNamespace(employee_no=no, display_name=no, department=None, job_family=None, job_category=None, position_level=None, direct_supervisor_employee_no=None) for no in ["E1", "D1", "R1"]]
+    class Db:
+        commit = AsyncMock()
+        refresh = AsyncMock()
+        async def get(self, model, key):
+            return {PerformanceProject: project, PerformanceProjectMemberSnapshot: snapshot}.get(model)
+        async def scalar(self, statement):
+            return SimpleNamespace(id=10, employee_no="E1")
+        def add(self, event): pass
+    db = Db()
+    monkeypatch.setattr(invites, "_project_nodes", AsyncMock(return_value=[node, target]))
+    monkeypatch.setattr(invites, "_invite_tasks", AsyncMock(return_value=evaluations))
+    monkeypatch.setattr(invites, "_invite_audit_events", AsyncMock(return_value=events))
+    monkeypatch.setattr(invites, "_snapshot_people", AsyncMock(return_value=people))
+    monkeypatch.setattr(routes, "_self_summary_task", AsyncMock(return_value=(task, node)))
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="E1")))
+    monkeypatch.setattr(routes, "_lock_task_context", AsyncMock())
+    monkeypatch.setattr(routes, "_task_edit_allowed", AsyncMock(return_value=True))
+    monkeypatch.setattr(routes, "_final_result_locked", AsyncMock(return_value=False))
+    monkeypatch.setattr(routes, "_overdue_submission_allowed", AsyncMock(return_value=True))
+    monkeypatch.setattr(routes, "_self_summary_template", AsyncMock(return_value={"content": []}))
+    monkeypatch.setattr(service, "submissions", AsyncMock(return_value=[{"display_name": "真实提交人", "submitted_at": "2026-01-01"}]))
+    audits = []
+    monkeypatch.setattr(routes.PerformanceAuditService, "append_event", lambda self, event: audits.append(event))
+    return SimpleNamespace(service=service, routes=routes, invites=invites, task=task, node=node, project=project,
+        target=target, snapshot=snapshot, db=db, evaluations=evaluations, events=events, people=people, audits=audits)
+
+
+@pytest.mark.asyncio
+async def test_reviewer_360_roster_counts_sources_and_readonly_snapshot(reviewer_360_backend):
+    data = reviewer_360_backend
+    roster = await data.service.roster(data.db, data.task, data.node, data.project, editable=True)
+    assert (roster["total"], roster["count"], roster["manual_count"]) == (2, 1, 1)
+    assert all(not item["can_revoke"] and item["revoke_disabled_reason"] for item in roster["items"])
+    assert roster["can_invite"]
+    data.task.answers = {data.service.SNAPSHOT_KEY: roster}
+    data.evaluations.clear()
+    snapshot = await data.service.roster(data.db, data.task, data.node, data.project, snapshot=True)
+    assert snapshot["total"] == 2 and not snapshot["editable"] and not snapshot["can_invite"]
+    assert (await data.service.roster(data.db, data.task, data.node, data.project, editable=True))["total"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["reviewer_360_invite", "reviewer_360_confirm"])
+async def test_reviewer_360_draft_does_not_complete_and_submit_uses_server_snapshot(reviewer_360_backend, kind):
+    data = reviewer_360_backend
+    data.task.task_kind = data.node.node_type = kind
+    roster = await data.service.roster(data.db, data.task, data.node, data.project)
+    payload = data.routes.SelfSummaryAnswersPayload(version=1, reviewer_360_version=roster["version"], answers={data.service.SNAPSHOT_KEY: {"items": ["forged"]}})
+    draft = await data.routes._save_self_summary(601, payload, False, context(), data.db, "evaluation")
+    assert data.task.status == "pending" and data.task.submitted_at is None and draft["has_draft"]
+    payload.version = 2
+    submitted = await data.routes._save_self_summary(601, payload, True, context(), data.db, "evaluation")
+    assert data.task.status == "completed" and data.task.completed_at == data.task.submitted_at
+    assert submitted["version"] == 3 and not submitted["reviewer_360"]["can_invite"]
+    assert data.task.answers[data.service.SNAPSHOT_KEY]["items"][0]["employee_no"] == "D1"
+    assert data.audits[-1].event_type == "PERFORMANCE_TASK_SUBMITTED" and data.audits[-1].actor_ref == "E1"
+    assert all(task.status == "pending" for task in data.evaluations)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("conflict", ["missing", "list_changed", "evaluation_submitted", "task_version"])
+async def test_reviewer_360_submit_rejects_stale_versions_before_writes(reviewer_360_backend, conflict):
+    from fastapi import HTTPException
+    data = reviewer_360_backend
+    roster = await data.service.roster(data.db, data.task, data.node, data.project)
+    if conflict == "list_changed": data.events[1].after_state = {**data.events[1].after_state, "source_type": "MANUAL"}
+    if conflict == "evaluation_submitted": data.evaluations[0].submitted_at = datetime.now(UTC)
+    if conflict == "task_version": data.task.answer_version = 2
+    payload = data.routes.SelfSummaryAnswersPayload(version=1, reviewer_360_version=None if conflict == "missing" else roster["version"])
+    with pytest.raises(HTTPException) as error:
+        await data.routes._save_self_summary(601, payload, True, context(), data.db, "evaluation")
+    assert error.value.status_code == 409
+    data.db.commit.assert_not_awaited()
+    assert not data.audits and data.task.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_reviewer_360_node_ambiguity_and_audit_scope(reviewer_360_backend):
+    from fastapi import HTTPException
+    data = reviewer_360_backend
+    data.invites._project_nodes.return_value.append(SimpleNamespace(id=13, node_id="other", node_type="evaluation", config=data.target.config))
+    with pytest.raises(HTTPException) as error:
+        await data.service.evaluation_node(data.db, data.project, data.node)
+    assert error.value.detail == "REVIEWER_360_NODE_AMBIGUOUS"
+    data.node.config = {"template": {"reviewer_360_node_id": "feedback"}}
+    assert await data.service.evaluation_node(data.db, data.project, data.node) is data.target
+    data.events.append(SimpleNamespace(after_state={"project_id": 2, "node_id": "feedback"}))
+    assert len(data.service.scoped_events(data.events, 1, "feedback")) == 2
+    assert not data.service.scoped_events(data.events[:2], 1, "other")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["other_project", "readonly", "not_started", "expired", "snapshot"])
+async def test_reviewer_360_task_mutation_context_denies_unsafe_scope(reviewer_360_backend, reason):
+    from fastapi import HTTPException
+    data = reviewer_360_backend
+    if reason == "other_project": data.task.project_id = 2
+    if reason == "readonly": data.routes._task_edit_allowed.return_value = False
+    if reason == "not_started": data.task.available_at = datetime(2099, 1, 1, tzinfo=UTC)
+    if reason == "expired": data.task.due_at = datetime(2000, 1, 1, tzinfo=UTC)
+    if reason == "snapshot": data.snapshot.cycle_ref = "OTHER"
+    with pytest.raises(HTTPException):
+        await data.service.task_context(data.db, context(), 1, 601, write=True)
+    data.db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reviewer_360_delete_remains_denied_without_deleting_drafts(reviewer_360_backend):
+    from fastapi import HTTPException
+    data = reviewer_360_backend
+    roster = await data.service.roster(data.db, data.task, data.node, data.project)
+    with pytest.raises(HTTPException) as error:
+        await data.invites.revoke_invite(1, "D1", context(), data.db, source_task_id=601, reviewer_360_version=roster["version"])
+    assert error.value.status_code == 403 and error.value.detail == "REVIEWER_360_REVOKE_NOT_ENABLED"
+    assert len(data.evaluations) == 2 and not data.audits
+    data.db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["reviewer_360_invite", "reviewer_360_confirm"])
+async def test_reviewer_360_legacy_bindings_keep_frozen_node_and_resolve_content(monkeypatch, kind):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    from app.performance.models import PerformanceProject, PerformanceTemplateWorkflow
+    frozen = {"node_id": "invite", "content_page_name": "冻结标题", "executor_types": ["SUBJECT"], "content_bindings": {"fill": ["notice"]}}
+    node = SimpleNamespace(node_type=kind, node_id="invite", config={"template": frozen})
+    workflow = SimpleNamespace(nodes=[{"node_id": "invite", "content_page_name": "新标题"}], content_library=[{"id": "notice", "type": "prompt", "prompt": {"content": "配置提示"}}])
+    async def get(model, key):
+        return SimpleNamespace(settings={"template_id": 2}) if model is PerformanceProject else workflow if model is PerformanceTemplateWorkflow else None
+    hydrate = AsyncMock(side_effect=lambda value, db: value)
+    monkeypatch.setattr(routes, "hydrate_self_summary_template", hydrate)
+    resolved = await routes._self_summary_template(SimpleNamespace(project_id=1), node, SimpleNamespace(get=get))
+    assert resolved["content_page_name"] == "冻结标题"
+    assert resolved["executor_types"] == ["SUBJECT"]
+    assert resolved["content"][0]["prompt"]["content"] == "配置提示"
+    assert "content" not in frozen
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["reviewer_360_invite", "reviewer_360_confirm"])
+async def test_reviewer_360_detail_snapshot_and_edit_share_task_contract(reviewer_360_backend, monkeypatch, kind):
+    from unittest.mock import AsyncMock
+    data = reviewer_360_backend
+    data.task.task_kind = data.node.node_type = kind
+    data.node.name = "名单确认"
+    data.node.config = {"template": {"content_page_name": "名单页面"}}
+    stored = await data.service.roster(data.db, data.task, data.node, data.project)
+    data.task.answers = {data.service.SNAPSHOT_KEY: stored}
+    data.task.submitted_at = datetime(2026, 1, 1, tzinfo=UTC)
+    data.task.status = "completed"
+    data.evaluations.pop()
+    monkeypatch.setattr(data.db, "scalar", AsyncMock(return_value=None))
+    monkeypatch.setattr(data.routes, "resolve_subject_visibility_role", AsyncMock(return_value="other"))
+    monkeypatch.setattr(data.routes, "load_subject_visibility_rules", AsyncMock(return_value={"other": []}))
+    monkeypatch.setattr(data.routes, "_reference_tabs", AsyncMock(return_value=[]))
+    monkeypatch.setattr(data.routes.comparison_service, "evaluate_task", AsyncMock(return_value=(None, None)))
+    for view, count, writable in [("drawer", 2, False), ("edit", 1, True)]:
+        detail = await data.routes._template_task_detail(data.task, data.node, context(), data.db, view=view)
+        assert detail["entry_mode"] == "template_task" and detail["task_kind"] == kind
+        assert detail["content_page_name"] == "名单页面" and detail["editable"]
+        assert detail["reviewer_360"]["total"] == count
+        assert detail["reviewer_360"]["editable"] is writable
+        assert detail["form_schema"][0]["elements"][0]["data"] == detail["reviewer_360"]
+        assert detail["answer_submissions"][0]["display_name"] == "真实提交人"
+        assert detail["answers"] == {} and "management_tabs" not in detail
+    data.db.commit.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_calibration_first_project_uses_start_audit_not_project_id():
     from unittest.mock import AsyncMock
@@ -11869,6 +12055,7 @@ async def test_management_member_api_root_and_dynamic_export_contract(management
     from fastapi import FastAPI
     from unittest.mock import AsyncMock
     data = management_member_data
+    data.project.status = "DRAFT"
     app = FastAPI()
     app.include_router(data.routes.router, prefix="/api/v1")
     app.dependency_overrides[data.routes.get_session] = lambda: data.db

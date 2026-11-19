@@ -78,6 +78,7 @@ import PerformanceMemberMoreMenu, { type PerformanceMemberContext } from './Perf
 import PerformanceChangeHistory from './PerformanceChangeHistory.vue'
 import PerformanceReconsiderationDetail from './PerformanceReconsiderationDetail.vue'
 import PerformanceReminderButton from './PerformanceReminderButton.vue'
+import { supportsReminderSourceTask } from './performanceReminder'
 
 type DrawerPerson = SelfSummaryPerson & PerformanceReviewMemberContext
 const props = withDefaults(defineProps<{
@@ -272,7 +273,7 @@ function fillStage() {
 }
 function forwardReminder(reference: PerformanceReferenceTab) {
   const source = task.value
-  emit('remind', { ...reference, employee_no: reference.employee_no || displayPerson.value.employee_no }, source && ['evaluation', 'calibration', 'result_communication'].includes(source.task_kind || '') ? Number(source.task_id) || undefined : undefined)
+  emit('remind', { ...reference, employee_no: reference.employee_no || displayPerson.value.employee_no }, source && supportsReminderSourceTask(source.task_kind) ? Number(source.task_id) || undefined : undefined)
 }
 function openRemind() {
   const stage = stageView.value
