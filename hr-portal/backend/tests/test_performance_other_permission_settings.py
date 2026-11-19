@@ -341,6 +341,22 @@ def test_settings_api_reopen_clear_legacy_patch_and_permission_zero_independence
     assert client.patch(path, json={"manager_reminder_enabled": False}).json()["hrbp_invisible_rules"] == []
 
 
+def test_manager_reminder_types_save_reopen_and_explicit_clear(settings_options):
+    db = _MemorySettingsDb()
+    client = _settings_client(db)
+    path = "/performance/permission-settings/other"
+    types = list(settings_router.MANAGER_REMINDER_NODE_TYPES)
+    assert len(types) == 10
+    assert settings_router.DEFAULT_MANAGER_REMINDER_NODE_TYPES == ["work_summary", "evaluation", "result_communication", "result_view"]
+    assert client.patch(path, json={"manager_reminder_node_types": types}).status_code == 200
+    assert client.get(path).json()["manager_reminder_node_types"] == types
+    assert client.patch(path, json={"manager_reminder_node_types": []}).json()["manager_reminder_node_types"] == []
+    assert client.get(path).json()["manager_reminder_node_types"] == []
+    assert client.patch(path, json={"manager_reminder_enabled": False}).json()["manager_reminder_node_types"] == []
+    assert db.audit[-1].before_state["manager_reminder_node_types"] == []
+    assert client.patch(path, json={"manager_reminder_node_types": ["unknown"]}).status_code == 422
+
+
 def test_settings_api_permission_gate_rejects_get_and_patch():
     db = _MemorySettingsDb()
     client = _settings_client(db, allowed=False)
@@ -414,6 +430,9 @@ async def test_navigation_global_rules_remove_hrbp_management_but_keep_own_task_
         return build_snapshot_people([RosterAuthorizationInput("E1", "员工一")])
 
     monkeypatch.setattr(scope_service, "load_hrbp_roster_people", roster)
+    from unittest.mock import AsyncMock
+    from app.performance import result_view_scope
+    monkeypatch.setattr(result_view_scope, "resolve_result_view_scope", AsyncMock(return_value=result_view_scope.ResultViewScope(cycle=cycle, actor_ref="HR1")))
     context = replace(_settings_context(), subject_type="PORTAL_USER", effective_employee_no="HR1")
     access = await navigation.resolve_frontend_access(Db(), context)
     assert access.manage_projects == []
@@ -460,7 +479,9 @@ def test_hrbp_rules_migration_preserves_nullable_legacy_state_and_single_head():
     config = Config()
     config.set_main_option("script_location", str(Path(__file__).parents[1] / "alembic"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["0295_pm_hrbp_invisible_rules"]
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert "0295_pm_hrbp_invisible_rules" in {revision.revision for revision in script.iterate_revisions(heads[0], "base")}
     assert script.get_revision("0295_pm_hrbp_invisible_rules").down_revision == "0294_pm_person_info_guard"
 
 

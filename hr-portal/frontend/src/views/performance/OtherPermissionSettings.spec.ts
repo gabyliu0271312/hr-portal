@@ -133,12 +133,19 @@ describe('OtherPermissionSettings', () => {
     await flushPromises()
     await wrapper.findAll('.permission-button')[1].trigger('click')
     expect(wrapper.findAll('.dialog')).toHaveLength(1)
+    expect(wrapper.get('.dialog').text()).toContain('仅拥有被评估人复议处理权限的管理者及其上级管理者')
+    expect(wrapper.findAll('.dialog input[type="checkbox"]')).toHaveLength(10)
+    expect(wrapper.findAll('.dialog input[type="checkbox"]').filter(input => (input.element as HTMLInputElement).checked)).toHaveLength(4)
+    await wrapper.get('.dialog input[aria-label="结果复议处理环节"]').setValue(true)
+    api.update.mockResolvedValue(response({ manager_reminder_node_types: ['work_summary', 'evaluation', 'result_communication', 'result_view', 'result_reconsideration'] }))
     await wrapper.get('.dialog .performance-button--primary').trigger('click')
     await flushPromises()
 
     expect(api.update).toHaveBeenCalledWith({
-      manager_reminder_node_types: ['work_summary', 'evaluation', 'result_communication', 'result_view'],
+      manager_reminder_node_types: ['work_summary', 'evaluation', 'result_communication', 'result_view', 'result_reconsideration'],
     })
+    await wrapper.findAll('.permission-button')[1].trigger('click')
+    expect((wrapper.get('.dialog input[aria-label="结果复议处理环节"]').element as HTMLInputElement).checked).toBe(true)
   })
 
   it('preserves AND/OR and exclude rules on save and reopen independently of HRBP permissions', async () => {

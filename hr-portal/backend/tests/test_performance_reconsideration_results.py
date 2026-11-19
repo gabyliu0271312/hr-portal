@@ -392,7 +392,10 @@ def reconsideration_people_runtime(decision_runtime, monkeypatch):
     monkeypatch.setattr(router, "_effective_project_results", AsyncMock(side_effect=AssertionError("must not read mutable final result")))
     queries = []
     async def execute(query):
+        from app.performance.models import PerformanceProjectMemberSnapshot
         queries.append(query)
+        if query.column_descriptions[0]["entity"] is PerformanceProjectMemberSnapshot:
+            return SimpleNamespace(all=lambda: [])
         return SimpleNamespace(all=lambda: list(rows))
     data.db.execute = execute
     data.people_rows = rows

@@ -89,16 +89,14 @@
       </div>
     </section>
 
-    <PerformanceDialogShell v-model="reminderEditorVisible" title="编辑可催办的环节类型" :loading="savingTarget === 'reminder-editor'">
-      <PerformanceFormItem label="可催办的环节类型">
-        <PerformanceSearchSelect
-          v-model="reminderEditorNodeTypes"
-          :options="reminderOptions"
-          aria-label="可催办的环节类型"
-          placeholder="请选择"
-          multiple
-        />
-      </PerformanceFormItem>
+    <PerformanceDialogShell v-model="reminderEditorVisible" title="可管理进展的环节类型" width="600px" :loading="savingTarget === 'reminder-editor'">
+      <template #description>选择允许管理者催办的环节类型</template>
+      <div class="reminder-type-options">
+        <div v-for="option in reminderOptions" :key="option.value" class="reminder-type-option">
+          <PerformanceCheckbox :model-value="reminderEditorNodeTypes.includes(option.value)" :label="option.label" :disabled="savingTarget === 'reminder-editor'" @update:model-value="checked => toggleReminderType(option.value, checked)" />
+          <p v-if="option.description">{{ option.description }}</p>
+        </div>
+      </div>
       <template #footer>
         <div class="permission-settings-editor__actions">
           <UiButton variant="secondary" :disabled="savingTarget === 'reminder-editor'" @click="reminderEditorVisible = false">取消</UiButton>
@@ -146,7 +144,7 @@ import {
 import { identitySwitchApi } from '@/api/identitySwitch'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceDialogShell from '@/components/performance/PerformanceDialogShell.vue'
-import PerformanceFormItem from '@/components/performance/PerformanceFormItem.vue'
+import PerformanceCheckbox from '@/components/performance/PerformanceCheckbox.vue'
 import PerformanceHrbpPermissionDialog, { type PerformanceHrbpPermissionFormValue } from '@/components/performance/PerformanceHrbpPermissionDialog.vue'
 import PerformanceHrbpScopeDialog, { type PerformanceHrbpScopeFormValue } from '@/components/performance/PerformanceHrbpScopeDialog.vue'
 import PerformancePermissionButton from '@/components/performance/PerformancePermissionButton.vue'
@@ -164,16 +162,25 @@ const hrbpOptions = ref<PerformanceSearchSelectOption[]>([])
 const invisiblePeopleOptions = ref<PerformanceSearchSelectOption[]>([])
 const managerReminderEnabled = ref(true)
 const managerReminderNodeTypes = ref<string[]>([])
-const reminderOptions: PerformanceSearchSelectOption[] = [
-  { value: 'work_summary', label: '工作总结环节' },
-  { value: 'evaluation', label: '评估型环节' },
-  { value: 'result_communication', label: '结果沟通环节' },
-  { value: 'result_view', label: '查看绩效结果' },
+const reminderOptions = [
+  { value: 'kpi_metric_setting', label: '制定指标环节', description: '' },
+  { value: 'kpi_result_recording', label: '录入指标结果环节', description: '' },
+  { value: 'work_summary', label: '工作总结环节', description: '' },
+  { value: 'reviewer_360_invite', label: '360° 邀请', description: '' },
+  { value: 'reviewer_360_confirm', label: '360° 确认', description: '' },
+  { value: 'evaluation', label: '评估型环节', description: '包含各类角色执行的评估环节，例如：360º 评估、上级评估、虚线上级评估等。' },
+  { value: 'calibration', label: '绩效校准', description: '勾选后，管理者可在催办列表中查看被评估人参与的校准阶段及全部校准人。建议先确认业务上允许管理者查看这些内容后，再勾选此项。' },
+  { value: 'result_communication', label: '结果沟通环节', description: '' },
+  { value: 'result_view', label: '查看绩效结果', description: '勾选后，管理者可以查看结果开通进展。如果允许确认绩效结果，还可以管理成员确认绩效结果的进展。' },
+  { value: 'result_reconsideration', label: '结果复议处理环节', description: '勾选后，仅拥有被评估人复议处理权限的管理者及其上级管理者可查看被评估人本环节的任务进展。' },
 ]
+function toggleReminderType(value: string, checked: boolean) {
+  reminderEditorNodeTypes.value = checked ? [...new Set([...reminderEditorNodeTypes.value, value])] : reminderEditorNodeTypes.value.filter(item => item !== value)
+}
 const reminderNodeTypeLabels = computed(() => reminderOptions
   .filter(option => managerReminderNodeTypes.value.includes(option.value))
   .map(option => option.label))
-const defaultReminderNodeTypes = reminderOptions.map(option => option.value)
+const defaultReminderNodeTypes = ['work_summary', 'evaluation', 'result_communication', 'result_view']
 const editorMode = ref<'create' | 'edit'>('create')
 const editorInitialValue = ref<Partial<PerformanceHrbpPermissionFormValue>>({})
 const scopeEditorVisible = ref(false)
@@ -344,6 +351,7 @@ onMounted(loadSettings)
 .permission-settings-card__specific { margin-top: 16px; }
 .permission-settings-card__specific-header { display: flex; height: 32px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .permission-range-preview { display: flex; min-height: 48px; align-items: center; flex-wrap: wrap; gap: 6px; padding: 12px 0; box-sizing: border-box; border-radius: 8px; background: #f5f6f7; font-size: 14px; line-height: 24px; }
+.reminder-type-options{display:grid;gap:4px}.reminder-type-option p{margin:4px 0 12px 24px;color:var(--color-text-secondary);font:400 14px/22px var(--font-sans)}
 .manager-permission-card__preview { min-height: 45px; line-height: 21px; }
 .permission-range-empty { display: flex; min-height: 240px; flex-direction: column; align-items: center; justify-content: center; gap: var(--spacing-2); font-size: var(--font-size-md); line-height: 22px; }
 .permission-range-state { padding: var(--spacing-6); color: var(--color-text-secondary); text-align: center; }

@@ -21,12 +21,20 @@ from app.performance.hrbp_scope_service import HrbpInvisibleRule, legacy_invisib
 router = APIRouter(prefix="/performance/permission-settings/other", tags=["performance-other-permission-settings"])
 
 MANAGER_REMINDER_NODE_TYPES = (
+    "kpi_metric_setting",
+    "kpi_result_recording",
     "work_summary",
+    "reviewer_360_invite",
+    "reviewer_360_confirm",
     "evaluation",
+    "calibration",
     "result_communication",
     "result_view",
+    "result_reconsideration",
 )
-DEFAULT_MANAGER_REMINDER_NODE_TYPES = list(MANAGER_REMINDER_NODE_TYPES)
+DEFAULT_MANAGER_REMINDER_NODE_TYPES = [
+    "work_summary", "evaluation", "result_communication", "result_view",
+]
 
 
 class OtherPermissionPersonOut(BaseModel):
@@ -222,7 +230,7 @@ async def _response(
         people_options=people_options,
         organization_tree=organization_tree,
         manager_reminder_enabled=setting.manager_reminder_enabled,
-        manager_reminder_node_types=list(setting.manager_reminder_node_types or DEFAULT_MANAGER_REMINDER_NODE_TYPES),
+        manager_reminder_node_types=list(setting.manager_reminder_node_types if setting.manager_reminder_node_types is not None else DEFAULT_MANAGER_REMINDER_NODE_TYPES),
     )
 
 
@@ -257,7 +265,7 @@ async def update_other_permission_settings(
         "hrbp_invisible_rules": setting_invisible_rules(setting),
         "hrbp_permissions": list(setting.hrbp_permissions or []),
         "manager_reminder_enabled": setting.manager_reminder_enabled,
-        "manager_reminder_node_types": list(setting.manager_reminder_node_types or DEFAULT_MANAGER_REMINDER_NODE_TYPES),
+        "manager_reminder_node_types": list(setting.manager_reminder_node_types if setting.manager_reminder_node_types is not None else DEFAULT_MANAGER_REMINDER_NODE_TYPES),
     }
     if payload.hrbp_invisible_scope_enabled is not None:
         setting.hrbp_invisible_scope_enabled = payload.hrbp_invisible_scope_enabled

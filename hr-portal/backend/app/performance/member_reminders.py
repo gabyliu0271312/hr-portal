@@ -153,6 +153,80 @@ async def _source_allowed(task, node, project, actor, db, preloaded=None):
     return True
 
 
+def _handler_manager_allowed(people, handlers, actor_ref):
+    for handler in handlers:
+        current = people.get(handler)
+        visited = {handler}
+        while current is not None:
+            manager = current.direct_supervisor_employee_no
+            if not manager or manager in visited:
+                break
+            visited.add(manager)
+            current = people.get(manager)
+            if current is None:
+                break
+            if manager == str(actor_ref):
+                return True
+    return False
+
+
+def _writable_handlers(task, grants):
+    from app.performance.task_authorization_service import effective_handlers
+
+    writable = {item.recipient_employee_no for item in grants if not item.read_only}
+    if not any(item.authorization_type == "TRANSFER" for item in grants):
+        writable.add(str(task.handler_ref))
+    return effective_handlers(task.handler_ref, grants) & writable
+
+
+async def _result_read_allowed(db, project, employee_no, actor):
+    from app.performance.authorization_service import (
+        ObjectAuthorizationRequest, PerformanceObjectAuthorizationDenied,
+        PerformanceObjectAuthorizationService,
+    )
+
+    try:
+        await PerformanceObjectAuthorizationService(db).authorize(ObjectAuthorizationRequest(
+            cycle_ref=project.cycle_ref, employee_no=employee_no,
+            actor_type=actor.actor_type, actor_ref=actor.actor_ref, action="RESULT_READ",
+            cycle_status="ACTIVE", node_status="OPEN", record_status="DRAFT",
+        ))
+    except PerformanceObjectAuthorizationDenied:
+        return False
+    return True
+
+
+async def _reconsideration_manager_scope(project, snapshot, employee_no, actor, db, preloaded):
+    from app.performance import projects_router as shared
+
+    if preloaded:
+        rows = preloaded["rows"].get((snapshot.id, employee_no), [])
+    else:
+        rows = (await db.execute(select(PerformanceNodeTask, PerformanceProjectNodeSnapshot).join(
+            PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id,
+        ).where(
+            PerformanceNodeTask.project_id == project.id, PerformanceNodeTask.cycle_ref == project.cycle_ref,
+            PerformanceNodeTask.member_snapshot_id == snapshot.id, PerformanceNodeTask.target_employee_no == employee_no,
+            PerformanceNodeTask.task_kind == "result_reconsideration", PerformanceNodeTask.revoked_at.is_(None),
+        ))).all()
+    people = {person.employee_no: person for person in (await db.execute(
+        select(PerformanceAuthorizationSnapshotPerson).where(
+            PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.source_snapshot_id,
+        )
+    )).scalars().all()}
+    for task, node in rows:
+        if (task.project_id != project.id or task.cycle_ref != project.cycle_ref
+                or task.member_snapshot_id != snapshot.id or task.target_employee_no != employee_no
+                or task.task_kind != "result_reconsideration" or task.revoked_at is not None
+                or node.project_id != project.id or task.node_snapshot_id != node.id):
+            continue
+        grants = preloaded["grants"].get(task.id, []) if preloaded else await shared._task_delegations(db, task.id)
+        if (_handler_manager_allowed(people, _writable_handlers(task, grants), actor.actor_ref)
+                and await shared._completion_reconsideration_valid(db, task)):
+            return await _result_read_allowed(db, project, employee_no, actor)
+    return False
+
+
 async def _member_scope(project, employee_no, context, db, source_task_id=None, *, preloaded=None):
     from app.performance import projects_router as shared
 
@@ -188,7 +262,7 @@ async def _member_scope(project, employee_no, context, db, source_task_id=None, 
         ))
         if member is None:
             raise HTTPException(404, "PROJECT_MEMBER_NOT_FOUND")
-        return actor, snapshot, member, source
+        return actor, snapshot, member, source, "source"
 
     scope_cache = _request_cache(db, "performance_member_reminder_management")
     scope_key = (project.id, context.subject_type, context.subject_id, context.effective_employee_no, context.switch_session_id, context.management_role, context.management_cycle_id, context.management_project_id)
@@ -208,6 +282,7 @@ async def _member_scope(project, employee_no, context, db, source_task_id=None, 
     managed, scope = management
     managed = managed and (scope is None or employee_no in scope)
     manager_task = source
+    scope_mode = "management" if managed else "source"
     if not managed and source is None:
         if actor.actor_type != "EMPLOYEE":
             raise HTTPException(403, "PROJECT_MEMBER_REMIND_FORBIDDEN")
@@ -222,17 +297,21 @@ async def _member_scope(project, employee_no, context, db, source_task_id=None, 
                 or manager_task.member_snapshot_id != snapshot_id or manager_task.cycle_ref != project.cycle_ref
                 or manager_task.target_employee_no != employee_no or manager_task.revoked_at is not None
                 or not editable):
-            raise HTTPException(403, "PROJECT_MEMBER_REMIND_FORBIDDEN")
-        manager_node = preloaded["nodes"].get(manager_task.node_snapshot_id) if preloaded else await db.get(PerformanceProjectNodeSnapshot, manager_task.node_snapshot_id)
-        if not await _source_allowed(manager_task, manager_node, project, actor, db, preloaded):
-            raise HTTPException(403, "PROJECT_MEMBER_REMIND_FORBIDDEN")
+            if not await _reconsideration_manager_scope(project, snapshot, employee_no, actor, db, preloaded):
+                raise HTTPException(403, "PROJECT_MEMBER_REMIND_FORBIDDEN")
+            manager_task = None
+            scope_mode = "reconsideration_manager"
+        else:
+            manager_node = preloaded["nodes"].get(manager_task.node_snapshot_id) if preloaded else await db.get(PerformanceProjectNodeSnapshot, manager_task.node_snapshot_id)
+            if not await _source_allowed(manager_task, manager_node, project, actor, db, preloaded):
+                raise HTTPException(403, "PROJECT_MEMBER_REMIND_FORBIDDEN")
     member = preloaded["members"].get((snapshot_id, employee_no)) if preloaded else await db.scalar(select(PerformanceProjectMember).where(
         PerformanceProjectMember.snapshot_id == snapshot_id,
         PerformanceProjectMember.employee_no == employee_no,
     ))
     if member is None:
         raise HTTPException(404, "PROJECT_MEMBER_NOT_FOUND")
-    return actor, snapshot, member, manager_task
+    return actor, snapshot, member, manager_task, scope_mode
 
 
 async def _member_tasks(project, employee_no, context, db, source_task_id=None, node_id=None, task_id=None, target_kind=None, *, first_only=False):
@@ -248,7 +327,7 @@ async def _member_tasks(project, employee_no, context, db, source_task_id=None, 
     if scoped is None:
         scoped = await _member_scope(project, employee_no, context, db, source_task_id, preloaded=preloaded)
         scope_cache[scope_key] = scoped
-    actor, snapshot, member, manager_task = scoped
+    actor, snapshot, member, manager_task, scope_mode = scoped
     statement = select(PerformanceNodeTask, PerformanceProjectNodeSnapshot).join(
         PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id,
     ).where(
@@ -318,10 +397,12 @@ async def _member_tasks(project, employee_no, context, db, source_task_id=None, 
     setting = setting_cache["setting"]
     candidates = []
     for task, node in rows:
-        if manager_task is not None and (
+        if scope_mode != "management" and (
             setting is not None and not setting.manager_reminder_enabled
-            or node.node_type not in (set(setting.manager_reminder_node_types) if setting is not None else shared._DEFAULT_REMINDER_NODE_TYPES)
+            or node.node_type not in (set(setting.manager_reminder_node_types or []) if setting is not None else shared._DEFAULT_REMINDER_NODE_TYPES)
         ):
+            continue
+        if scope_mode == "reconsideration_manager" and node.node_type != "result_reconsideration":
             continue
         if task.status != "pending" or shared._task_completed(task) or not shared._task_is_available(task, node, project):
             continue
@@ -333,10 +414,12 @@ async def _member_tasks(project, employee_no, context, db, source_task_id=None, 
         handlers = shared.effective_handlers(task.handler_ref, active)
         if actor.actor_type == "EMPLOYEE" and str(actor.actor_ref) in handlers:
             continue
-        writable = {item.recipient_employee_no for item in active if not item.read_only}
-        if not any(item.authorization_type == "TRANSFER" for item in active):
-            writable.add(str(task.handler_ref))
-        handlers = handlers & writable
+        handlers = _writable_handlers(task, active)
+        if scope_mode != "management" and node.node_type == "result_reconsideration":
+            if not _handler_manager_allowed(people_by_no, handlers, actor.actor_ref):
+                continue
+            if not await _result_read_allowed(db, project, employee_no, actor):
+                continue
         receivers = handlers & deliverable
         # Never partially deliver a task whose effective recipients are unavailable.
         selectable = bool(handlers) and receivers == handlers

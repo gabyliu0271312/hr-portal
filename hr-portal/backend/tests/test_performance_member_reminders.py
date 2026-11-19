@@ -23,13 +23,14 @@ from app.performance.models import (
     PerformanceProjectMemberSnapshot,
     PerformanceProjectNodeSnapshot,
     PerformanceCycle,
+    PerformanceDynamicIdentityAssignment,
     PerformanceOtherPermissionSetting,
 )
 from app.users.models import User
 
 
 def result(values):
-    return SimpleNamespace(all=lambda: values, scalars=lambda: SimpleNamespace(all=lambda: values))
+    return SimpleNamespace(all=lambda: values, scalars=lambda: SimpleNamespace(all=lambda: values), scalar_one_or_none=lambda: values[0] if values else None)
 
 
 def node(node_id=11, kind="work_summary", role=None):
@@ -109,6 +110,10 @@ class Db:
         values = statement.compile().params
         if entity is PerformanceNodeTask:
             return result([(item, self.nodes[item.node_snapshot_id]) for item in self.tasks.values()])
+        if entity is PerformanceAuthorizationSnapshot:
+            return result([SimpleNamespace(id=100, cycle_ref=self.snapshot.cycle_ref, status="LOCKED")])
+        if entity is PerformanceDynamicIdentityAssignment:
+            return result([])
         if entity is PerformanceAuthorizationSnapshotPerson:
             return result(self.people)
         if entity is PerformanceIdentityLink:
@@ -156,6 +161,160 @@ async def listing(db, context, **kwargs):
 async def sending(db, context, task_ids=None, **kwargs):
     return await adapter.project_member_remind_batch(1, "E1", adapter.MemberReminderBatchPayload(
         task_ids=[1, 2] if task_ids is None else task_ids, **kwargs), context, db)
+
+
+@pytest.fixture
+def reconsideration_manager(environment, monkeypatch):
+    db, context, sender = environment
+    db.info = {}
+    db.nodes[14] = node(14, "result_reconsideration")
+    db.tasks[4] = task(4, 14, "result_reconsideration", "R1")
+    db.permission_setting = SimpleNamespace(manager_reminder_enabled=True, manager_reminder_node_types=["result_reconsideration"])
+    for person in db.people:
+        if person.employee_no == "E1":
+            person.direct_supervisor_employee_no = "R1"
+        if person.employee_no == "R1":
+            person.direct_supervisor_employee_no = "A1"
+        if person.employee_no == "A1":
+            person.direct_supervisor_employee_no = "M1"
+    monkeypatch.setattr(shared, "_can_manage_project_like_overview", AsyncMock(return_value=False))
+    monkeypatch.setattr(shared, "_member_manager_task_for_actor", AsyncMock(return_value=None))
+    monkeypatch.setattr(shared, "_completion_reconsideration_valid", AsyncMock(return_value=True))
+    return db, context, sender
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("preload", [False, True])
+async def test_reconsideration_handler_supervisor_without_evaluation_task_can_preview_and_send(reconsideration_manager, preload):
+    db, context, sender = reconsideration_manager
+    if preload:
+        await adapter.preload_member_reminders(db.project, [db.member], context, db)
+    assert await adapter.can_remind_member(db.project, "E1", context, db, node_id="node-14", task_id=4)
+    preview = await shared.project_member_reminder_preview(1, "E1", "node-14", 4, context, db)
+    assert preview["reminder_target"] == "姓名R1"
+    sender.assert_not_awaited()
+    db.commit.assert_not_awaited()
+    response = await sending(db, context, [1, 4])
+    assert response["accepted_task_ids"] == [4]
+    assert response["skipped_task_ids"] == [1]
+    assert sender.await_args.args[0].handler_ref == "R1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["disabled", "excluded", "empty", "unrelated_chain", "no_result_read", "readonly_transfer", "transfer_old_chain", "invalid_appeal", "invalid_source"])
+async def test_reconsideration_manager_policy_rejects_display_preview_and_send(reconsideration_manager, reason, monkeypatch):
+    db, context, sender = reconsideration_manager
+    if reason == "disabled":
+        db.permission_setting.manager_reminder_enabled = False
+    elif reason == "excluded":
+        db.permission_setting.manager_reminder_node_types = ["evaluation"]
+    elif reason == "empty":
+        db.permission_setting.manager_reminder_node_types = []
+    elif reason == "unrelated_chain":
+        next(p for p in db.people if p.employee_no == "R1").direct_supervisor_employee_no = None
+    elif reason == "no_result_read":
+        next(p for p in db.people if p.employee_no == "E1").direct_supervisor_employee_no = None
+        db.member.direct_supervisor_employee_no = None
+    elif reason in {"readonly_transfer", "transfer_old_chain"}:
+        db.delegations = [delegation(4, "T1", "TRANSFER", reason == "readonly_transfer")]
+    elif reason == "invalid_appeal":
+        shared._completion_reconsideration_valid.return_value = False
+    kwargs = {"source_task_id": 999} if reason == "invalid_source" else {}
+    assert not await adapter.can_remind_member(db.project, "E1", context, db, node_id="node-14", task_id=4, **kwargs)
+    with pytest.raises(HTTPException):
+        await shared.project_member_reminder_preview(1, "E1", "node-14", 4, context, db, **kwargs)
+    try:
+        response = await sending(db, context, [4], **kwargs)
+        assert response["accepted_task_ids"] == []
+    except HTTPException as exc:
+        assert exc.status_code in {403, 404}
+    sender.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reconsideration_detail_uses_real_reminder_policy_and_updated_configuration(reconsideration_manager, monkeypatch):
+    from app.performance import reconsideration_service, reconsideration_result_service
+    from app.performance.models import PerformanceAuditEvent
+
+    db, context, sender = reconsideration_manager
+    appeal = SimpleNamespace(id=1, reason="申请核对", closed_at=None, closed_by_ref=None, result_snapshot={})
+    monkeypatch.setattr(reconsideration_service, "reconsideration_for_task", AsyncMock(return_value=appeal))
+    monkeypatch.setattr(reconsideration_result_service, "task_result", lambda _appeal: ([], {}))
+    monkeypatch.setattr(reconsideration_result_service, "submitted_answers", lambda _snapshot, _answers: {})
+    monkeypatch.setattr(shared, "_member_task_options", AsyncMock(return_value=[SimpleNamespace(task_id=4, role_key="HRBP", role_label="HRBP")]))
+    monkeypatch.setattr(shared, "_delegation_snapshot_people", AsyncMock(return_value={p.employee_no: p for p in db.people}))
+    execute = db.execute
+    async def detail_execute(statement):
+        if statement.column_descriptions[0]["entity"] is PerformanceAuditEvent:
+            return result([])
+        return await execute(statement)
+    db.execute = detail_execute
+    actor = TrustedPerformanceActor("EMPLOYEE", "M1")
+    detail, _ = await shared._reconsideration_detail(db.project, db.member, db.nodes[14], [db.tasks[4]], context, actor, db)
+    assert detail["handlers"][0]["can_remind"] is True
+    assert detail["can_edit"] is False
+    db.permission_setting.manager_reminder_node_types = []
+    db.info.clear()
+    detail, _ = await shared._reconsideration_detail(db.project, db.member, db.nodes[14], [db.tasks[4]], context, actor, db)
+    assert detail["handlers"][0]["can_remind"] is False
+    sender.assert_not_awaited()
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reconsideration_permission_is_rechecked_after_detail_load(reconsideration_manager):
+    db, context, sender = reconsideration_manager
+    assert await adapter.can_remind_member(db.project, "E1", context, db, task_id=4)
+    db.permission_setting.manager_reminder_enabled = False
+    response = await sending(db, context, [4])
+    assert response["accepted_task_ids"] == []
+    sender.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_settings_patch_drives_member_listing_preview_and_old_single_send(reconsideration_manager, monkeypatch):
+    from app.performance import other_permission_settings_router as settings_api
+    from app.performance.auth_context import get_performance_access_context
+    from app.core.db import get_session
+    from httpx import ASGITransport, AsyncClient
+
+    db, context, sender = reconsideration_manager
+    db.permission_setting = PerformanceOtherPermissionSetting(id=1, hrbp_invisible_scope_enabled=False,
+        hrbp_invisible_people=[], hrbp_invisible_rules=[], hrbp_permissions=[],
+        manager_reminder_enabled=True, manager_reminder_node_types=["evaluation"])
+    admin = PerformanceAccessContext(subject_type="SYSTEM_ACCOUNT", subject_id=1, display_name="配置管理员",
+        account_type=None, portal_entry_permissions=(), role_grants=(), permission_codes=("performance.configuration.manage",))
+    monkeypatch.setattr(settings_api, "_load_options", AsyncMock(return_value=([], [])))
+    monkeypatch.setattr(settings_api, "resolve_trusted_performance_actor", AsyncMock(return_value=TrustedPerformanceActor("SYSTEM_ACCOUNT", "1")))
+    db.refresh = AsyncMock()
+    app = FastAPI()
+    app.include_router(settings_api.router)
+    app.include_router(adapter.router)
+    app.include_router(shared.router)
+    app.dependency_overrides[get_session] = lambda: db
+    app.dependency_overrides[get_performance_access_context] = lambda: admin
+    path = "/performance/permission-settings/other"
+    target = "/projects/1/members/E1"
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        saved = await client.patch(path, json={"manager_reminder_node_types": ["evaluation", "result_reconsideration"]})
+        assert saved.status_code == 200
+        assert (await client.get(path)).json()["manager_reminder_node_types"] == ["evaluation", "result_reconsideration"]
+        app.dependency_overrides[get_performance_access_context] = lambda: context
+        response = await client.get(target + "/reminder-tasks", params={"node_id": "node-14", "task_id": 4})
+        assert response.status_code == 200 and response.json()["can_remind"]
+        preview = await client.get("/performance" + target + "/reminder-preview", params={"node_id": "node-14", "task_id": 4})
+        assert preview.status_code == 200
+        response = await client.post("/performance" + target + "/remind", json={"node_id": "node-14", "task_id": 4})
+        assert response.status_code == 200 and response.json()["accepted_task_ids"] == [4]
+        sender.reset_mock()
+        app.dependency_overrides[get_performance_access_context] = lambda: admin
+        assert (await client.patch(path, json={"manager_reminder_enabled": False})).status_code == 200
+        app.dependency_overrides[get_performance_access_context] = lambda: context
+        db.info.clear()
+        assert not await adapter.can_remind_member(db.project, "E1", context, db, task_id=4)
+        assert (await client.get("/performance" + target + "/reminder-preview", params={"node_id": "node-14", "task_id": 4})).status_code == 404
+        assert (await client.post("/performance" + target + "/remind", json={"node_id": "node-14", "task_id": 4})).status_code == 422
+        sender.assert_not_awaited()
 
 
 @pytest.mark.asyncio
