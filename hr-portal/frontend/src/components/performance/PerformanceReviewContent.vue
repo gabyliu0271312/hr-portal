@@ -13,7 +13,7 @@
       <div class="review-heading">
         <div class="review-heading-copy">
           <h2>{{ contentTitle || node.node_name }}</h2>
-          <template v-if="node.node_type !== 'result_view'">
+          <template v-if="node.node_type !== 'result_view' && !(shows360Feedback && (feedbackSources?.length || 0) > 1)">
           <span v-if="node.status === 'not_started' && node.start_at" class="review-deadline">启动时间：{{ formatStartTime(node.start_at) }}</span>
           <span v-else-if="node.status !== 'completed' && node.end_at" class="review-deadline">截止时间：{{ formatDeadline(node.end_at) }}</span>
           <span v-else-if="node.status !== 'completed' && templateName" class="review-deadline">{{ templateName }}</span>
@@ -45,7 +45,8 @@
           :mode="displayConfig?.table === 'communication' ? 'communication' : 'feedback'"
           :project-id="props.projectId"
           :node-id="node.node_id"
-          @open-task="emit('open-member', { node, member: $event })"
+          :sources="shows360Feedback ? feedbackSources : undefined"
+          @open-task="openFeedbackTask"
           @remind-evaluate="emit('remind-evaluate', { node, ...$event })"
         />
         <template v-else-if="showsEvaluationWorkspace">
@@ -98,7 +99,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { PerformanceDistributionTips, PerformanceReviewMemberContext, PerformanceReviewNode } from '@/api/performance'
+import type { PerformanceDistributionTips, PerformanceReviewMemberContext, PerformanceReviewNode, PerformanceReview360Source } from '@/api/performance'
 import { performanceWorkbenchApi } from '@/api/performance'
 import PerformanceComparisonNotice from './PerformanceComparisonNotice.vue'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
@@ -118,6 +119,7 @@ const props = defineProps<{
   error: string
   templateName: string
   node: PerformanceReviewNode | null
+  feedbackSources?: PerformanceReview360Source[]
   projectId?: number | null
   contentTitle?: string
   resultUnavailable?: boolean
@@ -162,6 +164,11 @@ const emit = defineEmits<{
   'remind-evaluate': [payload: { node: PerformanceReviewNode; member: PerformanceReviewMemberContext; pendingCount: number }]
   'open-member': [payload: { node: PerformanceReviewNode; member: PerformanceReviewMemberContext }]
 }>()
+
+function openFeedbackTask(member: PerformanceReviewMemberContext & { project_id?: number; node_id?: string }) {
+  if (!props.node) return
+  emit('open-member', { node: { ...props.node, ...(member.node_id ? { node_id: member.node_id } : {}) }, member })
+}
 
 function formatDeadline(value: string) {
   const date = new Date(value)

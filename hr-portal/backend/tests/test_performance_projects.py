@@ -3646,7 +3646,7 @@ async def test_workbench_projects_uses_employee_identity_and_member_visibility(m
 
         async def execute(self, statement):
             self.statement = statement
-            return SimpleNamespace(all=lambda: rows)
+            return SimpleNamespace(all=lambda: [])
 
     db = Db()
     access = _frontend_access(cycles=[_pm_cycle(1, "周期一")], workbench_projects=rows)
@@ -3655,6 +3655,93 @@ async def test_workbench_projects_uses_employee_identity_and_member_visibility(m
     monkeypatch.setattr(projects_router, "resolve_frontend_access", resolve)
     result = await projects_router.workbench_projects(None, 1, 20, context(), db)
     assert result[0]["project_id"] == 1
+    assert result[0]["project_started_at"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("keyword,page,page_size,cycle_id,expected_ids", [
+    (None, 1, 20, None, [1, 9, 5]),
+    (None, 2, 1, None, [9]),
+    ("无审计", 1, 20, None, [5]),
+    (None, 1, 20, 1, [1, 9]),
+    (None, 1, 20, 2, [5]),
+    ("不存在", 1, 20, None, []),
+    (None, 4, 1, None, []),
+])
+async def test_workbench_projects_first_started_audit_contract(monkeypatch, keyword, page, page_size, cycle_id, expected_ids):
+    from unittest.mock import AsyncMock
+    from sqlalchemy import create_engine, text
+    from app.performance import projects_router
+
+    first_cycle, second_cycle = _pm_cycle(1), _pm_cycle(2)
+    projects = [_pm_project(1, "晚启动", 1), _pm_project(9, "早启动", 1), _pm_project(5, "无审计", 2)]
+    for project in projects:
+        project.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+        project.updated_at = datetime(2026, 11, 1, tzinfo=UTC)
+    access = _frontend_access(cycles=[first_cycle, second_cycle], workbench_projects=[
+        (projects[0], first_cycle), (projects[1], first_cycle), (projects[2], second_cycle),
+    ])
+    monkeypatch.setattr(projects_router, "resolve_frontend_access", AsyncMock(return_value=access))
+    engine = create_engine("sqlite://")
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("CREATE TABLE performance_audit_events (cycle_ref TEXT, subject_ref TEXT, event_type TEXT, subject_type TEXT, event_at DATETIME)"))
+            events = [
+                ("cycle:1", "project:x:1", "PERFORMANCE_PROJECT_STARTED", "PERFORMANCE_PROJECT", "2026-10-03 00:00:00"),
+                ("cycle:1", "project:x:9", "PERFORMANCE_PROJECT_STARTED", "PERFORMANCE_PROJECT", "2026-10-04 00:00:00"),
+                ("cycle:1", "project:x:9", "PERFORMANCE_PROJECT_STARTED", "PERFORMANCE_PROJECT", "2026-10-01 00:00:00"),
+                ("cycle:2", "project:x:9", "PERFORMANCE_PROJECT_STARTED", "PERFORMANCE_PROJECT", "2026-09-01 00:00:00"),
+                ("cycle:1", "project:x:5", "PERFORMANCE_PROJECT_STARTED", "PERFORMANCE_PROJECT", "2026-09-01 00:00:00"),
+                ("cycle:1", "project:x:1", "PERFORMANCE_PROJECT_UPDATED", "PERFORMANCE_PROJECT", "2026-09-01 00:00:00"),
+                ("cycle:1", "project:x:1", "PERFORMANCE_PROJECT_STARTED", "PERFORMANCE_CYCLE", "2026-09-01 00:00:00"),
+                ("cycle:1", "project:hidden", "PERFORMANCE_PROJECT_STARTED", "PERFORMANCE_PROJECT", "2026-08-01 00:00:00"),
+            ]
+            connection.execute(text("INSERT INTO performance_audit_events VALUES (:cycle, :project, :event, :subject, :at)"), [
+                dict(zip(("cycle", "project", "event", "subject", "at"), event)) for event in events
+            ])
+            audit_queries, opening_queries = [], []
+
+            class Db:
+                async def execute(self, statement):
+                    audit_queries.append(statement)
+                    return connection.execute(statement)
+
+                async def scalar(self, statement):
+                    opening_queries.append(statement)
+                    params = statement.compile().params
+                    assert params["employee_no_1"] == "E001"
+                    return 44 if params["project_id_1"] == 1 else None
+
+            result = await projects_router.workbench_projects(keyword, page, page_size, context(), Db(), cycle_id)
+            assert [item["project_id"] for item in result] == expected_ids
+            expected_times = {1: "2026-10-03T00:00:00", 9: "2026-10-01T00:00:00", 5: None}
+            assert [item["project_started_at"] for item in result] == [expected_times[key] for key in expected_ids]
+            assert [item["result_published"] for item in result] == [key == 1 for key in expected_ids]
+            assert len(opening_queries) == len(expected_ids)
+            assert len(audit_queries) == int(bool(expected_ids))
+            if audit_queries:
+                sql = str(audit_queries[0].compile(compile_kwargs={"literal_binds": True}))
+                assert "min(performance_audit_events.event_at)" in sql
+                assert "project:hidden" not in sql
+                for project in projects:
+                    assert (f"'{project.project_ref}'" in sql) is (project.id in expected_ids)
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_workbench_projects_rejects_unauthorized_cycle_before_audit_query(monkeypatch):
+    from fastapi import HTTPException
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router
+
+    monkeypatch.setattr(projects_router, "resolve_frontend_access", AsyncMock(return_value=_frontend_access()))
+    db = SimpleNamespace(execute=AsyncMock(), scalar=AsyncMock())
+    with pytest.raises(HTTPException) as error:
+        await projects_router.workbench_projects(None, 1, 20, context(), db, 99)
+    assert error.value.status_code == 404 and error.value.detail == "CYCLE_NOT_FOUND"
+    db.execute.assert_not_awaited()
+    db.scalar.assert_not_awaited()
 
 
 @pytest.mark.asyncio

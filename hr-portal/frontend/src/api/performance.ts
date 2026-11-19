@@ -54,6 +54,7 @@ export interface PerformanceWorkbenchProject {
   cycle_start_at: string
   cycle_end_at: string
   project_status: string
+  project_started_at?: string | null
   result_published?: boolean
   participation_roles?: string[]
 }
@@ -337,6 +338,13 @@ export interface PerformanceReviewNode {
   editable?: boolean
   form_schema?: SelfSummarySection[]
   answers?: Record<string, unknown>
+}
+
+export interface PerformanceReview360Source {
+  project_id: number
+  node_id: string
+  project_name: string
+  node_name: string
 }
 
 export interface PerformanceReviewCategory {
@@ -1622,10 +1630,14 @@ export type SelfSummarySaveResult = { comparison?: PerformanceComparisonResult |
 
 export const performanceWorkbenchApi = {
   async listProjects(keyword?: string, cycleId?: number): Promise<PerformanceWorkbenchProject[]> {
-    const { data } = await api.get<PerformanceWorkbenchProject[]>('/performance/workbench/projects', {
-      params: { ...(keyword ? { keyword } : {}), ...(cycleId ? { cycle_id: cycleId } : {}) },
-    })
-    return data
+    const projects: PerformanceWorkbenchProject[] = []
+    for (let page = 1; ; page += 1) {
+      const { data } = await api.get<PerformanceWorkbenchProject[]>('/performance/workbench/projects', {
+        params: { ...(keyword ? { keyword } : {}), ...(cycleId ? { cycle_id: cycleId } : {}), page, page_size: 100 },
+      })
+      projects.push(...data)
+      if (data.length < 100) return projects
+    }
   },
   async announcements(cycleRef?: string | null): Promise<PerformanceWorkbenchAnnouncementFeed> {
     const { data } = await api.get<PerformanceWorkbenchAnnouncementFeed>('/performance/workbench/announcements', {

@@ -7,7 +7,7 @@
       @select-filter="selectCycle"
       :projects="overview?.projects || []"
       :active-project="overview?.active_project || null"
-      :selected-node-id="resultScopeKind ? selectedNodeId : `${activeProjectId}:${selectedNodeId}`"
+      :selected-node-id="resultScopeKind ? selectedNodeId : isReviewer360Node(selectedNode || {}) ? '__reviewer-360__' : `${activeProjectId}:${selectedNodeId}`"
       :loading="loading"
       @select-project="selectProject"
       @select-node="selectNode"
@@ -20,6 +20,7 @@
       :error="error"
       :template-name="overview?.template_name || ''"
       :node="selectedNode"
+      :feedback-sources="selectedNode && isReviewer360Node(selectedNode) ? reviewer360Sources : undefined"
       :project-id="activeProjectId"
       :result-unavailable="resultUnavailable"
       :content-title="selectedNode?.node_type === 'result_view' ? resultPageTitle : undefined"
@@ -194,7 +195,7 @@ const resultScopeNodes = computed<PerformanceReviewNode[]>(() => [
   ...(projectContext.navigation?.can_view_team_results ? [{ node_id: TEAM_RESULT_NODE_ID, node_name: '查看团队绩效结果', node_type: 'team_results', entry_mode: 'none' as const, executor_label: '', status: 'completed' as const, start_at: null, end_at: null, action_url: '' }] : []),
   ...(projectContext.navigation?.can_view_focus_results ? [{ node_id: FOCUS_RESULT_NODE_ID, node_name: '关注人员的绩效结果', node_type: 'focus_results', entry_mode: 'none' as const, executor_label: '', status: 'completed' as const, start_at: null, end_at: null, action_url: '' }] : []),
 ])
-const visibleCategories = computed(() => {
+const projectCategories = computed(() => {
   const categories: Array<{ key: string; label: string; nodes: ReviewNavigationNode[] }> = []
   const projects = overview.value?.projects || []
   for (const project of projects) {
@@ -206,14 +207,30 @@ const visibleCategories = computed(() => {
       target.nodes.push(...category.nodes.map(node => ({ ...node, project_id: project.project_id, navigation_id: `${project.project_id}:${node.node_id}` })))
     }
   }
-  if (!resultScopeNodes.value.length) return categories
-  const team = categories.find(category => category.key === 'team')
-  if (team) team.nodes.push(...resultScopeNodes.value)
-  else categories.push({ key: 'team', label: '我团队的绩效', nodes: resultScopeNodes.value })
-  return categories
+  if (resultScopeNodes.value.length) {
+    const team = categories.find(category => category.key === 'team')
+    if (team) team.nodes.push(...resultScopeNodes.value)
+    else categories.push({ key: 'team', label: '我团队的绩效', nodes: resultScopeNodes.value })
+  }
+  const order = ['mine', 'others', 'team', 'other']
+  return categories.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
 })
+const reviewer360Sources = computed(() => projectCategories.value.flatMap(category => category.nodes)
+  .filter(node => node.project_id && isReviewer360Node(node))
+  .map(node => ({ project_id: node.project_id!, node_id: node.node_id, project_name: overview.value?.projects.find(project => project.project_id === node.project_id)?.project_name || '', node_name: node.node_name })))
+const visibleCategories = computed(() => projectCategories.value.map(category => {
+  const nodes: ReviewNavigationNode[] = []
+  const feedback = category.nodes.filter(isReviewer360Node)
+  for (const node of category.nodes) {
+    if (!isReviewer360Node(node)) { nodes.push(node); continue }
+    if (nodes.some(isReviewer360Node)) continue
+    const status = ['overdue', 'pending', 'not_started', 'completed'].find(value => feedback.some(item => item.show_status !== false && item.status === value)) as PerformanceReviewNode['status'] || 'completed'
+    nodes.push({ ...node, navigation_id: '__reviewer-360__', status, show_status: feedback.some(item => item.show_status !== false) })
+  }
+  return { ...category, nodes }
+}))
 const cycleOptions = computed(() => projectContext.cycles.map(cycle => ({ value: cycle.cycle_id, label: cycle.cycle_name })))
-const allNodes = computed(() => visibleCategories.value.flatMap(category => category.nodes).filter(node => !node.project_id || node.project_id === activeProjectId.value))
+const allNodes = computed(() => projectCategories.value.flatMap(category => category.nodes).filter(node => !node.project_id || node.project_id === activeProjectId.value))
 const selectedNode = computed(() => resultScopeKind.value ? allNodes.value.find(node => node.node_id === selectedNodeId.value) || null : overview.value?.active_project?.project_id === activeProjectId.value ? allNodes.value.find(node => node.node_id === selectedNodeId.value) || null : null)
 const calibrationCompletion = ref<PerformanceCalibrationCompletion | null>(null)
 const calibrationConfirmOpen = ref(false)
@@ -316,6 +333,19 @@ function restoreDrawer() {
   drawerMember.value = { node, task_id: taskId, member: { employee_no: '' }, active_tab: !route.query.activeTab || route.query.activeTab === node.node_id ? 'evaluation' : String(route.query.activeTab) }
   drawerOpen.value = true
 }
+watch(() => route.query.project_id, value => {
+  const projectId = Number(value)
+  if (scopeRoute() || !Number.isSafeInteger(projectId) || projectId <= 0 || projectId === activeProjectId.value) return
+  if (!projectContext.navigation?.review_projects.some(project => project.project_id === projectId)) {
+    overview.value = null
+    error.value = '当前项目不存在或无权查看'
+    return
+  }
+  projectContext.setActiveProjectId(projectId)
+  selectedNodeId.value = String(route.query.node || '')
+  drawerMember.value = null
+  void loadOverview(projectId)
+})
 watch(() => route.query.node, value => {
   if (scopeRoute()) {
     selectedNodeId.value = resultScopeNodes.value.find(node => node.node_id === value)?.node_id || ''
@@ -461,6 +491,18 @@ async function openNode(node: PerformanceReviewNode) {
 async function openMember(payload: { node: PerformanceReviewNode; member: PerformanceReviewMemberContext }) {
   const taskId = payload.member.task_id || payload.member.aggregate_task_id || payload.node.task_id
   if (!taskId) return
+  const memberProjectId = Number((payload.member as PerformanceReviewMemberContext & { project_id?: number }).project_id) || activeProjectId.value
+  if (isReviewer360Node(payload.node) && memberProjectId && memberProjectId !== activeProjectId.value) {
+    const cycleId = projectContext.activeCycleId
+    await selectProject(memberProjectId)
+    if (disposed || cycleId !== projectContext.activeCycleId || memberProjectId !== activeProjectId.value) return
+  }
+  if (isReviewer360Node(payload.node)) {
+    const source = allNodes.value.find(node => node.node_id === payload.node.node_id && isReviewer360Node(node))
+    if (!source) return
+    payload = { ...payload, node: source }
+    selectedNodeId.value = source.node_id
+  }
   if (payload.node.node_type === 'calibration' || payload.member.status === 'completed' && ((payload.node.task_kind === 'evaluation' && !isSelfEvaluationNode(payload.node)) || performanceReviewDisplay(payload.node.node_type)?.completedView === 'drawer')) {
     drawerMember.value = { node: payload.node, member: payload.member, task_id: taskId, active_tab: 'evaluation' }
     drawerOpen.value = true

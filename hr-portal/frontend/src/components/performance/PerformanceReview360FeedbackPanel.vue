@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   performanceReview360FeedbackApi,
   performanceWorkbenchApi,
   type PerformanceReview360FeedbackItem,
   type PerformanceReview360VoluntaryCandidate,
+  type PerformanceReview360Source,
   type PerformanceWorkbenchTaskPerson,
 } from '@/api/performance'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
@@ -31,17 +32,20 @@ const props = withDefaults(defineProps<{
   projectId: number | string
   nodeId: string
   mode?: 'feedback' | 'communication'
+  sources?: PerformanceReview360Source[]
 }>(), { mode: 'feedback' })
 const emit = defineEmits<{
   'remind-evaluate': [{ member: FeedbackRow; pendingCount: number }]
-  'open-task': [{ task_id: number; employee_no: string; display_name: string; status: string }]
+  'open-task': [{ task_id: number; employee_no: string; display_name: string; status: string; project_id?: number; node_id?: string }]
 }>()
+const aggregateMode = computed(() => !communicationMode.value && (props.sources?.length || 0) > 1)
+const voluntarySources = ref<PerformanceReview360Source[]>([])
 
 const projectContext = usePerformanceProjectContextStore()
 const loading = ref(false)
 const error = ref('')
 const keyword = ref('')
-type FeedbackRow = Omit<PerformanceReview360FeedbackItem, 'status'> & Partial<Omit<PerformanceWorkbenchTaskPerson, 'employee_no' | 'task_id'>> & { status: string }
+type FeedbackRow = Omit<PerformanceReview360FeedbackItem, 'status'> & Partial<Omit<PerformanceWorkbenchTaskPerson, 'employee_no' | 'task_id'>> & { status: string; project_id?: number; node_id?: string }
 const items = ref<FeedbackRow[]>([])
 const total = ref(0)
 const allowVoluntary = ref(false)
@@ -118,6 +122,17 @@ async function load() {
       items.value = rows.map(item => ({ ...item, source_label: '', relationship: '' }))
       total.value = Array.isArray(result) ? items.value.length : result.total
       allowVoluntary.value = false
+    } else if (aggregateMode.value) {
+      const sources = props.sources || []
+      const results = await Promise.all(sources.map(source => performanceReview360FeedbackApi.list(source.project_id, keyword.value.trim() || undefined, source.node_id)))
+      if (sequence !== requestSequence) return
+      remotePaging.value = false
+      items.value = results.flatMap((result, index) => result.items.map(item => ({ ...item, project_id: sources[index].project_id, node_id: sources[index].node_id })))
+      total.value = items.value.length
+      voluntarySources.value = sources.filter((_source, index) => results[index].allow_voluntary_evaluation)
+      allowVoluntary.value = voluntarySources.value.length > 0
+      voluntaryEnabled.value = results.some(result => result.voluntary_evaluation_enabled ?? result.allow_voluntary_evaluation)
+      voluntaryDisabledReason.value = results.find(result => result.voluntary_evaluation_disabled_reason)?.voluntary_evaluation_disabled_reason || ''
     } else {
       const result = await performanceReview360FeedbackApi.list(props.projectId, keyword.value.trim() || undefined, props.nodeId, page.value, pageSize.value, sortKey.value || undefined, sortOrder.value || undefined)
       if (sequence !== requestSequence) return
@@ -133,6 +148,8 @@ async function load() {
     items.value = []
     total.value = 0
     allowVoluntary.value = false
+    voluntaryEnabled.value = false
+    voluntarySources.value = []
     error.value = communicationMode.value ? '结果沟通列表加载失败，请稍后重试' : '360° 评估列表加载失败，请稍后重试'
   } finally {
     if (sequence === requestSequence) loading.value = false
@@ -140,24 +157,30 @@ async function load() {
 }
 
 const dialogOpen = ref(false)
-const candidates = ref<PerformanceReview360VoluntaryCandidate[]>([])
+const candidates = ref<Array<PerformanceReview360VoluntaryCandidate & { source?: PerformanceReview360Source }>>([])
 const candidateLoading = ref(false)
 const selectedTarget = ref<string | null>(null)
 const submitting = ref(false)
+const candidateKey = (candidate: typeof candidates.value[number]) => candidate.source ? JSON.stringify([candidate.source.project_id, candidate.source.node_id, candidate.employee_no]) : candidate.employee_no
 const candidateOptions = computed(() => candidates.value.map(candidate => ({
-  value: candidate.employee_no,
+  value: candidateKey(candidate),
   label: candidate.display_name,
-  subLabel: candidate.department || undefined,
+  subLabel: candidate.source ? `${candidate.source.project_name} · ${candidate.source.node_name}${candidate.department ? ` · ${candidate.department}` : ''}` : candidate.department || undefined,
 })))
+let candidateSequence = 0
 async function loadCandidates() {
+  const sequence = ++candidateSequence
   candidateLoading.value = true
+  candidates.value = []
   try {
-    const result = await performanceReview360FeedbackApi.candidates(props.projectId, undefined, props.nodeId)
-    candidates.value = result.items
+    const sources = aggregateMode.value ? voluntarySources.value : [{ project_id: Number(props.projectId), node_id: props.nodeId, project_name: '', node_name: '' }]
+    const results = await Promise.all(sources.map(source => performanceReview360FeedbackApi.candidates(source.project_id, undefined, source.node_id)))
+    if (sequence !== candidateSequence) return
+    candidates.value = results.flatMap((result, index) => result.items.map(candidate => ({ ...candidate, ...(aggregateMode.value ? { source: sources[index] } : {}) })))
   } catch {
-    candidates.value = []
+    if (sequence === candidateSequence) candidates.value = []
   } finally {
-    candidateLoading.value = false
+    if (sequence === candidateSequence) candidateLoading.value = false
   }
 }
 function openVoluntaryDialog() {
@@ -169,17 +192,23 @@ function openVoluntaryDialog() {
 async function confirmVoluntary() {
   if (submitting.value || !selectedTarget.value) return
   submitting.value = true
+  const sequence = candidateSequence
+  const cacheVersion = projectContext.cacheVersion
   try {
-    const target = candidates.value.find(candidate => candidate.employee_no === selectedTarget.value)
-    const result = await performanceReview360FeedbackApi.start(props.projectId, selectedTarget.value, props.nodeId)
+    const target = candidates.value.find(candidate => candidateKey(candidate) === selectedTarget.value)
+    if (!target) return
+    const source = target.source
+    const result = await performanceReview360FeedbackApi.start(source?.project_id || props.projectId, target.employee_no, source?.node_id || props.nodeId)
+    if (sequence !== candidateSequence || cacheVersion !== projectContext.cacheVersion) return
     projectContext.invalidate()
     dialogOpen.value = false
     void load()
     emit('open-task', {
       task_id: result.task_id,
       employee_no: result.target_employee_no,
-      display_name: target?.display_name || result.target_employee_no,
+      display_name: target.display_name || result.target_employee_no,
       status: 'pending',
+      ...(source ? { project_id: source.project_id, node_id: source.node_id } : {}),
     })
   } catch (err: unknown) {
     const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -202,6 +231,7 @@ function openItem(item: FeedbackRow) {
     employee_no: item.employee_no,
     display_name: item.display_name,
     status: item.status,
+    ...(item.project_id ? { project_id: item.project_id, node_id: item.node_id } : {}),
   })
 }
 
@@ -278,7 +308,14 @@ function sortValue(item: FeedbackRow, key: string) {
 const sortedItems = computed(() => remotePaging.value ? items.value : sortPerformanceRows(items.value, sortKey.value, sortOrder.value, sortValue))
 const pagedItems = computed(() => remotePaging.value ? items.value : sortedItems.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
 
-watch(() => [props.projectId, props.nodeId, props.mode], () => { page.value = 1; void load() })
+watch(() => JSON.stringify([props.projectId, props.nodeId, props.mode, props.sources]), () => {
+  page.value = 1
+  dialogOpen.value = false
+  candidates.value = []
+  ++candidateSequence
+  void load()
+})
+onBeforeUnmount(() => { ++requestSequence; ++candidateSequence })
 onMounted(() => void load())
 
 defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVoluntaryDialog })
@@ -321,7 +358,10 @@ defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVo
       @row-click="openItem"
     >
       <template #cell="{ row, column }">
-        <PerformanceMemberIdentity v-if="column.key === 'name'" :display-name="row.display_name" :identity-status="row.identity_status" />
+        <div v-if="column.key === 'name'" class="feedback-member">
+          <PerformanceMemberIdentity :display-name="row.display_name" :identity-status="row.identity_status" />
+          <small v-if="aggregateMode">{{ sources?.find(source => source.project_id === row.project_id && source.node_id === row.node_id)?.project_name }} · {{ sources?.find(source => source.project_id === row.project_id && source.node_id === row.node_id)?.node_name }}</small>
+        </div>
         <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" :allow-rejected="!communicationMode" />
         <PerformanceRatingTag v-else-if="column.key.startsWith('rating:') && row.ratings?.[column.key]" :label="row.ratings[column.key].label" :color="row.ratings[column.key].color || undefined" :foreground="row.ratings[column.key].foreground || undefined" />
         <span v-else-if="column.key === 'completion'" class="feedback-panel__completion">
@@ -364,6 +404,8 @@ defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVo
 <style scoped>
 .feedback-panel { min-width: 0; padding: 0 var(--spacing-5) var(--spacing-5); box-sizing: border-box; border-radius: var(--radius-lg); background: var(--color-bg-card); color: var(--color-text-primary); box-shadow: var(--shadow-dialog); --performance-table-container-padding: var(--performance-review-surface-inset); }
 .card-sticky-mask { position: sticky; top: calc(-1 * var(--performance-table-container-padding, 0px)); z-index: 19; flex: none; height: 20px; margin: 0 calc(-1 * var(--spacing-5)); border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--color-bg-card, #fff); }
+.feedback-member { min-width: 0; }
+.feedback-member small { display: block; margin-top: 4px; overflow: hidden; color: var(--color-text-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .feedback-panel__completion { color: var(--color-primary); }
 .feedback-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--spacing-2); padding: 60px 0; color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: 22px; text-align: center; }
 .feedback-empty--text { min-height: 300px; display: grid; place-items: center; padding: 0; color: var(--color-text-secondary); }

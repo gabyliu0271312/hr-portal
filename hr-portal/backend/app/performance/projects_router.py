@@ -6783,6 +6783,21 @@ async def workbench_projects(
     if keyword:
         rows = [row for row in rows if keyword.strip().casefold() in row[0].name.casefold()]
     rows = rows[(page - 1) * page_size:page * page_size]
+    started_at_by_project = {}
+    if rows:
+        started_events = (await db.execute(select(
+            PerformanceAuditEvent.cycle_ref,
+            PerformanceAuditEvent.subject_ref,
+            func.min(PerformanceAuditEvent.event_at),
+        ).where(
+            PerformanceAuditEvent.event_type == "PERFORMANCE_PROJECT_STARTED",
+            PerformanceAuditEvent.subject_type == "PERFORMANCE_PROJECT",
+            or_(*(and_(
+                PerformanceAuditEvent.cycle_ref == project.cycle_ref,
+                PerformanceAuditEvent.subject_ref == project.project_ref,
+            ) for project, _cycle in rows)),
+        ).group_by(PerformanceAuditEvent.cycle_ref, PerformanceAuditEvent.subject_ref))).all()
+        started_at_by_project = {(cycle_ref, project_ref): started_at.isoformat() for cycle_ref, project_ref, started_at in started_events}
     result = []
     for project, cycle in rows:
         actor_ref = access.actor_refs_by_cycle.get(project.cycle_ref, access.actor_ref)
@@ -6792,7 +6807,7 @@ async def workbench_projects(
                 PerformanceResultOpening.project_id == project.id,
                 PerformanceResultOpening.employee_no == actor_ref,
             ).limit(1)) is not None
-        result.append({"project_id": project.id, "project_name": project.name, "cycle_ref": project.cycle_ref, "cycle_name": cycle.name, "cycle_start_at": cycle.start_at, "cycle_end_at": cycle.end_at, "project_status": project.status, "result_published": opened, "participation_roles": []})
+        result.append({"project_id": project.id, "project_name": project.name, "cycle_ref": project.cycle_ref, "cycle_name": cycle.name, "cycle_start_at": cycle.start_at, "cycle_end_at": cycle.end_at, "project_started_at": started_at_by_project.get((project.cycle_ref, project.project_ref)), "project_status": project.status, "result_published": opened, "participation_roles": []})
     return result
 
 

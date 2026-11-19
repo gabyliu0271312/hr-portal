@@ -244,8 +244,9 @@ describe('PerformanceWorkbench project context', () => {
     const wrapper = mountView()
     await flushPromises()
     expect(wrapper.find('.select-project-one').exists()).toBe(false)
-    expect(wrapper.findAll('.project-title').map(title => title.text())).toEqual(['项目一', '项目二'])
-    expect(wrapper.findAll('.timeline-node')).toHaveLength(2)
+    expect(wrapper.find('.project-title').exists()).toBe(false)
+    expect(wrapper.findAll('.timeline-card')).toHaveLength(1)
+    expect(wrapper.findAll('.timeline-node')).toHaveLength(1)
     expect(wrapper.findAll('.result-card')).toHaveLength(2)
     for (const stateIndex of [0, 1]) {
       await wrapper.findAll('.todo-tabs button')[stateIndex].trigger('click')
@@ -264,6 +265,36 @@ describe('PerformanceWorkbench project context', () => {
     expect(context.workbenchSnapshot(1)?.pending).toHaveLength(1)
     expect(context.workbenchSnapshot(2)?.pending).toHaveLength(1)
     wrapper.unmount()
+  })
+
+  it('selects the first actual launch rather than project id or node timing and retains every todo', async () => {
+    vi.mocked(performanceWorkbenchApi.listProjects).mockResolvedValue([
+      { ...projects[0], project_started_at: '2026-11-10T09:00:00+08:00' },
+      { ...projects[1], project_started_at: '2026-11-01T02:00:00Z' },
+    ])
+    vi.mocked(performanceWorkbenchApi.timeline).mockImplementation(async projectId => [{ ...timeline[0], node_name: `项目${projectId}流程`, start_at: projectId === 1 ? '2026-01-01T00:00:00Z' : '2026-02-01T00:00:00Z' }])
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.findAll('.timeline-card')).toHaveLength(1)
+    expect(wrapper.get('.timeline-card').text()).toContain('项目2流程')
+    expect(wrapper.find('.project-title').exists()).toBe(false)
+    expect(wrapper.findAll('.todo-item')).toHaveLength(2)
+    wrapper.unmount()
+  })
+
+  it('places unknown launches after known dates and breaks ties by project id', async () => {
+    const context = usePerformanceProjectContextStore()
+    context.setWorkbenchProjects([{ ...projects[1], project_started_at: null }, { ...projects[0], project_started_at: '2026-11-01T00:00:00Z' }])
+    context.setWorkbenchSnapshot(1, { timeline: [{ ...timeline[0], node_name: '已知启动' }], pending: [], completed: [] })
+    context.setWorkbenchSnapshot(2, { timeline: [{ ...timeline[0], node_name: '未知启动' }], pending: [], completed: [] })
+    vi.mocked(performanceWorkbenchApi.listProjects).mockReturnValue(new Promise(() => {}))
+    const wrapper = mountView()
+    expect(wrapper.get('.timeline-card').text()).toContain('已知启动')
+    context.setWorkbenchProjects([{ ...projects[1] }, { ...projects[0] }])
+    wrapper.unmount()
+    const next = mountView()
+    expect(next.get('.timeline-card').text()).toContain('已知启动')
+    next.unmount()
   })
 
   it('does not start project requests after leaving while navigation is pending', async () => {
@@ -300,7 +331,7 @@ describe('PerformanceWorkbench project context', () => {
     vi.mocked(performanceWorkbenchApi.listProjects).mockReturnValue(new Promise(() => {}))
     const wrapper = mountView()
     expect(wrapper.findAll('.todo-item')).toHaveLength(2)
-    expect(wrapper.findAll('.timeline-node')).toHaveLength(2)
+    expect(wrapper.findAll('.timeline-node')).toHaveLength(1)
     wrapper.unmount()
   })
 

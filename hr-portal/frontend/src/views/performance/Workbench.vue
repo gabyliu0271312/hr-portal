@@ -30,14 +30,15 @@
       </div>
 
       <p v-if="error" role="alert">{{ error }} <button type="button" @click="loadCycle">重新加载</button></p>
-      <section v-for="project in projects" :key="project.project_id" class="project-section">
-        <h2 class="project-title">{{ project.project_name }}</h2>
+      <section v-if="timelineProject" class="timeline-section">
         <div class="timeline-card">
           <div class="timeline-card-content">
-            <PerformanceWorkbenchTimeline :nodes="projectNodes(project.project_id)" />
+            <PerformanceWorkbenchTimeline :nodes="projectNodes(timelineProject.project_id)" />
           </div>
         </div>
-        <section v-if="project.result_published" class="result-card">
+      </section>
+      <section v-for="project in projects.filter(project => project.result_published)" :key="project.project_id" class="project-section">
+        <section class="result-card">
           <div class="result-icon"><el-icon><Document /></el-icon></div>
           <div class="result-copy">
             <strong>{{ project.project_name }} · 查看绩效结果</strong>
@@ -183,6 +184,15 @@ const canViewFocusResults = computed(() => Boolean(navigation.value?.can_view_fo
 const managementRole = computed(() => navigation.value?.management_roles?.includes('hrbp') ? 'hrbp' : navigation.value?.management_roles?.includes('project_admin') ? 'project_admin' : null)
 const snapshots = ref<Record<number, PerformanceWorkbenchSnapshot>>({})
 const projectNodes = (projectId: number) => (snapshots.value[projectId]?.timeline || []).map(node => ({ ...node, range: formatRange(node.start_at, node.end_at), ended: node.status === 'ended', current: node.status === 'in_progress' }))
+const timelineProject = computed(() => projects.value.reduce<PerformanceWorkbenchProject | null>((earliest, project) => {
+  if (!earliest) return project
+  const projectStart = Date.parse(project.project_started_at || '')
+  const earliestStart = Date.parse(earliest.project_started_at || '')
+  const projectTime = Number.isFinite(projectStart) ? projectStart : Number.POSITIVE_INFINITY
+  const earliestTime = Number.isFinite(earliestStart) ? earliestStart : Number.POSITIVE_INFINITY
+  if (projectTime < earliestTime || (projectTime === earliestTime && project.project_id < earliest.project_id)) return project
+  return earliest
+}, null))
 const projectTodos = (state: 'pending' | 'completed') => projects.value.flatMap(project => (snapshots.value[project.project_id]?.[state] || []).map(todo => ({ ...todo, project_id: project.project_id, project_name: project.project_name })))
 const pendingTodos = computed(() => projectTodos('pending'))
 const completedTodos = computed(() => projectTodos('completed'))

@@ -239,6 +239,138 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it('fixes category order across project subsets and inserts result-only team before other', async () => {
+    const projects = [overview.projects[0], { ...overview.projects[0], project_id: 2 }]
+    const projectOverview = (projectId: number): PerformanceReviewOverview => ({
+      ...structuredClone(overview), projects, active_project: projects[projectId - 1],
+      categories: projectId === 1 ? [overview.categories[3]] : [overview.categories[1], overview.categories[0]],
+    })
+    usePerformanceProjectContextStore().setNavigation(navigationOf(1, { review_projects: projects, can_view_team_results: true }))
+    vi.mocked(performanceReviewApi.overview).mockImplementation(async projectId => projectOverview(projectId || 1))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.findAll('.category-label').map(item => item.text())).toEqual(['我的绩效', '给他人的评估', '我团队的绩效', '其他事项'])
+    wrapper.unmount()
+  })
+
+  it('aggregates cross-project and same-project 360 nodes into one expanded and collapsed menu without hiding other evaluations', async () => {
+    const projects = [overview.projects[0], { ...overview.projects[0], project_id: 2, project_name: '第二项目' }]
+    const feedback = { ...overview.categories[1].nodes[0], executor_role_code: 'assessment.reviewer_360' }
+    const projectOverview = (projectId: number): PerformanceReviewOverview => ({
+      ...structuredClone(overview), projects, active_project: projects[projectId - 1],
+      categories: [{ key: 'others', label: '给他人的评估', nodes: [
+        { ...feedback, node_id: 'first-360' },
+        { ...feedback, node_id: 'second-360' },
+        ...(projectId === 1 ? [{ ...feedback, node_id: 'metric', node_name: '指标评价', executor_role_code: 'assessment.metric_evaluator' }] : []),
+      ] }],
+    })
+    Object.assign(routeQuery, { project_id: '2', node: 'second-360' })
+    usePerformanceProjectContextStore().setNavigation(navigationOf(1, { review_projects: projects }))
+    vi.mocked(performanceReviewApi.overview).mockImplementation(async projectId => projectOverview(projectId || 2))
+    const list = vi.spyOn(performanceReview360FeedbackApi, 'list')
+    list.mockResolvedValue({ items: [], total: 0, node_id: 'first-360', allow_voluntary_evaluation: false })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.findAll('.review-node .node-label').map(item => item.text())).toEqual(['360°评估', '指标评价'])
+    expect(wrapper.get('.review-node.active .node-label').text()).toBe('360°评估')
+    expect(wrapper.getComponent(PerformanceReviewContent).props('feedbackSources')).toHaveLength(4)
+    const panel = wrapper.getComponent(PerformanceReview360FeedbackPanel)
+    panel.vm.$emit('open-task', { task_id: 99, employee_no: 'E2', display_name: '同事', status: 'pending', project_id: 1, node_id: 'second-360' })
+    await flushPromises()
+    expect(push).toHaveBeenLastCalledWith('/performance/review/template-task?task_id=99&project_id=1&node=second-360&employee_no=E2')
+    expect(replace).toHaveBeenCalledWith({ query: expect.objectContaining({ project_id: '1', node: 'second-360' }) })
+    expect(wrapper.get('.review-node.active .node-label').text()).toBe('360°评估')
+    await wrapper.get('.sidebar-collapse').trigger('click')
+    await wrapper.get('.category-toggle').trigger('click')
+    expect(wrapper.findAll('.flyout-node').map(item => item.text())).toEqual(['360°评估', '指标评价'])
+    wrapper.unmount()
+  })
+
+  it('aggregates feedback rows and voluntary candidates while retaining their real project and node', async () => {
+    const sources = [
+      { project_id: 1, node_id: 'first-360', project_name: '项目一', node_name: '360°评估' },
+      { project_id: 2, node_id: 'second-360', project_name: '项目二', node_name: '360°评估' },
+    ]
+    const list = vi.spyOn(performanceReview360FeedbackApi, 'list').mockImplementation(async projectId => ({
+      items: [{ task_id: Number(projectId) * 10, employee_no: 'E2', display_name: '同事', department: null, job_sequence: null, position_level: null, status: 'pending', source_label: '邀请', relationship: '', due_at: null }],
+      total: 1, node_id: sources[Number(projectId) - 1].node_id, allow_voluntary_evaluation: true,
+    }))
+    const candidates = vi.spyOn(performanceReview360FeedbackApi, 'candidates').mockResolvedValue({ items: [{ employee_no: 'E3', display_name: '同名候选人', department: null, job_sequence: null }], total: 1 })
+    const start = vi.spyOn(performanceReview360FeedbackApi, 'start').mockResolvedValue({ task_id: 55, target_employee_no: 'E3' })
+    const wrapper = mount(PerformanceReview360FeedbackPanel, { props: { projectId: 1, nodeId: 'first-360', sources }, global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(list).toHaveBeenCalledWith(1, undefined, 'first-360')
+    expect(list).toHaveBeenCalledWith(2, undefined, 'second-360')
+    const table = wrapper.findComponent({ name: 'PerformanceManagementTable' })
+    expect(table.props('rows')).toHaveLength(2)
+    table.vm.$emit('row-click', table.props('rows')[1])
+    expect(wrapper.emitted('open-task')?.[0]?.[0]).toMatchObject({ task_id: 20, project_id: 2, node_id: 'second-360' })
+    ;(wrapper.vm as unknown as { openVoluntaryDialog: () => void }).openVoluntaryDialog()
+    await flushPromises()
+    expect(candidates).toHaveBeenCalledWith(1, undefined, 'first-360')
+    expect(candidates).toHaveBeenCalledWith(2, undefined, 'second-360')
+    const select = wrapper.findComponent({ name: 'PerformancePersonSelect' })
+    expect(select.props('options')).toHaveLength(2)
+    select.vm.$emit('update:modelValue', select.props('options')[1].value)
+    await flushPromises()
+    Array.from(document.body.querySelectorAll('button')).find(button => button.textContent?.trim() === '前往评估')!.click()
+    await flushPromises()
+    expect(start).toHaveBeenCalledWith(2, 'E3', 'second-360')
+    expect(wrapper.emitted('open-task')?.[1]?.[0]).toMatchObject({ task_id: 55, project_id: 2, node_id: 'second-360' })
+    wrapper.unmount()
+  })
+
+  it('restores a real 360 project and node when browser history changes the query', async () => {
+    routeQuery = reactive({ project_id: '1', node: 'first-360' })
+    const projects = [overview.projects[0], { ...overview.projects[0], project_id: 2 }]
+    const feedback = { ...overview.categories[1].nodes[0], executor_role_code: 'assessment.reviewer_360' }
+    usePerformanceProjectContextStore().setNavigation(navigationOf(1, { review_projects: projects }))
+    vi.mocked(performanceReviewApi.overview).mockImplementation(async projectId => ({ ...structuredClone(overview), projects, active_project: projects[(projectId || 1) - 1], categories: [{ key: 'others', label: '给他人的评估', nodes: [{ ...feedback, node_id: projectId === 2 ? 'second-360' : 'first-360' }] }] }))
+    vi.spyOn(performanceReview360FeedbackApi, 'list').mockResolvedValue({ items: [], total: 0, node_id: null, allow_voluntary_evaluation: false })
+    const wrapper = mountView()
+    await flushPromises()
+    Object.assign(routeQuery, { project_id: '2', node: 'second-360' })
+    await flushPromises()
+    expect(usePerformanceProjectContextStore().activeProjectId).toBe(2)
+    expect(wrapper.getComponent(PerformanceReviewContent).props('node')).toMatchObject({ node_id: 'second-360' })
+    expect(wrapper.findAll('.review-node')).toHaveLength(1)
+    expect(wrapper.get('.review-node').classes()).toContain('active')
+    wrapper.unmount()
+  })
+
+  it('fails closed when one feedback source is forbidden and retries the complete aggregate', async () => {
+    const sources = [{ project_id: 1, node_id: 'first', project_name: '甲', node_name: '360' }, { project_id: 2, node_id: 'second', project_name: '乙', node_name: '360' }]
+    const list = vi.spyOn(performanceReview360FeedbackApi, 'list').mockImplementation(async projectId => {
+      if (Number(projectId) === 2) throw { response: { status: 403 } }
+      return { items: [], total: 0, node_id: 'first', allow_voluntary_evaluation: true }
+    })
+    const wrapper = mount(PerformanceReview360FeedbackPanel, { props: { projectId: 1, nodeId: 'first', sources }, global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('360° 评估列表加载失败')
+    expect((wrapper.vm as unknown as { allowVoluntary: boolean }).allowVoluntary).toBe(false)
+    list.mockResolvedValue({ items: [], total: 0, node_id: null, allow_voluntary_evaluation: true })
+    await wrapper.findAll('button').find(button => button.text() === '重新加载')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('列表加载失败')
+    expect((wrapper.vm as unknown as { allowVoluntary: boolean }).allowVoluntary).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('discards delayed aggregate rows when the source context changes', async () => {
+    let finish!: (value: Awaited<ReturnType<typeof performanceReview360FeedbackApi.list>>) => void
+    const list = vi.spyOn(performanceReview360FeedbackApi, 'list').mockImplementation(projectId => Number(projectId) === 1 ? new Promise(resolve => { finish = resolve }) : Promise.resolve({ items: [], total: 0, node_id: 'second', allow_voluntary_evaluation: false }))
+    const wrapper = mount(PerformanceReview360FeedbackPanel, { props: { projectId: 1, nodeId: 'first', sources: [{ project_id: 1, node_id: 'first', project_name: '甲', node_name: '360' }, { project_id: 2, node_id: 'second', project_name: '乙', node_name: '360' }] }, global: { plugins: [pinia] } })
+    await flushPromises()
+    await wrapper.setProps({ projectId: 2, nodeId: 'second', sources: undefined })
+    await flushPromises()
+    finish({ items: [], total: 99, node_id: 'first', allow_voluntary_evaluation: true })
+    await flushPromises()
+    expect(wrapper.getComponent({ name: 'PerformanceManagementTable' }).props('total')).toBe(0)
+    expect((wrapper.vm as unknown as { allowVoluntary: boolean }).allowVoluntary).toBe(false)
+    expect(list).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('drops late aggregated project menus after switching cycles', async () => {
     const projects = [overview.projects[0], { ...overview.projects[0], project_id: 2, project_name: '旧周期第二项目' }]
     let resolveOld!: (value: PerformanceReviewOverview) => void

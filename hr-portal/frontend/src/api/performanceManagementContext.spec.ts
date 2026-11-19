@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AxiosError, AxiosHeaders, type AxiosAdapter } from 'axios'
 import { api } from './client'
-import { projectManagementApi } from './performance'
+import { performanceWorkbenchApi, projectManagementApi } from './performance'
 
 vi.mock('element-plus', () => ({ ElMessage: { error: vi.fn() } }))
 
@@ -18,6 +18,21 @@ afterEach(() => {
 })
 
 describe('management request scope', () => {
+  it('loads all workbench project pages while preserving the cycle filter', async () => {
+    const requests: Parameters<AxiosAdapter>[0][] = []
+    api.defaults.adapter = async config => {
+      requests.push(config)
+      return { ...response(config), data: config.params.page === 1 ? Array.from({ length: 100 }, (_, index) => ({ project_id: index + 1 })) : [{ project_id: 101, project_started_at: '2026-01-01T00:00:00Z' }] }
+    }
+    const projects = await performanceWorkbenchApi.listProjects('季度', 9)
+    expect(projects).toHaveLength(101)
+    expect(projects.at(-1)?.project_id).toBe(101)
+    expect(requests.map(request => request.params)).toEqual([
+      { keyword: '季度', cycle_id: 9, page: 1, page_size: 100 },
+      { keyword: '季度', cycle_id: 9, page: 2, page_size: 100 },
+    ])
+  })
+
   it('carries the selected role and project to cycle reads and writes without changing the body', async () => {
     const requests: Parameters<AxiosAdapter>[0][] = []
     api.defaults.adapter = async config => { requests.push(config); return response(config) }
