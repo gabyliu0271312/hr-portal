@@ -461,6 +461,7 @@
 - 浏览器证据：真实Vite Vue组件，所有业务API隔离、合成数据，非生产。1920×1080评级7列均176px；标题与主标题不重叠；tooltip汇总41.9%(169人)／分组40.0%(12人)，分组控件220px；移除后系列恢复1组。历史切换提交historyCycleId=1且清空历史xKey，控件240px。1024×900表格client690／scroll1330；空总览仍7档及刻度、空矩阵7行7列与图标，最终场景pageerror0。初轮浏览器探针曾因多元素strict locator停止，改精确定位后上述场景完成，不算业务失败或端到端生产验收。
 - 实现PNG（均已读取）：`ui-blueprints/CR-007-report-overview-implemented-20261119.png`、`CR-007-report-comparison-groups-implemented-20261119.png`、`CR-007-report-dimension-implemented-20261119.png`、`CR-007-report-empty-implemented-20261119.png`。仅合成数据组件验收，未声明整页像素完全一致。原筛选入口预留不是用户本次列出的功能，保持明确提示；人数格明细钻取未作为本卡新增能力，不伪装为已接通。
 - 前端最终验证：`npm --prefix hr-portal/frontend test -- src/components/performance/ProjectStatisticsReportPanel.spec.ts src/components/performance/ProjectReportDistribution.spec.ts src/components/performance/ProjectReportMatrix.spec.ts src/components/performance/ProjectReportNavigation.spec.ts src/views/performance/ProjectManagement.spec.ts src/api/performanceManagementContext.spec.ts --silent --maxWorkers=2 --minWorkers=1` → **6文件95 passed、46.38s、exit0**。`npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite通过、59.74s、exit0**，既有VueUse PURE注释提示。最终目标文件diff --check通过。此前一处旧调用断言因新增可选indicator参数多undefined失败，已更新断言并在最终95项中通过；并行校准类型错误由对应会话修复后统一build通过。
+- 提交前隔离验证：仅加载暂存区 Python 源码及暂存测试收集，排除工作区并行校准／成员操作补丁，八文件回归 **1073 passed、7 skipped、1既有python_multipart警告、26.56s、exit0**。首轮探针误混入工作区测试缓存而失败，修正为暂存测试显式收集后通过；不将首轮失败算作通过。暂存Python编译及git diff --cached --check通过。
 - 状态：本地实现及上述定向验证完成。实际PostgreSQL迁移、真实JWT/API全链、历史BU补值与生产部署未验收，F20整体保持未勾选。
 
 ## CR-007-F19 多项目时间轴与评估菜单修复（2026-11-19）
