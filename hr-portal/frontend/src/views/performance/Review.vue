@@ -515,7 +515,9 @@ onMounted(async () => {
   if (scopeRoute()) {
     selectedNodeId.value = resultScopeNodes.value.find(node => node.node_id === route.query.node)?.node_id || ''
     if (!selectedNodeId.value) { error.value = '当前评估环节不存在或无权查看'; loading.value = false; return }
-    await router.replace({ query: { cycle_id: String(projectContext.activeCycleId), node: selectedNodeId.value, tab: route.query.tab } })
+    await router.replace({ query: { cycle_id: String(projectContext.activeCycleId), node: selectedNodeId.value, tab: route.query.tab,
+      ...(route.query.member_project_id ? { member_project_id: route.query.member_project_id, employee_no: route.query.employee_no, rootReviewId: route.query.rootReviewId, activeTab: route.query.activeTab } : {}),
+    } })
   }
   if (projectContext.navigation && !projectContext.navigation.review_projects.some(project => project.project_id === activeProjectId.value)) {
     if (routeProjectId > 0 && !scopeRoute()) { error.value = '当前项目不存在或无权查看'; loading.value = false; return }

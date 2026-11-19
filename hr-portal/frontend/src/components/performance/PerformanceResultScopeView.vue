@@ -20,17 +20,22 @@
       :active-tab="drawerTab"
       :member="drawerMember"
       readonly
-      @update:active-tab="drawerTab = $event"
-      @close="drawerOpen = false"
-      @closed="drawerMember = null"
+      @update:active-tab="updateDrawerTab"
+      @close="closeDrawer"
+      @closed="finishClosingDrawer"
+      @edit="editReconsideration"
+      @remind="remindReconsideration"
     />
+    <PerformanceMemberReminderDialog v-model="reminderOpen" :context="reminderContext" />
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { resultViewApi, type PerformanceResultViewOverview, type ProjectMember } from '@/api/performance'
+import { resultViewApi, type PerformanceReferenceTab, type PerformanceResultViewOverview, type ProjectMember } from '@/api/performance'
+import PerformanceMemberReminderDialog from './PerformanceMemberReminderDialog.vue'
+import { usePerformanceMemberReminder } from '@/composables/usePerformanceMemberReminder'
 import type { ProjectReportDimension } from '@/components/performance/projectStatisticsReport'
 import PerformancePageTitle from '@/components/performance/PerformancePageTitle.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from '@/components/performance/PerformanceLineTabs.vue'
@@ -104,12 +109,60 @@ const drawerMember = ref<(ProjectMember & { project_id: number }) | null>(null)
 const drawerOpen = ref(false)
 const drawerTab = ref('')
 const detailLoader = computed(() => drawerMember.value ? (tab?: string) => resultViewApi.detail(props.kind, props.cycleId, Number(drawerMember.value!.project_id), drawerMember.value!.employee_no, drawerMember.value!.root_review_id, tab ?? '') : undefined)
-function openMember(member: ProjectMember | { project_id?: number; employee_no: string; root_review_id?: number; can_view_detail?: boolean }) {
+async function openMember(member: ProjectMember | { project_id?: number; employee_no: string; root_review_id?: number; can_view_detail?: boolean }) {
   if (!member.can_view_detail || !member.project_id) return
   drawerMember.value = member as ProjectMember & { project_id: number }
   drawerTab.value = ''
   drawerOpen.value = true
+  await router.replace({ query: memberQuery() })
 }
+function memberQuery() {
+  const { member_project_id: _project, employee_no: _employee, rootReviewId: _root, activeTab: _tab, ...query } = route.query
+  return { ...query, ...(drawerOpen.value && drawerMember.value ? {
+    member_project_id: String(drawerMember.value.project_id), employee_no: drawerMember.value.employee_no,
+    rootReviewId: drawerMember.value.root_review_id ? String(drawerMember.value.root_review_id) : undefined,
+    activeTab: drawerTab.value || undefined,
+  } : {}) }
+}
+async function updateDrawerTab(tab: string) {
+  drawerTab.value = tab
+  if (drawerOpen.value) await router.replace({ query: memberQuery() })
+}
+async function closeDrawer() {
+  drawerOpen.value = false
+  await router.replace({ query: memberQuery() })
+}
+function finishClosingDrawer() { if (!drawerOpen.value) drawerMember.value = null }
+function restoreDrawer() {
+  const projectId = Number(route.query.member_project_id)
+  const rootId = Number(route.query.rootReviewId)
+  const employeeNo = String(route.query.employee_no || '')
+  if (!Number.isSafeInteger(projectId) || projectId <= 0 || !Number.isSafeInteger(rootId) || rootId <= 0 || !employeeNo) { drawerOpen.value = false; return }
+  if (drawerMember.value?.project_id !== projectId || drawerMember.value?.employee_no !== employeeNo || drawerMember.value?.root_review_id !== rootId) {
+    drawerMember.value = { project_id: projectId, employee_no: employeeNo, root_review_id: rootId } as ProjectMember & { project_id: number }
+  }
+  drawerTab.value = String(route.query.activeTab || '')
+  drawerOpen.value = true
+}
+async function editReconsideration(payload: { task_id: number | string; employee_no: string; node_id?: string; task_kind?: string; draft_choice?: 'use' | 'discard' }) {
+  const member = drawerMember.value
+  if (!member || payload.task_kind !== 'result_reconsideration') return
+  await router.push({ path: '/performance/review/template-task', query: {
+    task_id: String(payload.task_id), employee_no: payload.employee_no, project_id: String(member.project_id),
+    cycle_id: String(props.cycleId), node: payload.node_id || '',
+    return_entry: props.kind, return_tab: activeTab.value, return_root_review_id: String(member.root_review_id || ''),
+    ...(payload.draft_choice ? { draft_choice: payload.draft_choice } : {}),
+  } })
+}
+const { reminderOpen, reminderContext, openMemberReminder } = usePerformanceMemberReminder()
+function remindReconsideration(reference: PerformanceReferenceTab, sourceTaskId?: number) {
+  const member = drawerMember.value
+  if (!member || !reference.can_remind || !reference.task_id) return
+  openMemberReminder({ projectId: member.project_id, cycleId: props.cycleId,
+    employeeNo: reference.employee_no || member.employee_no, displayName: member.display_name,
+    nodeId: reference.node_id, taskId: reference.task_id, sourceTaskId })
+}
+watch(() => [route.query.member_project_id, route.query.employee_no, route.query.rootReviewId, route.query.activeTab], restoreDrawer, { immediate: true })
 function handleCompletionAction(payload: { action: 'remind' | 'enable-result'; nodeKey: string; departmentPath?: string }) {
   if (payload.action !== 'remind') return
   void router.push({ name: 'PerformanceProjectReminder', query: { cycle_id: String(props.cycleId), node_key: payload.nodeKey, department: payload.departmentPath || '', source: 'team-results' } })

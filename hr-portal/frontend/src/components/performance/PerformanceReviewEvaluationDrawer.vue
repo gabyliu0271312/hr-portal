@@ -7,7 +7,7 @@
       <PerformanceLineTabs v-model="selectedTab" :tabs="tabs" sticky flush>
         <section v-if="task?.management_tabs && !loading && !error && managementTab" class="performance-review-evaluation-drawer__tab-content">
           <div class="performance-review-evaluation-drawer__card">
-            <div class="performance-review-evaluation-drawer__card-title"><span>{{ managementTab.node_name }}</span><PerformanceChangeHistory v-if="managementTab.result_history?.length && !managementTab.reconsideration" :key="managementTab.key" :history="managementTab.result_history" :sections="managementTab.form_schema" :employee-no="displayPerson.employee_no" :node-name="managementTab.node_name" /></div>
+            <div class="performance-review-evaluation-drawer__card-title"><span>{{ managementTab.node_name }}</span><PerformanceChangeHistory v-if="managementTab.reconsideration?.history.length || managementTab.result_history?.length" :key="managementTab.key" :history="managementTab.reconsideration?.history || managementTab.result_history || []" :sections="managementTab.reconsideration?.form_schema || managementTab.form_schema" :employee-no="displayPerson.employee_no" :node-name="managementTab.node_name" /></div>
             <PerformanceReconsiderationDetail :key="managementTab.key" v-if="managementTab.reconsideration" :detail="managementTab.reconsideration" :employee-no="displayPerson.employee_no" :node-name="managementTab.node_name" @edit="editReconsideration" @remind="remindReconsideration" />
             <PerformanceReviewCompletionNotice v-else-if="managementTabLocked" :editable="false" variant="evaluation-drawer" :message="FINAL_RESULT_LOCKED_MESSAGE" />
             <template v-if="!managementTab.reconsideration">
@@ -33,7 +33,7 @@
             <button type="button" @click="load">重新加载</button>
           </div>
           <div v-else class="performance-review-evaluation-drawer__card">
-            <div class="performance-review-evaluation-drawer__card-title">{{ title }}</div>
+            <div class="performance-review-evaluation-drawer__card-title"><span>{{ title }}</span><PerformanceChangeHistory v-if="task?.reconsideration?.history.length" :history="task.reconsideration.history" :sections="task.reconsideration.form_schema" :employee-no="displayPerson.employee_no" :node-name="title" /></div>
             <PerformanceReconsiderationDetail v-if="task?.reconsideration" :detail="task.reconsideration" :employee-no="displayPerson.employee_no" :node-name="title" @edit="editReconsideration" @remind="remindReconsideration" />
             <template v-else>
             <PerformanceReviewCompletionNotice v-if="task?.final_result_locked" :editable="false" variant="evaluation-drawer" :message="FINAL_RESULT_LOCKED_MESSAGE" />

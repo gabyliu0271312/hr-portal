@@ -842,6 +842,18 @@ describe('SelfSummaryTask', () => {
     wrapper.unmount()
   })
 
+  it.each(['team', 'focus'])('returns %s reconsideration edits to the original result member and tab', async kind => {
+    vi.mocked(useRoute).mockReturnValue({ path: '/performance/review/template-task', query: { task_id: '8', project_id: '3', node: 'appeal', cycle_id: '2', employee_no: 'E001', return_entry: kind, return_tab: 'members', return_root_review_id: '15' } })
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_id: 8, project_id: 3, node_id: 'appeal', task_kind: 'result_reconsideration', return_view: 'drawer', reconsideration_reason: '理由', keep_result: 'keep', form_schema: [], answers: {} })
+    vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockResolvedValue({ answers: { keep_result: 'keep' }, submitted_at: '2026-11-10T00:00:00Z', editable: true, submit_allowed: true })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(push).toHaveBeenCalledWith({ path: '/performance/review', query: { cycle_id: '2', node: kind === 'team' ? '__team-results__' : '__focus-results__', tab: 'members', member_project_id: '3', employee_no: 'E001', rootReviewId: '15', activeTab: 'management-appeal' } })
+    wrapper.unmount()
+  })
+
   it('keeps failed reconsideration in the editing workspace without navigating', async () => {
     vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_kind: 'result_reconsideration', return_view: 'page', reconsideration_reason: '理由', keep_result: 'keep', form_schema: [], answers: {} })
     vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockRejectedValue(new Error('offline'))

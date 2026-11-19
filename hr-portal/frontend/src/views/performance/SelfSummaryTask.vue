@@ -520,6 +520,14 @@ async function submit(overdueConfirmed = false, confirmedContext?: string) {
           member_project_id: projectId, employee_no: employeeNo || task.value.person.employee_no,
           rootReviewId: String(route.query.return_root_review_id), activeTab: `management-${nodeId}`,
         } })
+      } else if (isReconsiderationTask.value && ['team', 'focus'].includes(String(route.query.return_entry))) {
+        await router.push({ path: '/performance/review', query: {
+          ...(contextCycleId.value ? { cycle_id: String(contextCycleId.value) } : {}),
+          node: route.query.return_entry === 'team' ? '__team-results__' : '__focus-results__',
+          tab: ['members', 'matrix', 'reports'].includes(String(route.query.return_tab)) ? String(route.query.return_tab) : 'members',
+          member_project_id: projectId, employee_no: employeeNo || task.value.person.employee_no,
+          rootReviewId: String(route.query.return_root_review_id || ''), activeTab: `management-${nodeId}`,
+        } })
       } else if (isReconsiderationTask.value) {
         await router.push({ path: '/performance/review', query: nodeId
           ? { ...query, rootReviewId: String(task.value.task_id), activeTab: nodeId }

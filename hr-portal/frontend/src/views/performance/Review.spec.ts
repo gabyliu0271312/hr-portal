@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, reactive } from 'vue'
 import { ElTableColumn } from 'element-plus'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
-import { performanceReview360InviteApi, performanceReview360FeedbackApi, performanceNavigationApi, performanceReviewApi, performanceWorkbenchApi, projectManagementApi, type PerformanceNavigationContext, type PerformanceReviewOverview } from '@/api/performance'
+import { performanceReview360InviteApi, performanceReview360FeedbackApi, performanceNavigationApi, performanceReviewApi, performanceWorkbenchApi, projectManagementApi, resultViewApi, type PerformanceNavigationContext, type PerformanceReviewOverview } from '@/api/performance'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 
 const push = vi.fn()
@@ -163,6 +163,40 @@ describe('PerformanceReview', () => {
     routeQuery.tab = 'invalid'
     await wrapper.vm.$nextTick()
     expect((wrapper.vm as any).activeTab).toBe('members')
+    wrapper.unmount()
+  })
+
+  it.each(['team', 'focus'] as const)('forwards %s member reconsideration editing and reminders with the original result context', async kind => {
+    routeQuery = reactive({ cycle_id: '1', node: kind === 'team' ? '__team-results__' : '__focus-results__', tab: 'members' })
+    vi.spyOn(resultViewApi, 'overview').mockResolvedValue({ kind, cycle: navigationOf(1).active_cycle!, projects: [], member_count: 1, completion_nodes: [] })
+    const wrapper = mount(PerformanceResultScopeView, {
+      props: { kind, cycleId: 1 },
+      global: { stubs: { PerformanceLineTabs: true, PerformanceReviewEvaluationDrawer: true, PerformanceMemberReminderDialog: true } },
+    })
+    await flushPromises()
+    await (wrapper.vm as any).openMember({ project_id: 3, employee_no: 'E001', root_review_id: 15, display_name: '成员', can_view_detail: true })
+    const drawer = wrapper.getComponent(PerformanceReviewEvaluationDrawer)
+    drawer.vm.$emit('update:active-tab', 'management-appeal')
+    await flushPromises()
+    expect(replace).toHaveBeenLastCalledWith({ query: expect.objectContaining({ member_project_id: '3', rootReviewId: '15', employee_no: 'E001', activeTab: 'management-appeal' }) })
+    push.mockClear()
+    drawer.vm.$emit('edit', { task_id: 81, employee_no: 'E001', task_kind: 'result_reconsideration', node_id: 'appeal', draft_choice: 'use' })
+    await flushPromises()
+    expect(push).toHaveBeenCalledWith({ path: '/performance/review/template-task', query: {
+      task_id: '81', employee_no: 'E001', project_id: '3', cycle_id: '1', node: 'appeal', return_entry: kind, return_tab: 'members', return_root_review_id: '15', draft_choice: 'use',
+    } })
+    drawer.vm.$emit('remind', { task_id: 82, node_id: 'appeal', employee_no: 'E001', can_remind: true })
+    await flushPromises()
+    expect(wrapper.getComponent(PerformanceMemberReminderDialog).props()).toMatchObject({ modelValue: true, context: { projectId: 3, cycleId: 1, employeeNo: 'E001', nodeId: 'appeal', targetTaskId: 82 } })
+    wrapper.unmount()
+  })
+
+  it.each(['team', 'focus'] as const)('restores the %s member and reconsideration tab from the return URL', async kind => {
+    routeQuery = reactive({ cycle_id: '1', node: kind === 'team' ? '__team-results__' : '__focus-results__', tab: 'members', member_project_id: '3', employee_no: 'E001', rootReviewId: '15', activeTab: 'management-appeal' })
+    vi.spyOn(resultViewApi, 'overview').mockResolvedValue({ kind, cycle: navigationOf(1).active_cycle!, projects: [], member_count: 1, completion_nodes: [] })
+    const wrapper = mount(PerformanceResultScopeView, { props: { kind, cycleId: 1 }, global: { stubs: { PerformanceLineTabs: true, PerformanceReviewEvaluationDrawer: true } } })
+    await flushPromises()
+    expect(wrapper.getComponent(PerformanceReviewEvaluationDrawer).props()).toMatchObject({ modelValue: true, employeeNo: 'E001', projectId: 3, activeTab: 'management-appeal' })
     wrapper.unmount()
   })
 

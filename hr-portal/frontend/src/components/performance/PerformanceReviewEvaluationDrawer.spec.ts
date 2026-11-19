@@ -108,7 +108,7 @@ describe('PerformanceReviewEvaluationDrawer', () => {
 
   it('opens history with creator and time on separate rows and shows ordered inline field changes', async () => {
     const changes = [{ section_id: 'value', section_name: '价值贡献', field_id: 'good', field_label: '做得好的', field_type: 'rich_text', before: '<p>2变更结果</p>', after: '<p>4变更结果</p>' }, { section_id: 'value', section_name: '价值贡献', field_id: 'improve', field_label: '待改进的', field_type: 'rich_text', before: '<p>3变更结果</p>', after: '<p>6变更结果</p>' }]
-    const wrapper = mount(PerformanceReconsiderationDetail, { props: { employeeNo: 'E001', nodeName: '模板复议处理', detail: { reason: '核对', status: 'submitted_editable', handlers: [], adjustments: changes, history: [{ display_name: '实际提交人', submitted_at: '2026-09-22T07:29:00Z', adjustments: changes }, { display_name: '另一处理人', submitted_at: '2026-09-21T07:29:00Z', adjustments: [] }], form_schema: [], answers: {}, submitted_at: '2026-09-22T07:29:00Z', submitted_by: '实际提交人', can_edit: false } } })
+    const wrapper = mount(PerformanceChangeHistory, { props: { employeeNo: 'E001', nodeName: '模板复议处理', sections: [], history: [{ display_name: '实际提交人', submitted_at: '2026-09-22T07:29:00Z', adjustments: changes }, { display_name: '另一处理人', submitted_at: '2026-09-21T07:29:00Z', adjustments: [] }] } })
     await wrapper.get('.reconsideration-detail__history-link button').trigger('click')
     const dialog = document.body.querySelector<HTMLElement>('.reconsideration-history-dialog')!
     expect(dialog.style.width).toBe('800px')
@@ -202,6 +202,8 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     await flushPromises()
     await wrapper.setProps({ activeTab: 'appeal' })
     await flushPromises()
+    expect(document.body.querySelector('.performance-review-evaluation-drawer__card-title .reconsideration-detail__history-link')?.textContent).toContain('变更记录（1）')
+    expect(document.body.querySelector('.reconsideration-detail .reconsideration-detail__history-link')).toBeNull()
     expect(document.body.textContent).toContain('复议时的结果')
     expect(document.body.textContent).not.toContain('复议后再次校准结果')
     expect(document.body.textContent).not.toContain('禁止替代的页签答案')
@@ -228,6 +230,27 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     expect(buttons).toHaveLength(1)
     buttons[0].vm.$emit('click')
     expect(wrapper.emitted('remind')?.[0]?.[0]).toMatchObject({ task_id: 901, employee_no: 'E001', node_id: 'appeal' })
+  })
+
+  it('offers pending reconsideration editing only to the authorized handler and keeps reminders beside other handlers', async () => {
+    const detail = { reason: '申请核对', status: 'pending' as const, handlers: [{ task_id: 901, employee_no: 'E900', display_name: '处理人', role_key: 'HRBP', role_label: 'HRBP', can_remind: true }], adjustments: [], history: [], form_schema: [], answers: {}, deadline_at: '2026-10-03T15:59:00Z', can_edit: true, edit_task_id: 901 }
+    const wrapper = mount(PerformanceReconsiderationDetail, { props: { employeeNo: 'E001', nodeName: '复议处理', detail } })
+    const pending = wrapper.get('.reconsideration-detail__pending')
+    expect(pending.get('.reconsideration-detail__heading').text()).toBe('复议处理中')
+    expect(pending.text()).toContain('复议处理截止时间：2026-10-03 23:59（GMT+8）')
+    expect(wrapper.findComponent(PerformanceReminderButton).exists()).toBe(false)
+    await wrapper.get('[aria-label="编辑已提交内容"]').trigger('click')
+    await flushPromises()
+    expect(performanceReviewApi.templateTask).toHaveBeenCalledWith(901, 'E001')
+    expect(wrapper.emitted('edit')).toHaveLength(1)
+    await wrapper.setProps({ detail: { ...detail, can_edit: false, edit_task_id: null } })
+    expect(wrapper.find('[aria-label="编辑已提交内容"]').exists()).toBe(false)
+    const handlerRow = wrapper.get('.reconsideration-detail__handler')
+    expect(handlerRow.getComponent(PerformanceReminderButton).props('variant')).toBe('text')
+    await handlerRow.get('button').trigger('click')
+    expect(wrapper.emitted('remind')).toEqual([[901]])
+    await wrapper.setProps({ detail: { ...detail, can_edit: false, handlers: [{ ...detail.handlers[0], can_remind: false }] } })
+    expect(wrapper.findComponent(PerformanceReminderButton).exists()).toBe(false)
   })
 
   it('edits reconsideration only through the server-authorized handler task and hides editing across the deadline', async () => {
