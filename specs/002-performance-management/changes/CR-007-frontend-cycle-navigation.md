@@ -183,6 +183,19 @@
 - 提交前整合复测：成员修复合入main后，前端同三文件 **70 passed、exit0**；后端两文件 `test_performance_projects.py test_performance_user_authorization.py -k "calibration or delegation or task_authorization or authorization_records"` → **241 passed、2 skipped、654 deselected、11.54秒、exit0**，既有python_multipart警告。首次出现两项校准完成测试夹具缺少新成员详情合同的project.status，已仅在该测试补STARTED并复跑通过，保留团队共享详情不返回member_actions断言。
 - 待验收：真实本地JWT API/PostgreSQL/部署尚未验证，F04/F05仍未勾选；不以局部浮层尺寸一致宣称整页像素一致。本轮本地代码、定向回归、受控UI证据已收束；用户已授权在main提交推送，未部署。
 
+### 2026-11-19 F04 单项目与逐规则展示调整（实施中）
+
+- 用户最新明确口径：周期概览校准任务授权仅显示第一个启动的项目；同一校准人配置多条规则时逐条展示，不再合并。覆盖此前周期多项目汇总的显示口径，不改变其他报表/记录页与单项目入口。
+- 原校准GET先按既有角色范围取可见已启动项目；无显式project_id时按 `PERFORMANCE_PROJECT_STARTED` 首次审计时间取最早一项，同时间以项目ID稳定排序。历史缺启动审计的项目排在有审计项目之后，全缺时按ID稳定回退；不把创建/更新时间冒充启动时间。显式单项目入口仍保留原项目限制，首项目无校准任务时显示空态而非自动切第二项。
+- 后台列表键改为项目/节点/阶段/校准人/冻结rule_id；每行人数、名单、范围、分布提示、授权开关及元数据只读取该规则。相交人员可出现在不同规则行，底层任务不复制、冻结来源OR聚合和结果提交链不变。
+- 可选 `source_rule_id` 随原授权提交保存到既有JSON设置，服务端校验任务实际属于该规则及该规则允许授权，避免借重叠的另一条允许规则绕过当前行禁用。继续授权保留父记录与来源规则；新记录按规则投影。旧无来源记录保留原实际任务授权语义，不反向伪造历史来源。
+- 允许文件：原projects_router校准投影/helpers/委托校验、原API DTO/校准页/共享授权弹窗参数透传及既有测试/本段。无模型/迁移/真实外部写入，不覆盖并行报表diff，不自动commit/push/deploy。
+- 后端验证：`DB_HOST=127.0.0.1 DB_PORT=1 PYTHONPATH=hr-portal/backend hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_user_authorization.py -q --tb=short -k "calibration or delegation or task_authorization or authorization_records"` → **247 passed、2 skipped、666 deselected、13.94秒、exit0**，既有python_multipart警告。覆盖实际启动顺序与ID相反、同时间/缺审计稳定回退、显式单项目、首项目无任务不跳第二项、同人双规则重叠/不同授权开关与分布、来源提交允许/拒绝及原父子授权回归。
+- 前端验证：`npm --prefix hr-portal/frontend run test -- src/views/performance/ProjectManagement.spec.ts src/components/performance/PerformanceInfoPopover.spec.ts src/components/performance/focus-group/FocusGroupPeopleDialog.spec.ts --silent` → **3文件71 passed、exit0**；覆盖同名不同规则行、各自人数名单、单行source_rule_id及父授权ID透传。
+- UI证据：真实Vite路由、独立隔离浏览器上下文、所有API合成拦截，1440×1000/DPR1；同名两行显示项目全员2人/直属下级1人，协助授权分别可用/禁用，第二行人数仅打开1人名单，pageErrors=0。独立PNG已查看：`ui-blueprints/CR-007-F04-implemented-separate-calibration-rules-20261119.png`。首轮内联采集命令语法错误未执行，修正后完成，不计成功证据。
+- 管理范围回归：`test_performance_management_scope.py -q --tb=short` → **20 passed、8.84秒、exit0**，既有python_multipart警告；项目权限/HRBP人员范围/跨周期拒绝仍保留。
+- 最终构建：报表负责人修正该测试类型后，`npm --prefix hr-portal/frontend run build` → **vue-tsc+Vite通过、1分11秒、exit0**，既有VueUse PURE注释提示。首次构建曾受并行报表测试 `ProjectStatisticsReportPanel.spec.ts:235` 可空string类型错误阻塞（exit2），未将首次失败计通过，未覆盖报表改动。真实JWT API/业务数据库/部署未验证；F04/F05未整体勾选。用户本轮已授权在main提交推送，仅纳入本卡代码/测试/PNG与本段；部署未执行。
+
 ### 当前实现和证据
 
 - 主实现：`projects_router.py`、`api/performance.ts`、`ProjectManagement.vue`、`CompletionRatePanel.vue`、`CompletionNodeCard.vue`、`PerformanceManagementTable.vue`、`PerformanceReminderPanel.vue`、`performanceReminder.ts`、现有路由；新增 `ProjectManagementReminder.vue`、`ProjectAuthorizationRecords.vue`、`ProjectCalibrationAuthorization.vue`。

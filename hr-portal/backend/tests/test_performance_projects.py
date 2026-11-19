@@ -12,6 +12,90 @@ from app.performance.project_service import PerformanceProjectService, ProjectVa
 
 
 @pytest.mark.asyncio
+async def test_calibration_first_project_uses_start_audit_not_project_id():
+    from unittest.mock import AsyncMock
+    from app.performance.projects_router import _first_started_calibration_project
+    projects = [(SimpleNamespace(id=1, project_ref="created-first", cycle_ref="C1"), {"A"}),
+                (SimpleNamespace(id=9, project_ref="started-first", cycle_ref="C1"), {"B"}),
+                (SimpleNamespace(id=3, project_ref="legacy", cycle_ref="C1"), {"C"})]
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(all=lambda: [
+        ("created-first", datetime(2026, 11, 19, tzinfo=UTC)), ("started-first", datetime(2026, 11, 1, tzinfo=UTC)),
+    ])))
+    assert await _first_started_calibration_project(projects, db) == [projects[1]]
+    db.execute.return_value = SimpleNamespace(all=lambda: [])
+    assert await _first_started_calibration_project(projects, db) == [projects[0]]
+    db.execute.return_value = SimpleNamespace(all=lambda: [("created-first", datetime(2026, 11, 1, tzinfo=UTC)), ("started-first", datetime(2026, 11, 1, tzinfo=UTC))])
+    assert await _first_started_calibration_project(projects, db) == [projects[0]]
+    db.execute.reset_mock()
+    assert await _first_started_calibration_project([projects[1]], db) == [projects[1]]
+    db.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_calibration_first_project_does_not_fall_through_when_no_tasks(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    first = SimpleNamespace(id=9, project_ref="P9", cycle_ref="C1", settings={})
+    second = SimpleNamespace(id=1, project_ref="P1", cycle_ref="C1", settings={})
+    monkeypatch.setattr(routes, "_task_authorization_projects", AsyncMock(return_value=[(second, None), (first, None)]))
+    monkeypatch.setattr(routes, "_task_management_scope_or_empty", AsyncMock(return_value=None))
+    monkeypatch.setattr(routes, "_get_cycle", AsyncMock(return_value=SimpleNamespace(name="周期")))
+    class Db:
+        def __init__(self): self.queries = []
+        async def execute(self, statement):
+            return SimpleNamespace(all=lambda: [("P9", datetime(2026, 1, 1, tzinfo=UTC)), ("P1", datetime(2026, 2, 1, tzinfo=UTC))])
+        async def scalar(self, statement):
+            self.queries.append(str(statement.compile(compile_kwargs={"literal_binds": True})))
+            return None
+    db = Db()
+    result = await routes.project_management_calibration_authorization(1, context(), db)
+    assert result["items"] == []
+    assert len(db.queries) == 1 and "project_id = 9" in db.queries[0]
+
+
+@pytest.mark.asyncio
+async def test_calibration_same_handler_rules_stay_separate_with_overlap(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    a = {"rule_id": "a", "scope": "PROJECT_ALL", "allow_authorize": True}
+    b = {"rule_id": "b", "scope": "RULE", "allow_authorize": False, "scope_groups": [{"conditions": [{"field": "department", "operator": "INCLUDE", "values": ["研发"]}]}]}
+    phase = {"phase_id": "p1", "rule_sources": [{"rule_id": r["rule_id"], "rule": r} for r in [a, b]], "assignments": [
+        {"handler_ref": "H", "employee_no": "E1", "allow_authorize": True, "source_rule_ids": ["a", "b"]},
+        {"handler_ref": "H", "employee_no": "E2", "allow_authorize": True, "source_rule_ids": ["a"]},
+    ]}
+    distributions = [{"assessment_item_id": "grade", "conditions": [{"control_mode": "HARD", "grade_codes": [grade], "operator": "LTE", "value": 25, "unit": "PERCENT"}]} for grade in ["A", "B"]]
+    for rule, distribution in zip([a, b], distributions): rule["distribution_rules"] = [distribution]
+    project = SimpleNamespace(id=3, cycle_ref="C1", project_ref="P3", settings={"flow_settings": {"node_settings": {"cal": {"calibration": {"force_distribution_enabled": True, "phases": [{"phase_id": "p1", "rules": [a, b]}]}}}}})
+    node = SimpleNamespace(id=4, project_id=3, node_id="cal", node_type="calibration", config={"calibration": {"role_code": "assessment.calibrator", "phases": [phase]}})
+    tasks = [SimpleNamespace(id=i, project_id=3, phase_id="p1", handler_ref="H", target_employee_no=key, task_kind="calibration", status="pending") for i, key in enumerate(["E1", "E2"], 7)]
+    record = SimpleNamespace(id=20, task_id=7, recipient_employee_no="R", grantor_employee_no="H", status="ACTIVE", authorization_type="AUTHORIZE", read_only=False, created_at=None, authorization_settings={"source_rule_id": "a", "allow_reauthorize": False})
+    monkeypatch.setattr(routes, "_task_authorization_projects", AsyncMock(return_value=[(project, None)]))
+    monkeypatch.setattr(routes, "_task_management_scope_or_empty", AsyncMock(return_value=None))
+    monkeypatch.setattr(routes, "_get_cycle", AsyncMock(return_value=SimpleNamespace(name="周期")))
+    monkeypatch.setattr(routes, "load_subject_visibility_rules", AsyncMock(return_value={"activity_manager": []}))
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="VIEWER")))
+    class Db:
+        async def scalar(self, statement): return 1
+        async def get(self, model, key): return SimpleNamespace(source_snapshot_id=2)
+        async def execute(self, statement):
+            rows = {routes.PerformanceAuthorizationSnapshotPerson: [], routes.PerformanceAuditEvent: [], routes.PerformanceProjectNodeSnapshot: [node], routes.PerformanceNodeTask: tasks, routes.PerformanceNodeTaskAuthorization: [record]}[statement.column_descriptions[0]["entity"]]
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
+    rows = (await routes.project_management_calibration_authorization(1, context(), Db()))["items"]
+    roots = [row for row in rows if row["source"] == "BACKEND"]
+    assert [row["source_rule_id"] for row in roots] == ["a", "b"]
+    assert len({row["id"] for row in roots}) == 2 and [row["calibrator"] for row in roots] == ["H", "H"]
+    assert [row["task_ids"] for row in roots] == [[7, 8], [7]]
+    assert [row["authorized_count"] for row in roots] == [2, 1]
+    assert [row["allow_authorize"] for row in roots] == [True, False]
+    assert [row["can_authorize"] for row in roots] == [True, False]
+    assert [row["scope_rules"] for row in roots] == [[a], [b]]
+    assert [row["distribution_info"]["rules"] for row in roots] == [[distributions[0]], [distributions[1]]]
+    children = [row for row in rows if row["source"] == "DELEGATION"]
+    assert len(children) == 1 and children[0]["source_rule_id"] == "a" and children[0]["task_ids"] == [7]
+    assert roots[0]["unauthorized_task_ids"] == [8] and roots[1]["unauthorized_count"] is None
+
+
+@pytest.mark.asyncio
 async def test_result_opening_candidates_filter_before_pagination_and_post(monkeypatch):
     from datetime import UTC, datetime
     from unittest.mock import AsyncMock
@@ -12079,6 +12163,28 @@ def task_delegation_backend(monkeypatch):
             for index, record in enumerate(self.records, 1): record.id = index
         async def commit(self): self.commits += 1
     return SimpleNamespace(routes=routes, models=models, task=task, node=node, project=target, recipient=recipient, identity=identity, db=Db(), scope=scope, notices=notices)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rule_id", ["allowed", "disabled", "missing"])
+async def test_calibration_split_rule_submission_does_not_borrow_other_rule(task_delegation_backend, rule_id):
+    from fastapi import HTTPException
+    data = task_delegation_backend
+    data.task.task_kind = data.node.node_type = "calibration"
+    data.task.phase_id = "p1"
+    data.node.config = {"calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "p1",
+        "assignments": [{"handler_ref": "ORIGINAL", "employee_no": "E1", "allow_authorize": True, "source_rule_ids": ["allowed", "disabled"]}],
+        "rule_sources": [{"rule_id": identity, "rule": {"scope": "PROJECT_ALL", "allow_authorize": allow}} for identity, allow in [("allowed", True), ("disabled", False)]],
+    } ]}}
+    payload = data.routes.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="RECIPIENT", source_rule_id=rule_id)
+    if rule_id == "allowed":
+        await data.routes.create_task_delegation(3, 7, payload, context(), data.db)
+        assert data.db.records[0].authorization_settings["source_rule_id"] == "allowed"
+    else:
+        with pytest.raises(HTTPException) as error:
+            await data.routes.create_task_delegation(3, 7, payload, context(), data.db)
+        assert (error.value.status_code, error.value.detail) == (403, "TASK_AUTHORIZATION_FORBIDDEN")
+        assert data.db.commits == 0
 
 
 @pytest.mark.asyncio

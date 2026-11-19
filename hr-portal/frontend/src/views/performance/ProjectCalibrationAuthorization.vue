@@ -99,7 +99,7 @@ function simpleScope(row: ProjectCalibrationAuthorization) { return ['项目全�
 function scopePeople(row: ProjectCalibrationAuthorization) { return (row.task_people || []).map(person => ({ value: person.employee_no, label: person.display_name })) }
 function authorizeReason(row: ProjectCalibrationAuthorization) { return !row.allow_authorize ? '此任务不允许授权他人校准' : !row.can_authorize ? '暂无校准任务授权权限' : '' }
 function revokeReason(row: ProjectCalibrationAuthorization) { return row.source === 'BACKEND' ? '请联系管理员在「项目设置」中移除此用户的校准权限' : !row.can_revoke ? '暂无撤销授权权限' : '' }
-const delegationTasks = computed(() => target.value ? target.value.task_ids.map(task_id => ({ task_id, project_id: target.value!.project_id, ...target.value!.task_people?.find(person => person.task_id === task_id), ...(target.value!.source_authorization_ids?.[String(task_id)] ? { source_authorization_id: target.value!.source_authorization_ids[String(task_id)] } : {}) })) : [])
+const delegationTasks = computed(() => target.value ? target.value.task_ids.map(task_id => ({ task_id, project_id: target.value!.project_id, ...(target.value!.source_rule_id ? { source_rule_id: target.value!.source_rule_id } : {}), ...target.value!.task_people?.find(person => person.task_id === task_id), ...(target.value!.source_authorization_ids?.[String(task_id)] ? { source_authorization_id: target.value!.source_authorization_ids[String(task_id)] } : {}) })) : [])
 const distributionLines = computed(() => target.value?.distribution_info?.lines ?? [])
 const columns = computed(() => [
   { key: 'calibrator', label: '被授权人', width: 224, fixed: true }, { key: 'status', label: '校准状态', width: 144 },

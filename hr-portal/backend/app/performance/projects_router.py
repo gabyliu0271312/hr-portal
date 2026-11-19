@@ -198,6 +198,7 @@ class PerformanceTaskAuthorizationPayload(BaseModel):
     reason: str = Field(default="", max_length=1000)
     idempotency_key: str | None = Field(default=None, max_length=64)
     source_authorization_id: int | None = Field(default=None, ge=1)
+    source_rule_id: str | None = Field(default=None, min_length=1, max_length=128)
     no_origin_reviewer_authorize: bool | None = None
     scope_mode: Literal["PARTIAL", "ALL"] = "ALL"
     scope_kind: Literal["DIRECT_SUBORDINATES", "DEPARTMENT", "PEOPLE"] = "PEOPLE"
@@ -5644,6 +5645,14 @@ async def create_task_delegation(
                               and (record.authorization_settings or {}).get("allow_reauthorize")), None)
         if source_parent is None or node.node_type != "calibration" or payload.action != "AUTHORIZE":
             raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_FORBIDDEN")
+    if payload.source_rule_id is not None:
+        phase = next((phase for phase in ((node.config or {}).get("calibration") or {}).get("phases", []) if phase.get("phase_id") == task.phase_id), {})
+        rule = next((rule for rule in _calibration_source_rules(phase, [task]) if rule["rule_id"] == payload.source_rule_id), None)
+        parent_rule = (source_parent.authorization_settings or {}).get("source_rule_id") if source_parent is not None else None
+        if (node.node_type != "calibration" or payload.action != "AUTHORIZE" or rule is None
+                or source_parent is None and not rule.get("allow_authorize")
+                or parent_rule is not None and parent_rule != payload.source_rule_id):
+            raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_FORBIDDEN")
     if payload.idempotency_key and not materialize:
         existing = await db.scalar(select(PerformanceNodeTaskAuthorization).where(
             PerformanceNodeTaskAuthorization.task_id == task.id,
@@ -6331,6 +6340,34 @@ async def project_management_authorization_records(
     return result
 
 
+async def _first_started_calibration_project(projects, db):
+    if len(projects) < 2:
+        return projects
+    starts = (await db.execute(select(
+        PerformanceAuditEvent.subject_ref, func.min(PerformanceAuditEvent.event_at),
+    ).where(
+        PerformanceAuditEvent.event_type == "PERFORMANCE_PROJECT_STARTED",
+        PerformanceAuditEvent.subject_type == "PERFORMANCE_PROJECT",
+        PerformanceAuditEvent.cycle_ref == projects[0][0].cycle_ref,
+        PerformanceAuditEvent.subject_ref.in_([project.project_ref for project, _scope in projects]),
+    ).group_by(PerformanceAuditEvent.subject_ref))).all()
+    started = dict(starts)
+    return [min(projects, key=lambda item: (item[0].project_ref not in started, started.get(item[0].project_ref, datetime.max.replace(tzinfo=UTC)), item[0].id))]
+
+
+def _calibration_rule_task_groups(node, tasks, scope):
+    phases = {phase["phase_id"]: phase for phase in ((node.config or {}).get("calibration") or {}).get("phases", [])}
+    grouped = {}
+    for task in tasks:
+        if (scope is not None and task.target_employee_no not in scope) or not calibration_task_scope(task, node):
+            continue
+        phase = phases.get(task.phase_id, {})
+        rule_ids = [rule["rule_id"] for rule in _calibration_source_rules(phase, [task])]
+        for rule_id in rule_ids or [None]:
+            grouped.setdefault((task.phase_id, task.handler_ref, rule_id), []).append(task)
+    return grouped
+
+
 def _calibration_source_rules(phase, tasks):
     keys = {(task.handler_ref, task.target_employee_no) for task in tasks}
     assignments = [item for item in phase.get("assignments") or [] if (item.get("handler_ref"), item.get("employee_no")) in keys]
@@ -6419,6 +6456,7 @@ async def project_management_calibration_authorization(
     db: AsyncSession = Depends(get_session),
 ):
     projects = await _task_authorization_projects(cycle_id, context, db, TASK_CALIBRATION_AUTHORIZATION_KEY)
+    projects = await _first_started_calibration_project(projects, db)
     items = []
     stage_start: datetime | None = None
     stage_end: datetime | None = None
@@ -6466,12 +6504,8 @@ async def project_management_calibration_authorization(
                 PerformanceNodeTask.task_kind == "calibration",
                 PerformanceNodeTask.revoked_at.is_(None),
             ))).scalars().all())
-            grouped = {}
-            for task in tasks:
-                if (scope is not None and task.target_employee_no not in scope) or not calibration_task_scope(task, node):
-                    continue
-                grouped.setdefault((task.phase_id, task.handler_ref), []).append(task)
-            for (phase_id, handler), group in grouped.items():
+            grouped = _calibration_rule_task_groups(node, tasks, scope)
+            for (phase_id, handler, rule_id), group in grouped.items():
                 phase = next((phase for phase in ((node.config or {}).get("calibration") or {}).get("phases", []) if phase["phase_id"] == phase_id), {})
                 phase_window = calibration_phase_window(flow, node, phase_id) or {}
                 start = _parse_time(phase_window.get("start_at"))
@@ -6508,16 +6542,26 @@ async def project_management_calibration_authorization(
                         "organization_ref": path if "department" in visible else None,
                         "visible_profile_fields": visible,
                     }
-                rules = _calibration_source_rules(phase, group)
+                rules = [rule for rule in _calibration_source_rules(phase, group) if rule_id is None or rule["rule_id"] == rule_id]
+                if rule_id is not None:
+                    assignments = [{**assignment, "allow_authorize": bool(rules[0].get("allow_authorize"))} for assignment in assignments]
+                    records_by_id = {record.id: record for record in active_records}
+                    def from_rule(record):
+                        current = record
+                        while (current.authorization_settings or {}).get("parent_authorization_id") in records_by_id:
+                            current = records_by_id[current.authorization_settings["parent_authorization_id"]]
+                        return (current.authorization_settings or {}).get("source_rule_id") in (None, rule_id)
+                    active_records = [record for record in active_records if from_rule(record)]
+                    _effective, delegated_groups = _calibration_delegation_groups(active_records)
                 origins = _calibration_rule_origins(events, node.node_id, phase_id, [rule["rule_id"] for rule in rules])
                 origin = next(iter(origins.values()), None) if rules and len(origins) == len(rules) and len({event.id for event in origins.values()}) == 1 else None
                 authorized_by = (users.get(int(origin.actor_ref), origin.actor_ref) if origin.actor_type == "PORTAL_USER" and str(origin.actor_ref).isdigit() else names.get(origin.actor_ref, origin.actor_ref)) if origin else None
                 root_authorized = {record.task_id for record in active_records if (record.authorization_settings or {}).get("parent_authorization_id") is None}
                 allow_authorize = any(assignment.get("allow_authorize") for assignment in assignments)
-                base_id = f"{project.id}:{node.id}:{phase_id}:{handler}"
+                base_id = f"{project.id}:{node.id}:{phase_id}:{handler}" + (f":rule:{rule_id}" if rule_id is not None else "")
                 distribution_info = distribution_summary(flow, node, phase_id, assessment_names, source_rule_ids=[rule["rule_id"] for rule in rules])
                 base = {
-                    "id": base_id, "source": "BACKEND",
+                    "id": base_id, "source": "BACKEND", "source_rule_id": rule_id,
                     "project_id": project.id, "node_id": node.node_id, "phase_id": phase_id,
                     "calibrator": names.get(handler, handler),
                     "status": "已校准" if all(_calibration_completed(task) for task in group) else "待校准",
@@ -6545,7 +6589,7 @@ async def project_management_calibration_authorization(
                     settings = delegated[0].authorization_settings or {}
                     can_continue = bool(settings.get("allow_reauthorize"))
                     child_authorized = {record.task_id for record in active_records if (record.authorization_settings or {}).get("parent_authorization_id") in source_ids.values()}
-                    child_rules = _calibration_source_rules(phase, child_tasks)
+                    child_rules = [rule for rule in _calibration_source_rules(phase, child_tasks) if rule_id is None or rule["rule_id"] == rule_id]
                     child_distribution = distribution_summary(flow, node, phase_id, assessment_names, source_rule_ids=[rule["rule_id"] for rule in child_rules])
                     inherit_distribution = settings.get("distribution_mode", "INHERIT") == "INHERIT"
                     if not inherit_distribution:

@@ -1058,12 +1058,36 @@ it('opens shared calibration people lists and renders source rules with disabled
   wrapper.unmount(); loaded.mockRestore(); delete routeQuery.cycle_id
 })
 
+it('keeps the same calibrator separate by source rule and delegates only the clicked row', async () => {
+  const { default: Calibration } = await import('./ProjectCalibrationAuthorization.vue')
+  const { default: Dialog } = await import('@/components/performance/PerformanceTaskDelegationDialog.vue')
+  const { default: People } = await import('@/components/performance/focus-group/FocusGroupPeopleDialog.vue')
+  pinia = createPinia(); setActivePinia(pinia)
+  usePerformanceProjectContextStore().setNavigation(navigationOf(1))
+  routeQuery.cycle_id = '1'
+  const base = { project_id: 3, source: 'BACKEND' as const, authorizations: [], calibrator: '同一校准人', status: '待校准', unauthorized_count: 1, allow_authorize: true, can_authorize: true, can_revoke: false, distribution_rule: null, authorized_by: null, authorized_at: null }
+  const loaded = vi.spyOn(projectManagementApi, 'calibrationAuthorization').mockResolvedValue({ cycle_id: 1, cycle_name: '周期', items: [
+    { ...base, id: 'rule-a', source_rule_id: 'a', task_ids: [11, 12], task_people: [{ task_id: 11, employee_no: 'E1', display_name: '员工甲' }, { task_id: 12, employee_no: 'E2', display_name: '员工乙' }], scope: '项目全员', authorized_count: 2 },
+    { ...base, id: 'rule-b', source_rule_id: 'b', task_ids: [11], task_people: [{ task_id: 11, employee_no: 'E1', display_name: '员工甲' }], scope: '直属下级', authorized_count: 1 },
+  ] })
+  const candidates = vi.spyOn(projectManagementApi, 'delegationCandidates').mockResolvedValue([])
+  const wrapper = mount(Calibration, { attachTo: document.body, global: { plugins: [pinia] } })
+  await flushPromises()
+  expect(wrapper.findAll('.actions')).toHaveLength(2)
+  await wrapper.findAll('.count-link')[2].trigger('click')
+  expect(wrapper.getComponent(People).props('rows')).toEqual([{ task_id: 11, employee_no: 'E1', display_name: '员工甲' }])
+  wrapper.getComponent(People).vm.$emit('update:modelValue', false)
+  await wrapper.findAll('.actions')[1].findAll('button')[0].trigger('click'); await flushPromises()
+  expect(wrapper.getComponent(Dialog).props('tasks')).toEqual([{ project_id: 3, task_id: 11, employee_no: 'E1', display_name: '员工甲', source_rule_id: 'b' }])
+  wrapper.unmount(); loaded.mockRestore(); candidates.mockRestore(); delete routeQuery.cycle_id
+})
+
 it('excludes the calibration recipient and preserves parent authorization when submitting all people', async () => {
   const { default: Dialog } = await import('@/components/performance/PerformanceTaskDelegationDialog.vue')
   const { default: Select } = await import('@/components/performance/PerformanceSearchSelect.vue')
   const candidates = vi.spyOn(projectManagementApi, 'delegationCandidatesBatch').mockResolvedValue([11, 12, 13].map(task_id => ({ project_id: 3, task_id, candidates: [{ employee_no: 'R', display_name: '接收人' }] })))
   const submit = vi.spyOn(projectManagementApi, 'authorizeTask').mockResolvedValue({ task_id: 11, id: 50, notification_status: 'preview_only' })
-  const wrapper = mount(Dialog, { attachTo: document.body, props: { modelValue: true, action: 'AUTHORIZE', calibration: true, hasDistributionRules: false, tasks: [{ task_id: 11, project_id: 3, employee_no: 'E1', source_authorization_id: 21 }, { task_id: 12, project_id: 3, employee_no: 'E2', source_authorization_id: 22 }, { task_id: 13, project_id: 3, employee_no: 'R', source_authorization_id: 23 }] } })
+  const wrapper = mount(Dialog, { attachTo: document.body, props: { modelValue: true, action: 'AUTHORIZE', calibration: true, hasDistributionRules: false, tasks: [{ task_id: 11, project_id: 3, employee_no: 'E1', source_rule_id: 'a', source_authorization_id: 21 }, { task_id: 12, project_id: 3, employee_no: 'E2', source_rule_id: 'a', source_authorization_id: 22 }, { task_id: 13, project_id: 3, employee_no: 'R', source_authorization_id: 23 }] } })
   await flushPromises()
   wrapper.getComponent(Select).vm.$emit('update:modelValue', 'R')
   await wrapper.vm.$nextTick()
@@ -1074,7 +1098,7 @@ it('excludes the calibration recipient and preserves parent authorization when s
   ;([...document.querySelectorAll<HTMLButtonElement>('.delegation-dialog button')].find(button => button.textContent?.trim() === '确定')!).click()
   await flushPromises()
   expect(submit).toHaveBeenCalledTimes(2)
-  expect(submit).toHaveBeenCalledWith(3, 11, 'AUTHORIZE', 'R', '', expect.objectContaining({ source_authorization_id: 21, scope_mode: 'ALL', allow_reauthorize: false }))
+  expect(submit).toHaveBeenCalledWith(3, 11, 'AUTHORIZE', 'R', '', expect.objectContaining({ source_rule_id: 'a', source_authorization_id: 21, scope_mode: 'ALL', allow_reauthorize: false }))
   expect(submit).toHaveBeenCalledWith(3, 12, 'AUTHORIZE', 'R', '', expect.objectContaining({ source_authorization_id: 22 }))
   expect(wrapper.emitted('completed')?.[0][0]).toBe(2)
   wrapper.unmount(); candidates.mockRestore(); submit.mockRestore()
