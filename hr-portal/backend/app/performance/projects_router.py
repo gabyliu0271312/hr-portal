@@ -6826,11 +6826,9 @@ async def _report_comparison_axis(projects, scopes, db, *, self_only=False, lega
     employees = set()
     for project in projects:
         snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
-        if snapshot_id is None:
-            continue
         members = list((await db.execute(select(PerformanceProjectMember).where(
             PerformanceProjectMember.snapshot_id == snapshot_id,
-        ))).scalars().all())
+        ))).scalars().all()) if snapshot_id is not None else []
         scope = scopes[project.id]
         project_employees = {member.employee_no for member in members if scope is None or member.employee_no in scope}
         if employees.intersection(project_employees):

@@ -5,14 +5,14 @@
         <div class="comparison-corner" aria-hidden="true" />
         <div class="y-axis-body" :style="bodyStyle">
           <PerformanceComparisonDimensionSelector :model-value="selectedRow" axis="y" :label-prefix="rowLabelPrefix" :options="rowDimensionOptions" @update:model-value="changeDimension('y', $event)" />
-          <div class="row-labels"><div v-for="row in rows" :key="row.value" class="row-label"><PerformanceRatingTag :label="row.label" :color="row.color" /></div></div>
+          <div class="row-labels"><div v-for="row in rows" :key="row.value" class="row-label"><PerformanceRatingTag :label="row.label" :color="row.color" /></div><div v-if="!rows.length" class="row-label comparison-axis-missing">{{ rowMissingLabel }}</div></div>
         </div>
       </div>
-      <div class="comparison-axis comparison-axis-x" :style="{ minWidth: `${Math.max(1, columns.length) * 132}px` }">
+      <div class="comparison-axis comparison-axis-x" :style="{ minWidth: `${columns.length ? columns.length * 132 : 200}px` }">
         <PerformanceComparisonDimensionSelector :model-value="selectedColumn" axis="x" :label-prefix="columnLabelPrefix" :options="columnDimensionOptions" @update:model-value="changeDimension('x', $event)" />
-        <div class="column-labels" :style="gridStyle"><div v-for="column in columns" :key="column.value" class="column-label"><PerformanceRatingTag :label="column.label" :color="column.color" /></div></div>
+        <div class="column-labels" :style="gridStyle"><div v-for="column in columns" :key="column.value" class="column-label"><PerformanceRatingTag :label="column.label" :color="column.color" /></div><div v-if="!columns.length" class="column-label comparison-axis-missing">{{ columnMissingLabel }}</div></div>
         <div class="matrix-body" :style="bodyStyle">
-          <div class="matrix-grid" :style="gridStyle">
+          <div v-if="hasAxes" class="matrix-grid" :style="gridStyle">
             <template v-for="(row, rowIndex) in rows" :key="row.value">
               <div v-for="(column, columnIndex) in columns" :key="column.value" class="performance-comparison-cell" :class="heatClass(rowIndex, columnIndex)" :aria-label="cellLabel(rowIndex, columnIndex)" @click="emit('cell', { rowKey: row.value, columnKey: column.value, count: cellAt(rowIndex, columnIndex).count })">
                 <template v-if="cellAt(rowIndex, columnIndex).count > 0"><span>{{ percent(cellAt(rowIndex, columnIndex).count) }}%</span><span>{{ cellAt(rowIndex, columnIndex).count }}</span></template>
@@ -39,7 +39,8 @@ const props = withDefaults(defineProps<{
   rows: PerformanceComparisonOption[]; columns: PerformanceComparisonOption[]; cells: PerformanceComparisonCellData[][]; denominator: number
   rowDimensionOptions: PerformanceComparisonOption[]; columnDimensionOptions: PerformanceComparisonOption[]
   rowDimension?: string; columnDimension?: string; rowLabelPrefix?: string; columnLabelPrefix?: string; focusAreas?: PerformanceComparisonFocusArea[]
-}>(), { focusAreas: () => [], rowLabelPrefix: '终评：', columnLabelPrefix: '自评：' })
+  rowMissingLabel?: string; columnMissingLabel?: string
+}>(), { focusAreas: () => [], rowLabelPrefix: '终评：', columnLabelPrefix: '自评：', rowMissingLabel: '未配置终评评级', columnMissingLabel: '未配置自评评级' })
 const emit = defineEmits<{
   'update:rowDimension': [key: string]; 'update:columnDimension': [key: string]; 'dimension-change': [axis: 'x' | 'y', key: string]
   cell: [cell: { rowKey: string; columnKey: string; count: number }]
@@ -53,7 +54,8 @@ function changeDimension(axis: 'x' | 'y', key: string) {
 }
 const gridStyle = computed(() => ({ gridTemplateColumns: `repeat(${Math.max(1, props.columns.length)}, minmax(132px, 1fr))` }))
 const bodyStyle = computed(() => ({ height: `${Math.max(empty.value ? 3 : 1, props.rows.length) * 55}px` }))
-const empty = computed(() => !props.cells.some(row => row.some(cell => cell.count > 0)))
+const hasAxes = computed(() => props.rows.length > 0 && props.columns.length > 0)
+const empty = computed(() => !hasAxes.value || !props.rows.some((_, row) => props.columns.some((_, column) => cellAt(row, column).count > 0)))
 const cellAt = (row: number, column: number): PerformanceComparisonCellData => props.cells[row]?.[column] ?? { count: 0 }
 const heatClass = (row: number, column: number) => { const cell = cellAt(row, column); return cell.count > 0 && cell.heatLevel ? `heat-${cell.heatLevel}` : '' }
 const percent = (count: number) => reportPercent(count, props.denominator)
@@ -76,6 +78,8 @@ const focusStyle = (area: PerformanceComparisonFocusArea) => ({
 .comparison-axis-x { position: relative; flex: 1 0 0; }
 .column-labels { display: grid; height: 54px; border-bottom: 1px solid #dee0e3; box-sizing: border-box; }
 .column-label { display: flex; align-items: center; justify-content: flex-end; padding: 15px 12px; box-sizing: border-box; }
+.comparison-axis-missing { color: var(--color-text-tertiary, #8f959e); font-size: 12px; overflow-wrap: anywhere; }
+.row-label.comparison-axis-missing { height: auto; min-height: 55px; padding: 8px; }
 .matrix-body { position: relative; overflow: hidden; }
 .matrix-grid { display: grid; grid-auto-rows: 55px; width: 100%; }
 .performance-comparison-cell { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; height: 55px; padding: 5px 12px; border-bottom: 1px solid #eff0f1; box-sizing: border-box; color: #133c9a; font-variant-numeric: tabular-nums; line-height: 22px; }

@@ -1,6 +1,6 @@
 <template>
   <div ref="root" class="report-matrix">
-    <div class="matrix-toolbar"><ElDropdown v-if="report.indicators?.length" trigger="click" @command="emit('indicator-change', $event)"><button type="button" class="matrix-rating-tab">{{ report.indicatorLabel || '绩效评级' }}<DownOutlinedIcon /></button><template #dropdown><ElDropdownMenu><ElDropdownItem v-for="indicator in report.indicators" :key="indicator.key" :command="indicator.key">{{ indicator.label }}</ElDropdownItem></ElDropdownMenu></template></ElDropdown><span v-else class="matrix-rating-tab">{{ report.indicatorLabel || '绩效评级' }}</span></div>
+    <div class="matrix-toolbar"><PerformanceSegmentedControl class="report-indicators" :model-value="report.indicatorKey || report.indicators?.[0]?.key || 'rating'" :options="report.indicators?.length ? report.indicators.map(item => ({ value: item.key, label: item.label })) : [{ value: 'rating', label: report.indicatorLabel || '绩效评级' }]" aria-label="统计评估项" @update:model-value="emit('indicator-change', $event)" /></div>
     <div class="matrix-scroll">
       <el-table ref="table" :data="rows" row-key="id" :fit="false" :max-height="496" style="width: 100%" :default-sort="{ prop: 'total', order: 'descending' }" :row-class-name="rowClassName" :empty-text="`暂无${report.rowLabel}统计数据`" @sort-change="sort = { prop: $event.prop ?? 'total', order: $event.order }" :expand-row-keys="expandedKeys" @expand-change="(row, expanded) => updateExpanded(row.id, expanded)">
         <el-table-column prop="name" :label="report.rowLabel" min-width="240" fixed="left" class-name="matrix-department-column">
@@ -37,8 +37,8 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { ElDropdown, ElDropdownItem, ElDropdownMenu, ElTable, ElTableColumn, type TableInstance } from 'element-plus'
-import DownOutlinedIcon from './DownOutlinedIcon.vue'
+import { ElTable, ElTableColumn, type TableInstance } from 'element-plus'
+import PerformanceSegmentedControl from './PerformanceSegmentedControl.vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'
 import PerformanceRatingTag from './PerformanceRatingTag.vue'
 import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.vue'
@@ -98,8 +98,9 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
 <style scoped>
 .report-matrix { position: relative; min-width: 0; min-height: 200px; }
 .matrix-toolbar { display: flex; height: 48px; }
-.matrix-rating-tab { display: flex; align-items: center; gap: 8px; box-sizing: border-box; height: 32px; padding: 0 16px; border: 1px solid #3370ff; border-radius: 6px; background: #fff; color: #3370ff; font: inherit; font-size: 14px; font-weight: 500; line-height: 22px; }
-button.matrix-rating-tab { cursor: pointer; }.matrix-rating-tab :deep(svg) { width: 14px; height: 14px; }
+.report-indicators { align-self: flex-start; }
+.report-indicators :deep(.segment) { height: 32px; padding: 0 16px; }
+.report-indicators :deep(.segment.first.last) { border-radius: 6px; }
 .matrix-scroll { min-width: 0; overflow-x: auto; }
 .report-matrix :deep(.el-table) { --el-table-border-color: #eff0f1; --el-table-header-bg-color: #f8f9fa; --el-table-header-text-color: #646a73; --el-table-text-color: rgba(0, 0, 0, .88); border-radius: 8px 8px 0 0; font-size: 14px; font-weight: 400; }
 .report-matrix :deep(.el-table__header-wrapper) { border-top: 1px solid var(--el-table-border-color); border-radius: 8px 8px 0 0; }

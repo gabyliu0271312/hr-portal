@@ -2,6 +2,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
 
 export function useProjectReportNavigation(root: Ref<HTMLElement | null>) {
   const activeKey = ref('overview')
+  const visibleKeys = ref<string[]>([])
   const menuHeight = ref(408)
   let scroller: HTMLElement | null = null
   let observer: ResizeObserver | null = null
@@ -11,16 +12,25 @@ export function useProjectReportNavigation(root: Ref<HTMLElement | null>) {
   const sections = () => [...(root.value?.querySelectorAll<HTMLElement>('[data-report-section]') || [])]
 
   function measure() {
-    if (!scroller || !root.value) return
-    root.value.style.setProperty('--report-scroll-padding', getComputedStyle(scroller).paddingTop)
-    const items = sections()
-    const threshold = scroller.getBoundingClientRect().top + offset() + 48 + 1
+    if (!root.value) return
+    root.value.style.setProperty('--report-scroll-padding', scroller ? getComputedStyle(scroller).paddingTop : '0px')
+    const items = sections().filter(item => item.getBoundingClientRect().height > 0)
+    const top = scroller?.getBoundingClientRect().top ?? 0
+    const bottom = scroller ? Math.min(window.innerHeight, top + scroller.clientHeight) : window.innerHeight
+    const threshold = top + offset() + 48 + 1
     let selected: HTMLElement | undefined = items[0]
+    const visible: string[] = []
     for (const item of items) {
-      if (item.getBoundingClientRect().top <= threshold) selected = item
+      const box = item.getBoundingClientRect()
+      if (box.top <= threshold) selected = item
+      if (box.bottom > Math.max(top, 0) && box.top < bottom && box.height > 0) visible.push(item.dataset.reportSection || '')
     }
-    if (scroller.scrollTop > 0 && scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 2) selected = items.at(-1)
+    const scrollTop = scroller?.scrollTop ?? window.scrollY
+    const scrollHeight = scroller?.scrollHeight ?? document.documentElement.scrollHeight
+    const clientHeight = scroller?.clientHeight ?? window.innerHeight
+    if (scrollTop > 0 && scrollHeight - clientHeight - scrollTop <= 2) selected = items.at(-1)
     if (selected) activeKey.value = selected.dataset.reportSection || 'overview'
+    if (visible.join('|') !== visibleKeys.value.join('|')) visibleKeys.value = visible
     const nav = root.value.querySelector<HTMLElement>('.report-navigation')
     if (nav) menuHeight.value = Math.max(68, window.innerHeight - nav.getBoundingClientRect().top - 32 - 24)
   }
@@ -35,9 +45,9 @@ export function useProjectReportNavigation(root: Ref<HTMLElement | null>) {
     const target = sections().find(item => item.dataset.reportSection === key)
     if (!target) return
     activeKey.value = key
-    if (!scroller) return
-    const top = scroller.scrollTop + target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - offset() - 40
-    scroller.scrollTo({ top: Math.max(0, top), behavior: 'auto' })
+    const top = (scroller?.scrollTop ?? window.scrollY) + target.getBoundingClientRect().top - (scroller?.getBoundingClientRect().top ?? 0) - offset() - 40
+    if (scroller) scroller.scrollTo({ top: Math.max(0, top), behavior: 'auto' })
+    else window.scrollTo({ top: Math.max(0, top), behavior: 'auto' })
     schedule()
   }
 
@@ -51,11 +61,11 @@ export function useProjectReportNavigation(root: Ref<HTMLElement | null>) {
   }
 
   onMounted(() => {
-    for (let el = root.value?.parentElement; el; el = el.parentElement) {
+    for (let el = root.value?.parentElement; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
       if (/(auto|scroll)/.test(getComputedStyle(el).overflowY)) { scroller = el; break }
     }
     if (scroller && root.value) root.value.dataset.reportScroll = 'true'
-    scroller?.addEventListener('scroll', schedule, { passive: true })
+    ;(scroller || window).addEventListener('scroll', schedule, { passive: true })
     window.addEventListener('resize', schedule)
     if (typeof ResizeObserver !== 'undefined') observer = new ResizeObserver(schedule)
     void refresh()
@@ -65,9 +75,9 @@ export function useProjectReportNavigation(root: Ref<HTMLElement | null>) {
     disposed = true
     if (frame) cancelAnimationFrame(frame)
     observer?.disconnect()
-    scroller?.removeEventListener('scroll', schedule)
+    ;(scroller || window).removeEventListener('scroll', schedule)
     window.removeEventListener('resize', schedule)
   })
 
-  return { activeKey, menuHeight, select, refresh }
+  return { activeKey, visibleKeys, menuHeight, select, refresh }
 }

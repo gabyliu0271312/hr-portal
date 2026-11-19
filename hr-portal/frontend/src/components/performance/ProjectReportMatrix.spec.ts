@@ -239,16 +239,65 @@ describe('report comparison matrices', () => {
     wrapper.unmount()
   })
 
-  it.each([['INSUFFICIENT_DIMENSIONS', '维度不足两个'], ['NO_HISTORY', '暂无可对比的历史绩效周期']])('explains %s and only displays clearly marked examples after an explicit click', async (emptyReason, text) => {
-    const comparison = { ...mockProjectReportComparison(), counts: [], total: 0, emptyReason }
-    const wrapper = mount(ProjectReportComparison, { props: { comparison, kind: emptyReason === 'NO_HISTORY' ? 'history' : 'dimension' } })
+  it.each([['INSUFFICIENT_DIMENSIONS', '维度不足两个'], ['NO_HISTORY', '暂无可对比的历史绩效周期']])('explains %s while preserving the real axis and only displays examples after an explicit click', async (emptyReason, text) => {
+    const rating = { key: 'real-rating', label: '真实档位', color: '#3370ff' }
+    const history = emptyReason === 'NO_HISTORY'
+    const comparison = {
+      ...mockProjectReportComparison(), source: 'api' as const, ratings: [rating], counts: [], total: 0, emptyReason,
+      xRatings: history ? [] : [rating], yRatings: history ? [rating] : [],
+      xOptions: history ? [] : [{ key: 'actual', label: '实际评估项' }],
+      yOptions: history ? [{ key: 'actual', label: '本期评估项' }] : [],
+    }
+    const wrapper = mount(ProjectReportComparison, { props: { comparison, kind: history ? 'history' : 'dimension' } })
     expect(wrapper.text()).toContain(text)
-    expect(wrapper.findComponent(PerformanceComparisonMatrix).exists()).toBe(false)
+    expect(wrapper.findComponent(PerformanceComparisonMatrix).exists()).toBe(true)
+    expect(wrapper.findAll('.performance-comparison-cell')).toHaveLength(0)
+    expect(wrapper.findAllComponents({ name: 'PerformanceRatingTag' }).map(tag => tag.props('label'))).toEqual(['真实档位'])
+    expect(wrapper.text()).toContain(history ? '暂无历史评级' : '暂无第二评估项')
+    expect(wrapper.text()).not.toContain('1星')
+    expect(wrapper.find('.metric-template-empty-illustration').exists()).toBe(true)
+    expect(wrapper.findAll('.axis-selector.is-unavailable')).toHaveLength(1)
     await wrapper.get('.example-button').trigger('click')
     expect(wrapper.text()).toContain('示例数据，仅用于展示图表效果，不代表真实绩效结果')
     expect(wrapper.findAll('.performance-comparison-cell')).toHaveLength(49)
     wrapper.findComponent(PerformanceComparisonMatrix).vm.$emit('dimension-change', 'x', 'rating')
     expect(wrapper.emitted('change')).toBeUndefined()
+    await wrapper.get('.comparison-example-notice button').trigger('click')
+    expect(wrapper.text()).toContain('真实档位')
+    expect(wrapper.findAll('.performance-comparison-cell')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it.each(['self-final', 'dimension', 'history'] as const)('keeps %s titles and placeholders with neither axis configured', kind => {
+    const comparison = { ...mockProjectReportComparison(), source: 'api' as const, ratings: [], xRatings: [], yRatings: [], xOptions: [], yOptions: [], counts: [], total: 0 }
+    const wrapper = mount(ProjectReportComparison, { props: { comparison, kind } })
+    expect(wrapper.findAllComponents(PerformanceComparisonDimensionSelector)).toHaveLength(2)
+    expect(wrapper.findAll('.axis-selector.is-unavailable')).toHaveLength(2)
+    expect(wrapper.findAll('.comparison-axis-missing')).toHaveLength(2)
+    expect(wrapper.find('.metric-template-empty-illustration').exists()).toBe(true)
+    expect(wrapper.findAllComponents({ name: 'PerformanceRatingTag' })).toHaveLength(0)
+    expect(wrapper.findAll('.performance-comparison-cell')).toHaveLength(0)
+    expect(wrapper.text()).toContain(kind === 'self-final' ? '未配置自评评级' : kind === 'dimension' ? '暂无第二评估项' : '暂无历史评级')
+    expect(wrapper.text()).toContain(kind === 'history' ? '本期终评：未配置评估项' : '终评：未配置评估项')
+    wrapper.unmount()
+  })
+
+  it('preserves configured final ratings when self ratings are absent without reusing final ratings', () => {
+    const rating = { key: 'final-rating', label: '终评真实档位' }
+    const comparison = { ...mockProjectReportComparison(), source: 'api' as const, ratings: [], xRatings: [], yRatings: [rating], xOptions: [], yOptions: [{ key: 'actual', label: '实际评估项' }], counts: [ [] ], total: 0 }
+    const wrapper = mount(ProjectReportComparison, { props: { comparison } })
+    expect(wrapper.get('.row-labels').text()).toBe('终评真实档位')
+    expect(wrapper.get('.column-labels').text()).toBe('未配置自评评级')
+    expect(wrapper.findAll('.performance-comparison-cell')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('ignores stale positive cells and focus areas when either axis is missing', () => {
+    const wrapper = mount(PerformanceComparisonMatrix, { props: { rows: [{ value: 'real', label: '真实评级' }], columns: [], cells: [[{ count: 99, heatLevel: 3 }]], denominator: 99, rowDimensionOptions: [], columnDimensionOptions: [], focusAreas: [{ side: 'left', rowStart: 1, rowSpan: 1, columnSpan: 1 }] } })
+    expect(wrapper.findAll('.performance-comparison-cell, .focus-area')).toHaveLength(0)
+    expect(wrapper.text()).not.toContain('99')
+    expect(wrapper.text()).toContain('暂无统计数据')
+    expect(wrapper.emitted('cell')).toBeUndefined()
     wrapper.unmount()
   })
 

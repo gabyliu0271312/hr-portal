@@ -208,6 +208,42 @@ describe('ProjectStatisticsReportPanel', () => {
     wrapper.unmount()
   })
 
+  it('retains the overview component while reloading selected comparison dimensions for another indicator', async () => {
+    const provider = vi.fn(async query => ({ ...apiReport(await mockProjectReportProvider(query)), indicatorKey: query.indicatorKey || 'rating:a', indicatorLabel: query.indicatorKey === 'rating:b' ? '价值观' : '绩效评级' }))
+    const wrapper = mount(ProjectStatisticsReportPanel, { props: { cycleId: 7, provider }, global })
+    await flushPromises()
+    const distribution = wrapper.findComponent({ name: 'ProjectReportDistribution' })
+    distribution.vm.$emit('compare', 'team')
+    await flushPromises()
+    distribution.vm.$emit('indicator-change', 'rating:b')
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'ProjectReportDistribution' }).vm.$el).toBe(distribution.vm.$el)
+    expect(provider).toHaveBeenCalledWith({ cycleId: 7, dimension: 'team', indicatorKey: 'rating:b' })
+    expect(wrapper.findComponent({ name: 'ProjectReportDistribution' }).props('comparisonReports').team.indicatorKey).toBe('rating:b')
+    wrapper.unmount()
+  })
+
+  it('loads every comparison visible after page scrolling without directory clicks', async () => {
+    let frame: FrameRequestCallback | undefined
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { frame = callback; return 1 })
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+    const provider = vi.fn(async query => apiReport(await mockProjectReportProvider(query)))
+    const comparisonProvider = vi.fn(async (_query: { kind: string }) => ({ ...mockProjectReportComparison(), source: 'api' as const }))
+    const wrapper = mount(ProjectStatisticsReportPanel, { props: { cycleId: 7, provider, comparisonProvider }, global })
+    await flushPromises()
+    wrapper.findAll('[data-report-section]').forEach(section => {
+      const visible = ['self-final', 'dimension', 'history'].includes(section.attributes('data-report-section') || '')
+      const top = visible ? 200 : -1000
+      section.element.getBoundingClientRect = () => ({ x: 0, y: top, top, bottom: top + 100, left: 0, right: 600, width: 600, height: 100, toJSON() {} })
+    })
+    window.dispatchEvent(new Event('scroll'))
+    frame?.(0)
+    await flushPromises()
+    expect(comparisonProvider.mock.calls.map(call => call[0])).toEqual([{ kind: 'self-final' }, { kind: 'dimension' }, { kind: 'history' }])
+    expect(wrapper.findAll('.report-comparison')).toHaveLength(3)
+    wrapper.unmount()
+  })
+
   it('discards a late response from a previous cycle', async () => {
     let resolveOld!: (report: ProjectStatisticsReport) => void
     const old = new Promise<ProjectStatisticsReport>(resolve => { resolveOld = resolve })

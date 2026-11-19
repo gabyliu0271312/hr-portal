@@ -4640,6 +4640,83 @@ async def test_history_comparison_without_history_keeps_current_schema(statistic
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["self-final", "dimension", "history"])
+@pytest.mark.parametrize("empty_state", ["no_snapshot", "no_members", "no_submissions"])
+async def test_comparison_empty_population_keeps_frozen_rating_axes(statistics_db, kind, empty_state):
+    from app.performance.projects_router import project_management_comparison
+    db = statistics_db
+    if kind == "dimension":
+        _add_report_dimension(db)
+    elif kind == "self-final":
+        db.nodes.append(_self_summary_node(options=[{"id": "self-low", "label": "自评待提升"}, {"id": "self-high", "label": "自评优秀"}, {"id": "self-top", "label": "自评卓越"}]))
+    if empty_state == "no_snapshot":
+        db.snapshots.clear()
+    elif empty_state == "no_members":
+        db.members.clear()
+    else:
+        db.tasks[0].submitted_at = None
+    result = await project_management_comparison(1, kind, context("performance.cycles.manage"), db)
+    assert result.total == 0
+    if kind == "dimension":
+        assert [rating.key for rating in result.xRatings] == ["one", "five"]
+        assert [rating.key for rating in result.yRatings] == ["low", "mid", "high"]
+        assert result.counts == result.heatLevels == [[0, 0], [0, 0], [0, 0]]
+    else:
+        assert [rating.key for rating in result.yRatings] == ["one", "five"]
+        if kind == "self-final":
+            assert [rating.key for rating in result.xRatings] == ["self-low", "self-high", "self-top"]
+            assert result.counts == result.heatLevels == [[0, 0, 0], [0, 0, 0]]
+        else:
+            assert result.emptyReason == "NO_HISTORY" and result.xRatings == []
+            assert result.counts == result.heatLevels == [[], []]
+    if empty_state == "no_snapshot":
+        from app.performance.models import PerformanceProjectMember
+        assert not any(statement.column_descriptions[0]["entity"] is PerformanceProjectMember for statement in db.queries)
+
+
+@pytest.mark.asyncio
+async def test_comparison_without_self_configuration_keeps_final_axis_without_snapshot(statistics_db):
+    from app.performance.projects_router import project_management_comparison
+    db = statistics_db
+    db.snapshots.clear()
+    result = await project_management_comparison(1, "self-final", context("performance.cycles.manage"), db)
+    assert result.xRatings == result.xOptions == [] and result.xKey is None
+    assert [rating.key for rating in result.yRatings] == ["one", "five"]
+    assert result.counts == [[], []] and result.total == 0
+
+
+@pytest.mark.asyncio
+async def test_history_comparison_empty_snapshots_keeps_distinct_historical_scale(statistics_db):
+    from app.performance.projects_router import project_management_comparison
+    db = statistics_db
+    db.cycle.start_at = datetime(2026, 9, 1, tzinfo=UTC)
+    history = _pm_cycle(2, "历史周期")
+    history.start_at = datetime(2026, 3, 1, tzinfo=UTC)
+    db.history_cycles.append(history)
+    db.projects.append(_pm_project(2, "历史项目", 2, administrators=["管理员"]))
+    db.nodes.append(_statistics_node(2, node_id=32, options=[{"id": "history-a", "label": "历史A"}, {"id": "history-b", "label": "历史B"}, {"id": "history-c", "label": "历史C"}]))
+    db.snapshots.clear()
+    result = await project_management_comparison(1, "history", context("performance.cycles.manage"), db)
+    assert [rating.key for rating in result.xRatings] == ["history-a", "history-b", "history-c"]
+    assert [rating.key for rating in result.yRatings] == ["one", "five"]
+    assert result.counts == [[0, 0, 0], [0, 0, 0]] and result.total == 0
+    assert result.historyCycleId == 2 and result.emptyReason is None
+
+
+@pytest.mark.asyncio
+async def test_comparison_empty_snapshots_still_reject_conflicting_configured_scales(statistics_db):
+    from fastapi import HTTPException
+    from app.performance.projects_router import project_management_comparison
+    db = statistics_db
+    db.projects.append(_pm_project(2, "项目二", 1, administrators=["管理员"]))
+    db.nodes.append(_statistics_node(2, node_id=33, options=[{"id": "different", "label": "不同档位"}]))
+    db.snapshots.clear()
+    with pytest.raises(HTTPException) as error:
+        await project_management_comparison(1, "dimension", context("performance.cycles.manage"), db)
+    assert (error.value.status_code, error.value.detail) == (409, "RATING_SCALE_CONFLICT")
+
+
+@pytest.mark.asyncio
 async def test_new_comparison_http_contract_and_invalid_kind(statistics_db):
     import httpx
     from fastapi import FastAPI

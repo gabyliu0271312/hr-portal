@@ -8,6 +8,36 @@ const box = (top: number, height = 100) => ({ top, y: top, bottom: top + height,
 describe('useProjectReportNavigation', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.innerHTML = '' })
 
+  it('tracks page scrolling and reports every visible chapter after a jump', async () => {
+    let frame: FrameRequestCallback | undefined
+    vi.stubGlobal('requestAnimationFrame', vi.fn(cb => { frame = cb; return 1 }))
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    const scroll = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    const remove = vi.spyOn(window, 'removeEventListener')
+    let navigation!: ReturnType<typeof useProjectReportNavigation>
+    const wrapper = mount(defineComponent({
+      setup() { const root = ref<HTMLElement | null>(null); navigation = useProjectReportNavigation(root); return { root } },
+      template: '<div ref="root"><section data-report-section="overview"/><section data-report-section="self-final"/><section data-report-section="dimension"/><section data-report-section="history"/></div>',
+    }), { attachTo: document.body })
+    await flushPromises()
+    const sections = wrapper.findAll('section')
+    const tops = [-1200, 160, 340, 520]
+    sections.forEach((section, index) => { section.element.getBoundingClientRect = () => box(tops[index], 150) })
+    window.dispatchEvent(new Event('scroll'))
+    frame?.(0)
+    expect(navigation.visibleKeys.value).toEqual(['self-final', 'dimension', 'history'])
+    navigation.select('history')
+    expect(scroll).toHaveBeenCalledWith({ top: 412, behavior: 'auto' })
+    tops.splice(0, 4, -1600, -500, -200, 100)
+    window.dispatchEvent(new Event('scroll'))
+    frame?.(0)
+    expect(navigation.activeKey.value).toBe('history')
+    expect(navigation.visibleKeys.value).toEqual(['history'])
+    wrapper.unmount()
+    expect(remove).toHaveBeenCalledWith('scroll', expect.any(Function))
+  })
+
   it('tracks external scrolling, recomputes section geometry and cleans up observers', async () => {
     let frame: FrameRequestCallback | undefined
     vi.stubGlobal('requestAnimationFrame', vi.fn(cb => { frame = cb; return 1 }))

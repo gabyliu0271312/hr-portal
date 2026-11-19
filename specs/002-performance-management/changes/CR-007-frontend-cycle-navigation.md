@@ -477,6 +477,16 @@
 - 提交前隔离验证：仅加载暂存区 Python 源码及暂存测试收集，排除工作区并行校准／成员操作补丁，八文件回归 **1073 passed、7 skipped、1既有python_multipart警告、26.56s、exit0**。首轮探针误混入工作区测试缓存而失败，修正为暂存测试显式收集后通过；不将首轮失败算作通过。暂存Python编译及git diff --cached --check通过。
 - 状态：本地实现及上述定向验证完成。实际PostgreSQL迁移、真实JWT/API全链、历史BU补值与生产部署未验收，F20整体保持未勾选。
 
+### CR-007-F20-B01 柱上指示器、级联对比与空态坐标轴纠偏（2026-11-19）
+
+- 本轮用户先要求评估，确认实采差异后要求完成全部修复。替代 F20-T03 中下拉指标、常驻220px对比分组选择器及底部图例的早期实现。沿用现有入口／权限／量表／计数契约，不新增迁移，不操作真实数据、通知或生产。发布授权：用户随后明确要求在 main 提交并推送本轮报表代码、测试、验收记录及五张实现截图；不部署。提交前七文件报表专项复验 **59 passed、22.17s、exit0**；下文未提交推送指开发验收时点。
+- 总览：复用 PerformanceSegmentedControl，指标横向连续展示、32px高、左右16px、单项圆角6px；统计详情同组件。柱上新增贯穿绘图区的1px dashed线，位置固定于当前柱顶，颜色随系列；分类阴影与tooltip保留，移入空白／离开清线，支持键盘焦点。级联菜单复用ElPopover／ElTree，新单职责 ProjectReportComparisonMenu，一级240px／标题32＋四行32，子菜单226px、树节点32、树高最多240；默认折叠，搜索保留祖先并展开路径，点选立即增删、选中勾、Escape／外部关闭。顶部28px彩底白字标签显示分组人数并可关闭，汇总可移除再选；无常驻选择框或底部图例，数据表折叠可访问。选组顺序和实体配色跨指标保持，父层重载已打开维度且只消费相同indicatorKey的数据，不设未经确认的数量上限。
+- 差异分析：业务空态说明不再替换整个矩阵，保留真实轴；缺失侧显式显示未配置自评／第二评估项／历史评级，不复用当前量表冒充历史。无候选项仅静态轴标题，不显示默认真实评级或空历史下拉。后端 _report_comparison_axis 无snapshot时仍读配置、人数集合为空，不生成真实结果。导航支持window／祖先容器滚动，报告所有可见章节供懒加载，不只依赖目录activeKey；零尺寸元素不参与测量，失败分支不自动反复重试。
+- 实际验证：前端8文件 **116 passed、57.72s、exit0**（Distribution／Matrix／Panel／useProjectReportNavigation／ProjectReportNavigation／Segmented／ProjectManagement／API context）；完整 `npm --prefix hr-portal/frontend run build` **vue-tsc＋Vite exit0、1m16s**，仅既有VueUse PURE提示。后端 `DB_HOST=127.0.0.1 DB_PORT=1 PYTHONPATH=hr-portal/backend ...python.exe -m pytest tests/test_performance_projects.py ... -k 'comparison or report_invalid_indicator' -q --tb=short` **39 passed、981 deselected、exit0**；筛选作用全部所列文件，不能将未选用例算通过。扩展六文件全跑 **1014 passed、5 skipped、1 failed**：唯一失败为既有 test_management_member_api_root_and_dynamic_export_contract 的成员详情fixture缺project.status（已提交792c5b19路径），与本轮报表hunk无关，已反馈，未修改非范围夹具。既有python_multipart弃用警告。
+- 浏览器：真实Vue组件／Vite、合成provider和隔离API，1440×1000；同柱不同鼠标高度测得虚线y始终267，与柱顶267相等；级联搜索显示祖先及子节点，标签选择后切指标仍保留，明确请求新indicatorKey的分组；底部legend=0、常驻selector=0。页面滚动到底自动请求三类comparison；三类零人数均保留7×7量表，缺自评保Y七档、缺第二维度保X七档、无历史保Y七档，缺失侧占位及图标实际可见。无历史下拉DOM=0，显式示例49格且清楚标记，关闭后回到真实空态0格；pageerror=0。初轮browser发现无指令裸template使矩阵inert，已删除并重新验收；此前jsdom通过不视为实际可见证据。
+- 独立PNG（合成数据，均已读取）：`ui-blueprints/CR-007-F20-B01-bar-pointer-20261119.png`、`CR-007-F20-B01-comparison-menu-20261119.png`、`CR-007-F20-B01-self-final-empty-20261119.png`、`CR-007-F20-B01-dimension-empty-20261119.png`、`CR-007-F20-B01-history-empty-20261119.png`。不是完整生产路由／真实JWT／SQL回读或全屏像素完全一致证明。palette验证由组件执行者实跑ALL CHECKS PASS；contrast WARN用可见系列标签／数据表补足。
+- 状态：本轮本地修复及上述验证完成，F20整体真实环境验收边界不变。本轮未commit／push／deploy；并行校准source_rule_id、最早启动项目等hunks保留，不混入报表实现归属；停止仅撤回本轮报表增量。
+
 ## CR-007-F19 多项目时间轴与评估菜单修复（2026-11-19）
 
 - 授权：用户先要求只读定位，随后明确要求“完成上述全部修复”，本地验收后进一步明确要求在 main 提交并推送本卡代码、测试、验收记录及两张实现截图；不部署。本卡覆盖工作台单时间轴、评估分类固定顺序、360°单菜单入口；下文未提交推送指开发验收时点。

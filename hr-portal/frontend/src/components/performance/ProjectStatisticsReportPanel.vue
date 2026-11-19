@@ -16,7 +16,7 @@
               <section v-for="section in group.sections" :key="section.key" :data-report-section="section.key" class="report-section" :aria-label="section.label">
                 <PerformanceReportSectionTitle :label="section.label" :info="reportSectionInfo[section.key]" />
                 <template v-if="section.key === 'overview'">
-                  <p v-if="loadingDimensions.department" class="report-state" role="status">正在加载统计报表…</p>
+                  <p v-if="loadingDimensions.department && !reports.department" class="report-state" role="status">正在加载统计报表…</p>
                   <div v-else-if="errors.department" class="report-state" role="alert"><p>{{ errors.department }}</p><button type="button" @click="loadDimension('department')">重新加载</button></div>
                   <ProjectReportDistribution v-else-if="reports.department" :report="reports.department" :comparison-reports="reports" @compare="loadComparisonDimension" @indicator-change="changeIndicator('department', $event)" />
                   <p v-if="comparisonDimensionLoading" class="report-state" role="status">正在加载对比数据…</p>
@@ -78,7 +78,8 @@ const comparisonErrors = ref<Partial<Record<ProjectReportComparisonKind, string>
 const comparisonDimensionLoading = ref(false)
 const comparisonDimensionError = ref('')
 const feedback = ref('')
-const { activeKey, menuHeight, select, refresh } = useProjectReportNavigation(root)
+const { activeKey, visibleKeys, menuHeight, select, refresh } = useProjectReportNavigation(root)
+const comparisonDimensions = ref<Array<'team' | 'department' | 'sequence'>>([])
 const requestIds: Record<ProjectReportDimension, number> = { department: 0, team: 0, sequence: 0, level: 0, tenure: 0 }
 const comparisonIds: Record<ProjectReportComparisonKind, number> = { 'self-final': 0, dimension: 0, history: 0 }
 let generation = 0
@@ -94,10 +95,10 @@ function failureMessage(cause: unknown, label: string) {
   return `${label}加载失败，请稍后重试`
 }
 
-async function loadDimension(dimension: ProjectReportDimension) {
+async function loadDimension(dimension: ProjectReportDimension, preserve = false) {
   const id = ++requestIds[dimension]
   const indicatorKey = indicators.value[dimension]
-  delete reports.value[dimension]
+  if (!preserve) delete reports.value[dimension]
   loadingDimensions.value = { ...loadingDimensions.value, [dimension]: true }
   errors.value = { ...errors.value, [dimension]: '' }
   try {
@@ -143,19 +144,24 @@ function changeComparison(kind: ProjectReportComparisonKind, change: Omit<Partia
   comparisonQueries.value[kind] = { kind, xKey: current?.xKey, yKey: current?.yKey, ...(current?.historyCycleId ? { historyCycleId: current.historyCycleId } : {}), ...change, ...(change.historyCycleId ? { xKey: undefined } : {}) }
   void loadComparison(kind)
 }
-function changeIndicator(dimension: ProjectReportDimension, key: string) {
+async function changeIndicator(dimension: ProjectReportDimension, key: string) {
   indicators.value[dimension] = key
+  const currentGeneration = generation
   if (dimension === 'department') {
-    for (const comparisonDimension of ['team', 'sequence'] as const) {
+    for (const comparisonDimension of comparisonDimensions.value) {
+      if (comparisonDimension === 'department') continue
       requestIds[comparisonDimension]++
       delete reports.value[comparisonDimension]
       loadingDimensions.value[comparisonDimension] = false
     }
   }
-  void loadDimension(dimension)
+  await loadDimension(dimension, true)
+  if (dimension !== 'department' || currentGeneration !== generation || reports.value.department?.indicatorKey !== key) return
+  await Promise.all(comparisonDimensions.value.filter(value => value !== 'department').map(loadComparisonDimension))
 }
 async function loadComparisonDimension(dimension: 'team' | 'department' | 'sequence') {
   emit('compare')
+  if (!comparisonDimensions.value.includes(dimension)) comparisonDimensions.value.push(dimension)
   comparisonDimensionError.value = ''
   if (reports.value[dimension] && reports.value[dimension]?.indicatorKey === reports.value.department?.indicatorKey) return
   const currentGeneration = generation
@@ -179,6 +185,7 @@ watch(() => [props.cycleId, props.provider, props.selfFinalProvider, props.compa
   loadingDimensions.value = {}
   errors.value = {}
   comparisons.value = {}
+  comparisonDimensions.value = []
   comparisonQueries.value = {}
   comparisonLoading.value = {}
   comparisonErrors.value = {}
@@ -189,10 +196,12 @@ watch(() => [props.cycleId, props.provider, props.selfFinalProvider, props.compa
   activeKey.value = 'overview'
   void loadDimension('department')
 }, { immediate: true })
-watch(activeKey, key => {
-  if (isDimension(key) && !reports.value[key] && !loadingDimensions.value[key]) void loadDimension(key)
-  if (isComparison(key) && !comparisons.value[key] && !comparisonLoading.value[key]) void loadComparison(key)
-})
+function ensureSection(key: string) {
+  if (isDimension(key) && !reports.value[key] && !loadingDimensions.value[key] && !errors.value[key]) void loadDimension(key)
+  if (isComparison(key) && !comparisons.value[key] && !comparisonLoading.value[key] && !comparisonErrors.value[key]) void loadComparison(key)
+}
+watch(activeKey, ensureSection)
+watch(visibleKeys, keys => keys.forEach(ensureSection))
 watch(collapsed, () => void refresh())
 onBeforeUnmount(() => {
   generation++
