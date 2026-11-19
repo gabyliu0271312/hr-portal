@@ -113,6 +113,7 @@ import { computed, ref, watch } from 'vue'
 import { Connection } from '@element-plus/icons-vue'
 import {
   RULE_TYPES,
+  mappingApi,
   type MappingCallerPolicy,
   type MappingCompatibility,
   type MappingDocument,
@@ -553,7 +554,26 @@ async function selectAsset(value: string): Promise<void> {
     config.value.mapping_component.ruleSet.targetAsset = value
     mappingDocument.value.ruleSet.targetAsset = value
   }
+  await syncServerSchemaHash(value)
   if (asset.is_period) ingestionMode.value = 'period_full_snapshot'
+}
+
+async function syncServerSchemaHash(targetAsset: string): Promise<void> {
+  // 服务端 /validate 会用资产元数据算 target schema hash 并要求 document 匹配；
+  // 前端必须从 /data-mappings/policy 取服务端签发的 hash 回填，否则校验报
+  // 「缺少目标 Schema hash / 目标 Schema hash 不匹配」。
+  if (!targetAsset) return
+  try {
+    const serverPolicy = await mappingApi.resolvePolicy('warehouse_sink', null, targetAsset)
+    const targetHash = serverPolicy?.target?.schemaHash || ''
+    const sourceHash = serverPolicy?.source?.schemaHash || ''
+    mappingDocument.value.ruleSet.targetSchemaHash = targetHash
+    mappingDocument.value.ruleSet.sourceSchemaHash = sourceHash
+    if (config.value.mapping_component && typeof config.value.mapping_component === 'object') {
+      config.value.mapping_component.ruleSet.targetSchemaHash = targetHash
+      config.value.mapping_component.ruleSet.sourceSchemaHash = sourceHash
+    }
+  } catch { /* 服务端 policy 获取失败不阻断；校验时再暴露 */ }
 }
 
 function syncRules(): void {
@@ -572,6 +592,7 @@ watch(() => props.modelValue.target_asset, async (value) => {
     assetIsPeriod.value = asset.is_period
     periodLabel.value = asset.period_col
     if (asset.is_period) ingestionMode.value = 'period_full_snapshot'
+    await syncServerSchemaHash(value)
   }
 }, { immediate: true })
 listAssets({ asset_status: 'published', page_size: 200 }).then((result: any) => { assets.value = result.items || result }).catch(() => { assets.value = [] })
