@@ -3777,19 +3777,28 @@ async def test_frontend_navigation_uses_selected_related_cycle_and_rejects_unrel
         manage_projects=[(manage_project, cycle_two)],
         manageable={cycle_two.cycle_ref},
     )
+    access.management_projects_by_role = {"hrbp": [(manage_project, cycle_two)]}
     async def resolve(_db, _context):
         return access
     monkeypatch.setattr(projects_router, "resolve_frontend_access", resolve)
 
+    async def permitted(cycle_id, selected_context, _db):
+        if cycle_id == 2 and selected_context.management_role == "hrbp":
+            return [(manage_project, None)]
+        raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
+
+    monkeypatch.setattr("app.performance.management_scope.management_projects", permitted)
     default = await projects_router.frontend_navigation(None, context("performance.cycles.manage"), object())
     assert default["active_cycle"]["cycle_id"] == 2
     assert default["can_manage"] is True
+    assert default["management_roles"] == ["hrbp"]
     assert default["can_review"] is False
     assert default["review_projects"] == []
 
     selected = await projects_router.frontend_navigation(1, context(), object())
     assert selected["can_review"] is True
     assert selected["can_manage"] is False
+    assert selected["management_roles"] == []
     assert selected["review_projects"] == [projects_router.project_payload(review_project, cycle_one)]
 
     with pytest.raises(HTTPException) as denied:
@@ -3806,10 +3815,71 @@ async def test_frontend_navigation_returns_result_view_capabilities(monkeypatch)
     access.team_result_cycle_refs.add(cycle.cycle_ref)
     access.focus_result_cycle_refs.add(cycle.cycle_ref)
     monkeypatch.setattr(projects_router, "resolve_frontend_access", lambda _db, _context: _async_value(access))
+    async def deny_role(*_args, **_kwargs):
+        raise projects_router.HTTPException(403, "PROJECT_DATA_FORBIDDEN")
+    monkeypatch.setattr("app.performance.management_scope.management_projects", deny_role)
     result = await projects_router.frontend_navigation(1, context(), object())
     assert result["can_review"] is True
     assert result["can_view_team_results"] is True
     assert result["can_view_focus_results"] is True
+    assert result["management_roles"] == []
+
+
+@pytest.mark.parametrize("roles,expected", [
+    ({"hrbp": [1]}, ["hrbp"]),
+    ({"project_admin": [1]}, ["project_admin"]),
+    ({"hrbp": [1], "project_admin": [1]}, ["hrbp", "project_admin"]),
+    ({"other": [1]}, []),
+])
+@pytest.mark.asyncio
+async def test_frontend_navigation_management_roles_are_cycle_specific(roles, expected, monkeypatch):
+    from fastapi import HTTPException
+    from app.performance import projects_router
+    from app.performance.management_scope import management_projects
+
+    cycle = _pm_cycle(1, "周期")
+    unrelated_cycle = _pm_cycle(2, "无关周期")
+    access = _frontend_access(cycles=[cycle, unrelated_cycle], manageable={cycle.cycle_ref, unrelated_cycle.cycle_ref})
+    calls = []
+
+    async def permitted(cycle_id, selected_context, _db, _functions=management_projects.__defaults__[0]):
+        role = selected_context.management_role
+        calls.append((cycle_id, role))
+        if cycle_id == 1 and role in roles:
+            return [(SimpleNamespace(id=role), cycle)]
+        raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
+
+    monkeypatch.setattr(projects_router, "resolve_frontend_access", lambda _db, _context: _async_value(access))
+    monkeypatch.setattr("app.performance.management_scope.management_projects", permitted)
+    result = await projects_router.frontend_navigation(1, context("performance.cycles.manage"), SimpleNamespace())
+    assert result["can_manage"] is True
+    assert result["management_roles"] == expected
+    assert calls == [(1, "hrbp"), (1, "project_admin")]
+
+    other = await projects_router.frontend_navigation(2, context(), object())
+    assert other["active_cycle"]["cycle_id"] == 2
+    assert other["management_roles"] == []
+    access.cycles = []
+    empty = await projects_router.frontend_navigation(None, context(), object())
+    assert empty["active_cycle"] is None
+    assert empty["management_roles"] == []
+
+
+@pytest.mark.asyncio
+async def test_frontend_navigation_management_roles_do_not_follow_other_management_permissions(monkeypatch):
+    from app.performance import projects_router
+
+    cycle = _pm_cycle(1, "周期")
+    access = _frontend_access(cycles=[cycle], manageable={cycle.cycle_ref})
+    monkeypatch.setattr(projects_router, "resolve_frontend_access", lambda _db, _context: _async_value(access))
+    async def deny_role(*_args, **_kwargs):
+        raise projects_router.HTTPException(403, "PROJECT_DATA_FORBIDDEN")
+    monkeypatch.setattr("app.performance.management_scope.management_projects", deny_role)
+    result = await projects_router.frontend_navigation(1, context("performance.cycles.manage", "performance.projects.manage"), SimpleNamespace())
+    assert result["can_manage"] is True
+    assert result["management_roles"] == []
+
+
 
 
 def _async_value(value):
@@ -3824,13 +3894,16 @@ def test_result_view_focus_group_modes_and_project_binding():
     groups = [
         SimpleNamespace(id=1, view_permission=0, followee_user_ids=["M1"], tab="semester", employee_nos=["E1"], activity_ids=[], project_ref=None),
         SimpleNamespace(id=2, view_permission=1, followee_user_ids=[], tab="project", employee_nos=["E2"], activity_ids=["11"], project_ref=None),
-        SimpleNamespace(id=3, view_permission=2, followee_user_ids=["M1"], tab="semester", employee_nos=["LEAK"], activity_ids=[], project_ref=None),
+        SimpleNamespace(id=3, view_permission=2, followee_user_ids=["M1"], tab="semester", employee_nos=["E3"], activity_ids=[], project_ref=None),
+        SimpleNamespace(id=4, view_permission=2, followee_user_ids=["OTHER"], tab="semester", employee_nos=["E4"], activity_ids=[], project_ref=None),
+        SimpleNamespace(id=5, view_permission=99, followee_user_ids=["M1"], tab="semester", employee_nos=["LEAK"], activity_ids=[], project_ref=None),
     ]
     visible = visible_focus_groups(groups, "M1")
-    assert [group.id for group in visible] == [1, 2]
-    assert focus_group_members_for_project(visible, SimpleNamespace(id=11, project_ref="P11")) == {"E1", "E2"}
-    assert focus_group_members_for_project(visible, SimpleNamespace(id=12, project_ref="P12")) == {"E1"}
+    assert [group.id for group in visible] == [1, 2, 3]
+    assert focus_group_members_for_project(visible, SimpleNamespace(id=11, project_ref="P11")) == {"E1", "E2", "E3"}
+    assert focus_group_members_for_project(visible, SimpleNamespace(id=12, project_ref="P12")) == {"E1", "E3"}
     assert [group.id for group in visible_focus_groups(groups, "R1")] == [2]
+    assert [group.id for group in visible_focus_groups(groups, "OTHER")] == [2, 4]
 
 
 @pytest.mark.asyncio

@@ -34,6 +34,7 @@ from app.performance.models import (
     PerformanceTemplateWorkflow,
 )
 from app.performance.project_service import PerformanceProjectService, ProjectValidationError
+from app.performance.result_view_scope import normalize_focus_group_view_permission
 
 router = APIRouter(prefix="/performance/cycles", tags=["performance-focus-groups"])
 
@@ -73,7 +74,7 @@ class FocusGroupPayload(BaseModel):
     tab: FOCUS_GROUP_TAB = "semester"
     description: dict[str, str] = Field(default_factory=dict)
     followee_user_ids: list[str] = Field(default_factory=list)
-    view_permission: int = Field(default=1, ge=0)
+    view_permission: int = Field(default=1, ge=0, le=2)
     scope_setting_mode: int = Field(default=0, ge=0, le=2)
     scope: list[list[dict[str, object]]] | None = None
     show_group_tag: bool = False
@@ -88,6 +89,14 @@ class FocusGroupPayload(BaseModel):
     project_ref: str | None = Field(default=None, max_length=64)
     activity_ids: list[str] = Field(default_factory=list)
     roles_of_managing_scope: list[str] = Field(default_factory=list)
+
+    @field_validator("view_permission", mode="before")
+    @classmethod
+    def normalize_legacy_write_mode(cls, value):
+        mode = normalize_focus_group_view_permission(value)
+        if mode is None:
+            raise ValueError("人员组可见范围必须为 0 或 1")
+        return mode
 
     @field_validator("name")
     @classmethod
@@ -161,6 +170,13 @@ class FocusGroupOut(BaseModel):
     updated_by_ref: str | None
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("view_permission", mode="before")
+    @classmethod
+    def preserve_unknown_legacy_mode_for_maintenance(cls, value):
+        if value == 2:
+            return 0
+        return value
 
 
 class ResolveScopePayload(BaseModel):

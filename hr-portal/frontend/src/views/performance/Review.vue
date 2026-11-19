@@ -182,7 +182,14 @@ async function loadMyResults() {
 }
 const TEAM_RESULT_NODE_ID = '__team-results__'
 const FOCUS_RESULT_NODE_ID = '__focus-results__'
-const resultScopeKind = computed<'team' | 'focus' | null>(() => selectedNodeId.value === TEAM_RESULT_NODE_ID ? 'team' : selectedNodeId.value === FOCUS_RESULT_NODE_ID ? 'focus' : null)
+const resultScopeKind = computed<'team' | 'focus' | null>(() => {
+  const navigation = projectContext.navigation
+  if (projectContext.navigationLoading || navigation?.active_cycle?.cycle_id !== projectContext.activeCycleId) return null
+  if (selectedNodeId.value === TEAM_RESULT_NODE_ID && navigation?.can_view_team_results) return 'team'
+  if (selectedNodeId.value === FOCUS_RESULT_NODE_ID && navigation?.can_view_focus_results) return 'focus'
+  return null
+})
+const scopeRoute = () => route.query.node === TEAM_RESULT_NODE_ID || route.query.node === FOCUS_RESULT_NODE_ID
 const resultScopeNodes = computed<PerformanceReviewNode[]>(() => [
   ...(projectContext.navigation?.can_view_team_results ? [{ node_id: TEAM_RESULT_NODE_ID, node_name: '查看团队绩效结果', node_type: 'team_results', entry_mode: 'none' as const, executor_label: '', status: 'completed' as const, start_at: null, end_at: null, action_url: '' }] : []),
   ...(projectContext.navigation?.can_view_focus_results ? [{ node_id: FOCUS_RESULT_NODE_ID, node_name: '关注人员的绩效结果', node_type: 'focus_results', entry_mode: 'none' as const, executor_label: '', status: 'completed' as const, start_at: null, end_at: null, action_url: '' }] : []),
@@ -310,6 +317,11 @@ function restoreDrawer() {
   drawerOpen.value = true
 }
 watch(() => route.query.node, value => {
+  if (scopeRoute()) {
+    selectedNodeId.value = resultScopeNodes.value.find(node => node.node_id === value)?.node_id || ''
+    error.value = selectedNodeId.value ? '' : '当前评估环节不存在或无权查看'
+    return
+  }
   if (loading.value || overview.value?.active_project?.project_id !== activeProjectId.value || !value) return
   const node = allNodes.value.find(item => item.node_id === String(value))
   selectedNodeId.value = node?.node_id || ''
@@ -327,7 +339,7 @@ function applyOverview(loaded: PerformanceReviewOverview) {
   if (projectId) {
     projectContext.setActiveProjectId(projectId)
     projectContext.setReviewOverview(loaded)
-    if (String(route.query.project_id || '') !== String(projectId)) void router.replace({ query: { ...route.query, cycle_id: projectContext.activeCycleId ? String(projectContext.activeCycleId) : undefined, project_id: String(projectId) } })
+    if (!scopeRoute() && String(route.query.project_id || '') !== String(projectId)) void router.replace({ query: { ...route.query, cycle_id: projectContext.activeCycleId ? String(projectContext.activeCycleId) : undefined, project_id: String(projectId) } })
   }
   const rememberedNode = projectContext.selectedReviewNode(projectId)
   if (resultsEntry.value) {
@@ -428,13 +440,12 @@ async function selectNode(node: ReviewNavigationNode) {
   selectedNodeId.value = node.node_id
   if (node.node_id === TEAM_RESULT_NODE_ID || node.node_id === FOCUS_RESULT_NODE_ID) {
     drawerMember.value = null
-    const { task_id: _taskId, entry: _entry, project_id: _projectId, ...query } = clearDrawerQuery()
-    await router.replace({ query: { ...query, cycle_id: String(projectContext.activeCycleId || ''), node: node.node_id } })
+    await router.replace({ query: { cycle_id: String(projectContext.activeCycleId || ''), node: node.node_id } })
     return
   }
   if (activeProjectId.value) projectContext.setSelectedReviewNode(activeProjectId.value, node.node_id)
   drawerMember.value = null
-  const { task_id: _taskId, entry: _entry, ...query } = clearDrawerQuery()
+  const { task_id: _taskId, entry: _entry, tab: _tab, ...query } = clearDrawerQuery()
   await router.replace({ query: { ...query, project_id: String(activeProjectId.value || ''), node: node.node_id } })
 }
 async function openNode(node: PerformanceReviewNode) {
@@ -500,9 +511,14 @@ onMounted(async () => {
     if (Number.isFinite(routeProjectId) && routeProjectId > 0) projectContext.setActiveProjectId(routeProjectId)
   } catch { if (!disposed) { error.value = projectContext.navigationError || '绩效评估加载失败，请稍后重试'; loading.value = false }; return }
   if (disposed) return
-  if (projectContext.navigation && !projectContext.navigation.can_review) { await router.replace('/performance/workbench'); return }
+  if (projectContext.navigation && !projectContext.navigation.can_review && !scopeRoute()) { await router.replace('/performance/workbench'); return }
+  if (scopeRoute()) {
+    selectedNodeId.value = resultScopeNodes.value.find(node => node.node_id === route.query.node)?.node_id || ''
+    if (!selectedNodeId.value) { error.value = '当前评估环节不存在或无权查看'; loading.value = false; return }
+    await router.replace({ query: { cycle_id: String(projectContext.activeCycleId), node: selectedNodeId.value, tab: route.query.tab } })
+  }
   if (projectContext.navigation && !projectContext.navigation.review_projects.some(project => project.project_id === activeProjectId.value)) {
-    if (routeProjectId > 0) { error.value = '当前项目不存在或无权查看'; loading.value = false; return }
+    if (routeProjectId > 0 && !scopeRoute()) { error.value = '当前项目不存在或无权查看'; loading.value = false; return }
     projectContext.setActiveProjectId(projectContext.navigation.review_projects[0]?.project_id ?? null)
   }
   const cached = projectContext.reviewOverview(activeProjectId.value)

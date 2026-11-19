@@ -75,7 +75,7 @@ let peopleSearchVersion = 0
 
 const viewPermissionOptions = [
   { value: '1', label: '有组内人员绩效查看权限的用户' },
-  { value: '2', label: '仅关注人可见' },
+  { value: '0', label: '仅关注人可见' },
 ]
 const scopeModeOptions = [
   { value: '0', label: '按规则维护人员范围', description: '配置圈人规则，系统根据规则动态更新人员范围' },
@@ -147,7 +147,7 @@ async function loadDetail() {
     descriptionHasEnglish.value = Boolean(descriptionEn.value)
     followeeIds.value = group.followee_user_ids
     followeeOptions.value = group.followee_user_ids.map(value => ({ value, label: value }))
-    viewPermission.value = String(group.view_permission)
+    viewPermission.value = String(group.view_permission === 2 ? 0 : group.view_permission)
     scopeSettingMode.value = String(group.scope_setting_mode)
     showGroupTag.value = group.show_group_tag
     tagColor.value = group.tag_color || PERFORMANCE_GROUP_TAG_COLORS[0].value

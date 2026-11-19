@@ -402,6 +402,20 @@
 - 原多项目测试改为断言展开／折叠均为纯节点名，同时验证两次真实project_id与task_id跳转及选中身份；回归命令 `npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/views/performance/ProjectManagement.spec.ts --silent --maxWorkers=2 --minWorkers=1` → **2文件166 passed，exit0**；完整 `npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite exit0，3782模块，41.41s**，仅既有VueUse PURE注释提示；`git diff --check`通过。
 - 浏览器：894×631，真实Vue共享侧栏与两个合成项目，展开标签和折叠菜单均为“工作总结环节”；点击回传分别为[1,summary]／[2,summary]，折叠点第二项仍[2,summary]，pageerror0。独立实现截图 `ui-blueprints/CR-007-F17-UI02-node-labels-20261118.png` 已读取，不等于生产端到端验收；未改后端，未commit／push／deploy。
 
+## CR-007-F18 工作台快捷入口权限与跳转（2026-11-19）
+
+- 发布授权：本地验收后，用户明确要求在 main 提交并推送本卡代码、测试、验收记录及两张独立实现截图；不部署。下文“无提交或推送”指开发验收时点。
+- 用户先要求只读评估，随后明确要求完成全部优化。本卡复用 F16 结果页与 F17 具名管理入口，属于既有入口修复，无新页面或信息架构蓝图。
+- 角色与跳转：当前周期存在快照直接／间接下级时显示“我管理的团队”，跳 `PerformanceReview`＋`node=__team-results__`＋`tab=members`；仅 HRBP／项目管理员身份不取得团队结果资格，兼任管理者正常显示。当前周期合法管理角色非空时显示“我支持的团队”，HRBP 优先，否则项目管理员，两链接分别到周期概览 overview／members。可见人员组成员与原结果读取范围及本周期项目成员交集非空时显示“重点关注人员”，跳 `__focus-results__`＋`tab=members`。分组顺序与 REA 一致。
+- 契约：navigation 增加可选 `management_roles: ('hrbp'|'project_admin')[]`，后端沿具名管理范围校验、HRBP 优先；前端缺字段不猜角色。快捷入口只携 cycle_id、节点／角色和页签，不继承 project_id、任务／详情或其它管理上下文。结果页读取合法 tab，切页签写 URL 并支持刷新／前进后退；关注页不允许总览。导航加载、失败、周期不匹配及身份重置时隐藏受保护快捷分组；直接无权结果节点拒绝，不回退首节点。
+- 人员组配套：新建／编辑统一写 view_permission=0（仅关注人）或1（有组内人员绩效查看权）；已有历史2只按0私有模式兼容读取，仍要求可信关注人工号与原结果权限，不批量改库或扩权。其它未知模式不授予结果／标签可见权。
+- 允许范围：后端 projects_router／focus_groups_router／result_view_scope／focus_group_tag_service 及既有测试；前端 performance DTO、Workbench／Review／PerformanceResultScopeView／FocusPeopleGroupCreate 及既有测试、本记录和独立实现 PNG。复用共享周期 store、原组件及 tokens，无新模型／迁移／快照／通知链；不创建脚本、调研报告或测试文档，不自动提交推送部署。停止仅撤销本卡增量。
+- 前端验收：`npm --prefix hr-portal/frontend test -- src/views/performance/Workbench.spec.ts src/views/performance/Review.spec.ts src/views/performance/FocusPeopleGroupCreate.spec.ts src/views/performance/ProjectManagement.spec.ts src/stores/performanceProjectContext.spec.ts --silent --maxWorkers=2 --minWorkers=1` → **5文件213 passed，exit0**；含七类资格组合、加载失败／周期切换／身份清理、精确白名单 query、只读入口拒绝、tab URL 变化及组0／历史2编辑保存。首次路由测试模拟改为全局 reactive 后造成原共享抽屉用例失败，已把 reactive 限定到新页签用例并复跑全部通过。
+- 浏览器验收：本地 Vite 真实 Vue 路由、隔离 Chromium 1440×1000、所有 API 为合成数据；团队／关注成员列表、双角色 HRBP 优先、仅管理员、普通员工隐藏、无项目残留、团队页签后退与刷新通过，pageerror=0、未匹配API=0、写请求=0。补验无资格直达拒绝且结果范围请求0；关注链接携错误overview及残留project_id／management_role／rootReviewId时，默认成员列表并清理残留，pageerror=0。第一轮有任务／管理成员接口夹具漏配，补齐后二轮重新运行通过。独立截图 `ui-blueprints/CR-007-F18-workbench-quick-entries-20261119.png`、`ui-blueprints/CR-007-F18-team-members-20261119.png` 已读取，非生产数据或像素完全一致证明。
+- 最终前端构建：`npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite exit0，3783模块，41.36秒**；仅既有 VueUse PURE 注释提示。主线程 `git diff --check` 通过，换行转换提示不计格式错误。
+- 后端最终验收：`DB_HOST=127.0.0.1 DB_PORT=1 PYTHONPATH=hr-portal/backend hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_focus_groups.py hr-portal/backend/tests/test_performance_member_identity.py hr-portal/backend/tests/test_performance_management_scope.py hr-portal/backend/tests/test_performance_auth_context.py hr-portal/backend/tests/test_performance_member_reminders.py -q --tb=short` → **1057 passed／6 skipped／1既有 python_multipart 第三方弃用警告，26.28秒，exit0**。其后新增混合组逐组权限回归，`test_performance_member_identity.py -k mixed_modes` → **4 passed／61 deselected**，证明0／历史2私有组与mode1组混合、两种排序均不串权。AST检查三个本卡测试文件无重复测试函数。早期重复定义、导航mock未提供具名范围、测试漏异常引用及旧开通身份object替身失败均已修正，最终整组重跑通过；未按DB替身类型绕过生产鉴权。API实际HTTP测试验证旧客户端2规范0、未知写入422、历史未知值后台可读；SQLite标签测试验证可信关注人及未知模式拒绝，不等同PostgreSQL或真实JWT。
+- 本地实现与验收已完成。真实 JWT 登录 API／PostgreSQL／生产权限与部署未验收；无真实通知、生产操作、提交或推送，不将本地合成数据验收视为生产完成。
+
 ### CR-007-F17-UI03 HRBP 成员范围专项还原（2026-11-18）
 
 - 发布授权：用户明确要求在 main 提交并推送本卡组件、共享浮层可选参数、tokens、测试及实现截图；不部署。下文未提交推送指开发验收时点。

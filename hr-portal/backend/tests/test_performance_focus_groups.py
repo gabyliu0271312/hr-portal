@@ -212,7 +212,13 @@ def _make_app(session, permissions):
 
 
 async def test_focus_groups_list_create_update_delete():
+    from app.performance.focus_groups_router import FocusGroupPayload
     from app.performance.models import PerformanceFocusGroup
+    from pydantic import ValidationError
+
+    for unknown in (3, 99):
+        with pytest.raises(ValidationError):
+            FocusGroupPayload.model_validate({"name": "未知可见范围", "view_permission": unknown})
 
     db = _StubDb(_StubCycle(1))
     base = "/api/v1/performance/cycles/1/focus-groups"
@@ -240,6 +246,7 @@ async def test_focus_groups_list_create_update_delete():
         assert created_body["tab"] == "semester"
         assert created_body["description"] == {"zh-CN": "核心研发团队说明", "en-US": "Core R&D team"}
         assert created_body["scope_setting_mode"] == 1
+        assert created_body["view_permission"] == 1
         assert created_body["activity_ids"] == ["7654abc", "7654def"]
         assert created_body["roles_of_managing_scope"] == ["leader", "hrbp"]
         group_id = created_body["id"]
@@ -277,6 +284,7 @@ async def test_focus_groups_list_create_update_delete():
             "roles_of_managing_scope": ["activity_manager"],
         })
         assert updated.status_code == 200, updated.text
+        assert updated.json()["view_permission"] == 1
         assert updated.json()["name"] == "核心研发团队（扩编）"
         assert updated.json()["employee_nos"] == ["E003"]
         assert updated.json()["description"] == {"zh-CN": "扩编说明"}
@@ -494,17 +502,59 @@ async def test_focus_groups_missing_cycle_404():
         assert response.status_code == 404
 
 
+async def test_focus_group_historical_mode_two_reads_as_private_and_unknown_modes_are_rejected():
+    from app.performance.focus_groups_router import FocusGroupPayload
+    from pydantic import ValidationError
+
+    for unknown in (3, 99):
+        with pytest.raises(ValidationError):
+            FocusGroupPayload.model_validate({"name": "未知可见范围", "view_permission": unknown})
+    assert FocusGroupPayload.model_validate({"name": "兼容旧客户端", "view_permission": 2}).view_permission == 0
+
+    group = _StubGroup(1, "cycle:1", "semester", "历史关注组", ["E1"], "manual")
+    group.view_permission = 2
+    db = _StubDb(_StubCycle(1), [group])
+    base = "/api/v1/performance/cycles/1/focus-groups"
+    async with _make_app(db, ("performance.cycles.manage",)) as client:
+        for path in (base, f"{base}/1"):
+            response = await client.get(path, **({"params": {"tab": "semester"}} if path == base else {}))
+            assert response.status_code == 200, response.text
+            body = response.json()["items"][0] if path == base else response.json()
+            assert body["view_permission"] == 0
+        update = await client.patch(f"{base}/1", json={
+            "name": "历史关注组", "scope_setting_mode": 1, "view_permission": 2,
+            "employee_nos": ["E1"],
+        })
+        assert update.status_code == 200, update.text
+        assert update.json()["view_permission"] == 0
+        assert group.view_permission == 0
+        for unknown in (3, 99):
+            rejected = await client.patch(f"{base}/1", json={
+                "name": "历史关注组", "scope_setting_mode": 1, "view_permission": unknown,
+                "employee_nos": ["E1"],
+            })
+            assert rejected.status_code == 422
+        group.view_permission = 99
+        response = await client.get(base, params={"tab": "semester"})
+        assert response.status_code == 200, response.text
+        assert response.json()["items"][0]["view_permission"] == 99
+
+
 async def test_focus_group_payload_validates_feishu_fields_and_time():
     from app.performance.focus_groups_router import FocusGroupPayload
     from pydantic import ValidationError
 
+    for unknown in (3, 99):
+        with pytest.raises(ValidationError):
+            FocusGroupPayload.model_validate({"name": "未知可见范围", "view_permission": unknown})
+    assert FocusGroupPayload.model_validate({"name": "兼容旧客户端", "view_permission": 2}).view_permission == 0
     payload = FocusGroupPayload.model_validate({
         "name": " 研发组 ",
         "scope_setting_mode": 1,
         "en_name": "R&D",
         "description": {"zh-CN": "研发人员"},
         "followee_user_ids": ["U1", "U1", " U2 "],
-        "view_permission": 2,
+        "view_permission": 1,
         "show_group_tag": True,
         "is_communicate_time": True,
         "start_time": "2026-11-01T09:00:00+08:00",

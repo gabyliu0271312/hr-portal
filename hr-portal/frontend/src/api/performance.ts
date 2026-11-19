@@ -72,6 +72,7 @@ export interface PerformanceNavigationContext {
   can_manage: boolean
   can_view_team_results?: boolean
   can_view_focus_results?: boolean
+  management_roles?: Array<'hrbp' | 'project_admin'>
   review_projects: Array<Pick<PerformanceWorkbenchProject, 'project_id' | 'project_name' | 'cycle_name' | 'cycle_start_at' | 'cycle_end_at'>>
 }
 

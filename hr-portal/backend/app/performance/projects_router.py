@@ -5001,6 +5001,32 @@ async def _person_hrbp_project_refs(db: AsyncSession, actor_ref: str) -> set[str
     return refs
 
 
+async def _frontend_management_roles(context, access, cycle_id, db):
+    if cycle_id is None or not any(cycle.id == cycle_id for cycle in access.cycles):
+        return []
+    from app.performance.management_scope import management_projects
+
+    async def has_role(role):
+        role_context = replace(
+            context, management_role=role, management_cycle_id=cycle_id,
+            management_project_id=None,
+        )
+        try:
+            await management_projects(cycle_id, role_context, db)
+        except HTTPException as exc:
+            if exc.status_code == 403:
+                return False
+            raise
+        return True
+
+    roles = []
+    if await has_role("hrbp"):
+        roles.append("hrbp")
+    if await has_role("project_admin"):
+        roles.append("project_admin")
+    return roles
+
+
 @router.get("/navigation")
 async def frontend_navigation(
     cycle_id: int | None = Query(default=None, ge=1),
@@ -5026,6 +5052,7 @@ async def frontend_navigation(
             or next((cycle.cycle_ref for cycle in access.cycles if cycle.id == active_cycle_id), None) in access.focus_result_cycle_refs
         )),
         "can_manage": bool(active_cycle and next((cycle.cycle_ref for cycle in access.cycles if cycle.id == active_cycle_id), None) in access.manageable_cycle_refs),
+        "management_roles": await _frontend_management_roles(context, access, active_cycle_id, db),
         "can_view_team_results": bool(active_cycle and next((cycle.cycle_ref for cycle in access.cycles if cycle.id == active_cycle_id), None) in access.team_result_cycle_refs),
         "can_view_focus_results": bool(active_cycle and next((cycle.cycle_ref for cycle in access.cycles if cycle.id == active_cycle_id), None) in access.focus_result_cycle_refs),
         "review_projects": [

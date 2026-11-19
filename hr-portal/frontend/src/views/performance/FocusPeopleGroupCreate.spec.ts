@@ -126,6 +126,32 @@ beforeEach(() => {
 })
 
 describe('FocusPeopleGroupCreate', () => {
+  it('仅关注人可见提交线上枚举0', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.findAll('.localized-input')[0].setValue('关注人员组')
+    wrapper.findAllComponents({ name: 'PerformanceRadioGroup' })[0].vm.$emit('update:modelValue', '0')
+    await wrapper.find('.set-rule').trigger('click')
+    await wrapper.find('.ui-button.primary').trigger('click')
+    expect(performanceFocusGroupApi.create).toHaveBeenCalledWith(1, expect.objectContaining({ view_permission: 0 }))
+    wrapper.unmount()
+  })
+
+  it.each([0, 2])('编辑仅关注人模式%s后保存规范化枚举0', async viewPermission => {
+    routeState.params.groupId = '7'
+    vi.mocked(performanceFocusGroupApi.get).mockResolvedValue({
+      id: 7, name: '历史关注组', en_name: '', description: {}, followee_user_ids: ['E001'], view_permission: viewPermission,
+      scope_setting_mode: 1, show_group_tag: false, is_communicate_time: false, employee_nos: [], roles_of_managing_scope: [],
+    } as any)
+    vi.mocked(performanceFocusGroupApi.update).mockResolvedValue({ id: 7 } as any)
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.findAllComponents({ name: 'PerformanceRadioGroup' })[0].props('modelValue')).toBe('0')
+    await wrapper.find('.ui-button.primary').trigger('click')
+    expect(performanceFocusGroupApi.update).toHaveBeenCalledWith(1, 7, expect.objectContaining({ view_permission: 0 }))
+    wrapper.unmount()
+  })
+
   it('加载人员组专用选项并保持关注人远程搜索候选为空', async () => {
     const wrapper = mountPage()
     await flushPromises()

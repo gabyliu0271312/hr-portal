@@ -48,12 +48,21 @@ class ResultViewScope:
         return set().union(*self.scopes.values()) if self.scopes else set()
 
 
+def normalize_focus_group_view_permission(value):
+    if isinstance(value, bool):
+        return None
+    if value == 2:
+        return 0
+    return value if value in (0, 1) else None
+
+
 def visible_focus_groups(groups, actor_ref: str):
-    return [
-        group for group in groups
-        if group.view_permission == 1
-        or group.view_permission == 0 and actor_ref in (group.followee_user_ids or [])
-    ]
+    visible = []
+    for group in groups:
+        mode = normalize_focus_group_view_permission(group.view_permission)
+        if mode == 1 or mode == 0 and actor_ref in (group.followee_user_ids or []):
+            visible.append(group)
+    return visible
 
 
 def focus_group_members_for_project(groups, project: PerformanceProject) -> set[str]:
@@ -115,7 +124,7 @@ async def resolve_result_view_scope(
     if kind == FOCUS_RESULT_KIND:
         groups = list((await db.execute(select(PerformanceFocusGroup).where(
             PerformanceFocusGroup.cycle_ref == cycle.cycle_ref,
-            PerformanceFocusGroup.view_permission.in_([0, 1]),
+            PerformanceFocusGroup.view_permission.in_([0, 1, 2]),
         ))).scalars().all())
         visible_groups = visible_focus_groups(groups, actor_ref)
         readable.intersection_update(set().union(*(set(group.employee_nos or []) for group in visible_groups)) if visible_groups else set())

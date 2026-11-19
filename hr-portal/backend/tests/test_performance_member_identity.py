@@ -243,7 +243,7 @@ async def test_result_opening_hydrates_reviewee_after_permission_and_paging(monk
     async def opening_rows(rows, *args):
         return [routes.ResultOpeningPerson(employee_no=person.employee_no, display_name=person.display_name, project_id=project.id, project_name=project.name, can_open=True) for project, person in rows], []
     monkeypatch.setattr(routes, "_result_opening_rows", opening_rows)
-    result = await routes.result_opening_people(1, page=1, page_size=1, keyword=None, context=object(), db=identity_db)
+    result = await routes.result_opening_people(1, page=1, page_size=1, keyword=None, context=SimpleNamespace(management_role=None), db=identity_db)
     assert result.total == 1
     assert result.items[0].identity_status["live_employment_status"] == "离职"
     assert {record["id"] for record in result.items[0].identity_status["delegations"]} == {1, 2, 3, 7}
@@ -541,7 +541,8 @@ def _insert_tag(db, **values):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode,followers,actor,visible", [
     (1, [], "M1", True), (0, ["M1"], "M1", True), (0, ["M1"], "R1", False),
-    (0, ["99", "同名人员"], "M1", False), (2, ["M1"], "M1", False), (3, ["M1"], "M1", False),
+    (0, ["99", "同名人员"], "M1", False), (2, ["M1"], "M1", True),
+    (2, ["M1"], "R1", False), (3, ["M1"], "M1", False), (99, ["M1"], "M1", False),
 ])
 async def test_group_tags_modes_use_trusted_employee_and_fail_closed(identity_db, mode, followers, actor, visible):
     _insert_tag(identity_db, view_permission=mode, followee_user_ids=followers)
@@ -553,6 +554,17 @@ async def test_group_tags_modes_use_trusted_employee_and_fail_closed(identity_db
         assert row["identity_status"]["group_tags"] == [{"group_id": 1, "name": "人才组", "text_color": "#2f0080", "bg_color": "rgba(141,85,237,0.2)"}]
     else:
         assert "group_tags" not in row["identity_status"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("modes", [(0, 1), (1, 0), (2, 1), (1, 2)])
+async def test_group_tags_mixed_modes_remain_independently_private(identity_db, modes):
+    for group_id, mode in enumerate(modes, 1):
+        _insert_tag(identity_db, id=group_id, view_permission=mode, followee_user_ids=["OTHER"])
+    row = {"employee_no": "E1"}
+    await service.hydrate_member_identities(identity_db, [(row, 1, 10)], context=_tag_context("M1"),
+                                           verified_view_keys={(1, 10, "E1")})
+    assert [tag["group_id"] for tag in row["identity_status"]["group_tags"]] == [modes.index(1) + 1]
 
 
 @pytest.mark.asyncio
@@ -629,7 +641,7 @@ async def test_group_tags_management_scope_runs_once_per_project_after_candidate
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", [0, 1])
+@pytest.mark.parametrize("mode", [0, 1, 2])
 async def test_group_tags_follower_does_not_grant_performance_access(identity_db, monkeypatch, mode):
     from app.performance import projects_router as routes
     _insert_tag(identity_db, view_permission=mode, followee_user_ids=["M1"])

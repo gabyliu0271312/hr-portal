@@ -90,22 +90,30 @@
             <RightOutlinedIcon class="chevron" />
           </button>
         </div>
-        <div class="quick-group">
+        <div v-if="canViewFocusResults" class="quick-group">
+          <div class="quick-group-label">重点关注人员</div>
+          <button class="quick-link" type="button" @click="openResultScope('focus')">
+            <span class="quick-icon-slot"><GroupOutlinedIcon /></span>
+            <div class="quick-link-text">重点关注人员的绩效结果</div>
+            <RightOutlinedIcon class="chevron" />
+          </button>
+        </div>
+        <div v-if="canViewTeamResults" class="quick-group">
           <div class="quick-group-label">我管理的团队</div>
-          <button class="quick-link" type="button" @click="openTeam">
+          <button class="quick-link" type="button" @click="openResultScope('team')">
             <span class="quick-icon-slot"><GroupOutlinedIcon /></span>
             <div class="quick-link-text">我团队成员的绩效</div>
             <RightOutlinedIcon class="chevron" />
           </button>
         </div>
-        <div class="quick-group">
+        <div v-if="managementRole" class="quick-group">
           <div class="quick-group-label">我支持的团队</div>
-          <button class="quick-link" type="button" @click="openTeam">
+          <button class="quick-link" type="button" @click="openManagement('overview')">
             <span class="quick-icon-slot is-warning"><ReadinfoOutlinedIcon /></span>
             <div class="quick-link-text">评估进展及催办</div>
             <RightOutlinedIcon class="chevron" />
           </button>
-          <button class="quick-link" type="button" @click="openTeam">
+          <button class="quick-link" type="button" @click="openManagement('members')">
             <span class="quick-icon-slot"><GroupOutlinedIcon /></span>
             <div class="quick-link-text">我团队成员的绩效</div>
             <RightOutlinedIcon class="chevron" />
@@ -169,6 +177,10 @@ const todoTab = ref<'pending' | 'completed'>('pending')
 const projects = ref<PerformanceWorkbenchProject[]>(projectContext.workbenchProjects || [])
 const activeProjectId = computed(() => projectContext.activeProjectId)
 const activeCycleId = computed(() => projectContext.activeCycleId)
+const navigation = computed(() => !projectContext.navigationLoading && !projectContext.navigationError && projectContext.navigation?.active_cycle?.cycle_id === activeCycleId.value ? projectContext.navigation : null)
+const canViewTeamResults = computed(() => Boolean(navigation.value?.can_view_team_results))
+const canViewFocusResults = computed(() => Boolean(navigation.value?.can_view_focus_results))
+const managementRole = computed(() => navigation.value?.management_roles?.includes('hrbp') ? 'hrbp' : navigation.value?.management_roles?.includes('project_admin') ? 'project_admin' : null)
 const snapshots = ref<Record<number, PerformanceWorkbenchSnapshot>>({})
 const projectNodes = (projectId: number) => (snapshots.value[projectId]?.timeline || []).map(node => ({ ...node, range: formatRange(node.start_at, node.end_at), ended: node.status === 'ended', current: node.status === 'in_progress' }))
 const projectTodos = (state: 'pending' | 'completed') => projects.value.flatMap(project => (snapshots.value[project.project_id]?.[state] || []).map(todo => ({ ...todo, project_id: project.project_id, project_name: project.project_name })))
@@ -297,7 +309,14 @@ async function loadProject(projectId: number) {
 }
 function reviewQuery(entry: string, projectId = activeProjectId.value) { return { name: 'PerformanceReview', query: { entry, cycle_id: String(activeCycleId.value || ''), project_id: String(projectId || '') } } }
 function goToResults(projectId?: number) { router.push(reviewQuery('results', projectId)) }
-function openTeam() { router.push(reviewQuery('team')) }
+function openResultScope(kind: 'team' | 'focus') {
+  if (!(kind === 'team' ? canViewTeamResults.value : canViewFocusResults.value)) return
+  router.push({ name: 'PerformanceReview', query: { cycle_id: String(activeCycleId.value), node: kind === 'team' ? '__team-results__' : '__focus-results__', tab: 'members' } })
+}
+function openManagement(tab: 'overview' | 'members') {
+  if (!managementRole.value) return
+  router.push({ name: 'PerformanceProjectManagement', query: { cycle_id: String(activeCycleId.value), management_role: managementRole.value, tab } })
+}
 function todoHref(todo: Todo) {
   const query = new URLSearchParams({ cycle_id: String(activeCycleId.value || ''), project_id: String(todo.project_id), node: todo.node_id })
   return `/performance/review?${query.toString()}`
@@ -414,7 +433,7 @@ onMounted(async () => {
 .todo-action { display: flex; min-width: 80px; height: 32px; align-items: center; justify-content: center; margin-left: 16px; padding: 4px 11px; border: 1px solid #bacefd; border-radius: 6px; background: #fff; color: #3370ff; font-size: 14px; font-weight: 400; line-height: 22px; text-align: center; white-space: nowrap; }
 .workbench-side { display: grid; align-content: start; gap: 18px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"; }
 .side-card { width: 340px; padding: 20px; }
-.quick-card { height: 285px; border: 0.666667px solid transparent; border-radius: 12px; background: #fff; box-shadow: rgba(31, 35, 41, 0.03) 0 4px 16px 4px, rgba(31, 35, 41, 0.02) 0 4px 8px 0, rgba(31, 35, 41, 0.02) 0 2px 4px -4px; color: rgba(0, 0, 0, 0.65); font-size: 14px; font-weight: 400; line-height: 21px; }
+.quick-card { min-height: 0; border: 0.666667px solid transparent; border-radius: 12px; background: #fff; box-shadow: rgba(31, 35, 41, 0.03) 0 4px 16px 4px, rgba(31, 35, 41, 0.02) 0 4px 8px 0, rgba(31, 35, 41, 0.02) 0 2px 4px -4px; color: rgba(0, 0, 0, 0.65); font-size: 14px; font-weight: 400; line-height: 21px; }
 .quick-title { min-width: 0; min-height: 0; margin-bottom: 12px; color: #1f2329; font-family: inherit; font-size: 18px; font-weight: 600; line-height: 22px; }
 .quick-group { display: flex; min-width: 0; min-height: 0; flex-direction: column; margin: 0 0 12px; }
 .quick-group:last-child { margin-bottom: 0; }

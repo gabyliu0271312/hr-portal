@@ -9,6 +9,7 @@ from app.performance.auth_context import (
 from app.performance.models import (
     PerformanceFocusGroup, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot,
 )
+from app.performance.result_view_scope import normalize_focus_group_view_permission
 
 
 def _safe_color(value, default):
@@ -37,12 +38,13 @@ async def hydrate_focus_group_tags(db, by_key, context, verified_view_keys=None)
         .join(snapshot, and_(snapshot.project_id == project.id, snapshot.cycle_ref == project.cycle_ref))
         .join(member, member.snapshot_id == snapshot.id)
         .join(group, and_(group.cycle_ref == project.cycle_ref, group.show_group_tag.is_(True)))
-        .where(tuple_(project.id, snapshot.id, member.employee_no).in_(by_key), group.view_permission.in_([0, 1]))
+        .where(tuple_(project.id, snapshot.id, member.employee_no).in_(by_key), group.view_permission.in_([0, 1, 2]))
         .order_by(group.id)
     )).all()
     candidates = []
     for tag, item, snapshot_id, employee_no in rows:
-        if employee_no not in (tag.employee_nos or []):
+        view_permission = normalize_focus_group_view_permission(tag.view_permission)
+        if view_permission is None or employee_no not in (tag.employee_nos or []):
             continue
         if tag.tab == "project":
             refs = {str(value) for value in (tag.activity_ids or [])}
@@ -72,7 +74,7 @@ async def hydrate_focus_group_tags(db, by_key, context, verified_view_keys=None)
                     scopes[project.id] = set()
             if scopes[project.id] is not None and key[2] not in scopes[project.id]:
                 continue
-        if tag.view_permission == 0:
+        if normalize_focus_group_view_permission(tag.view_permission) == 0:
             if project.cycle_ref not in actors:
                 try:
                     actors[project.cycle_ref] = await resolve_trusted_performance_actor(

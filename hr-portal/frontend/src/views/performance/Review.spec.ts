@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent } from 'vue'
+import { defineComponent, reactive } from 'vue'
 import { ElTableColumn } from 'element-plus'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { performanceReview360InviteApi, performanceReview360FeedbackApi, performanceNavigationApi, performanceReviewApi, performanceWorkbenchApi, projectManagementApi, type PerformanceNavigationContext, type PerformanceReviewOverview } from '@/api/performance'
@@ -9,7 +9,7 @@ import { usePerformanceProjectContextStore } from '@/stores/performanceProjectCo
 const push = vi.fn()
 const replace = vi.fn()
 const resolve = vi.fn(({ path, query }: { path: string; query: Record<string, string | undefined> }) => ({ href: `${path}?${new URLSearchParams(Object.entries(query).filter((entry): entry is [string, string] => Boolean(entry[1]))).toString()}` }))
-const routeQuery = vi.hoisted(() => ({} as Record<string, string>))
+let routeQuery = {} as Record<string, string>
 vi.mock('vue-router', () => ({
   useRoute: () => ({ query: routeQuery }),
   useRouter: () => ({ push, replace, resolve }),
@@ -115,6 +115,54 @@ describe('PerformanceReview', () => {
     await flushPromises()
     const scoped = wrapper.getComponent(PerformanceResultScopeView)
     expect(scoped.props()).toMatchObject({ kind: 'team', cycleId: 1 })
+    wrapper.unmount()
+  })
+
+  it.each(['team', 'focus'] as const)('从%s快捷入口进入成员列表且不补入项目参数', async kind => {
+    routeQuery.node = kind === 'team' ? '__team-results__' : '__focus-results__'
+    routeQuery.tab = 'members'
+    routeQuery.cycle_id = '1'
+    routeQuery.project_id = '999'
+    usePerformanceProjectContextStore().setNavigation(navigationOf(1, { can_view_team_results: true, can_view_focus_results: true }))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.getComponent(PerformanceResultScopeView).props('kind')).toBe(kind)
+    expect(replace).toHaveBeenCalledWith({ query: { cycle_id: '1', node: routeQuery.node, tab: 'members' } })
+    expect(replace.mock.calls.some(([target]) => target?.query?.project_id)).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('拒绝无结果范围资格的直接入口且不回退首节点', async () => {
+    routeQuery.node = '__team-results__'
+    routeQuery.tab = 'members'
+    usePerformanceProjectContextStore().setNavigation(navigationOf(1))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.findComponent(PerformanceResultScopeView).exists()).toBe(false)
+    expect(wrapper.text()).toContain('当前评估环节不存在或无权查看')
+    expect(performanceReviewApi.overview).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('结果页签从URL初始化、响应前进后退并限制关注总览', async () => {
+    routeQuery = reactive({ tab: 'members' })
+    const wrapper = mount(PerformanceResultScopeView, {
+      props: { kind: 'team', cycleId: 1 },
+      global: { stubs: { PerformanceLineTabs: true, PerformanceReviewEvaluationDrawer: true } },
+    })
+    expect((wrapper.vm as any).activeTab).toBe('members')
+    routeQuery.tab = 'matrix'
+    await wrapper.vm.$nextTick()
+    expect((wrapper.vm as any).activeTab).toBe('matrix')
+    ;(wrapper.vm as any).selectTab('reports')
+    expect(push).toHaveBeenLastCalledWith({ query: { cycle_id: '1', node: '__team-results__', tab: 'reports' } })
+    await wrapper.setProps({ kind: 'focus' })
+    routeQuery.tab = 'overview'
+    await wrapper.vm.$nextTick()
+    expect((wrapper.vm as any).activeTab).toBe('members')
+    routeQuery.tab = 'invalid'
+    await wrapper.vm.$nextTick()
+    expect((wrapper.vm as any).activeTab).toBe('members')
     wrapper.unmount()
   })
 
@@ -308,7 +356,7 @@ describe('PerformanceReview', () => {
     pinia = createPinia()
     setActivePinia(pinia)
     localStorage.clear()
-    Object.keys(routeQuery).forEach(key => delete routeQuery[key])
+    routeQuery = {}
     push.mockReset()
     replace.mockReset()
     vi.restoreAllMocks()

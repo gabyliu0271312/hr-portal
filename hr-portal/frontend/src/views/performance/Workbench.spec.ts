@@ -54,6 +54,59 @@ function mountView() {
 }
 
 describe('PerformanceWorkbench project context', () => {
+  it.each([
+    ['普通员工', false, false, [], null],
+    ['管理者', true, false, [], null],
+    ['HRBP', false, false, ['hrbp'], 'hrbp'],
+    ['项目管理员', false, false, ['project_admin'], 'project_admin'],
+    ['双角色', false, false, ['project_admin', 'hrbp'], 'hrbp'],
+    ['管理者兼HRBP及关注人', true, true, ['hrbp'], 'hrbp'],
+    ['仅关注结果资格', false, true, [], null],
+  ] as const)('按%s资格显示入口并精确跳转周期目标', async (_label, team, focus, roles, role) => {
+    const context = usePerformanceProjectContextStore()
+    context.setNavigation(navigationOf(1, { can_view_team_results: team, can_view_focus_results: focus, management_roles: [...roles] }))
+    context.setActiveProjectId(99)
+    const wrapper = mountView()
+    await flushPromises()
+    const groups = wrapper.findAll('.quick-group')
+    expect(groups.map(group => group.get('.quick-group-label').text())).toEqual([
+      '我的绩效', ...(focus ? ['重点关注人员'] : []), ...(team ? ['我管理的团队'] : []), ...(role ? ['我支持的团队'] : []),
+    ])
+    for (const [label, node] of [['重点关注人员', '__focus-results__'], ['我管理的团队', '__team-results__']]) {
+      const group = groups.find(item => item.get('.quick-group-label').text() === label)
+      if (!group) continue
+      await group.get('button').trigger('click')
+      expect(push).toHaveBeenLastCalledWith({ name: 'PerformanceReview', query: { cycle_id: '1', node, tab: 'members' } })
+    }
+    if (role) {
+      const links = groups.find(item => item.text().includes('我支持的团队'))!.findAll('button')
+      for (const [index, tab] of ['overview', 'members'].entries()) {
+        await links[index].trigger('click')
+        expect(push).toHaveBeenLastCalledWith({ name: 'PerformanceProjectManagement', query: { cycle_id: '1', management_role: role, tab } })
+      }
+    }
+    wrapper.unmount()
+  })
+
+  it('切周期加载及失败时不沿用旧快捷入口权限', async () => {
+    const context = usePerformanceProjectContextStore()
+    context.setNavigation(navigationOf(1, { can_view_team_results: true, can_view_focus_results: true, management_roles: ['hrbp'] }))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.findAll('.quick-group')).toHaveLength(4)
+    let rejectNavigation!: (cause: Error) => void
+    vi.mocked(performanceNavigationApi.get).mockReturnValueOnce(new Promise((_resolve, reject) => { rejectNavigation = reject }))
+    await wrapper.get('.select-cycle-two').trigger('click')
+    expect(wrapper.findAll('.quick-group')).toHaveLength(1)
+    rejectNavigation(new Error('navigation failed'))
+    await flushPromises()
+    expect(wrapper.findAll('.quick-group')).toHaveLength(1)
+    context.resetIdentity()
+    await flushPromises()
+    expect(wrapper.findAll('.quick-group')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     pinia = createPinia()
     setActivePinia(pinia)

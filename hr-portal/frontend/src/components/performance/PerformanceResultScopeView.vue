@@ -4,7 +4,7 @@
     <div v-else-if="error" class="result-view-state result-view-state--error"><p>{{ error }}</p><button type="button" @click="load">重新加载</button></div>
     <template v-else-if="overview">
       <PerformancePageTitle :title="title" />
-      <PerformanceLineTabs v-model="activeTab" sticky :tabs="tabs">
+      <PerformanceLineTabs :model-value="activeTab" sticky :tabs="tabs" @update:model-value="selectTab">
         <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" @action="handleCompletionAction" />
         <ProjectMemberListPanel v-else-if="activeTab === 'members'" :project-id="0" :cycle-id="cycleId" readonly :provider="memberProvider" @select-member="openMember" />
         <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :project-id="0" :cycle-name="overview.cycle.cycle_name" readonly :provider="matrixProvider" @open-member="openMember" />
@@ -28,8 +28,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { resultViewApi, type PerformanceResultViewOverview, type ProjectMember } from '@/api/performance'
 import type { ProjectReportDimension } from '@/components/performance/projectStatisticsReport'
 import PerformancePageTitle from '@/components/performance/PerformancePageTitle.vue'
@@ -43,10 +43,15 @@ import PerformanceReviewEvaluationDrawer from '@/components/performance/Performa
 
 const props = defineProps<{ kind: 'team' | 'focus'; cycleId: number }>()
 const router = useRouter()
+const route = useRoute()
 const overview = ref<PerformanceResultViewOverview | null>(null)
 const loading = ref(false)
 const error = ref('')
-const activeTab = ref(props.kind === 'team' ? 'overview' : 'members')
+const activeTab = computed(() => tabs.value.some(tab => tab.key === route.query.tab) ? String(route.query.tab) : props.kind === 'team' ? 'overview' : 'members')
+function selectTab(tab: string) {
+  if (!tabs.value.some(item => item.key === tab)) return
+  void router.push({ query: { cycle_id: String(props.cycleId), node: props.kind === 'team' ? '__team-results__' : '__focus-results__', tab } })
+}
 const title = computed(() => props.kind === 'team' ? '查看团队绩效结果' : '关注人员的绩效结果')
 const tabs = computed<PerformanceLineTab[]>(() => [
   ...(props.kind === 'team' ? [{ key: 'overview', label: '总览' }] : []),
@@ -109,7 +114,8 @@ function handleCompletionAction(payload: { action: 'remind' | 'enable-result'; n
   if (payload.action !== 'remind') return
   void router.push({ name: 'PerformanceProjectReminder', query: { cycle_id: String(props.cycleId), node_key: payload.nodeKey, department: payload.departmentPath || '', source: 'team-results' } })
 }
-watch(() => [props.kind, props.cycleId], () => { activeTab.value = props.kind === 'team' ? 'overview' : 'members'; drawerOpen.value = false; drawerMember.value = null; void load() })
+watch(() => [props.kind, props.cycleId], () => { drawerOpen.value = false; drawerMember.value = null; void load() })
+onBeforeUnmount(() => { ++request })
 onMounted(load)
 </script>
 
