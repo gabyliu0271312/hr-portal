@@ -10,8 +10,10 @@
         :key="reference.key"
         :reviewers="reference.reviewers || []"
         :expected-count="reference.expected_count"
+        :evaluate-ratio="reference.evaluate_ratio"
+        :can-remind="reference.can_remind && !reference.final_result_locked"
+        @remind="emit('remind', reference)"
       />
-      <PerformanceReminderButton v-if="reference.can_remind && !reference.final_result_locked" @click="$emit('remind', reference)" />
     </div>
     <PerformanceTemplateRenderer
       v-else-if="(reference.status === 'completed' || reference.final_result_locked) && reference.form_schema.length"

@@ -5,7 +5,8 @@
       <!-- 信息条：已评估 1/1：直属上级 1 -->
       <div class="r360-info">
         <span class="r360-info__label">已评估</span>
-        <span ref="evaluatedAnchor" class="r360-info__num" tabindex="0" @mouseenter="evaluatedTooltipOpen = true" @mouseleave="evaluatedTooltipOpen = false" @focusin="evaluatedTooltipOpen = true" @focusout="evaluatedTooltipOpen = false">{{ evaluatedProgress }}</span>
+        <PerformanceEvaluateRatioPopover v-if="hasRuntimeReviewers" :completion="evaluatedProgress" :ratio="evaluateRatio" :can-remind="canRemind" @remind="emit('remind')" />
+        <span v-else ref="evaluatedAnchor" class="r360-info__num" tabindex="0" @mouseenter="evaluatedTooltipOpen = true" @mouseleave="evaluatedTooltipOpen = false" @focusin="evaluatedTooltipOpen = true" @focusout="evaluatedTooltipOpen = false">{{ evaluatedProgress }}</span>
         <span v-if="!hasRuntimeReviewers" class="r360-info__colon">：</span>
         <span v-if="!hasRuntimeReviewers" class="r360-info__relation">{{ relationLabel }}</span>
         <span v-if="!hasRuntimeReviewers" ref="relationAnchor" class="r360-info__num" tabindex="0" @mouseenter="relationTooltipOpen = true" @mouseleave="relationTooltipOpen = false" @focusin="relationTooltipOpen = true" @focusout="relationTooltipOpen = false">{{ relationTotal }}</span>
@@ -159,7 +160,8 @@
  * root/content 与统一 readonly sections，不能在这里伪造固定数量的占位条目。
  */
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref, watch, type PropType } from 'vue'
-import type { PerformanceReferenceTab, PerformanceTemplateContent, PerformanceTemplateSection } from '@/api/performance'
+import type { PerformanceEvaluateRatio, PerformanceReferenceTab, PerformanceTemplateContent, PerformanceTemplateSection } from '@/api/performance'
+import PerformanceEvaluateRatioPopover from './PerformanceEvaluateRatioPopover.vue'
 import PerformancePopover from './PerformancePopover.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 
@@ -187,6 +189,8 @@ const props = withDefaults(defineProps<{
   contents?: PerformanceTemplateContent[]
   readonlySections?: Record<string, PerformanceTemplateSection[]>
   reviewers?: PerformanceReferenceTab['reviewers']
+  evaluateRatio?: PerformanceEvaluateRatio | null
+  canRemind?: boolean
 }>(), {
   relationLabel: '直属上级',
   evaluatedCount: 1,
@@ -197,6 +201,8 @@ const props = withDefaults(defineProps<{
   contents: () => [],
   readonlySections: () => ({}),
 })
+
+const emit = defineEmits<{ remind: [] }>()
 
 /** REA 默认展开态（按钮「收起详情」） */
 const expanded = ref(true)
@@ -223,7 +229,7 @@ function runtimeRow(reviewer: RuntimeReviewer): ReviewerRow {
   return { name: reviewer.reviewer.display_name, sub: [reviewer.reviewer.relationship, reviewer.reviewer.department, reviewer.reviewer.source_label].filter(Boolean).join(' | '), review: reviewer }
 }
 const effectiveEvaluatedCount = computed(() => hasRuntimeReviewers.value ? runtimeReviewers.value.length : props.evaluatedCount)
-const evaluatedProgress = computed(() => hasRuntimeReviewers.value && props.expectedCount === undefined ? String(effectiveEvaluatedCount.value) : `${effectiveEvaluatedCount.value}/${props.expectedCount ?? 1}`)
+const evaluatedProgress = computed(() => props.evaluateRatio?.completion ?? (hasRuntimeReviewers.value && props.expectedCount === undefined ? String(effectiveEvaluatedCount.value) : `${effectiveEvaluatedCount.value}/${props.expectedCount ?? 1}`))
 const visibleReviewers = computed<ReviewerRow[]>(() => hasRuntimeReviewers.value ? runtimeReviewers.value.map(runtimeRow) : props.tableRows.length ? props.tableRows : [{ name: '评估人', sub: `${props.relationLabel}  |  所属部门  |  系统默认邀请`, avatarUrl: props.avatarUrl }])
 const visibleEvaluatedReviewers = computed<ReviewerRow[]>(() => hasRuntimeReviewers.value ? visibleReviewers.value : props.evaluatedReviewers.length ? props.evaluatedReviewers : visibleReviewers.value.slice(0, props.evaluatedCount))
 const collapsedReviewers = ref<number[]>([])

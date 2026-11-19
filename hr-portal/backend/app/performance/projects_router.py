@@ -517,7 +517,10 @@ async def _reviewer_360_reference(project, snapshot_id, employee_no, node, tasks
         return payload
     payload["expected_count"] = len(tasks)
     completed = [task for task in tasks if task.status == "completed" and task.submitted_at is not None]
-    if not completed or not content_loaded:
+    if not content_loaded:
+        return payload
+    if not tasks:
+        payload["evaluate_ratio"] = _evaluate_ratio_payload({}, {})
         return payload
     snapshot_people = (await db.execute(select(PerformanceAuthorizationSnapshotPerson).join(
         PerformanceProjectMemberSnapshot,
@@ -529,6 +532,16 @@ async def _reviewer_360_reference(project, snapshot_id, employee_no, node, tasks
     ))).scalars().all()
     people = {person.employee_no: person for person in snapshot_people}
     names = names if names is not None else {key: person.display_name for key, person in people.items()}
+    progress = {}
+    for task in tasks:
+        reviewer_no = str(task.handler_ref)
+        progress[reviewer_no] = progress.get(reviewer_no, False) or (task.status == "completed" and task.submitted_at is not None)
+    payload["evaluate_ratio"] = _evaluate_ratio_payload(progress, {
+        no: {"name": names.get(no) or person.display_name, "dimission": (getattr(person, "live_employment_status", None) or getattr(person, "employment_status", None)) == "离职"}
+        for no, person in people.items()
+    })
+    if not completed:
+        return payload
     events = (await db.execute(select(PerformanceAuditEvent).where(
         PerformanceAuditEvent.cycle_ref == project.cycle_ref,
         PerformanceAuditEvent.employee_no == employee_no,
@@ -6963,6 +6976,18 @@ async def _communication_progress(db, project, employee_nos):
     return {employee: f"{sum(people.values())}/{len(people)}" for employee, people in reviewers.items()}
 
 
+def _evaluate_ratio_payload(people, person_by_no):
+    evaluated = [{"name": person_by_no.get(no, {}).get("name", no), "dimission": person_by_no.get(no, {}).get("dimission", False)} for no, done in people.items() if done]
+    pending = [{"name": person_by_no.get(no, {}).get("name", no), "dimission": person_by_no.get(no, {}).get("dimission", False)} for no, done in people.items() if not done]
+    return {
+        "completion": f"{len(evaluated)}/{len(people)}",
+        "evaluated": evaluated,
+        "pending": pending,
+        "dimission_count": sum(1 for person in [*evaluated, *pending] if person["dimission"]),
+        "invite_stage": "not_started" if not people else ("ended" if all(people.values()) else "in_progress"),
+    }
+
+
 async def _communication_progress_detail(db, project, employee_nos):
     """360° 评估率弹窗数据：评估人名单（含完成状态与离职）、完成比例、评估阶段。
 
@@ -7006,20 +7031,7 @@ async def _communication_progress_detail(db, project, employee_nos):
     person_by_no: dict[str, dict] = {}
     for _, employee_no, display_name, live_status, emp_status in people_rows:
         person_by_no.setdefault(employee_no, {"name": display_name, "dimission": bool((live_status or emp_status) == "离职")})
-    result: dict[str, dict] = {}
-    for employee, people in reviewers.items():
-        evaluated = [{"name": person_by_no.get(no, {}).get("name", no), "dimission": person_by_no.get(no, {}).get("dimission", False)} for no, done in people.items() if done]
-        pending = [{"name": person_by_no.get(no, {}).get("name", no), "dimission": person_by_no.get(no, {}).get("dimission", False)} for no, done in people.items() if not done]
-        completion = f"{len(evaluated)}/{len(people)}"
-        invite_stage = "not_started" if not people else ("ended" if all(done for done in people.values()) else "in_progress")
-        result[employee] = {
-            "completion": completion,
-            "evaluated": evaluated,
-            "pending": pending,
-            "dimission_count": sum(1 for person in [*evaluated, *pending] if person["dimission"]),
-            "invite_stage": invite_stage,
-        }
-    return result
+    return {employee: _evaluate_ratio_payload(people, person_by_no) for employee, people in reviewers.items()}
 
 
 async def _previous_published_position_levels(db, project, employee_nos):

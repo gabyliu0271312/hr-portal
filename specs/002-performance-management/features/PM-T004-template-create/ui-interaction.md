@@ -562,6 +562,8 @@
 - 任务与管理详情的参考DTO增加kind=reviewer_360、reviewers和expected_count；后端统一按本环节reference_settings裁剪，未配置引用、整引用关闭或无可见内容不返回人员答案。只读取同项目/周期/人员快照/员工/来源节点的有效已提交任务；草稿、未提交和撤销答案不返回。上级评估进入详情时保留当前环节引用上下文，不误用最新沟通环节配置。
 - 多人独立展开和只读渲染、全局展开/收起、详情与表格切换；部分提交仍展示有效已提交部分，无数据展示“暂无可查看内容”。现有模板预览行为保留，员工结果页和结果开通逻辑不变；无迁移或快照回写。
 - 2026-11-13追加用户要求：普通360参考人员姓名下显示`关系 | 末级部门 | 来源`，relationship/department/source_label为reviewer可选字段。关系按被评估人视角，从冻结人员直属链计算直属上级、隔级上级、相同上级同事、不同上级同事、直属下级；用户重复的同上级同事按既有同/不同上级分类处理。部门复用organization_leaf取评估人末级部门。来源优先任务VOLUNTARY，否则读取同周期/被评估人/项目/来源节点/评估人邀请审计，区分系统默认邀请、自己邀请、上级邀请、HRBP或其他人邀请、自愿评估；缺少可信证据不猜补。元数据只在有可见内容且当前页签加载时查询，不改变懒加载与权限边界。卡片和表格共用同一副文案；顶部数字保持人数统计，hover浮层逐人显示头像和display_name，不只显示头像。模板预览保留示例，不读取生产人员；员工结果页不追加这些元数据。
+- 2026-11-19追加用户确认：成员详情运行态“已评估 N/M”直接复用成员列表的`PerformanceEvaluateRatioPopover`，展示同一标题、已评估/未评估分组、人员标签、离职说明及未评估分组右侧的铃铛图标+文字催办；删除ReferenceContent中预览下方独立outline催办。运行态不再使用原深色已评估浮层，模板预览保留原统计/关系浮层。催办沿用reference事件、员工/节点/来源任务上下文，受can_remind、final_result_locked及ratio.invite_stage限制。
+- 详情DTO追加可选`evaluate_ratio`，与成员列表共享后端`_evaluate_ratio_payload`组装；详情使用当前合法来源任务及当前冻结人员快照，包含已评估和未评估名单，人员去重且任一有效正式提交计为已评估，completion为去重人员比例；既有expected_count仍保留任务数兼容语义。答案继续仅返回completed且submitted_at非空的有效任务。未配置/关闭引用、全部内容隐藏或content_loaded=false不下发ratio名单；无任务返回0/0空态，零提交仍提供真实pending名单，不读取或伪造未提交答案。不新增匿名策略、权限或历史快照写入。
 - 验证与限制见atomic-tasks.md F39追加记录。实际组件隔离PNG为`../../ui-blueprints/PM-T004-T05-F39-implemented-runtime-360.png`，元数据与悬浮姓名PNG为`../../ui-blueprints/PM-T004-T05-F39-implemented-reviewer-metadata.png`，使用合成人员，不是生产页面；真实登录态/API数据库联调和生产验收未执行。
 
 ## 模板预览360°反馈真实root与只读展示（PM-T004-T05-F39，2026-11-06）

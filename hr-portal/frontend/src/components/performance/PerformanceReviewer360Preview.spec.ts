@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import PerformanceEvaluateRatioPopover from '@/components/performance/PerformanceEvaluateRatioPopover.vue'
 import PerformanceReviewer360Preview from '@/components/performance/PerformanceReviewer360Preview.vue'
 import PerformanceReferenceContent from '@/components/performance/PerformanceReferenceContent.vue'
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
@@ -43,14 +44,14 @@ afterEach(() => {
 describe('PerformanceReviewer360Preview', () => {
   it('renders real relationship, leaf department and source under each name and in table view', async () => {
     const reviewers = runtimeReviewers.map((entry, index) => ({ ...entry, reviewer: { ...entry.reviewer, relationship: index ? '相同上级同事' : '直属上级', department: index ? '产品组' : '研发末级组', source_label: index ? '自己邀请' : '自愿评估' } }))
-    const wrapper = mountPreview({ reviewers })
+    const wrapper = mountPreview({ reviewers, evaluateRatio: { completion: '2/2', evaluated: reviewers.map(entry => ({ name: entry.reviewer.display_name, dimission: false })), pending: [], dimission_count: 0, invite_stage: 'ended' } })
     expect(wrapper.findAll('.r360-card__desc').map(item => item.text())).toEqual(['直属上级 | 研发末级组 | 自愿评估', '相同上级同事 | 产品组 | 自己邀请'])
-    await wrapper.get('.r360-info__num').trigger('mouseenter')
-    const tooltip = document.body.querySelector('.r360-evaluated-tooltip')
+    await wrapper.get('.evaluate-ratio-anchor').trigger('mouseenter')
+    const tooltip = document.body.querySelector('.evaluate-ratio-popover')
     expect(tooltip?.textContent).toContain('评估人甲')
     expect(tooltip?.textContent).toContain('评估人乙')
-    expect(tooltip?.querySelectorAll('.r360-tooltip__person')).toHaveLength(2)
-    await wrapper.get('.r360-info__num').trigger('mouseleave')
+    expect(tooltip?.querySelectorAll('.member-identity')).toHaveLength(2)
+    await wrapper.get('.evaluate-ratio-anchor').trigger('mouseleave')
     await wrapper.get('.r360-tools__btn--view').trigger('click')
     await wrapper.findAll('.r360-view-menu__item')[1].trigger('click')
     expect(wrapper.findAll('.r360-table__sub').map(item => item.text())).toEqual(['直属上级 | 研发末级组 | 自愿评估', '相同上级同事 | 产品组 | 自己邀请'])
@@ -119,6 +120,40 @@ describe('PerformanceReviewer360Preview', () => {
     expect(wrapper.findComponent(PerformanceTemplateRenderer).exists()).toBe(false)
     expect(wrapper.find('.r360-card').exists()).toBe(false)
     expect(wrapper.find('.r360-runtime-card').exists()).toBe(false)
+  })
+
+  it.each([
+    { canRemind: true, locked: false, stage: 'in_progress', visible: true },
+    { canRemind: false, locked: false, stage: 'in_progress', visible: false },
+    { canRemind: true, locked: true, stage: 'in_progress', visible: false },
+    { canRemind: true, locked: false, stage: 'ended', visible: false },
+  ] as const)('reuses the list popover and reminder permission: %j', async ({ canRemind, locked, stage, visible }) => {
+    const ratio = { completion: '2/3', evaluated: runtimeReviewers.map(entry => ({ name: entry.reviewer.display_name, dimission: false })), pending: [{ name: '未评估人丙', dimission: true }], dimission_count: 1, invite_stage: stage }
+    const reference: PerformanceReferenceTab = { key: 'feedback', kind: 'reviewer_360', node_id: 'feedback', node_name: '360°反馈', employee_no: 'E001', status: 'pending', form_schema: [], answers: {}, can_remind: canRemind, final_result_locked: locked, reviewers: runtimeReviewers, expected_count: 3, evaluate_ratio: ratio }
+    const host = document.createElement('div')
+    document.body.append(host)
+    const wrapper = mount(PerformanceReferenceContent, { attachTo: host, props: { reference } })
+    mounted.push(wrapper)
+    expect(wrapper.getComponent(PerformanceEvaluateRatioPopover).props('ratio')).toEqual(ratio)
+    expect(wrapper.get('.r360-info').text()).toBe('已评估2/3')
+    expect(wrapper.find('.performance-remind-button').exists()).toBe(false)
+    await wrapper.get('.evaluate-ratio-anchor').trigger('mouseenter')
+    const popover = document.body.querySelector('.evaluate-ratio-popover')!
+    expect(popover.textContent).toContain('邀请和评估情况')
+    expect(popover.textContent).toContain('已评估：2')
+    expect(popover.textContent).toContain('未评估：1')
+    expect(popover.textContent).toContain('未评估人丙（已离职）')
+    const reminder = popover.querySelector<HTMLButtonElement>('.evaluate-ratio-group-head .performance-remind-button--text')
+    expect(Boolean(reminder)).toBe(visible)
+    if (reminder) {
+      expect(reminder.querySelector('svg')).not.toBeNull()
+      expect(reminder.textContent).toBe('催办')
+      await wrapper.get('.evaluate-ratio-anchor').trigger('mouseleave')
+      popover.dispatchEvent(new MouseEvent('mouseenter'))
+      reminder.click()
+      expect(wrapper.emitted('remind')).toEqual([[reference]])
+    }
+    expect(document.body.querySelector('.r360-evaluated-tooltip')).toBeNull()
   })
 
   it('renders the REA shell and real readonly source roots', () => {

@@ -553,15 +553,18 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     } finally { wrapper.unmount() }
   })
 
-  it.each([false, true])('exposes the shared outline reminder for an allowed team-review 360 reference: allowed=%s', async allowed => {
+  it.each([false, true])('keeps the allowed 360 reminder inside the shared ratio popover: allowed=%s', async allowed => {
     vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({
       ...structuredClone(task), task_kind: 'evaluation',
-      management_tabs: [{ key: 'management-feedback', kind: 'reviewer_360', node_id: 'feedback', node_name: '360°反馈', employee_no: 'E001', task_id: null, status: 'pending', can_remind: allowed, form_schema: [], answers: {}, reviewers: [], expected_count: 2 }],
+      management_tabs: [{ key: 'management-feedback', kind: 'reviewer_360', node_id: 'feedback', node_name: '360°反馈', employee_no: 'E001', task_id: null, status: 'pending', can_remind: allowed, form_schema: [], answers: {}, reviewers: [], expected_count: 2, evaluate_ratio: { completion: '0/2', evaluated: [], pending: [{ name: '未评估人甲', dimission: false }, { name: '未评估人乙', dimission: false }], dimission_count: 0, invite_stage: 'in_progress' } }],
       default_active_tab: 'management-feedback',
     })
     const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, taskId: 145, employeeNo: 'E001' } })
     await flushPromises()
-    const button = document.body.querySelector<HTMLButtonElement>('.performance-remind-button--outline')
+    expect(document.body.querySelector('.performance-remind-button--outline')).toBeNull()
+    document.body.querySelector('.evaluate-ratio-anchor')!.dispatchEvent(new MouseEvent('mouseenter'))
+    await flushPromises()
+    const button = document.body.querySelector<HTMLButtonElement>('.evaluate-ratio-popover .performance-remind-button--text')
     expect(Boolean(button)).toBe(allowed)
     if (button) {
       button.click()

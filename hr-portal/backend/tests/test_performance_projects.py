@@ -11034,9 +11034,52 @@ async def test_360_reference_metadata_uses_frozen_people_and_scoped_invite_audit
     assert reviewer == {"employee_no": "M2", "display_name": "冻结上级姓名", "relationship": "直属上级", "department": "末级测试组", "source_label": "系统默认邀请"}
     count = len(data.db.queries)
     hidden = await data.routes._reviewer_360_reference(data.project, 7, "E1", data.nodes[1], [data.tasks[1]], {"settings": {"allowView": False}}, data.db)
-    assert hidden["reviewers"] == [] and len(data.db.queries) == count
+    assert hidden["reviewers"] == [] and "evaluate_ratio" not in hidden and len(data.db.queries) == count
     unloaded = await data.routes._reviewer_360_reference(data.project, 7, "E1", data.nodes[1], [data.tasks[1]], {"content_slot": "reference"}, data.db, content_loaded=False)
-    assert unloaded["reviewers"] == []
+    assert unloaded["reviewers"] == [] and "evaluate_ratio" not in unloaded
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["partial", "pending", "completed", "empty"])
+async def test_360_reference_ratio_uses_scoped_tasks_and_frozen_people(management_member_data, monkeypatch, state):
+    from copy import copy
+    data = management_member_data
+    first, second = copy(data.tasks[1]), copy(data.tasks[2])
+    first.handler_ref, second.handler_ref = "M2", "M3"
+    first.status, first.submitted_at = ("pending", None) if state == "pending" else ("completed", "submitted")
+    second.status, second.submitted_at = ("completed", "submitted") if state == "completed" else ("pending", None)
+    duplicate = copy(first)
+    duplicate.status, duplicate.submitted_at = "pending", None
+    tasks = [] if state == "empty" else [first, second, duplicate]
+    for field, value in [("project_id", 99), ("cycle_ref", "other"), ("member_snapshot_id", 99), ("target_employee_no", "other"), ("node_snapshot_id", 99), ("revoked_at", "revoked")]:
+        invalid = copy(first)
+        setattr(invalid, field, value)
+        invalid.handler_ref = "SECRET"
+        tasks.append(invalid)
+    original_execute = data.db.execute
+    people_reads = []
+    async def execute(query):
+        if query.column_descriptions[0]["entity"] is data.routes.PerformanceAuthorizationSnapshotPerson:
+            people_reads.append(str(query.compile(compile_kwargs={"literal_binds": True})))
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [
+                SimpleNamespace(employee_no="M2", display_name="冻结甲", employment_status="在职"),
+                SimpleNamespace(employee_no="M3", display_name="冻结乙", live_employment_status="离职"),
+            ]))
+        return await original_execute(query)
+    monkeypatch.setattr(data.db, "execute", execute)
+    payload = await data.routes._reviewer_360_reference(data.project, 7, "E1", data.nodes[1], tasks, {"content_slot": "reference"}, data.db)
+    ratio = payload["evaluate_ratio"]
+    assert ratio["completion"] == {"partial": "1/2", "pending": "0/2", "completed": "2/2", "empty": "0/0"}[state]
+    assert ratio["invite_stage"] == {"partial": "in_progress", "pending": "in_progress", "completed": "ended", "empty": "not_started"}[state]
+    assert ratio["dimission_count"] == (0 if state == "empty" else 1)
+    assert "SECRET" not in str(payload)
+    assert all(person["name"] in {"冻结甲", "冻结乙"} for person in ratio["evaluated"] + ratio["pending"])
+    if state == "partial":
+        assert ratio["pending"] == [{"name": "冻结乙", "dimission": True}]
+    if state in {"pending", "empty"}:
+        assert payload["reviewers"] == []
+    assert len(people_reads) == (0 if state == "empty" else 1)
+    assert all("performance_project_member_snapshots.id = 7" in sql for sql in people_reads)
 
 
 @pytest.mark.asyncio
