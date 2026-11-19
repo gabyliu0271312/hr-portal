@@ -165,6 +165,9 @@ async def _write_tree_upsert(
                 "is_active": item["is_active"],
                 "synced_at": now,
             }
+            # 源行提供父编码时记录业务父编码列（挂父在第二遍统一处理）
+            if item["parent_code"] and hasattr(model, "parent_code"):
+                kwargs["parent_code"] = item["parent_code"]
             # source_mode 仅 cost_center_tree 有（0304）；org_tree 无此列
             if hasattr(model, "source_mode"):
                 kwargs["source_mode"] = "external_sync"
@@ -174,16 +177,21 @@ async def _write_tree_upsert(
             node.name = item["name"]
             node.is_active = item["is_active"]
             node.synced_at = now
+            # 源行提供父编码时同步业务父编码列；缺省保留原值（不覆盖）
+            if item["parent_code"] and hasattr(model, "parent_code"):
+                node.parent_code = item["parent_code"]
             # 已有节点不改变 source_mode（local 保留 local）
         code_to_node[item["code"]] = node
     await db.flush()
 
-    # 第二遍连父（此时所有 id 已分配）
+    # 第二遍连父（此时所有 id 已分配；父查找范围=存量树 + 本次行，
+    # 否则父节点不在本次报表行内时父编码静默失效、误挂根）
+    parent_pool = {**existing_by_code, **code_to_node}
     for item in parsed:
         node = code_to_node[item["code"]]
         pcode = item["parent_code"]
-        if pcode and pcode in code_to_node and pcode != item["code"]:
-            node.parent_id = code_to_node[pcode].id
+        if pcode and pcode in parent_pool and pcode != item["code"]:
+            node.parent_id = parent_pool[pcode].id
         else:
             node.parent_id = root.id
 

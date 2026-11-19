@@ -120,6 +120,7 @@ class CostCenterNode(Base):
     parent_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("cost_center_tree.id", ondelete="SET NULL"), nullable=True
     )
+    parent_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     level: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     is_leaf: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

@@ -688,7 +688,7 @@ async function loadResourceDataObjects(resourceId: number | null | undefined): P
   try { resourceDataObjects.value = ((await ucpApi.resourceDataObjects(resourceId)).items || []).filter((item: ResourceDataObject) => item.is_active) }
   catch { resourceDataObjects.value = [] }
 }
-const upstreamFields = ref<{ name: string; type: string }[]>([])
+const upstreamFields = ref<{ name: string; label: string; type: string }[]>([])
 const upstreamSourceName = ref('')
 const transformMappingDocument = ref<MappingDocument>(createEmptyDocument('ucp_transform', 'UCP Transform'))
 const transformMappingCompatibility = ref<MappingCompatibility | null>(null)
@@ -791,8 +791,8 @@ function transformTargetCatalog(): Array<{ code: string; label: string; type?: s
   if (fromAsset.length) return fromAsset
   return catalogFields(config?.target_field_catalog || config?.mapping?.target_field_catalog || transformMappingDocument.value.ruleSet.rules.flatMap((rule) => rule.targetFields.map((code) => ({ code }))))
 }
-const transformSourceFields = computed(() => upstreamFields.value.map((field) => ({ code: field.name, label: field.name, type: field.type })))
-const sinkUpstreamFields = computed(() => upstreamFields.value.map((field) => ({ code: field.name, label: field.name, type: field.type })))
+const transformSourceFields = computed(() => upstreamFields.value.map((field) => ({ code: field.name, label: field.label || field.name, type: field.type })))
+const sinkUpstreamFields = computed(() => upstreamFields.value.map((field) => ({ code: field.name, label: field.label || field.name, type: field.type })))
 const transformTargetFields = computed(() => transformTargetCatalog())
 const transformMappingCaller = computed<MappingCaller>(() => selectedTransformConfig()?.mapping_caller === 'workflow' ? 'workflow' : 'ucp_transform')
 const transformMappingPolicy = computed<MappingCallerPolicy>(() => {
@@ -833,7 +833,7 @@ async function loadUpstreamFields(nodeId: string) {
   if (!upstream) return
   const upstreamCatalog = catalogFields(upstream.config?.output_field_catalog || upstream.config?.field_catalog || upstream.config?.mapping_source_catalog)
   if (upstreamCatalog.length) {
-    upstreamFields.value = upstreamCatalog.map((field) => ({ name: field.code, type: field.type || 'string' }))
+    upstreamFields.value = upstreamCatalog.map((field) => ({ name: field.code, label: field.label || field.code, type: field.type || 'string' }))
     upstreamSourceName.value = `(${upstream.label || upstream.id})`
     return
   }
@@ -843,7 +843,7 @@ async function loadUpstreamFields(nodeId: string) {
   upstreamSourceName.value = `(${upstream.config?.resource_name || adapterCode})`
   try {
     const schema = await (ucpApi as any).adapterSchema?.(adapterCode)
-    if (schema?.categories) upstreamFields.value = schema.categories.flatMap((c: any) => (c.fields || []).map((f: any) => ({ name: f.name, type: f.type || 'string' })))
+    if (schema?.categories) upstreamFields.value = schema.categories.flatMap((c: any) => (c.fields || []).map((f: any) => ({ name: f.name, label: f.label || f.name, type: f.type || 'string' })))
   } catch { /* 上游 schema 未就绪 */ }
 }
 

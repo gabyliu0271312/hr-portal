@@ -95,9 +95,9 @@ def _cc_cols():
     ]
 
 
-def _cc_node(id_, code, name, parent_id=None, source_mode="external_sync", active=True):
+def _cc_node(id_, code, name, parent_id=None, source_mode="external_sync", active=True, parent_code=None):
     return SimpleNamespace(
-        id=id_, code=code, name=name, parent_id=parent_id,
+        id=id_, code=code, name=name, parent_id=parent_id, parent_code=parent_code,
         level=1, is_leaf=True, is_active=active, path=f"/{name}/",
         source_mode=source_mode,
         synced_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -171,6 +171,72 @@ async def test_write_cc_tree_rejects_duplicate_code():
             ],
             field_whitelist=["code", "name"],
         )
+
+
+def _cc_cols_with_parent():
+    return [
+        _col("code", _TREE_ROLE_CODE),
+        _col("name", _TREE_ROLE_NAME),
+        _col("parent_code", _TREE_ROLE_PARENT),
+        _col("is_active", _TREE_ROLE_ACTIVE),
+    ]
+
+
+async def test_write_cc_tree_hangs_parent_code_when_matched():
+    """成本中心源带父编码 → 命中树内节点时挂父，并记录 parent_code 列。"""
+    db = FakeSession(
+        columns=_cc_cols_with_parent(),
+        existing=[_cc_node(1, "root costcenter", "成本中心")],
+    )
+    result = await _write_tree_upsert(
+        db,
+        table_name="cost_center_tree",
+        rows=[
+            {"code": "1001", "name": "研发中心"},
+            {"code": "1002", "name": "研发二部", "parent_code": "1001"},
+        ],
+        field_whitelist=["code", "name", "parent_code", "is_active"],
+    )
+    assert result["written_count"] == 2
+    nodes = {n.code: n for n in db.added if n.code != "root costcenter"}
+    assert nodes["1001"].parent_id == 1            # 无父编码 → 挂固定根
+    assert nodes["1002"].parent_id == nodes["1001"].id  # 命中本次行父 → 挂父
+    assert nodes["1002"].parent_code == "1001"
+
+
+async def test_write_cc_tree_parent_code_hits_existing_tree():
+    """父编码指向存量树节点（父不在本次报表行）→ 仍按存量父挂，不误挂根。"""
+    existing = [
+        _cc_node(1, "root costcenter", "成本中心"),
+        _cc_node(2, "1001", "研发中心"),
+    ]
+    db = FakeSession(columns=_cc_cols_with_parent(), existing=existing)
+    await _write_tree_upsert(
+        db,
+        table_name="cost_center_tree",
+        rows=[{"code": "1002", "name": "研发二部", "parent_code": "1001"}],
+        field_whitelist=["code", "name", "parent_code", "is_active"],
+    )
+    nodes = {n.code: n for n in db.added if n.code != "root costcenter"}
+    assert nodes["1002"].parent_id == 2            # 命中存量父 1001 的 id
+    assert nodes["1002"].parent_code == "1001"
+
+
+async def test_write_cc_tree_parent_code_unmatched_hangs_root():
+    """父编码未命中任何树内节点 → 缺省挂固定根，parent_code 仍记录。"""
+    db = FakeSession(
+        columns=_cc_cols_with_parent(),
+        existing=[_cc_node(1, "root costcenter", "成本中心")],
+    )
+    await _write_tree_upsert(
+        db,
+        table_name="cost_center_tree",
+        rows=[{"code": "1001", "name": "研发中心", "parent_code": "NOT_EXIST"}],
+        field_whitelist=["code", "name", "parent_code", "is_active"],
+    )
+    nodes = {n.code: n for n in db.added if n.code != "root costcenter"}
+    assert nodes["1001"].parent_id == 1            # 未命中 → 挂根
+    assert nodes["1001"].parent_code == "NOT_EXIST"  # 父编码仍记录待溯源
 
 
 async def test_write_org_tree_with_parent_and_status():
