@@ -1791,8 +1791,16 @@ class ProjectStatisticsRowResponse(BaseModel):
     children: list["ProjectStatisticsRowResponse"] = []
 
 
+class ReportIndicatorResponse(BaseModel):
+    key: str
+    label: str
+
+
 class ProjectStatisticsReportResponse(BaseModel):
     source: str
+    indicators: list[ReportIndicatorResponse] = []
+    indicatorKey: str | None = None
+    indicatorLabel: str | None = None
     dimension: str
     rowLabel: str
     showSummary: bool
@@ -1809,6 +1817,17 @@ class ProjectSelfFinalComparisonResponse(BaseModel):
     ratings: list[MatrixRatingResponse]
     counts: list[list[int]]
     heatLevels: list[list[int]]
+    xRatings: list[MatrixRatingResponse] = []
+    yRatings: list[MatrixRatingResponse] = []
+    xOptions: list[ReportIndicatorResponse] = []
+    yOptions: list[ReportIndicatorResponse] = []
+    xKey: str | None = None
+    yKey: str | None = None
+    xLabel: str | None = None
+    yLabel: str | None = None
+    historyCycles: list[dict] = []
+    historyCycleId: int | None = None
+    emptyReason: str | None = None
 
 
 def _matrix_level(value: object) -> str:
@@ -1832,7 +1851,8 @@ def _matrix_rating_value(value: object, options: list[dict]) -> dict | None:
     if value is None or not str(value).strip():
         return None
     text = str(value).strip()
-    return next((option for option in options if text in {str(option.get("id")), str(option.get("label"))}), None)
+    return (next((option for option in options if text == str(option.get("id"))), None)
+            or next((option for option in options if text == str(option.get("label"))), None))
 
 
 def _task_rating_metadata(schema: list[dict], *, include_readonly=False) -> list[dict]:
@@ -1974,7 +1994,39 @@ def _matrix_rows(level_people: dict[str, dict[str, list[dict]]], ratings: list[d
     return rows
 
 
-async def _project_final_ratings(project, employee_nos, db, *, member_snapshot_id=None):
+def _report_self_node(node) -> bool:
+    template = (node.config or {}).get("template") or {}
+    return node.node_type == "work_summary" or (
+        node.node_type == "evaluation" and node_role_code(template) == ROLE_REVIEWEE
+    )
+
+
+async def _project_report_indicators(project, db, *, self_only=False) -> list[dict]:
+    nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+        PerformanceProjectNodeSnapshot.project_id == project.id,
+    ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
+    indicators = []
+    seen = set()
+    for node in nodes:
+        template = (node.config or {}).get("template") or {}
+        if self_only and not _report_self_node(node):
+            continue
+        if not self_only and not template.get("include_final_result"):
+            continue
+        schema = await _matrix_node_schema(node, project, db)
+        for section in schema:
+            for field in section.get("fields", []):
+                if field.get("type") != "rating" or not field.get("id"):
+                    continue
+                key = f"self:{node.node_id}:rating:{field['id']}" if self_only else f"rating:{field['id']}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                indicators.append({"key": key, "label": field.get("label") or section.get("name") or "绩效评级"})
+    return indicators
+
+
+async def _project_final_ratings(project, employee_nos, db, *, member_snapshot_id=None, indicator_key=None):
     project_id = project.id
     nodes = list((await db.execute(
         select(PerformanceProjectNodeSnapshot).where(
@@ -2004,7 +2056,9 @@ async def _project_final_ratings(project, employee_nos, db, *, member_snapshot_i
         rating_fields = [field for section in schema for field in section.get("fields", []) if field.get("type") == "rating"]
         if not rating_fields:
             continue
-        field = rating_fields[0]
+        field = next((field for field in rating_fields if f"rating:{field.get('id')}" == indicator_key), None) if indicator_key else rating_fields[0]
+        if field is None:
+            continue
         options = [dict(option) for option in field.get("options", [])]
         if options:
             rating_scales.append([(option.get("id"), option.get("label"), option.get("color"), option.get("code")) for option in options])
@@ -2030,7 +2084,7 @@ async def _project_final_ratings(project, employee_nos, db, *, member_snapshot_i
     return ratings, final_values, rating_scales
 
 
-async def _project_self_ratings(project, employee_nos, db, *, member_snapshot_id=None):
+async def _project_self_ratings(project, employee_nos, db, *, member_snapshot_id=None, indicator_key=None):
     """采集自评环节（work_summary 节点）的评级：每成员取本人最新已提交的自评评级值。
 
     返回 (self_ratings, self_values, self_scales)：
@@ -2042,9 +2096,9 @@ async def _project_self_ratings(project, employee_nos, db, *, member_snapshot_id
     nodes = list((await db.execute(
         select(PerformanceProjectNodeSnapshot).where(
             PerformanceProjectNodeSnapshot.project_id == project_id,
-            PerformanceProjectNodeSnapshot.node_type == "work_summary",
         ).order_by(PerformanceProjectNodeSnapshot.node_order)
     )).scalars().all())
+    nodes = [node for node in nodes if _report_self_node(node)]
     task_statement = select(PerformanceNodeTask).where(
         PerformanceNodeTask.project_id == project_id,
         PerformanceNodeTask.node_snapshot_id.in_([node.id for node in nodes]) if nodes else False,
@@ -2066,7 +2120,9 @@ async def _project_self_ratings(project, employee_nos, db, *, member_snapshot_id
         rating_fields = [field for section in schema for field in section.get("fields", []) if field.get("type") == "rating"]
         if not rating_fields:
             continue
-        field = rating_fields[0]
+        field = next((field for field in rating_fields if f"self:{node.node_id}:rating:{field.get('id')}" == indicator_key), None) if indicator_key else rating_fields[0]
+        if field is None:
+            continue
         options = [dict(option) for option in field.get("options", [])]
         if options:
             self_scales.append([(option.get("id"), option.get("label"), option.get("color"), option.get("code")) for option in options])
@@ -2075,7 +2131,9 @@ async def _project_self_ratings(project, employee_nos, db, *, member_snapshot_id
             if not any(item["key"] == normalized["key"] for item in self_ratings):
                 self_ratings.append(normalized)
         for task in tasks_by_node.get(node.id, []):
-            if task.submitted_at is None or task.target_employee_no not in employee_nos:
+            if (task.submitted_at is None or getattr(task, "revoked_at", None) is not None
+                    or getattr(task, "status", None) != "completed" or task.target_employee_no not in employee_nos
+                    or str(getattr(task, "handler_ref", task.target_employee_no)) != str(task.target_employee_no)):
                 continue
             option = _matrix_rating_value((task.answers or {}).get(field.get("id")), options)
             if option is None:
@@ -6292,6 +6350,66 @@ async def project_management_calibration_authorization(
     }
 
 
+async def _report_project_scope(cycle_id, context, db, result_kind=None, project_id=None):
+    result_kind = result_kind if result_kind in {"team", "focus"} else None
+    if context.management_role and result_kind is not None:
+        raise HTTPException(422, "MANAGEMENT_RESULT_SCOPE_CONFLICT")
+    cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.id == cycle_id))
+    if cycle is None:
+        raise HTTPException(404, "CYCLE_NOT_FOUND")
+    projects = list((await db.execute(select(PerformanceProject).where(
+        PerformanceProject.cycle_ref == cycle.cycle_ref,
+        PerformanceProject.status == PROJECT_STATUS_STARTED,
+    ).order_by(PerformanceProject.id))).scalars().all())
+    if isinstance(project_id, int):
+        selected = await db.get(PerformanceProject, project_id)
+        if selected is None or selected.cycle_ref != cycle.cycle_ref:
+            raise HTTPException(404, "PROJECT_NOT_FOUND")
+        projects = [project for project in projects if project.id == project_id]
+    empty_allowed = not projects and _is_cycle_manager(context)
+    scopes = {}
+    visible = []
+    if context.management_role:
+        from app.performance.management_scope import management_projects
+        scoped = replace(context, management_project_id=project_id if isinstance(project_id, int) else context.management_project_id)
+        permitted = await management_projects(cycle_id, scoped, db, ("performance.frontend.data-view",))
+        scopes = {project.id: scope for project, scope in permitted}
+        visible = [project for project, _scope in permitted]
+    elif result_kind is not None:
+        from app.performance.result_view_scope import resolve_result_view_scope
+        result_scope = await resolve_result_view_scope(db, context, cycle_id=cycle_id, kind=result_kind)
+        if not result_scope.employee_nos:
+            raise HTTPException(403, "RESULT_VIEW_FORBIDDEN")
+        scopes, visible = result_scope.scopes, result_scope.projects
+    else:
+        for project in projects:
+            try:
+                scopes[project.id] = await _project_data_scope(context, project, db, "performance.frontend.data-view")
+            except HTTPException as exc:
+                if exc.status_code != 403:
+                    raise
+                continue
+            visible.append(project)
+    if isinstance(project_id, int):
+        visible = [project for project in visible if project.id == project_id]
+    if not visible and not empty_allowed:
+        raise HTTPException(404, "CYCLE_NOT_FOUND")
+    return cycle, visible, scopes
+
+
+def _merge_report_indicators(target, incoming):
+    for item in incoming:
+        previous = next((value for value in target if value["key"] == item["key"]), None)
+        if previous is not None and previous["label"] != item["label"]:
+            raise HTTPException(409, "INDICATOR_SEMANTICS_CONFLICT")
+        if previous is None:
+            target.append(item)
+
+
+def _report_heat(count, total):
+    return 0 if not count or not total else 3 if count / total > 0.4 else 2 if count / total > 0.3 else 1
+
+
 @router.get("/project-management/statistics", response_model=ProjectStatisticsReportResponse)
 async def project_management_statistics(
     cycle_id: int = Query(..., ge=1),
@@ -6300,50 +6418,15 @@ async def project_management_statistics(
     db: AsyncSession = Depends(get_session),
     result_kind: Literal["team", "focus"] | None = Query(default=None),
     project_id: int | None = None,
+    indicator_key: str | None = None,
 ):
-    result_kind = result_kind if result_kind in {"team", "focus"} else None
-    if context.management_role and result_kind is not None:
-        raise HTTPException(422, "MANAGEMENT_RESULT_SCOPE_CONFLICT")
-    cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.id == cycle_id))
-    if cycle is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
-    projects = list((await db.execute(select(PerformanceProject).where(
-        PerformanceProject.cycle_ref == cycle.cycle_ref,
-        PerformanceProject.status == PROJECT_STATUS_STARTED,
-    ).order_by(PerformanceProject.id))).scalars().all())
-    if isinstance(project_id, int):
-        selected_project = await db.get(PerformanceProject, project_id)
-        if selected_project is None or selected_project.cycle_ref != cycle.cycle_ref:
-            raise HTTPException(404, "PROJECT_NOT_FOUND")
-        projects = [project for project in projects if project.id == project_id]
-    empty_cycle_allowed = not projects and _is_cycle_manager(context)
-    scopes = {}
-    visible_projects = []
-    if context.management_role:
-        from app.performance.management_scope import management_projects
-        scoped_context = replace(context, management_project_id=project_id if isinstance(project_id, int) else context.management_project_id)
-        permitted = await management_projects(cycle_id, scoped_context, db, ("performance.frontend.data-view",))
-        scopes = {project.id: scope for project, scope in permitted}
-        visible_projects = [project for project, _scope in permitted]
-    elif result_kind is not None:
-        from app.performance.result_view_scope import resolve_result_view_scope
-        result_scope = await resolve_result_view_scope(db, context, cycle_id=cycle_id, kind=result_kind)
-        if not result_scope.employee_nos:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="RESULT_VIEW_FORBIDDEN")
-        scopes = result_scope.scopes
-        visible_projects = result_scope.projects
-    else:
-        for project in projects:
-            try:
-                scopes[project.id] = await _project_data_scope(context, project, db, "performance.frontend.data-view")
-            except HTTPException as exc:
-                if exc.status_code != status.HTTP_403_FORBIDDEN:
-                    raise
-                continue
-            visible_projects.append(project)
-    projects = visible_projects
-    if not projects and not empty_cycle_allowed:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
+    cycle, projects, scopes = await _report_project_scope(cycle_id, context, db, result_kind, project_id)
+    indicators = []
+    for project in projects:
+        _merge_report_indicators(indicators, await _project_report_indicators(project, db))
+    selected_indicator = next((item for item in indicators if item["key"] == indicator_key), None) if indicator_key else next(iter(indicators), None)
+    if indicator_key is not None and selected_indicator is None:
+        raise HTTPException(422, "INVALID_INDICATOR_KEY")
 
     rows: dict[tuple[str, ...], dict[str, int]] = {}
     if dimension == "tenure":
@@ -6367,6 +6450,7 @@ async def project_management_statistics(
         employee_nos.update(project_employee_nos)
         project_ratings, final_values, scales = await _project_final_ratings(
             project, project_employee_nos, db, member_snapshot_id=snapshot_id,
+            indicator_key=selected_indicator["key"] if selected_indicator else None,
         )
         for scale in scales:
             if rating_scale is not None and scale != rating_scale:
@@ -6398,9 +6482,7 @@ async def project_management_statistics(
     def row_heat_levels(counts: dict[str, int]) -> dict[str, int]:
         total = sum(counts.values())
         return {
-            key: 3 if total > 0 and counts.get(key, 0) / total > 0.4
-            else 2 if total > 0 and counts.get(key, 0) / total > 0.3
-            else 1 if counts.get(key, 0) > 0 else 0
+            key: _report_heat(counts.get(key, 0), total)
             for key in keys
         }
 
@@ -6432,13 +6514,14 @@ async def project_management_statistics(
     distribution = {key: sum(counts.get(key, 0) for _path, counts in leaf_rows) for key in keys}
     evaluated_total = sum(distribution.values())
     heat_levels = {
-        key: 3 if evaluated_total > 0 and distribution[key] / evaluated_total > 0.4
-        else 2 if evaluated_total > 0 and distribution[key] / evaluated_total > 0.3
-        else 1 if distribution[key] > 0 else 0
+        key: _report_heat(distribution[key], evaluated_total)
         for key in keys
     }
     return ProjectStatisticsReportResponse(
         source="api",
+        indicators=indicators,
+        indicatorKey=selected_indicator["key"] if selected_indicator else None,
+        indicatorLabel=selected_indicator["label"] if selected_indicator else None,
         dimension=dimension,
         rowLabel=row_label,
         showSummary=True,
@@ -6450,62 +6533,12 @@ async def project_management_statistics(
     )
 
 
-@router.get("/project-management/self-final-comparison", response_model=ProjectSelfFinalComparisonResponse)
-async def project_management_self_final_comparison(
-    cycle_id: int = Query(..., ge=1),
-    context: PerformanceAccessContext = Depends(get_performance_access_context),
-    db: AsyncSession = Depends(get_session),
-    result_kind: Literal["team", "focus"] | None = Query(default=None),
-    project_id: int | None = None,
-):
-    result_kind = result_kind if result_kind in {"team", "focus"} else None
-    if context.management_role and result_kind is not None:
-        raise HTTPException(422, "MANAGEMENT_RESULT_SCOPE_CONFLICT")
-    cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.id == cycle_id))
-    if cycle is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
-    projects = list((await db.execute(select(PerformanceProject).where(
-        PerformanceProject.cycle_ref == cycle.cycle_ref,
-        PerformanceProject.status == PROJECT_STATUS_STARTED,
-    ).order_by(PerformanceProject.id))).scalars().all())
-    if isinstance(project_id, int):
-        selected_project = await db.get(PerformanceProject, project_id)
-        if selected_project is None or selected_project.cycle_ref != cycle.cycle_ref:
-            raise HTTPException(404, "PROJECT_NOT_FOUND")
-        projects = [project for project in projects if project.id == project_id]
-    empty_cycle_allowed = not projects and _is_cycle_manager(context)
-    scopes = {}
-    visible_projects = []
-    if context.management_role:
-        from app.performance.management_scope import management_projects
-        scoped_context = replace(context, management_project_id=project_id if isinstance(project_id, int) else context.management_project_id)
-        permitted = await management_projects(cycle_id, scoped_context, db, ("performance.frontend.data-view",))
-        scopes = {project.id: scope for project, scope in permitted}
-        visible_projects = [project for project, _scope in permitted]
-    elif result_kind is not None:
-        from app.performance.result_view_scope import resolve_result_view_scope
-        result_scope = await resolve_result_view_scope(db, context, cycle_id=cycle_id, kind=result_kind)
-        if not result_scope.employee_nos:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="RESULT_VIEW_FORBIDDEN")
-        scopes = result_scope.scopes
-        visible_projects = result_scope.projects
-    else:
-        for project in projects:
-            try:
-                scopes[project.id] = await _project_data_scope(context, project, db, "performance.frontend.data-view")
-            except HTTPException as exc:
-                if exc.status_code != status.HTTP_403_FORBIDDEN:
-                    raise
-                continue
-            visible_projects.append(project)
-    projects = visible_projects
-    if not projects and not empty_cycle_allowed:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
-
-    all_self_ratings: list[dict] = []
-    all_final_ratings: list[dict] = []
-    self_final: dict[str, tuple[dict, dict]] = {}
-    employee_nos = set()
+async def _report_comparison_axis(projects, scopes, db, *, self_only=False, legacy=False):
+    options = []
+    for project in projects:
+        _merge_report_indicators(options, await _project_report_indicators(project, db, self_only=self_only))
+    axes = {item["key"]: {**item, "ratings": [], "values": {}, "scale": None} for item in options}
+    employees = set()
     for project in projects:
         snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
         if snapshot_id is None:
@@ -6514,53 +6547,128 @@ async def project_management_self_final_comparison(
             PerformanceProjectMember.snapshot_id == snapshot_id,
         ))).scalars().all())
         scope = scopes[project.id]
-        if scope is not None:
-            members = [member for member in members if member.employee_no in scope]
-        project_employee_nos = {member.employee_no for member in members}
-        if employee_nos.intersection(project_employee_nos):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CYCLE_MEMBER_OVERLAP_UNRESOLVED")
-        employee_nos.update(project_employee_nos)
-        self_ratings, self_values, _ = await _project_self_ratings(
-            project, project_employee_nos, db, member_snapshot_id=snapshot_id,
-        )
-        final_ratings, final_values, _ = await _project_final_ratings(
-            project, project_employee_nos, db, member_snapshot_id=snapshot_id,
-        )
-        for rating in self_ratings:
-            if not any(item["key"] == rating["key"] for item in all_self_ratings):
-                all_self_ratings.append(rating)
-        for rating in final_ratings:
-            if not any(item["key"] == rating["key"] for item in all_final_ratings):
-                all_final_ratings.append(rating)
-        for employee_no in project_employee_nos:
-            self_selected = self_values.get(employee_no)
-            final_selected = final_values.get(employee_no)
-            if self_selected is None or final_selected is None:
+        project_employees = {member.employee_no for member in members if scope is None or member.employee_no in scope}
+        if employees.intersection(project_employees):
+            raise HTTPException(409, "CYCLE_MEMBER_OVERLAP_UNRESOLVED")
+        employees.update(project_employees)
+        loader = _project_self_ratings if self_only else _project_final_ratings
+        for key in axes or ([None] if legacy else []):
+            kwargs = {"member_snapshot_id": snapshot_id}
+            if key is not None:
+                kwargs["indicator_key"] = key
+            ratings, values, scales = await loader(project, project_employees, db, **kwargs)
+            if key is None:
                 continue
-            self_final[employee_no] = (self_selected[3], final_selected[3])
+            axis = axes[key]
+            for scale in scales:
+                if axis["scale"] is not None and axis["scale"] != scale:
+                    raise HTTPException(409, "RATING_SCALE_CONFLICT")
+                axis["scale"] = scale
+            if ratings and not axis["ratings"]:
+                axis["ratings"] = ratings
+            axis["values"].update({employee: selected[3]["key"] for employee, selected in values.items() if employee in project_employees})
+    return options, axes
 
-    if not all_self_ratings:
-        all_self_ratings = list(all_final_ratings)
-    if not all_final_ratings:
-        all_final_ratings = list(all_self_ratings)
-    self_keys = [rating["key"] for rating in all_self_ratings]
-    final_keys = [rating["key"] for rating in all_final_ratings]
-    self_index = {key: index for index, key in enumerate(self_keys)}
-    final_index = {key: index for index, key in enumerate(final_keys)}
-    counts = [[0] * len(final_keys) for _ in self_keys]
-    for self_rating, final_rating in self_final.values():
-        counts[self_index[self_rating["key"]]][final_index[final_rating["key"]]] += 1
-    total = sum(sum(row) for row in counts)
-    heat_levels = [
-        [3 if count >= 30 else 2 if count >= 15 else 1 if count > 0 else 0 for count in row]
-        for row in counts
-    ]
+
+def _report_choose_axis(options, axes, key):
+    if key is not None and key not in axes:
+        raise HTTPException(422, "INVALID_COMPARISON_KEY")
+    return axes.get(key or (options[0]["key"] if options else None))
+
+
+def _report_comparison_response(x, y, x_options, y_options, *, history_cycles=None, history_id=None, empty_reason=None):
+    x_ratings = x["ratings"] if x else []
+    y_ratings = y["ratings"] if y else []
+    counts = [[0] * len(x_ratings) for _ in y_ratings]
+    x_index = {item["key"]: index for index, item in enumerate(x_ratings)}
+    y_index = {item["key"]: index for index, item in enumerate(y_ratings)}
+    if x and y:
+        for employee in x["values"].keys() & y["values"].keys():
+            x_value, y_value = x["values"][employee], y["values"][employee]
+            if x_value in x_index and y_value in y_index:
+                counts[y_index[y_value]][x_index[x_value]] += 1
+    total = sum(map(sum, counts))
     return ProjectSelfFinalComparisonResponse(
-        source="api",
-        total=total,
-        ratings=[MatrixRatingResponse(**rating) for rating in all_self_ratings],
-        counts=counts,
-        heatLevels=heat_levels,
+        source="api", total=total, ratings=x_ratings, counts=counts,
+        heatLevels=[[_report_heat(count, total) for count in row] for row in counts],
+        xRatings=x_ratings, yRatings=y_ratings, xOptions=x_options, yOptions=y_options,
+        xKey=x["key"] if x else None, yKey=y["key"] if y else None,
+        xLabel=x["label"] if x else None, yLabel=y["label"] if y else None,
+        historyCycles=history_cycles or [], historyCycleId=history_id, emptyReason=empty_reason,
+    )
+
+
+@router.get("/project-management/comparison", response_model=ProjectSelfFinalComparisonResponse)
+async def project_management_comparison(
+    cycle_id: int = Query(..., ge=1),
+    kind: Literal["self-final", "dimension", "history"] = Query(...),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+    result_kind: Literal["team", "focus"] | None = Query(default=None),
+    project_id: int | None = None,
+    x_key: str | None = None,
+    y_key: str | None = None,
+    history_cycle_id: int | None = None,
+):
+    cycle, projects, scopes = await _report_project_scope(cycle_id, context, db, result_kind, project_id)
+    y_options, y_axes = await _report_comparison_axis(projects, scopes, db)
+    if kind == "dimension":
+        x = _report_choose_axis(y_options, y_axes, x_key)
+        candidates = [item for item in y_options if x is None or item["key"] != x["key"]]
+        y = _report_choose_axis(candidates, {item["key"]: y_axes[item["key"]] for item in candidates}, y_key)
+        return _report_comparison_response(
+            x, y, [item for item in y_options if y is None or item["key"] != y["key"]], candidates,
+            empty_reason="INSUFFICIENT_DIMENSIONS" if len(y_options) < 2 else None,
+        )
+    y = _report_choose_axis(y_options, y_axes, y_key)
+    if kind == "self-final":
+        x_options, x_axes = await _report_comparison_axis(projects, scopes, db, self_only=True)
+        return _report_comparison_response(_report_choose_axis(x_options, x_axes, x_key), y, x_options, y_options)
+    historical_context = replace(context, management_project_id=None, management_cycle_id=None)
+    candidates = list((await db.execute(select(PerformanceCycle).where(
+        PerformanceCycle.start_at < cycle.start_at,
+        PerformanceCycle.start_at <= datetime.now(UTC),
+    ).order_by(PerformanceCycle.start_at.desc(), PerformanceCycle.id.desc()))).scalars().all())
+    history = []
+    permitted = {}
+    for previous in candidates:
+        try:
+            _, previous_projects, previous_scopes = await _report_project_scope(previous.id, historical_context, db, result_kind)
+        except HTTPException as exc:
+            if exc.status_code not in {403, 404}:
+                raise
+            continue
+        if previous_projects:
+            history.append({"id": previous.id, "name": previous.name})
+            permitted[previous.id] = previous_projects, previous_scopes
+    if history_cycle_id is not None and history_cycle_id not in permitted:
+        raise HTTPException(422, "INVALID_HISTORY_CYCLE")
+    selected_history = history_cycle_id if history_cycle_id is not None else (history[0]["id"] if history else None)
+    if selected_history is None:
+        if x_key is not None:
+            raise HTTPException(422, "INVALID_COMPARISON_KEY")
+        return _report_comparison_response(None, y, [], y_options, empty_reason="NO_HISTORY")
+    previous_projects, previous_scopes = permitted[selected_history]
+    x_options, x_axes = await _report_comparison_axis(previous_projects, previous_scopes, db)
+    return _report_comparison_response(
+        _report_choose_axis(x_options, x_axes, x_key), y, x_options, y_options,
+        history_cycles=history, history_id=selected_history,
+    )
+
+
+@router.get("/project-management/self-final-comparison", response_model=ProjectSelfFinalComparisonResponse)
+async def project_management_self_final_comparison(
+    cycle_id: int = Query(..., ge=1),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+    result_kind: Literal["team", "focus"] | None = Query(default=None),
+    project_id: int | None = None,
+):
+    _, projects, scopes = await _report_project_scope(cycle_id, context, db, result_kind, project_id)
+    x_options, x_axes = await _report_comparison_axis(projects, scopes, db, self_only=True, legacy=True)
+    y_options, y_axes = await _report_comparison_axis(projects, scopes, db, legacy=True)
+    return _report_comparison_response(
+        _report_choose_axis(x_options, x_axes, None), _report_choose_axis(y_options, y_axes, None), x_options, y_options,
     )
 
 
@@ -6571,7 +6679,7 @@ def _statistics_paths(member: PerformanceProjectMember, dimension: str) -> list[
         path = tuple(part for part in parts if part)
         return [path[:depth] for depth in range(1, len(path) + 1)] if path else [("--",)]
     if dimension == "sequence":
-        parts = [str(getattr(member, key) or "").strip() for key in ("company_org", "job_family", "standard_position")]
+        parts = [str(getattr(member, key, None) or "").strip() for key in ("bu", "job_family", "standard_position")]
         path = tuple(part for part in parts if part)
         return [path[:depth] for depth in range(1, len(path) + 1)] if path else [("--",)]
     if dimension == "tenure":
@@ -7768,6 +7876,7 @@ async def add_project_reviewee(
         employee_no=person.employee_no,
         portal_user_id=person.portal_user_id,
         display_name=person.display_name,
+        bu=getattr(person, "bu", None),
         **{field: getattr(person, field) for field in ORGANIZATION_FIELDS},
         organization_ref=organization_path(person),
         direct_supervisor_employee_no=person.direct_supervisor_employee_no,

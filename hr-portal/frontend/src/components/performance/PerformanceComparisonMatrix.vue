@@ -3,43 +3,25 @@
     <div class="comparison-table-shell">
       <div class="comparison-axis comparison-axis-y">
         <div class="comparison-corner" aria-hidden="true" />
-        <div class="y-axis-body">
-          <PerformanceComparisonDimensionSelector v-model="rowDimension" axis="y" label-prefix="终评：" :options="rowDimensionOptions" />
-          <div class="row-labels">
-            <div v-for="row in rows" :key="row.value" class="row-label">
-              <PerformanceRatingTag :label="row.label" :color="row.color" />
-            </div>
-          </div>
+        <div class="y-axis-body" :style="bodyStyle">
+          <PerformanceComparisonDimensionSelector :model-value="selectedRow" axis="y" :label-prefix="rowLabelPrefix" :options="rowDimensionOptions" @update:model-value="changeDimension('y', $event)" />
+          <div class="row-labels"><div v-for="row in rows" :key="row.value" class="row-label"><PerformanceRatingTag :label="row.label" :color="row.color" /></div></div>
         </div>
       </div>
-      <div class="comparison-axis comparison-axis-x">
-        <PerformanceComparisonDimensionSelector v-model="columnDimension" axis="x" label-prefix="自评：" :options="columnDimensionOptions" />
-        <div class="column-labels">
-          <div v-for="column in columns" :key="column.value" class="column-label">
-            <PerformanceRatingTag :label="column.label" :color="column.color" />
-          </div>
-        </div>
-        <div class="matrix-body">
-          <div class="matrix-grid">
-            <template v-for="(row, rowIndex) in cells" :key="rows[rowIndex]?.value || rowIndex">
-              <PerformanceComparisonCell
-                v-for="(cell, columnIndex) in row"
-                :key="`${rowIndex}-${columnIndex}`"
-                :count="cell.count"
-                :percent="percent(cell.count)"
-                :heat-level="cell.heatLevel"
-                :label="cellLabel(rowIndex, columnIndex, cell.count)"
-              />
+      <div class="comparison-axis comparison-axis-x" :style="{ minWidth: `${Math.max(1, columns.length) * 132}px` }">
+        <PerformanceComparisonDimensionSelector :model-value="selectedColumn" axis="x" :label-prefix="columnLabelPrefix" :options="columnDimensionOptions" @update:model-value="changeDimension('x', $event)" />
+        <div class="column-labels" :style="gridStyle"><div v-for="column in columns" :key="column.value" class="column-label"><PerformanceRatingTag :label="column.label" :color="column.color" /></div></div>
+        <div class="matrix-body" :style="bodyStyle">
+          <div class="matrix-grid" :style="gridStyle">
+            <template v-for="(row, rowIndex) in rows" :key="row.value">
+              <div v-for="(column, columnIndex) in columns" :key="column.value" class="performance-comparison-cell" :class="heatClass(rowIndex, columnIndex)" :aria-label="cellLabel(rowIndex, columnIndex)" @click="emit('cell', { rowKey: row.value, columnKey: column.value, count: cellAt(rowIndex, columnIndex).count })">
+                <template v-if="cellAt(rowIndex, columnIndex).count > 0"><span>{{ percent(cellAt(rowIndex, columnIndex).count) }}%</span><span>{{ cellAt(rowIndex, columnIndex).count }}</span></template>
+                <span v-else class="performance-comparison-cell__zero">--</span>
+              </div>
             </template>
           </div>
-          <div
-            v-for="(area, index) in focusAreas"
-            :key="`${area.side}-${index}`"
-            class="focus-area"
-            :class="`focus-area-${area.side}`"
-            :style="focusStyle(area)"
-            aria-hidden="true"
-          />
+          <div v-if="empty" class="comparison-empty" role="status"><MetricTemplateEmptyIllustration /><span>暂无统计数据</span></div>
+          <template v-else><div v-for="(area, index) in focusAreas" :key="`${area.side}-${index}`" class="focus-area" :class="`focus-area-${area.side}`" :style="focusStyle(area)" aria-hidden="true" /></template>
         </div>
       </div>
     </div>
@@ -47,49 +29,61 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import PerformanceComparisonCell from './PerformanceComparisonCell.vue'
+import { computed } from 'vue'
 import PerformanceComparisonDimensionSelector from './PerformanceComparisonDimensionSelector.vue'
 import PerformanceRatingTag from './PerformanceRatingTag.vue'
+import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.vue'
 import { reportPercent } from './projectStatisticsReport'
 import type { PerformanceComparisonCellData, PerformanceComparisonFocusArea, PerformanceComparisonOption } from './performanceComparison'
-
 const props = withDefaults(defineProps<{
-  rows: PerformanceComparisonOption[]
-  columns: PerformanceComparisonOption[]
-  cells: PerformanceComparisonCellData[][]
-  denominator: number
-  rowDimensionOptions: PerformanceComparisonOption[]
-  columnDimensionOptions: PerformanceComparisonOption[]
-  focusAreas?: PerformanceComparisonFocusArea[]
-}>(), { focusAreas: () => [] })
-
-const rowDimension = ref(props.rowDimensionOptions[0]?.value || '')
-const columnDimension = ref(props.columnDimensionOptions[0]?.value || '')
-const focusAreas = computed(() => props.focusAreas || [])
+  rows: PerformanceComparisonOption[]; columns: PerformanceComparisonOption[]; cells: PerformanceComparisonCellData[][]; denominator: number
+  rowDimensionOptions: PerformanceComparisonOption[]; columnDimensionOptions: PerformanceComparisonOption[]
+  rowDimension?: string; columnDimension?: string; rowLabelPrefix?: string; columnLabelPrefix?: string; focusAreas?: PerformanceComparisonFocusArea[]
+}>(), { focusAreas: () => [], rowLabelPrefix: '终评：', columnLabelPrefix: '自评：' })
+const emit = defineEmits<{
+  'update:rowDimension': [key: string]; 'update:columnDimension': [key: string]; 'dimension-change': [axis: 'x' | 'y', key: string]
+  cell: [cell: { rowKey: string; columnKey: string; count: number }]
+}>()
+const selectedRow = computed(() => props.rowDimension ?? props.rowDimensionOptions[0]?.value ?? '')
+const selectedColumn = computed(() => props.columnDimension ?? props.columnDimensionOptions[0]?.value ?? '')
+function changeDimension(axis: 'x' | 'y', key: string) {
+  if (axis === 'x') emit('update:columnDimension', key)
+  else emit('update:rowDimension', key)
+  emit('dimension-change', axis, key)
+}
+const gridStyle = computed(() => ({ gridTemplateColumns: `repeat(${Math.max(1, props.columns.length)}, minmax(132px, 1fr))` }))
+const bodyStyle = computed(() => ({ height: `${Math.max(empty.value ? 3 : 1, props.rows.length) * 55}px` }))
+const empty = computed(() => !props.cells.some(row => row.some(cell => cell.count > 0)))
+const cellAt = (row: number, column: number): PerformanceComparisonCellData => props.cells[row]?.[column] ?? { count: 0 }
+const heatClass = (row: number, column: number) => { const cell = cellAt(row, column); return cell.count > 0 && cell.heatLevel ? `heat-${cell.heatLevel}` : '' }
 const percent = (count: number) => reportPercent(count, props.denominator)
-const cellLabel = (rowIndex: number, columnIndex: number, count: number) => `${props.rows[rowIndex]?.label || ''}，${props.columns[columnIndex]?.label || ''}，${count ? `${percent(count)}%，${count}人` : '无数据'}`
+const cellLabel = (row: number, column: number) => `${props.rows[row]?.label || ''}，${props.columns[column]?.label || ''}，${cellAt(row, column).count ? `${percent(cellAt(row, column).count)}%，${cellAt(row, column).count}人` : '无数据'}`
 const focusStyle = (area: PerformanceComparisonFocusArea) => ({
-  top: `${(area.rowStart - 1) * 55}px`,
-  height: `${area.rowSpan * 55 - 1}px`,
-  width: `calc(${area.columnSpan * 100}% / ${props.columns.length})`,
+  top: `${Math.max(0, area.rowStart - 1) * 55}px`,
+  height: `${Math.max(0, Math.min(area.rowSpan, props.rows.length - area.rowStart + 1)) * 55 - 1}px`,
+  width: `${Math.min(area.columnSpan, props.columns.length) / Math.max(1, props.columns.length) * 100}%`,
 })
 </script>
 
 <style scoped>
 .performance-comparison-matrix { position: relative; min-width: 0; }
-.comparison-table-shell { display: flex; width: 100%; min-width: 0; height: 488px; overflow-x: auto; border-top: 1px solid #dee0e3; }
+.comparison-table-shell { display: flex; width: 100%; min-width: 0; overflow-x: auto; border-top: 1px solid #dee0e3; }
 .comparison-axis-y { position: relative; flex: 0 0 122px; width: 122px; border-right: 1px solid #dee0e3; }
 .comparison-corner { height: 102px; border-bottom: 1px solid #dee0e3; background: #f8f9fa; box-sizing: border-box; }
-.y-axis-body { position: relative; display: flex; height: 385px; background: #f8f9fa; }
-.row-labels { position: absolute; top: 0; right: 0; left: 44px; height: 385px; border-left: 1px solid #dee0e3; }
-.row-label { display: flex; align-items: center; justify-content: flex-start; height: 55px; padding-left: 12px; border-bottom: 1px solid #eff0f1; box-sizing: border-box; }
-.comparison-axis-x { position: relative; flex: 1 1 auto; min-width: 0; overflow: visible; }
-.column-labels { display: grid; grid-template-columns: repeat(7, minmax(132px, 1fr)); height: 54px; border-bottom: 1px solid #dee0e3; }
+.y-axis-body { position: relative; display: flex; background: #f8f9fa; }
+.row-labels { position: absolute; inset: 0 0 0 44px; border-left: 1px solid #dee0e3; }
+.row-label { display: flex; align-items: center; height: 55px; padding-left: 12px; border-bottom: 1px solid #eff0f1; box-sizing: border-box; }
+.comparison-axis-x { position: relative; flex: 1 0 0; }
+.column-labels { display: grid; height: 54px; border-bottom: 1px solid #dee0e3; box-sizing: border-box; }
 .column-label { display: flex; align-items: center; justify-content: flex-end; padding: 15px 12px; box-sizing: border-box; }
-.matrix-body { position: relative; min-width: 924px; height: 385px; overflow: hidden; }
-.matrix-grid { position: relative; z-index: 0; display: grid; grid-template-columns: repeat(7, minmax(132px, 1fr)); grid-template-rows: repeat(7, 55px); width: 100%; height: 385px; }
-.focus-area { position: absolute; z-index: 2; pointer-events: none; border: 1px solid #ffb34d; border-radius: 4px; box-sizing: border-box; background: repeating-linear-gradient(135deg, rgba(255, 179, 77, .05) 0 2px, rgba(255, 179, 77, .38) 2px 3px, rgba(255, 179, 77, .05) 3px 6px); }
-.focus-area-left { left: 0; }
-.focus-area-right { right: 0; }
+.matrix-body { position: relative; overflow: hidden; }
+.matrix-grid { display: grid; grid-auto-rows: 55px; width: 100%; }
+.performance-comparison-cell { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; height: 55px; padding: 5px 12px; border-bottom: 1px solid #eff0f1; box-sizing: border-box; color: #133c9a; font-variant-numeric: tabular-nums; line-height: 22px; }
+.heat-1 { background: #e1eaff; }.heat-2 { background: #bacefd; }.heat-3 { background: #82a7fc; color: #fff; }
+.heat-1:hover, .heat-2:hover, .heat-3:hover { background: #bacefd; }
+.performance-comparison-cell__zero { color: #8f959e; }
+.comparison-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #8f959e; pointer-events: none; }
+.comparison-empty :deep(svg) { max-width: 80%; height: 110px; }
+.focus-area { position: absolute; z-index: 2; pointer-events: none; border: 1px solid #ffb34d; border-radius: 4px; box-sizing: border-box; background: repeating-linear-gradient(135deg, rgba(255,179,77,.05) 0 2px, rgba(255,179,77,.38) 2px 3px, rgba(255,179,77,.05) 3px 6px); }
+.focus-area-left { left: 0; }.focus-area-right { right: 0; }
 </style>

@@ -54,6 +54,7 @@ export function useProjectReportNavigation(root: Ref<HTMLElement | null>) {
     for (let el = root.value?.parentElement; el; el = el.parentElement) {
       if (/(auto|scroll)/.test(getComputedStyle(el).overflowY)) { scroller = el; break }
     }
+    if (scroller && root.value) root.value.dataset.reportScroll = 'true'
     scroller?.addEventListener('scroll', schedule, { passive: true })
     window.addEventListener('resize', schedule)
     if (typeof ResizeObserver !== 'undefined') observer = new ResizeObserver(schedule)

@@ -1147,6 +1147,16 @@ export interface ProjectStatisticsReport {
   distribution: Record<string, number>
   heatLevels?: Record<string, 1 | 2 | 3>
   departments: Array<{ id: string; name: string; counts: Record<string, number>; heatLevels?: Record<string, 1 | 2 | 3>; children?: never[] }>
+  indicators?: Array<{ key: string; label: string }>
+  indicatorKey?: string
+  indicatorLabel?: string
+}
+
+export interface ProjectReportComparisonQuery {
+  kind: 'self-final' | 'dimension' | 'history'
+  xKey?: string
+  yKey?: string
+  historyCycleId?: number
 }
 
 export interface ProjectReportComparisonData {
@@ -1155,6 +1165,17 @@ export interface ProjectReportComparisonData {
   ratings: ProjectMatrixRating[]
   counts: number[][]
   heatLevels: number[][]
+  xRatings?: ProjectMatrixRating[]
+  yRatings?: ProjectMatrixRating[]
+  xOptions?: Array<{ key: string; label: string }>
+  yOptions?: Array<{ key: string; label: string }>
+  xKey?: string
+  yKey?: string
+  xLabel?: string
+  yLabel?: string
+  historyCycles?: Array<{ id: number; name: string }>
+  historyCycleId?: number | null
+  emptyReason?: string | null
 }
 
 export interface PerformanceResultOpeningPerson {
@@ -1218,8 +1239,12 @@ export const resultViewApi = {
     const { data } = await api.get<PerformanceManagementDetail>(`/performance/result-views/${kind}/projects/${projectId}/members/${encodeURIComponent(employeeNo)}/detail`, { params: { cycle_id: cycleId, root_review_id: rootReviewId, ...(activeTab !== undefined ? { view: 'drawer', ...(activeTab ? { tab: activeTab } : {}) } : {}) } })
     return data
   },
-  async statistics(kind: 'team' | 'focus', cycleId: number, dimension: 'department' | 'team' | 'sequence' | 'level' | 'tenure' = 'department'): Promise<ProjectStatisticsReport> {
-    const { data } = await api.get<ProjectStatisticsReport>('/performance/project-management/statistics', { params: { cycle_id: cycleId, dimension, result_kind: kind } })
+  async statistics(kind: 'team' | 'focus', cycleId: number, dimension: 'department' | 'team' | 'sequence' | 'level' | 'tenure' = 'department', indicatorKey?: string): Promise<ProjectStatisticsReport> {
+    const { data } = await api.get<ProjectStatisticsReport>('/performance/project-management/statistics', { params: { cycle_id: cycleId, dimension, result_kind: kind, ...(indicatorKey ? { indicator_key: indicatorKey } : {}) } })
+    return data
+  },
+  async comparison(kind: 'team' | 'focus', cycleId: number, query: ProjectReportComparisonQuery): Promise<ProjectReportComparisonData> {
+    const { data } = await api.get<ProjectReportComparisonData>('/performance/project-management/comparison', { params: { cycle_id: cycleId, result_kind: kind, kind: query.kind, ...(query.xKey ? { x_key: query.xKey } : {}), ...(query.yKey ? { y_key: query.yKey } : {}), ...(query.historyCycleId ? { history_cycle_id: query.historyCycleId } : {}) } })
     return data
   },
   async selfFinalComparison(kind: 'team' | 'focus', cycleId: number): Promise<ProjectReportComparisonData> {
@@ -1389,8 +1414,12 @@ export const projectManagementApi = {
     const { data } = await api.post(`/performance/projects/${encodeURIComponent(String(projectId))}/result-reconsiderations/withdraw`, { version })
     return data
   },
-  async levelStatistics(cycleId: number, dimension: 'department' | 'team' | 'sequence' | 'level' | 'tenure' = 'level', scope?: PerformanceManagementScope): Promise<ProjectStatisticsReport> {
-    const { data } = await api.get<ProjectStatisticsReport>('/performance/project-management/statistics', { params: { cycle_id: cycleId, dimension, ...scope } })
+  async levelStatistics(cycleId: number, dimension: 'department' | 'team' | 'sequence' | 'level' | 'tenure' = 'level', scope?: PerformanceManagementScope, indicatorKey?: string): Promise<ProjectStatisticsReport> {
+    const { data } = await api.get<ProjectStatisticsReport>('/performance/project-management/statistics', { params: { cycle_id: cycleId, dimension, ...scope, ...(indicatorKey ? { indicator_key: indicatorKey } : {}) } })
+    return data
+  },
+  async comparison(cycleId: number, query: ProjectReportComparisonQuery, scope?: PerformanceManagementScope): Promise<ProjectReportComparisonData> {
+    const { data } = await api.get<ProjectReportComparisonData>('/performance/project-management/comparison', { params: { cycle_id: cycleId, ...scope, kind: query.kind, ...(query.xKey ? { x_key: query.xKey } : {}), ...(query.yKey ? { y_key: query.yKey } : {}), ...(query.historyCycleId ? { history_cycle_id: query.historyCycleId } : {}) } })
     return data
   },
   async selfFinalComparison(cycleId: number, scope?: PerformanceManagementScope): Promise<ProjectReportComparisonData> {

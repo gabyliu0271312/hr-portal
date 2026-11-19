@@ -57,6 +57,7 @@ PERSON_INFO_UPDATE_DIMENSIONS = ("job_family", "position_level", "direct_supervi
 PERSON_INFO_FIELD_LABELS = {
     "display_name": "姓名",
     "company_org": "一级组织",
+    "bu": "BU",
     "department": "一级部门",
     "department_2": "二级部门",
     "department_3": "三级部门",
@@ -233,6 +234,7 @@ class PerformanceCycleService:
             {
                 "employee_no": person.employee_no,
                 "display_name": person.display_name,
+                "bu": person.bu,
                 **{field: getattr(person, field) for field in ORGANIZATION_FIELDS},
                 "organization_ref": person.organization_ref,
                 "direct_supervisor_employee_no": person.direct_supervisor_employee_no,
@@ -447,7 +449,7 @@ class PerformanceCycleService:
         if snapshot is None:
             return {}
         people = (await self.db.execute(select(PerformanceAuthorizationSnapshotPerson).where(PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.id))).scalars().all()
-        fields = ("display_name", *ORGANIZATION_FIELDS, "organization_ref", "direct_supervisor_employee_no", "hrbp_employee_no", "employee_type", "employment_status", "job_family", "job_category", "standard_position", "position_level", "hire_date", "departure_date", "is_manually_maintained")
+        fields = ("display_name", "bu", *ORGANIZATION_FIELDS, "organization_ref", "direct_supervisor_employee_no", "hrbp_employee_no", "employee_type", "employment_status", "job_family", "job_category", "standard_position", "position_level", "hire_date", "departure_date", "is_manually_maintained")
         return {person.employee_no: {field: getattr(person, field).isoformat() if isinstance(getattr(person, field), date) else getattr(person, field) for field in fields} for person in people}
 
     @staticmethod
@@ -499,7 +501,7 @@ class PerformanceCycleService:
             person = people.get(employee_no)
             if person is None:
                 raise CycleValidationError(f"周期快照中不存在员工：{employee_no}")
-            before = {field: getattr(person, field) for field in ("display_name", *ORGANIZATION_FIELDS, "direct_supervisor_employee_no", "hrbp_employee_no", "employee_type", "job_family", "job_category", "standard_position", "position_level", "hire_date")}
+            before = {field: getattr(person, field) for field in ("display_name", "bu", *ORGANIZATION_FIELDS, "direct_supervisor_employee_no", "hrbp_employee_no", "employee_type", "job_family", "job_category", "standard_position", "position_level", "hire_date")}
             for field in before:
                 if field in update:
                     setattr(person, field, update[field])
@@ -788,6 +790,7 @@ class PerformanceCycleService:
         selections = {
             "employee_no": columns["employee_no"],
             "display_name": columns["display_name"],
+            "bu": columns["bu"],
             **{field: columns[field] for field in ORGANIZATION_FIELDS},
             "direct_supervisor_source_value": columns["direct_supervisor"],
             "hrbp_source_value": columns["hrbp"],
@@ -817,6 +820,7 @@ class PerformanceCycleService:
                 employee_no=employee_no,
                 display_name=display_name,
                 source_roster_id=row.get("source_roster_id"),
+                bu=normalize_roster_text(row.get("bu")),
                 **{field: normalize_roster_text(row.get(field)) for field in ORGANIZATION_FIELDS},
                 direct_supervisor_source_value=normalize_roster_text(row.get("direct_supervisor_source_value")),
                 hrbp_source_value=normalize_roster_text(row.get("hrbp_source_value")),

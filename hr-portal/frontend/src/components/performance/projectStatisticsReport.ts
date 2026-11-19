@@ -20,13 +20,33 @@ export function getProjectReportMatrixConfig(dimension: ProjectReportDimension):
   return PROJECT_REPORT_MATRIX_CONFIGS[dimension]
 }
 export interface ReportRating { key: string; label: string; color?: string }
+export type ProjectReportComparisonKind = 'self-final' | 'dimension' | 'history'
+export interface ReportIndicator { key: string; label: string }
+export interface ProjectReportComparisonQuery {
+  kind: ProjectReportComparisonKind
+  xKey?: string
+  yKey?: string
+  historyCycleId?: number
+}
 export interface ProjectReportComparisonData {
   source: 'mock' | 'api'
   total: number
   ratings: ReportRating[]
   counts: number[][]
   heatLevels: number[][]
+  xRatings?: ReportRating[]
+  yRatings?: ReportRating[]
+  xOptions?: ReportIndicator[]
+  yOptions?: ReportIndicator[]
+  xKey?: string
+  yKey?: string
+  xLabel?: string
+  yLabel?: string
+  historyCycles?: { id: number; name: string }[]
+  historyCycleId?: number | null
+  emptyReason?: string | null
 }
+export type ProjectReportComparisonProvider = (query: ProjectReportComparisonQuery) => Promise<ProjectReportComparisonData>
 export interface ReportDepartment {
   id: string
   name: string
@@ -44,8 +64,11 @@ export interface ProjectStatisticsReport {
   distribution: Record<string, number>
   heatLevels?: Record<string, ReportHeatLevel>
   departments: ReportDepartment[]
+  indicators?: ReportIndicator[]
+  indicatorKey?: string
+  indicatorLabel?: string
 }
-export type ProjectReportProvider = (query: { cycleId: number; dimension?: ProjectReportDimension }) => Promise<ProjectStatisticsReport>
+export type ProjectReportProvider = (query: { cycleId: number; dimension?: ProjectReportDimension; indicatorKey?: string }) => Promise<ProjectStatisticsReport>
 
 export const reportGroups = [
   { key: 'results', label: '结果总览', sections: [{ key: 'overview', label: '绩效总览' }] },

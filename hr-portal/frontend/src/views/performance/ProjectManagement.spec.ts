@@ -812,7 +812,7 @@ describe('ProjectManagement', () => {
     expect(report.props('cycleName')).toBe('2026上半年')
     expect(wrapper.text()).not.toContain('模拟数据')
     expect(wrapper.findAll('[data-report-section]')).toHaveLength(9)
-    expect(statistics).toHaveBeenCalledWith(1, 'department', { management_role: 'project_admin' })
+    expect(statistics).toHaveBeenCalledWith(1, 'department', { management_role: 'project_admin' }, undefined)
     expect(mockedApi.members).not.toHaveBeenCalled()
     expect(mockedApi.overview).toHaveBeenCalledTimes(1)
     await wrapper.findAll('.line-tab')[2].trigger('click')

@@ -43,6 +43,7 @@ def _roster_inputs():
             employee_no="300",
             display_name="员工甲",
             standard_position="软件工程师",
+            bu=" 技术BU ",
             direct_supervisor_source_value="经理",
             hrbp_source_value="HRBP",
             employment_status="在职",
@@ -73,6 +74,7 @@ def test_build_snapshot_people_resolves_manager_and_hrbp_to_employee_numbers():
     assert employee.hrbp_employee_no == "400"
     assert employee.hrbp_source_value == "HRBP"
     assert employee.standard_position == "软件工程师"
+    assert employee.bu == "技术BU"
 
 
 def test_draft_changes_replace_relationships_before_lock():
@@ -248,6 +250,93 @@ def test_assignment_state_detects_same_scope_metadata_changes():
     assert _assignment_state(original) != _assignment_state(changed)
 
 
+@pytest.mark.asyncio
+async def test_bu_snapshot_sync_creates_refreshes_and_rejects_locked_roster_updates():
+    from types import SimpleNamespace
+    from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson
+    from app.performance.snapshot_service import PerformanceAuthorizationSnapshotService
+
+    snapshot = SimpleNamespace(id=7, status="DRAFT")
+    records = []
+    class Db:
+        async def execute(self, statement):
+            entity = statement.column_descriptions[0]["entity"]
+            if entity is PerformanceAuthorizationSnapshot:
+                return SimpleNamespace(scalar_one_or_none=lambda: snapshot)
+            return SimpleNamespace(scalars=lambda: records if entity is PerformanceAuthorizationSnapshotPerson else [])
+        def add(self, obj):
+            if isinstance(obj, PerformanceAuthorizationSnapshotPerson):
+                records.append(obj)
+    service = PerformanceAuthorizationSnapshotService(Db())
+    async def sync(bu):
+        await service.sync_roster("cycle:one", [RosterAuthorizationInput(
+            employee_no="E1", display_name="员工", bu=bu, company_org="集团", department="研发",
+        )], actor_type="PORTAL_USER", actor_ref="1", commit=False)
+    await sync(" 第一BU ")
+    assert len(records) == 1 and records[0].bu == "第一BU"
+    assert records[0].organization_ref == "集团/研发"
+    await sync("第二BU")
+    assert len(records) == 1 and records[0].bu == "第二BU"
+    await sync("  ")
+    assert records[0].bu is None
+    snapshot.status = "LOCKED"
+    with pytest.raises(SnapshotLockedError):
+        await sync("实时BU不可回填")
+    assert records[0].bu is None
+
+
+def test_bu_snapshot_migration_roundtrip_preserves_existing_null_and_rows():
+    import importlib.util
+    from io import StringIO
+    from sqlalchemy import create_engine, inspect, text
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from app.performance.models import PerformanceAuthorizationSnapshotPerson, PerformanceProjectMember
+
+    path = Path(__file__).resolve().parents[1] / "alembic/versions/0317_performance_bu_snapshot.py"
+    spec = importlib.util.spec_from_file_location("bu_snapshot_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.down_revision == "0316_cc_tree_parent_code"
+    assert len(migration.revision) <= 32
+    output = StringIO()
+    with Operations.context(MigrationContext.configure(dialect_name="postgresql", opts={"as_sql": True, "output_buffer": output})):
+        migration.upgrade()
+        migration.downgrade()
+    sql = output.getvalue()
+    assert sql.count("ADD COLUMN bu TEXT") == 2 and sql.count("DROP COLUMN bu") == 2
+    assert "UPDATE " not in sql and "roster" not in sql.lower()
+    engine = create_engine("sqlite://")
+    try:
+        with engine.begin() as connection:
+            for model in (PerformanceAuthorizationSnapshotPerson, PerformanceProjectMember):
+                table = model.__tablename__
+                column = model.__table__.c.bu
+                assert column.nullable and str(column.type) == "TEXT"
+                connection.execute(text(f"CREATE TABLE {table} (id BIGINT PRIMARY KEY, company_org TEXT)"))
+            with Operations.context(MigrationContext.configure(connection)):
+                migration.upgrade()
+                migration.downgrade()
+            for model in (PerformanceAuthorizationSnapshotPerson, PerformanceProjectMember):
+                table = model.__tablename__
+                connection.execute(text(f"INSERT INTO {table} VALUES (1, '历史公司')"))
+            with Operations.context(MigrationContext.configure(connection)):
+                migration.upgrade()
+            for model in (PerformanceAuthorizationSnapshotPerson, PerformanceProjectMember):
+                table = model.__tablename__
+                assert connection.execute(text(f"SELECT company_org, bu FROM {table}")).all() == [("历史公司", None)]
+                connection.execute(text(f"INSERT INTO {table} VALUES (2, '新公司', '独立BU')"))
+                assert connection.execute(text(f"SELECT bu FROM {table} WHERE id=2")).scalar() == "独立BU"
+            with Operations.context(MigrationContext.configure(connection)):
+                migration.downgrade()
+            for model in (PerformanceAuthorizationSnapshotPerson, PerformanceProjectMember):
+                table = model.__tablename__
+                assert "bu" not in {column["name"] for column in inspect(connection).get_columns(table)}
+                assert connection.execute(text(f"SELECT company_org FROM {table} ORDER BY id")).scalars().all() == ["历史公司", "新公司"]
+    finally:
+        engine.dispose()
+
+
 def test_standard_position_migration_defines_both_snapshot_columns():
     migration_path = Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0277_performance_standard_position.py"
     migration = migration_path.read_text(encoding="utf-8")
@@ -279,17 +368,19 @@ def test_snapshot_migration_defines_upgrade_and_downgrade_paths():
 def test_snapshot_organization_path_comes_only_from_atomic_levels():
     row = RosterAuthorizationInput(
         employee_no="E001", display_name="员工一",
-        company_org="集团", department="研发", department_2="  ", department_3="平台",
+        company_org="集团", bu=" 独立BU ", department="研发", department_2="  ", department_3="平台",
         organization_ref="不可信的旧路径",
     )
     person = build_snapshot_people([row])[0]
     assert person.organization_ref == "集团/研发/平台"
+    assert person.bu == "独立BU"
     assert (person.company_org, person.department, person.department_2, person.department_3) == ("集团", "研发", None, "平台")
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("snapshot_status", ["在职", "离职"])
-async def test_live_sync_preserves_snapshot_fields_and_identity_scopes(monkeypatch, snapshot_status):
+@pytest.mark.parametrize("bu", [None, "启动BU"])
+async def test_live_sync_preserves_snapshot_fields_and_identity_scopes(monkeypatch, snapshot_status, bu):
     from types import SimpleNamespace
     from app.performance import snapshot_service
     from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson
@@ -297,6 +388,7 @@ async def test_live_sync_preserves_snapshot_fields_and_identity_scopes(monkeypat
     state = build_snapshot_people(_roster_inputs())[2]
     person = SimpleNamespace(**vars(state))
     person.employment_status = snapshot_status
+    person.bu = bu
     before = dict(vars(person))
     snapshot = SimpleNamespace(id=7, status="LOCKED")
 
@@ -339,7 +431,7 @@ async def test_explicit_roster_refresh_sets_snapshot_and_live_statuses(manual):
     from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson
     from app.performance.snapshot_service import PerformanceAuthorizationSnapshotService
 
-    record = SimpleNamespace(employee_no="300", employment_status="在职", live_employment_status="在职", is_manually_maintained=manual)
+    record = SimpleNamespace(employee_no="300", bu="原BU", employment_status="在职", live_employment_status="在职", is_manually_maintained=manual)
     snapshot = SimpleNamespace(id=7, status="LOCKED")
     class Db:
         async def execute(self, statement):
@@ -351,10 +443,11 @@ async def test_explicit_roster_refresh_sets_snapshot_and_live_statuses(manual):
         def add(self, _obj):
             pass
     await PerformanceAuthorizationSnapshotService(Db()).sync_roster(
-        "cycle:one", [RosterAuthorizationInput(employee_no="300", display_name="员工", employment_status="离职")],
+        "cycle:one", [RosterAuthorizationInput(employee_no="300", display_name="员工", bu=" 新BU ", employment_status="离职")],
         actor_type="PORTAL_USER", actor_ref="1", allow_locked_update=True, commit=False,
     )
     assert record.employment_status == record.live_employment_status == "离职"
+    assert record.bu == ("原BU" if manual else "新BU")
 
 
 def test_live_status_guard_repair_migration_targets_current_head():

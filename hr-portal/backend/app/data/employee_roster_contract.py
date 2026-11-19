@@ -29,6 +29,7 @@ EMPLOYEE_ROSTER_FIELDS = {
         EmployeeRosterField("display_name", "姓名", "full_name", "display_name"),
         EmployeeRosterField("organization_ref", "部门路径（派生）", None, "organization_ref"),
         EmployeeRosterField("company_org", "公司级组织", "company_org", "company_org"),
+        EmployeeRosterField("bu", "BU", "bu", "bu"),
         EmployeeRosterField("department", "一级部门", "department", "department"),
         EmployeeRosterField("department_2", "二级部门", "department_2", "department_2"),
         EmployeeRosterField("department_3", "三级部门", "department_3", "department_3"),

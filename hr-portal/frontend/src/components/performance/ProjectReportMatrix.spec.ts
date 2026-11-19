@@ -1,5 +1,11 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import ProjectReportComparison from './ProjectReportComparison.vue'
+import PerformanceComparisonMatrix from './PerformanceComparisonMatrix.vue'
+import PerformanceComparisonDimensionSelector from './PerformanceComparisonDimensionSelector.vue'
+import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
+import { mockProjectReportComparison } from './projectStatisticsReport'
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 import ProjectReportMatrix from './ProjectReportMatrix.vue'
 import { mockProjectReportProvider } from './projectStatisticsReport'
 
@@ -165,6 +171,96 @@ describe('ProjectReportMatrix', () => {
     report.departments = []
     const wrapper = mount(ProjectReportMatrix, { props: { report } })
     expect(wrapper.findComponent({ name: 'ElTable' }).props('data')).toEqual([])
+    expect(wrapper.find('.el-table__header').exists()).toBe(true)
+    expect(wrapper.find('.metric-template-empty-illustration').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('shares extra width equally between every rating column and retains the 140px minimum', async () => {
+    const report = await mockProjectReportProvider({ cycleId: 1 })
+    let resize!: ResizeObserverCallback
+    vi.stubGlobal('ResizeObserver', class { constructor(callback: ResizeObserverCallback) { resize = callback } observe() {} unobserve() {} disconnect() {} })
+    const wrapper = mount(ProjectReportMatrix, { props: { report }, global: { stubs: { ElTable: { template: '<div><slot /></div>' }, ElTableColumn: true } } })
+    resize([{ contentRect: { width: 1750 } }] as ResizeObserverEntry[], {} as ResizeObserver)
+    await flushPromises()
+    let columns = wrapper.findAllComponents({ name: 'ElTableColumn' }).filter(column => column.props('className') === 'matrix-rating-column')
+    expect(columns).toHaveLength(7)
+    expect(columns.map(column => column.props('minWidth'))).toEqual(Array(7).fill(200))
+    resize([{ contentRect: { width: 700 } }] as ResizeObserverEntry[], {} as ResizeObserver)
+    await flushPromises()
+    columns = wrapper.findAllComponents({ name: 'ElTableColumn' }).filter(column => column.props('className') === 'matrix-rating-column')
+    expect(columns.map(column => column.props('minWidth'))).toEqual(Array(7).fill(140))
+    wrapper.unmount()
+  })
+})
+
+describe('report comparison matrices', () => {
+  it('uses Y rows and X columns, dynamic geometry and forwards selected dimension keys', async () => {
+    const comparison = mockProjectReportComparison()
+    comparison.xRatings = comparison.ratings.slice(0, 3)
+    comparison.yRatings = comparison.ratings.slice(0, 2)
+    comparison.xOptions = [{ key: 'value', label: '价值贡献' }, { key: 'effort', label: '投入度' }]
+    comparison.yOptions = comparison.xOptions
+    comparison.xKey = 'value'
+    comparison.yKey = 'effort'
+    comparison.counts = [[1, 2, 3], [4, 5, 6]]
+    comparison.heatLevels = [[1, 2, 3], [1, 2, 3]]
+    comparison.total = 21
+    const wrapper = mount(ProjectReportComparison, { props: { comparison, kind: 'dimension' } })
+    expect(wrapper.findAll('.performance-comparison-cell')).toHaveLength(6)
+    expect(wrapper.findAll('.performance-comparison-cell')[4].text()).toBe('23.8%5')
+    expect(wrapper.get('.matrix-grid').attributes('style')).toContain('repeat(3, minmax(132px, 1fr))')
+    expect(wrapper.findAll('.row-label')).toHaveLength(2)
+    expect(wrapper.findAll('.column-label')).toHaveLength(3)
+    expect(wrapper.findAll('.performance-comparison-cell.clickable')).toHaveLength(0)
+    const selectors = wrapper.findAllComponents(PerformanceComparisonDimensionSelector)
+    expect(selectors[0].props('modelValue')).toBe('effort')
+    expect(selectors[1].props('modelValue')).toBe('value')
+    selectors[1].vm.$emit('update:modelValue', 'effort')
+    expect(wrapper.emitted('change')).toEqual([[{ xKey: 'effort' }]])
+    await wrapper.findAll('.performance-comparison-cell')[4].trigger('click')
+    expect(wrapper.emitted('cell')).toEqual([[{ rowKey: comparison.yRatings[1].key, columnKey: comparison.xRatings[1].key, count: 5 }]])
+    wrapper.unmount()
+  })
+
+  it('updates selected keys from parent and preserves axes with the shared illustration for zero counts', async () => {
+    const comparison = mockProjectReportComparison()
+    comparison.counts = []
+    comparison.total = 0
+    const wrapper = mount(ProjectReportComparison, { props: { comparison } })
+    expect(wrapper.findAll('.column-label')).toHaveLength(7)
+    expect(wrapper.findAll('.row-label')).toHaveLength(7)
+    expect(wrapper.find('.metric-template-empty-illustration').exists()).toBe(true)
+    expect(wrapper.findAll('.focus-area')).toHaveLength(0)
+    await wrapper.setProps({ comparison: { ...comparison, xKey: 'new', xOptions: [{ key: 'new', label: '新维度' }] } })
+    expect(wrapper.findComponent(PerformanceComparisonMatrix).props('columnDimension')).toBe('new')
+    expect(wrapper.text()).toContain('自评：新维度')
+    expect(wrapper.html()).not.toMatch(/NaN|Infinity/)
+    wrapper.unmount()
+  })
+
+  it.each([['INSUFFICIENT_DIMENSIONS', '维度不足两个'], ['NO_HISTORY', '暂无可对比的历史绩效周期']])('explains %s and only displays clearly marked examples after an explicit click', async (emptyReason, text) => {
+    const comparison = { ...mockProjectReportComparison(), counts: [], total: 0, emptyReason }
+    const wrapper = mount(ProjectReportComparison, { props: { comparison, kind: emptyReason === 'NO_HISTORY' ? 'history' : 'dimension' } })
+    expect(wrapper.text()).toContain(text)
+    expect(wrapper.findComponent(PerformanceComparisonMatrix).exists()).toBe(false)
+    await wrapper.get('.example-button').trigger('click')
+    expect(wrapper.text()).toContain('示例数据，仅用于展示图表效果，不代表真实绩效结果')
+    expect(wrapper.findAll('.performance-comparison-cell')).toHaveLength(49)
+    wrapper.findComponent(PerformanceComparisonMatrix).vm.$emit('dimension-change', 'x', 'rating')
+    expect(wrapper.emitted('change')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('exposes historical cycle choices and sends numeric historyCycleId', async () => {
+    const comparison = { ...mockProjectReportComparison(), historyCycles: [{ id: 3, name: '2025年' }], historyCycleId: 3 }
+    const wrapper = mount(ProjectReportComparison, { props: { comparison, kind: 'history' } })
+    const selector = wrapper.findComponent(PerformanceSearchSelect)
+    expect(selector.props('options')).toEqual([{ value: '3', label: '2025年' }])
+    selector.vm.$emit('update:modelValue', '3')
+    expect(wrapper.emitted('change')).toEqual([[{ historyCycleId: 3 }]])
+    expect(wrapper.text()).toContain('本期终评：')
+    expect(wrapper.text()).toContain('历史终评：')
     wrapper.unmount()
   })
 })

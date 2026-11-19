@@ -61,6 +61,7 @@ class RosterAuthorizationInput:
     source_roster_id: int | None = None
     portal_user_id: int | None = None
     company_org: str | None = None
+    bu: str | None = None
     department: str | None = None
     department_2: str | None = None
     department_3: str | None = None
@@ -86,6 +87,7 @@ class SnapshotPersonState:
     source_roster_id: int | None = None
     portal_user_id: int | None = None
     company_org: str | None = None
+    bu: str | None = None
     department: str | None = None
     department_2: str | None = None
     department_3: str | None = None
@@ -234,6 +236,7 @@ def build_snapshot_people(
                 employee_no=employee_no,
                 display_name=_normalized_reference(row.display_name) or "",
                 source_roster_id=row.source_roster_id,
+                bu=_normalized_reference(row.bu),
                 **{key: _normalized_reference(getattr(row, key)) for key in ORGANIZATION_FIELDS},
                 organization_ref=organization_path(row),
                 direct_supervisor_employee_no=resolve_reference(row.direct_supervisor_source_value),
@@ -475,6 +478,7 @@ class PerformanceAuthorizationSnapshotService:
             record.source_roster_id = person.source_roster_id
             record.portal_user_id = person.portal_user_id
             record.display_name = person.display_name
+            record.bu = person.bu
             for field in ORGANIZATION_FIELDS:
                 setattr(record, field, getattr(person, field))
             record.organization_ref = organization_path(person)
@@ -702,6 +706,7 @@ class PerformanceAuthorizationSnapshotService:
                     employee_no=person.employee_no,
                     display_name=person.display_name,
                     source_roster_id=person.source_roster_id,
+                    bu=person.bu,
                     **{key: getattr(person, key) for key in ORGANIZATION_FIELDS},
                     organization_ref=organization_path(person),
                     direct_supervisor_employee_no=person.direct_supervisor_employee_no,

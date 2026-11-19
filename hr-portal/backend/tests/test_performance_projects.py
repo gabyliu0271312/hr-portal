@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from app.core.config import settings
 from app.performance.projects_router import ProjectPayload, _can_manage_project, _review_node_category, _review_node_status
-from app.performance.models import PerformanceOtherPermissionSetting
+from app.performance.models import PerformanceCycle, PerformanceOtherPermissionSetting
 from app.performance.auth_context import PerformanceAccessContext, PerformanceRoleGrant, performance_admin_preview_enabled
 from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time
 
@@ -4218,14 +4218,14 @@ def _self_summary_node(project_id=1, *, node_id=32, order=2, options=None):
     )
 
 
-def _statistics_member(employee_no, snapshot_id=21, *, display_name=None, position_level="J6", hire_date=None, department=None, department_2=None, department_3=None, department_4=None, department_5=None, company_org=None, job_family=None, standard_position=None, direct_supervisor_employee_no=None):
+def _statistics_member(employee_no, snapshot_id=21, *, display_name=None, position_level="J6", hire_date=None, department=None, department_2=None, department_3=None, department_4=None, department_5=None, company_org=None, bu=None, job_family=None, standard_position=None, direct_supervisor_employee_no=None):
     return SimpleNamespace(
         employee_no=employee_no, snapshot_id=snapshot_id,
         display_name=display_name or f"员工{employee_no}", employment_status="在职",
         position_level=position_level, hire_date=hire_date,
         department=department, department_2=department_2, department_3=department_3,
         department_4=department_4, department_5=department_5,
-        company_org=company_org, job_family=job_family, standard_position=standard_position,
+        company_org=company_org, bu=bu, job_family=job_family, standard_position=standard_position,
         direct_supervisor_employee_no=direct_supervisor_employee_no,
     )
 
@@ -4251,6 +4251,7 @@ def statistics_db(monkeypatch):
     class Db:
         def __init__(self):
             self.cycle = _pm_cycle(1)
+            self.history_cycles = []
             self.projects = [_pm_project(1, "项目一", 1, administrators=["管理员"])]
             self.snapshots = {1: 21}
             self.members = [_statistics_member("E001")]
@@ -4266,13 +4267,15 @@ def statistics_db(monkeypatch):
             if "max(performance_project_member_snapshots.id)" in str(statement):
                 return self.snapshots.get(params["project_id_1"])
             assert "performance_cycles.id" in str(statement)
-            return self.cycle if self.cycle and self.cycle.id == params["id_1"] else None
+            return next((cycle for cycle in [self.cycle, *self.history_cycles] if cycle and cycle.id == params["id_1"]), None)
 
         async def execute(self, statement):
             self.queries.append(statement)
             params = statement.compile().params
             model = statement.column_descriptions[0]["entity"]
-            if model is PerformanceRole:
+            if model is PerformanceCycle:
+                rows = sorted([cycle for cycle in self.history_cycles if cycle.start_at < params["start_at_1"] and cycle.start_at <= params["start_at_2"]], key=lambda cycle: (cycle.start_at, cycle.id), reverse=True)
+            elif model is PerformanceRole:
                 rows = [item for item in self.roles if item.is_active and item.code in params["code_1"] and item.role_type == params["role_type_1"]]
             elif model is PerformanceHrbpPermission:
                 rows = [item for item in self.hrbp_permissions if item.cycle_ref == params["cycle_ref_1"] and item.hrbp_employee_no == params["hrbp_employee_no_1"]]
@@ -4329,6 +4332,249 @@ def statistics_db(monkeypatch):
     return db
 
 
+def _add_report_dimension(db, *, field_id="potential", label="发展潜力", options=None):
+    db.nodes[0].config["template"]["content"].append({
+        "type": "rating", "name": label, "items": [{"id": field_id, "label": label}],
+        "options": options or [{"id": "low", "label": "低"}, {"id": "mid", "label": "中"}, {"id": "high", "label": "高"}],
+    })
+
+
+@pytest.mark.asyncio
+async def test_statistics_selects_all_final_indicators_and_ignores_drafts(statistics_db):
+    from app.performance.projects_router import project_management_statistics
+    db = statistics_db
+    _add_report_dimension(db)
+    db.tasks[0].answers["potential"] = "mid"
+    db.tasks[0].draft_answers = {"potential": "high"}
+    db.members.append(_statistics_member("E002"))
+    draft = _statistics_task("E002", task_id=102, submitted=False)
+    draft.answers["potential"] = "high"
+    db.tasks.append(draft)
+    result = await project_management_statistics(1, "level", context("performance.cycles.manage"), db, indicator_key="rating:potential")
+    assert [item.key for item in result.indicators] == ["rating:rating-field", "rating:potential"]
+    assert (result.indicatorKey, result.indicatorLabel) == ("rating:potential", "发展潜力")
+    assert result.distribution == {"low": 0, "mid": 1, "high": 0}
+    assert result.totalParticipants == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["statistics", "dimension", "self-final"])
+async def test_report_invalid_indicator_rejected(statistics_db, mode):
+    from fastapi import HTTPException
+    from app.performance.projects_router import project_management_statistics, project_management_comparison
+    with pytest.raises(HTTPException) as error:
+        if mode == "statistics":
+            await project_management_statistics(1, "level", context("performance.cycles.manage"), statistics_db, indicator_key="missing")
+        else:
+            await project_management_comparison(1, mode, context("performance.cycles.manage"), statistics_db, x_key="missing")
+    assert error.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_dimension_comparison_rectangular_axes_and_selection_exclusion(statistics_db):
+    from app.performance.projects_router import project_management_comparison
+    db = statistics_db
+    _add_report_dimension(db)
+    db.tasks[0].answers["potential"] = "low"
+    result = await project_management_comparison(1, "dimension", context("performance.cycles.manage"), db)
+    assert (result.xKey, result.yKey) == ("rating:rating-field", "rating:potential")
+    assert [item.key for item in result.xRatings] == ["one", "five"]
+    assert [item.key for item in result.yRatings] == ["low", "mid", "high"]
+    assert result.counts == [[0, 1], [0, 0], [0, 0]]
+    assert result.total == 1 and result.heatLevels == [[0, 3], [0, 0], [0, 0]]
+    assert [item.key for item in result.xOptions] == ["rating:rating-field"]
+    assert [item.key for item in result.yOptions] == ["rating:potential"]
+    reversed_axes = await project_management_comparison(1, "dimension", context("performance.cycles.manage"), db, x_key="rating:potential", y_key="rating:rating-field")
+    assert reversed_axes.counts == [[0, 0, 0], [1, 0, 0]]
+
+
+@pytest.mark.asyncio
+async def test_dimension_comparison_same_axis_rejected_and_schema_empty_retained(statistics_db):
+    from fastapi import HTTPException
+    from app.performance.projects_router import project_management_comparison
+    db = statistics_db
+    db.tasks = []
+    result = await project_management_comparison(1, "dimension", context("performance.cycles.manage"), db)
+    assert result.emptyReason == "INSUFFICIENT_DIMENSIONS" and result.total == 0
+    assert result.xKey == "rating:rating-field" and len(result.xRatings) == 2
+    with pytest.raises(HTTPException) as error:
+        await project_management_comparison(1, "dimension", context("performance.cycles.manage"), db, x_key="rating:rating-field", y_key="rating:rating-field")
+    assert error.value.status_code == 422
+    _add_report_dimension(db)
+    result = await project_management_comparison(1, "dimension", context("performance.cycles.manage"), db)
+    assert result.counts == [[0, 0], [0, 0], [0, 0]] and result.emptyReason is None
+
+
+@pytest.mark.asyncio
+async def test_comparison_self_evaluation_role_submission_revocation_and_distinct_ids(statistics_db):
+    from app.performance.projects_router import project_management_comparison
+    db = statistics_db
+    node = _self_summary_node(options=[{"id": "s1", "label": "相同"}, {"id": "s2", "label": "相同"}, {"id": "s3", "label": "其他"}])
+    node.node_type = "evaluation"
+    node.config["template"]["executor_role_code"] = "assessment.reviewee"
+    db.nodes.append(node)
+    for index, employee in enumerate(["E001", "E002", "E003", "E004", "E005"]):
+        if index:
+            db.members.append(_statistics_member(employee))
+            db.tasks.append(_statistics_task(employee, task_id=200 + index))
+        task = _statistics_task(employee, "s2", node_id=32, task_id=300 + index)
+        task.handler_ref = employee
+        if index == 1:
+            task.submitted_at = None
+        if index == 2:
+            task.revoked_at = datetime(2026, 10, 1, tzinfo=UTC)
+        if index == 3:
+            task.handler_ref = "MANAGER"
+        if index == 4:
+            task.status = "in_progress"
+        db.tasks.append(task)
+    result = await project_management_comparison(1, "self-final", context("performance.cycles.manage"), db)
+    assert result.xKey == "self:self-32:rating:rating-field"
+    assert [item.key for item in result.xRatings] == ["s1", "s2", "s3"]
+    assert result.total == 1 and result.counts == [[0, 0, 0], [0, 1, 0]]
+    node.config["template"]["executor_role_code"] = "assessment.line_manager"
+    result = await project_management_comparison(1, "self-final", context("performance.cycles.manage"), db)
+    assert result.xOptions == [] and result.total == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("conflict", ["label", "scale", "overlap"])
+async def test_comparison_rejects_cross_project_semantic_scale_and_member_conflicts(statistics_db, conflict):
+    from fastapi import HTTPException
+    from app.performance.projects_router import project_management_comparison
+    db = statistics_db
+    db.projects.append(_pm_project(2, "项目二", 1, administrators=["管理员"]))
+    db.snapshots[2] = 22
+    db.members.append(_statistics_member("E001" if conflict == "overlap" else "E002", 22))
+    node = _statistics_node(2, node_id=33)
+    if conflict == "label":
+        node.config["template"]["content"][0]["items"][0]["label"] = "其他语义"
+    if conflict == "scale":
+        node.config["template"]["content"][0]["options"].reverse()
+    db.nodes.append(node)
+    with pytest.raises(HTTPException) as error:
+        await project_management_comparison(1, "dimension", context("performance.cycles.manage"), db)
+    expected = {"label": "INDICATOR_SEMANTICS_CONFLICT", "scale": "RATING_SCALE_CONFLICT", "overlap": "CYCLE_MEMBER_OVERLAP_UNRESOLVED"}[conflict]
+    assert (error.value.status_code, error.value.detail) == (409, expected)
+
+
+@pytest.mark.asyncio
+async def test_comparison_heat_uses_pair_denominator_and_percentage_boundaries(statistics_db):
+    from app.performance.projects_router import project_management_comparison
+    db = statistics_db
+    db.nodes.append(_self_summary_node())
+    db.members, db.tasks = [], []
+    for index in range(15):
+        employee = f"E{index:03d}"
+        db.members.append(_statistics_member(employee))
+        db.tasks.append(_statistics_task(employee, "one" if index < 3 else "five", task_id=100 + index))
+        if index < 10:
+            db.tasks.append(_statistics_task(employee, "one" if index < 6 else "five", task_id=200 + index, node_id=32))
+    result = await project_management_comparison(1, "self-final", context("performance.cycles.manage"), db)
+    assert result.total == 10 and result.counts == [[3, 0], [3, 4]]
+    assert result.heatLevels == [[1, 0], [1, 2]]
+
+
+@pytest.mark.asyncio
+async def test_comparison_named_role_and_result_scope_are_applied_before_answers(statistics_db, monkeypatch):
+    from dataclasses import replace
+    from app.performance import projects_router, management_scope, result_view_scope
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    db = statistics_db
+    _add_report_dimension(db)
+    db.tasks[0].answers["potential"] = "low"
+    db.members.append(_statistics_member("HIDDEN"))
+    hidden = _statistics_task("HIDDEN", "one", task_id=999)
+    hidden.answers["potential"] = "high"
+    db.tasks.append(hidden)
+    named = AsyncMock(return_value=[(db.projects[0], {"E001"})])
+    monkeypatch.setattr(management_scope, "management_projects", named)
+    account = replace(context("performance.cycles.manage"), management_role="hrbp", management_cycle_id=1)
+    result = await projects_router.project_management_comparison(1, "dimension", account, db)
+    assert result.total == 1 and result.counts == [[0, 1], [0, 0], [0, 0]]
+    assert named.await_args.args[3] == ("performance.frontend.data-view",)
+    resolve = AsyncMock(return_value=SimpleNamespace(projects=db.projects, scopes={1: {"E001"}}, employee_nos={"E001"}))
+    monkeypatch.setattr(result_view_scope, "resolve_result_view_scope", resolve)
+    result = await projects_router.project_management_comparison(1, "dimension", context(), db, result_kind="team")
+    assert result.total == 1
+    with pytest.raises(HTTPException) as error:
+        await projects_router.project_management_comparison(1, "dimension", account, db, result_kind="team")
+    assert error.value.status_code == 422
+    named.side_effect = HTTPException(403, "PROJECT_DATA_FORBIDDEN")
+    with pytest.raises(HTTPException) as error:
+        await projects_router.project_management_comparison(1, "dimension", account, db)
+    assert error.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_history_comparison_scopes_both_cycles_and_pairs_employee_intersection(statistics_db, monkeypatch):
+    from app.performance import projects_router
+    from fastapi import HTTPException
+    db = statistics_db
+    db.cycle.start_at = datetime(2026, 9, 1, tzinfo=UTC)
+    for cycle_id, start in [(2, "2026-03-01"), (3, "2026-06-01"), (4, "2026-10-01"), (5, "2025-01-01")]:
+        cycle = _pm_cycle(cycle_id, f"历史{cycle_id}")
+        cycle.start_at = datetime.fromisoformat(start).replace(tzinfo=UTC)
+        db.history_cycles.append(cycle)
+        db.projects.append(_pm_project(cycle_id, f"项目{cycle_id}", cycle_id, administrators=["管理员"]))
+        db.snapshots[cycle_id] = 20 + cycle_id
+        db.nodes.append(_statistics_node(cycle_id, node_id=30 + cycle_id))
+    db.projects[-1].status = "DRAFT"
+    for employee in ["E001", "CURRENT_HIDDEN", "HISTORY_HIDDEN", "HISTORY_ONLY"]:
+        db.members.append(_statistics_member(employee, 22))
+        task = _statistics_task(employee, "one", project_id=2, node_id=32, snapshot_id=22, task_id=300 + len(db.tasks))
+        task.cycle_ref = "cycle:2"
+        db.tasks.append(task)
+    db.members += [_statistics_member("CURRENT_HIDDEN"), _statistics_member("HISTORY_HIDDEN"), _statistics_member("CURRENT_ONLY")]
+    db.tasks += [_statistics_task(employee, "five", task_id=500 + index) for index, employee in enumerate(["CURRENT_HIDDEN", "HISTORY_HIDDEN", "CURRENT_ONLY"])]
+    seen = []
+    async def scope(account, project, session, feature):
+        seen.append((project.cycle_ref, feature))
+        if project.cycle_ref == "cycle:3":
+            raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
+        return {"E001", "HISTORY_HIDDEN", "CURRENT_ONLY"} if project.cycle_ref == "cycle:1" else {"E001", "CURRENT_HIDDEN", "HISTORY_ONLY"}
+    monkeypatch.setattr(projects_router, "_project_data_scope", scope)
+    result = await projects_router.project_management_comparison(1, "history", context("performance.cycles.manage"), db)
+    assert result.historyCycles == [{"id": 2, "name": "历史2"}]
+    assert result.historyCycleId == 2 and result.total == 1
+    assert result.counts == [[0, 0], [1, 0]]
+    assert ("cycle:1", "performance.frontend.data-view") in seen and ("cycle:2", "performance.frontend.data-view") in seen
+    for invalid in [1, 3, 4, 5, 999]:
+        with pytest.raises(HTTPException) as error:
+            await projects_router.project_management_comparison(1, "history", context("performance.cycles.manage"), db, history_cycle_id=invalid)
+        assert (error.value.status_code, error.value.detail) == (422, "INVALID_HISTORY_CYCLE")
+
+
+@pytest.mark.asyncio
+async def test_history_comparison_without_history_keeps_current_schema(statistics_db):
+    from app.performance.projects_router import project_management_comparison
+    result = await project_management_comparison(1, "history", context("performance.cycles.manage"), statistics_db)
+    assert result.emptyReason == "NO_HISTORY" and result.historyCycleId is None
+    assert result.yKey == "rating:rating-field" and len(result.yRatings) == 2
+    assert result.xOptions == [] and result.counts == [[], []] and result.total == 0
+
+
+@pytest.mark.asyncio
+async def test_new_comparison_http_contract_and_invalid_kind(statistics_db):
+    import httpx
+    from fastapi import FastAPI
+    from app.performance import projects_router
+    _add_report_dimension(statistics_db)
+    statistics_db.tasks[0].answers["potential"] = "high"
+    app = FastAPI()
+    app.include_router(projects_router.router, prefix="/api/v1")
+    app.dependency_overrides[projects_router.get_session] = lambda: statistics_db
+    app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context("performance.cycles.manage")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/v1/performance/project-management/comparison", params={"cycle_id": 1, "kind": "dimension", "x_key": "rating:potential", "y_key": "rating:rating-field"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["counts"] == [[0, 0, 0], [0, 0, 1]] and payload["total"] == 1
+        assert payload["ratings"] == payload["xRatings"]
+        assert (await client.get("/api/v1/performance/project-management/comparison", params={"cycle_id": 1, "kind": "unknown"})).status_code == 422
+
+
 @pytest.mark.asyncio
 async def test_level_statistics_uses_real_final_answers_and_flat_zero_rows(statistics_db):
     from app.performance.projects_router import project_management_statistics
@@ -4350,6 +4596,8 @@ async def test_level_statistics_uses_real_final_answers_and_flat_zero_rows(stati
     assert result.model_dump() == {
         "source": "api", "dimension": "level", "rowLabel": "岗位职级", "showSummary": True,
         "totalParticipants": 5,
+        "indicators": [{"key": "rating:rating-field", "label": "绩效评级"}],
+        "indicatorKey": "rating:rating-field", "indicatorLabel": "绩效评级",
         "ratings": [{"key": "one", "label": "1星", "color": "#f54a45"}, {"key": "five", "label": "5星", "color": "#3370ff"}],
         "distribution": {"one": 1, "five": 1},
         "heatLevels": {"one": 3, "five": 3},
@@ -4437,9 +4685,9 @@ async def test_sequence_statistics_builds_org_path_tree(statistics_db):
 
     db = statistics_db
     db.members += [
-        _statistics_member("E002", company_org="BU1", job_family="技术族", standard_position="后端"),
-        _statistics_member("E003", company_org="BU1", job_family="技术族", standard_position="后端"),
-        _statistics_member("E004", company_org="BU2", job_family="设计族", standard_position=None),
+        _statistics_member("E002", company_org="公司甲", bu="BU1", job_family="技术族", standard_position="后端"),
+        _statistics_member("E003", company_org="公司乙", bu="BU1", job_family="技术族", standard_position="后端"),
+        _statistics_member("E004", company_org="公司甲", bu="BU2", job_family="设计族", standard_position=None),
         _statistics_member("E005"),
     ]
     db.tasks += [
@@ -4489,8 +4737,8 @@ async def test_self_final_comparison_counts_only_members_with_both_submitted(sta
     assert result.total == 2
     keys = [rating.key for rating in result.ratings]
     assert keys == ["one", "five"]
-    assert result.counts == [[0, 1], [0, 1]]  # 行=自评(one,five)，列=终评(one,five)
-    assert result.heatLevels == [[0, 1], [0, 1]]
+    assert result.counts == [[0, 0], [1, 1]]  # Y=终评，X=自评
+    assert result.heatLevels == [[0, 0], [3, 3]]
 
 
 @pytest.mark.asyncio
@@ -4505,8 +4753,8 @@ async def test_self_final_comparison_heat_levels_thresholds(statistics_db):
         db.tasks.append(_statistics_task(f"E{index:02d}", "five", task_id=400 + index))
     result = await project_management_self_final_comparison(1, context("performance.projects.manage", refs=("project:x:1",)), db)
     assert result.total == 30
-    assert result.counts[0][1] == 30  # 自评 one × 终评 five
-    assert result.heatLevels[0][1] == 3  # 30 >= 阈值 30
+    assert result.counts[1][0] == 30  # 终评 five × 自评 one
+    assert result.heatLevels[1][0] == 3  # 配对人数占比100%
 
 
 @pytest.mark.asyncio
@@ -4525,8 +4773,8 @@ async def test_self_final_comparison_http_contract(statistics_db):
         payload = response.json()
         assert payload["source"] == "api"
         assert "heatLevels" in payload
-        assert len(payload["counts"]) == len(payload["ratings"])
-        assert all(len(row) == len(payload["ratings"]) for row in payload["counts"])
+        assert len(payload["counts"]) == len(payload["yRatings"])
+        assert all(len(row) == len(payload["xRatings"]) for row in payload["counts"])
 
 
 @pytest.mark.asyncio
@@ -4602,6 +4850,7 @@ async def test_level_statistics_empty_cycle_requires_cycle_management(statistics
     assert result.model_dump() == {
         "source": "api", "dimension": "level", "rowLabel": "岗位职级", "showSummary": True,
         "totalParticipants": 0, "ratings": [], "distribution": {}, "heatLevels": {}, "departments": [],
+        "indicators": [], "indicatorKey": None, "indicatorLabel": None,
     }
     with pytest.raises(HTTPException) as error:
         await project_management_statistics(1, "level", context(), statistics_db)
@@ -6611,7 +6860,7 @@ async def test_calibration_phase_times_real_database_api_round_trip():
 def _snapshot_filter_people():
     from app.performance.snapshot_service import RosterAuthorizationInput, build_snapshot_people
     return [SimpleNamespace(**vars(person)) for person in build_snapshot_people([
-        RosterAuthorizationInput(employee_no="E1", display_name="员工一", company_org="集团", department="研发", employee_type="正式员工", employment_status="在职", job_family="技术", job_category="研发", position_level="P6", standard_position="软件工程师", hire_date=date(2020, 1, 1)),
+        RosterAuthorizationInput(employee_no="E1", display_name="员工一", bu="技术BU", company_org="集团", department="研发", employee_type="正式员工", employment_status="在职", job_family="技术", job_category="研发", position_level="P6", standard_position="软件工程师", hire_date=date(2020, 1, 1)),
         RosterAuthorizationInput(employee_no="E2", display_name="员工二", company_org="集团", department="研发", employee_type="正式员工", employment_status="离职", job_family="技术", job_category="研发", position_level="P6", standard_position="软件工程师", hire_date=date(2021, 1, 1), departure_date=date(2026, 10, 1)),
         RosterAuthorizationInput(employee_no="E3", display_name="员工三", company_org="集团", department="销售", employment_status="离职", job_family="营销", departure_date=date(2026, 10, 31)),
         RosterAuthorizationInput(employee_no="E4", display_name="区间外", employment_status="离职", job_family="区间外", departure_date=date(2026, 9, 30)),
@@ -6684,6 +6933,27 @@ def test_departure_date_uses_same_comparisons_as_hire_date(operator, expected):
     for matcher in [_matches_scope_condition, _matches_start_project_condition]:
         assert [matcher({"departure_date": date(2026, 10, day)}, condition) for day in [14, 15, 16]] == expected
         assert not matcher({"departure_date": None}, condition)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("frozen_bu", [None, "启动BU"])
+async def test_project_audience_preserves_bu_from_member_not_updated_cycle(frozen_bu):
+    from unittest.mock import AsyncMock
+    from app.performance.models import PerformanceAuthorizationSnapshotPerson, PerformanceProjectMember, PerformanceNodeTask
+
+    member = SimpleNamespace(employee_no="E1", display_name="员工", bu=frozen_bu)
+    source = SimpleNamespace(employee_no="E1", bu="后续周期BU")
+    snapshot = SimpleNamespace(id=7, source_snapshot_id=8, source_filter={"task_generation_employee_nos": ["E1"]})
+    async def execute(statement):
+        entity = statement.column_descriptions[0]["entity"]
+        values = [member] if entity is PerformanceProjectMember else [source] if entity is PerformanceAuthorizationSnapshotPerson else []
+        assert entity in {PerformanceProjectMember, PerformanceAuthorizationSnapshotPerson, PerformanceNodeTask}
+        return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values))
+    db = SimpleNamespace(scalar=AsyncMock(return_value=snapshot), execute=execute)
+    people, task_people, reports = await PerformanceProjectService(db).project_audience(SimpleNamespace(id=1, evaluated_count=1))
+    assert len(people) == 1 and people[0].bu == frozen_bu
+    assert task_people == people and reports == []
+    assert member.bu == frozen_bu and source.bu == "后续周期BU"
 
 
 @pytest.mark.asyncio
@@ -6762,6 +7032,8 @@ async def test_preview_and_actual_start_share_six_field_snapshot_filters(monkeyp
     generated = [obj for obj in db.added if isinstance(obj, models.PerformanceNodeTask)]
     assert {person.employee_no for person in members} == {person.employee_no for person in matched}
     assert {person.employee_no: person.employment_status for person in members} == {"E1": "在职", "E2": "离职"}
+    assert {person.employee_no: person.bu for person in members} == {"E1": "技术BU", "E2": None}
+    assert all(person.organization_ref == "集团/研发" for person in members)
     assert {task.target_employee_no for task in generated} == expected_tasks
     assert target.status == "STARTED"
 

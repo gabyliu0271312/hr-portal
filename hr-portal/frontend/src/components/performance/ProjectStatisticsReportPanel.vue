@@ -5,55 +5,39 @@
         <div class="report-top-spacer" aria-hidden="true" />
         <div class="report-filter-overlay">
           <div class="report-sticky-filter">
-            <button type="button" class="report-filter-button" @click="requestAction('filter')"><FilterOutlinedIcon />筛选</button>
+            <button type="button" class="report-filter-button" @click="requestFilter"><FilterOutlinedIcon />筛选</button>
             <p v-if="feedback" class="report-feedback" role="status">{{ feedback }}</p>
           </div>
         </div>
         <div class="report-layout">
           <div class="report-contents">
-            <template v-for="(group, groupIndex) in reportGroups" :key="group.key">
+            <template v-for="group in reportGroups" :key="group.key">
               <h2 class="report-primary-heading"><span>{{ group.label }}</span></h2>
-              <section v-for="(section, sectionIndex) in group.sections" :key="section.key" :data-report-section="section.key" class="report-section" :aria-label="section.label">
+              <section v-for="section in group.sections" :key="section.key" :data-report-section="section.key" class="report-section" :aria-label="section.label">
                 <PerformanceReportSectionTitle :label="section.label" :info="reportSectionInfo[section.key]" />
-                <div v-if="section.key === 'overview'">
-                  <p v-if="loading" class="report-state" role="status">正在加载统计报表…</p>
-                  <div v-else-if="error" class="report-state" role="alert"><p>{{ error }}</p><button type="button" @click="load">重新加载</button></div>
-                  <ProjectReportDistribution v-else-if="data" :report="data" @compare="requestAction('compare')" />
-                </div>
-                <ProjectReportMatrix v-else-if="section.key === 'department' && reports.department" :report="reports.department" />
-                <div v-else-if="section.key === 'department' && errors.department" class="report-state" role="alert"><p>{{ errors.department }}</p><button type="button" @click="load">重新加载</button></div>
-                <p v-else-if="section.key === 'department'" class="report-placeholder">{{ loading ? '正在加载部门统计…' : '统计数据尚未加载' }}</p>
-                <ProjectReportMatrix v-else-if="section.key === 'team' && reports.team" :report="reports.team" />
-                <div v-else-if="section.key === 'team' && errors.team" class="report-state" role="alert"><p>{{ errors.team }}</p><button type="button" @click="loadDimension('team')">重新加载</button></div>
-                <p v-else-if="section.key === 'team'" class="report-placeholder">{{ loadingDimensions.team ? '正在加载团队统计…' : '统计数据尚未加载' }}</p>
-                <ProjectReportMatrix v-else-if="section.key === 'sequence' && reports.sequence" :report="reports.sequence" />
-                <div v-else-if="section.key === 'sequence' && errors.sequence" class="report-state" role="alert"><p>{{ errors.sequence }}</p><button type="button" @click="loadDimension('sequence')">重新加载</button></div>
-                <p v-else-if="section.key === 'sequence'" class="report-placeholder">{{ loadingDimensions.sequence ? '正在加载序列统计…' : '统计数据尚未加载' }}</p>
-                <template v-else-if="section.key === 'tenure'">
-                  <p v-if="loadingDimensions.tenure" class="report-placeholder" role="status">正在加载司龄统计…</p>
-                  <div v-else-if="errors.tenure" class="report-state" role="alert"><p>{{ errors.tenure }}</p><button type="button" @click="loadDimension('tenure')">重新加载</button></div>
-                  <template v-else-if="reports.tenure">
-                    <p class="report-source-notice">数据来源：统计 API（入职日期，按当前日期计算）</p>
-                    <ProjectReportMatrix :report="reports.tenure" />
+                <template v-if="section.key === 'overview'">
+                  <p v-if="loadingDimensions.department" class="report-state" role="status">正在加载统计报表…</p>
+                  <div v-else-if="errors.department" class="report-state" role="alert"><p>{{ errors.department }}</p><button type="button" @click="loadDimension('department')">重新加载</button></div>
+                  <ProjectReportDistribution v-else-if="reports.department" :report="reports.department" :comparison-reports="reports" @compare="loadComparisonDimension" @indicator-change="changeIndicator('department', $event)" />
+                  <p v-if="comparisonDimensionLoading" class="report-state" role="status">正在加载对比数据…</p>
+                  <p v-if="comparisonDimensionError" class="report-state" role="alert">{{ comparisonDimensionError }}</p>
+                </template>
+                <template v-else-if="isDimension(section.key)">
+                  <p v-if="loadingDimensions[section.key]" class="report-placeholder" role="status">正在加载{{ section.label }}…</p>
+                  <div v-else-if="errors[section.key]" class="report-state" role="alert"><p>{{ errors[section.key] }}</p><button type="button" @click="loadDimension(section.key)">重新加载</button></div>
+                  <template v-else-if="reports[section.key]">
+                    <p v-if="section.key === 'level'" class="report-source-notice">数据来源：统计 API（项目快照岗位职级、项目快照人员）</p>
+                    <p v-if="section.key === 'tenure'" class="report-source-notice">数据来源：统计 API（入职日期，按当前日期计算）</p>
+                    <ProjectReportMatrix :report="reports[section.key]!" @indicator-change="changeIndicator(section.key, $event)" />
                   </template>
                   <p v-else class="report-placeholder">统计数据尚未加载</p>
                 </template>
-                <template v-else-if="section.key === 'level'">
-                  <p v-if="loadingDimensions.level" class="report-placeholder" role="status">正在加载级别统计…</p>
-                  <div v-else-if="errors.level" class="report-state" role="alert"><p>{{ errors.level }}</p><button type="button" @click="loadDimension('level')">重新加载</button></div>
-                  <template v-else-if="reports.level">
-                    <p class="report-source-notice">数据来源：统计 API（实时岗位职级，项目快照人员）</p>
-                    <ProjectReportMatrix :report="reports.level" />
-                  </template>
-                  <p v-else class="report-placeholder">统计数据尚未加载</p>
+                <template v-else-if="isComparison(section.key)">
+                  <p v-if="comparisonLoading[section.key]" class="report-placeholder" role="status">正在加载{{ section.label }}…</p>
+                  <div v-else-if="comparisonErrors[section.key]" class="report-state" role="alert"><p>{{ comparisonErrors[section.key] }}</p><button type="button" @click="loadComparison(section.key)">重新加载</button></div>
+                  <ProjectReportComparison v-else-if="comparisons[section.key]" :kind="section.key" :comparison="comparisons[section.key]!" @change="changeComparison(section.key, $event)" />
+                  <p v-else class="report-placeholder">{{ section.label }}数据尚未加载</p>
                 </template>
-                <template v-else-if="section.key === 'self-final'">
-                  <p v-if="selfFinalLoading" class="report-placeholder" role="status">正在加载自评/终评对比…</p>
-                  <div v-else-if="selfFinalError" class="report-state" role="alert"><p>{{ selfFinalError }}</p><button type="button" @click="loadSelfFinal">重新加载</button></div>
-                  <ProjectReportComparison v-else-if="selfFinal" :comparison="selfFinal" />
-                  <p v-else class="report-placeholder">自评/终评对比数据尚未加载</p>
-                </template>
-                <div v-else class="report-placeholder"><span>{{ section.label }}报表内容预留</span><small>当前仅搭建章节框架，具体统计内容待后续接入。</small></div>
               </section>
             </template>
           </div>
@@ -75,78 +59,56 @@ import ProjectReportComparison from './ProjectReportComparison.vue'
 import ProjectReportMatrix from './ProjectReportMatrix.vue'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 import { projectManagementApi } from '@/api/performance'
-import { reportGroups, reportSectionInfo, type ProjectReportComparisonData, type ProjectReportDimension, type ProjectReportProvider, type ProjectStatisticsReport } from './projectStatisticsReport'
+import { reportGroups, reportSectionInfo, type ProjectReportComparisonData, type ProjectReportComparisonKind, type ProjectReportComparisonProvider, type ProjectReportComparisonQuery, type ProjectReportDimension, type ProjectReportProvider, type ProjectStatisticsReport } from './projectStatisticsReport'
 import { useProjectReportNavigation } from './useProjectReportNavigation'
 
-const defaultProvider: ProjectReportProvider = async ({ cycleId, dimension = 'department' }) => {
-  const report = await projectManagementApi.levelStatistics(cycleId, dimension)
-  return { ...report, ratings: report.ratings.map(rating => ({ ...rating, color: rating.color ?? undefined })) }
-}
-
-const props = defineProps<{ cycleId: number; cycleName?: string; provider?: ProjectReportProvider; selfFinalProvider?: () => Promise<ProjectReportComparisonData> }>()
+const props = defineProps<{ cycleId: number; cycleName?: string; provider?: ProjectReportProvider; selfFinalProvider?: () => Promise<ProjectReportComparisonData>; comparisonProvider?: ProjectReportComparisonProvider }>()
 const reportStore = usePerformanceProjectContextStore()
 const emit = defineEmits<{ filter: []; compare: [] }>()
 const root = ref<HTMLElement | null>(null)
 const collapsed = ref(false)
 const reports = ref<Partial<Record<ProjectReportDimension, ProjectStatisticsReport>>>({})
+const indicators = ref<Partial<Record<ProjectReportDimension, string>>>({})
 const loadingDimensions = ref<Partial<Record<ProjectReportDimension, boolean>>>({})
 const errors = ref<Partial<Record<ProjectReportDimension, string>>>({})
+const comparisons = ref<Partial<Record<ProjectReportComparisonKind, ProjectReportComparisonData>>>({})
+const comparisonQueries = ref<Partial<Record<ProjectReportComparisonKind, ProjectReportComparisonQuery>>>({})
+const comparisonLoading = ref<Partial<Record<ProjectReportComparisonKind, boolean>>>({})
+const comparisonErrors = ref<Partial<Record<ProjectReportComparisonKind, string>>>({})
+const comparisonDimensionLoading = ref(false)
+const comparisonDimensionError = ref('')
 const feedback = ref('')
 const { activeKey, menuHeight, select, refresh } = useProjectReportNavigation(root)
 const requestIds: Record<ProjectReportDimension, number> = { department: 0, team: 0, sequence: 0, level: 0, tenure: 0 }
-const data = computed(() => reports.value.department ?? null)
-const loading = computed(() => Boolean(loadingDimensions.value.department))
-const error = computed(() => errors.value.department || '')
-const reportLoading = computed(() => Object.values(loadingDimensions.value).some(Boolean) || selfFinalLoading.value)
-const selfFinal = ref<ProjectReportComparisonData | null>(null)
-const selfFinalLoading = ref(false)
-const selfFinalError = ref('')
-const selfFinalRequestId = ref(0)
-
-async function loadSelfFinal() {
-  const id = ++selfFinalRequestId.value
-  selfFinal.value = null
-  selfFinalError.value = ''
-  selfFinalLoading.value = true
-  try {
-    const report = props.selfFinalProvider
-      ? await props.selfFinalProvider()
-      : await reportStore.loadReport(`self-final:${props.cycleId}`, () => projectManagementApi.selfFinalComparison(props.cycleId))
-    if (id === selfFinalRequestId.value) selfFinal.value = { ...report, ratings: report.ratings.map(rating => ({ ...rating, color: rating.color ?? undefined })) }
-  } catch (cause) {
-    const failure = cause as { response?: { status?: number; data?: { detail?: string } } }
-    if (id === selfFinalRequestId.value) {
-      selfFinalError.value = failure.response?.status === 403 ? '无权查看当前周期的自评/终评对比' :
-        failure.response?.data?.detail === 'CYCLE_MEMBER_OVERLAP_UNRESOLVED' ? '多个项目存在重复成员，尚未配置跨项目评级合成规则' :
-        '自评/终评对比加载失败，请稍后重试'
-    }
-  } finally {
-    if (id === selfFinalRequestId.value) selfFinalLoading.value = false
-  }
+const comparisonIds: Record<ProjectReportComparisonKind, number> = { 'self-final': 0, dimension: 0, history: 0 }
+let generation = 0
+const reportLoading = computed(() => Object.values(loadingDimensions.value).some(Boolean) || Object.values(comparisonLoading.value).some(Boolean))
+function isDimension(key: string): key is ProjectReportDimension { return key in requestIds }
+function isComparison(key: string): key is ProjectReportComparisonKind { return key in comparisonIds }
+function failureMessage(cause: unknown, label: string) {
+  const failure = cause as { response?: { status?: number; data?: { detail?: string } } }
+  if (failure.response?.status === 403) return `无权查看当前周期的${label}`
+  const detail = failure.response?.data?.detail
+  if (detail === 'RATING_SCALE_CONFLICT' || detail === 'INDICATOR_CONFLICT') return '项目评级体系不一致，无法合并统计'
+  if (detail === 'CYCLE_MEMBER_OVERLAP_UNRESOLVED') return '多个项目存在重复成员，尚未配置跨项目评级合成规则'
+  return `${label}加载失败，请稍后重试`
 }
 
 async function loadDimension(dimension: ProjectReportDimension) {
   const id = ++requestIds[dimension]
+  const indicatorKey = indicators.value[dimension]
   delete reports.value[dimension]
   loadingDimensions.value = { ...loadingDimensions.value, [dimension]: true }
   errors.value = { ...errors.value, [dimension]: '' }
   try {
-    const report = props.provider
-      ? await props.provider({ cycleId: props.cycleId, dimension })
-      : await reportStore.loadReport(`statistics:${props.cycleId}:${dimension}`, () => defaultProvider({ cycleId: props.cycleId, dimension }))
-    if (report.source !== 'api' || report.dimension !== dimension || !report.showSummary) {
-      throw new Error(`INVALID_${dimension.toUpperCase()}_REPORT`)
-    }
+    const query = { cycleId: props.cycleId, dimension, ...(indicatorKey ? { indicatorKey } : {}) }
+    const value = props.provider ? await props.provider(query)
+      : await reportStore.loadReport(`statistics:${props.cycleId}:${dimension}:${indicatorKey || ''}`, () => projectManagementApi.levelStatistics(props.cycleId, dimension, undefined, indicatorKey))
+    const report = { ...value, ratings: value.ratings.map(rating => ({ ...rating, color: rating.color ?? undefined })) }
+    if (report.source !== 'api' || report.dimension !== dimension || !report.showSummary) throw new Error('INVALID_REPORT')
     if (id === requestIds[dimension]) reports.value = { ...reports.value, [dimension]: report }
   } catch (cause) {
-    const failure = cause as { response?: { status?: number; data?: { detail?: string } } }
-    const detail = failure.response?.data?.detail
-    const message = failure.response?.status === 403 ? '无权查看当前周期的级别统计' :
-      detail === 'RATING_SCALE_CONFLICT' ? '项目评级体系不一致，无法合并级别统计' :
-      detail === 'CYCLE_MEMBER_OVERLAP_UNRESOLVED' ? '多个项目存在重复成员，尚未配置跨项目评级合成规则' :
-      dimension === 'level' ? '级别统计加载失败，请稍后重试' : dimension === 'tenure' ? '司龄统计加载失败，请稍后重试' :
-      dimension === 'department' ? '统计报表加载失败，请稍后重试' : `${dimension === 'team' ? '团队' : '序列'}统计加载失败，请稍后重试`
-    if (id === requestIds[dimension]) errors.value = { ...errors.value, [dimension]: message }
+    if (id === requestIds[dimension]) errors.value = { ...errors.value, [dimension]: failureMessage(cause, '统计报表') }
   } finally {
     if (id === requestIds[dimension]) {
       loadingDimensions.value = { ...loadingDimensions.value, [dimension]: false }
@@ -155,41 +117,87 @@ async function loadDimension(dimension: ProjectReportDimension) {
   }
 }
 
-function load() {
-  return loadDimension('department')
+async function loadComparison(kind: ProjectReportComparisonKind) {
+  const id = ++comparisonIds[kind]
+  const query = comparisonQueries.value[kind] || { kind }
+  comparisonLoading.value = { ...comparisonLoading.value, [kind]: true }
+  comparisonErrors.value = { ...comparisonErrors.value, [kind]: '' }
+  try {
+    const value = props.comparisonProvider ? await props.comparisonProvider(query)
+      : kind === 'self-final' && props.selfFinalProvider ? await props.selfFinalProvider()
+      : await reportStore.loadReport(`comparison:${props.cycleId}:${JSON.stringify(query)}`, () => projectManagementApi.comparison(props.cycleId, query))
+    const normalize = (ratings: typeof value.ratings) => ratings.map(rating => ({ ...rating, color: rating.color ?? undefined }))
+    const report = { ...value, ratings: normalize(value.ratings), xRatings: value.xRatings ? normalize(value.xRatings) : undefined, yRatings: value.yRatings ? normalize(value.yRatings) : undefined }
+    if (id === comparisonIds[kind]) comparisons.value = { ...comparisons.value, [kind]: report }
+  } catch (cause) {
+    if (id === comparisonIds[kind]) comparisonErrors.value = { ...comparisonErrors.value, [kind]: failureMessage(cause, '差异分析') }
+  } finally {
+    if (id === comparisonIds[kind]) {
+      comparisonLoading.value = { ...comparisonLoading.value, [kind]: false }
+      void refresh()
+    }
+  }
 }
-
-function requestAction(action: 'filter' | 'compare') {
-  feedback.value = action === 'filter' ? '筛选入口已预留，筛选条件尚未接入。' : '添加对比入口已预留，对比条件与计算尚未接入。'
-  if (action === 'filter') emit('filter')
-  else emit('compare')
+function changeComparison(kind: ProjectReportComparisonKind, change: Omit<Partial<ProjectReportComparisonQuery>, 'kind'>) {
+  const current = comparisons.value[kind]
+  comparisonQueries.value[kind] = { kind, xKey: current?.xKey, yKey: current?.yKey, ...(current?.historyCycleId ? { historyCycleId: current.historyCycleId } : {}), ...change, ...(change.historyCycleId ? { xKey: undefined } : {}) }
+  void loadComparison(kind)
 }
-
-watch(() => [props.cycleId, props.provider, props.selfFinalProvider, reportStore.cacheVersion], () => {
+function changeIndicator(dimension: ProjectReportDimension, key: string) {
+  indicators.value[dimension] = key
+  if (dimension === 'department') {
+    for (const comparisonDimension of ['team', 'sequence'] as const) {
+      requestIds[comparisonDimension]++
+      delete reports.value[comparisonDimension]
+      loadingDimensions.value[comparisonDimension] = false
+    }
+  }
+  void loadDimension(dimension)
+}
+async function loadComparisonDimension(dimension: 'team' | 'department' | 'sequence') {
+  emit('compare')
+  comparisonDimensionError.value = ''
+  if (reports.value[dimension] && reports.value[dimension]?.indicatorKey === reports.value.department?.indicatorKey) return
+  const currentGeneration = generation
+  comparisonDimensionLoading.value = true
+  indicators.value[dimension] = reports.value.department?.indicatorKey
+  await loadDimension(dimension)
+  if (currentGeneration !== generation) return
+  comparisonDimensionLoading.value = false
+  comparisonDimensionError.value = errors.value[dimension] || ''
+}
+function requestFilter() {
+  feedback.value = '筛选入口已预留，筛选条件尚未接入。'
+  emit('filter')
+}
+watch(() => [props.cycleId, props.provider, props.selfFinalProvider, props.comparisonProvider, reportStore.cacheVersion], () => {
+  generation++
   for (const dimension of Object.keys(requestIds) as ProjectReportDimension[]) requestIds[dimension]++
-  selfFinalRequestId.value++
-  selfFinal.value = null
-  selfFinalError.value = ''
-  selfFinalLoading.value = false
-  feedback.value = ''
-  collapsed.value = false
+  for (const kind of Object.keys(comparisonIds) as ProjectReportComparisonKind[]) comparisonIds[kind]++
   reports.value = {}
+  indicators.value = {}
   loadingDimensions.value = {}
   errors.value = {}
+  comparisons.value = {}
+  comparisonQueries.value = {}
+  comparisonLoading.value = {}
+  comparisonErrors.value = {}
+  comparisonDimensionLoading.value = false
+  comparisonDimensionError.value = ''
+  feedback.value = ''
+  collapsed.value = false
   activeKey.value = 'overview'
-  void load()
+  void loadDimension('department')
 }, { immediate: true })
-watch(activeKey, (key) => {
-  if (key === 'team' || key === 'sequence' || key === 'level' || key === 'tenure') {
-    const dimension = key as ProjectReportDimension
-    if (!reports.value[dimension] && !loadingDimensions.value[dimension]) void loadDimension(dimension)
-  }
-  if (key === 'self-final' && !selfFinal.value && !selfFinalLoading.value) void loadSelfFinal()
+watch(activeKey, key => {
+  if (isDimension(key) && !reports.value[key] && !loadingDimensions.value[key]) void loadDimension(key)
+  if (isComparison(key) && !comparisons.value[key] && !comparisonLoading.value[key]) void loadComparison(key)
 })
 watch(collapsed, () => void refresh())
 onBeforeUnmount(() => {
+  generation++
   for (const dimension of Object.keys(requestIds) as ProjectReportDimension[]) requestIds[dimension]++
-  selfFinalRequestId.value++
+  for (const kind of Object.keys(comparisonIds) as ProjectReportComparisonKind[]) comparisonIds[kind]++
 })
 </script>
 
@@ -202,6 +210,7 @@ onBeforeUnmount(() => {
 .report-contents { display: flex; flex: 1 1 0%; min-width: 0; flex-direction: column; margin-right: 36px; }
 .directory-collapsed .report-contents { margin-right: 0; }
 .report-primary-heading { position: sticky; top: var(--report-sticky-top); z-index: 10; box-sizing: border-box; height: 48px; flex: 0 0 48px; margin: 0; padding: 0 0 16px; background: #fff; font-size: 18px; font-weight: 600; line-height: 32px; }
+.project-report-root:not([data-report-scroll]) .report-top-spacer, .project-report-root:not([data-report-scroll]) .report-primary-heading { position: relative; top: auto; }
 .report-primary-heading span { display: block; max-width: calc(100% - 120px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .report-section { margin-bottom: 40px; min-width: 0; }
 .report-section:last-child { margin-bottom: 0; }
@@ -213,10 +222,8 @@ onBeforeUnmount(() => {
 .report-filter-button:hover { background: #f2f3f5; }
 .report-filter-button:focus-visible { outline: 2px solid #3370ff; outline-offset: 2px; }
 .report-source-notice { margin: 0 0 20px; color: #646a73; font-size: 12px; }
-.report-source-notice strong { padding: 2px 6px; border-radius: 4px; background: #eff3ff; color: var(--color-primary); font-weight: 500; }
 .report-feedback { position: absolute; top: 36px; right: 0; width: max-content; max-width: 100%; box-sizing: border-box; padding: 10px 12px; margin: 0; background: #f5f7fa; border: 1px solid #dee0e3; border-radius: 6px; color: #646a73; font-size: 13px; }
 .report-state { padding: 24px 0; color: #646a73; text-align: center; }
 .report-state button { padding: 6px 12px; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: var(--color-primary); cursor: pointer; }
 .report-placeholder { display: flex; flex-direction: column; justify-content: center; gap: 8px; margin: 0; padding: 32px 20px; background: #f8f9fa; border-radius: 6px; color: #646a73; font-size: 14px; }
-.report-placeholder small { font-size: 12px; color: #8f959e; }
 </style>

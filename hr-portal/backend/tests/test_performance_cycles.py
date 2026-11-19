@@ -905,6 +905,7 @@ async def test_cycle_snapshot_reads_canonical_employee_roster_fields():
 
     columns = [
         Column("id", String),
+        Column("bu", String),
         Column("employee_no", String),
         Column("full_name", String),
         Column("company_org", String),
@@ -929,6 +930,7 @@ async def test_cycle_snapshot_reads_canonical_employee_roster_fields():
     DATA_TABLES["emp_realtime_roster"] = model
     row = {
         "source_roster_id": "7",
+        "bu": " 事业BU ",
         "employee_no": "E001",
         "display_name": "员工一",
         "company_org": "集团",
@@ -961,6 +963,7 @@ async def test_cycle_snapshot_reads_canonical_employee_roster_fields():
 
     assert len(people) == 1
     person = people[0]
+    assert person.bu == "事业BU"
     assert (person.company_org, person.department, person.department_2) == ("集团", "研发中心", "平台部")
     assert person.direct_supervisor_source_value == "M001"
     assert person.employee_type == "正式员工"
@@ -1007,7 +1010,7 @@ async def test_cycle_manual_organization_edit_recomputes_path(monkeypatch):
     person = SimpleNamespace(
         employee_no="E001", display_name="员工一", company_org="集团", department="研发",
         department_2="平台", department_3=None, department_4=None, department_5=None,
-        organization_ref="集团/研发/平台", direct_supervisor_employee_no=None,
+        organization_ref="集团/研发/平台", bu="旧BU", direct_supervisor_employee_no=None,
         hrbp_employee_no=None, employee_type="正式", job_family=None, job_category=None,
         standard_position=None, position_level=None, hire_date=None, is_manually_maintained=False,
     )
@@ -1030,10 +1033,12 @@ async def test_cycle_manual_organization_edit_recomputes_path(monkeypatch):
     service = PerformanceCycleService(Db())
     service.audit = SimpleNamespace(append_event=lambda _: None)
     await service.update_people_manually(
-        cycle, [{"employee_no": "E001", "department_2": "新平台", "department_3": "小组"}],
+        cycle, [{"employee_no": "E001", "bu": "新BU", "department_2": "新平台", "department_3": "小组"}],
         actor_type="PORTAL_USER", actor_id=1, reason="调整组织",
     )
     assert person.organization_ref == "集团/研发/新平台/小组"
+    assert person.bu == "新BU"
+    assert person.company_org == "集团"
     assert person.is_manually_maintained is True
 
 

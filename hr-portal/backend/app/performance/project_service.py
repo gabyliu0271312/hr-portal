@@ -349,7 +349,7 @@ class PerformanceProjectService:
         if "task_generation_employee_nos" not in (snapshot.source_filter or {}) and len(task_nos) != int(project.evaluated_count):
             raise ProjectValidationError("历史任务成员分类无法确认，请先核对历史成员")
         people = []
-        fields = ["employee_no", "display_name", *ORGANIZATION_FIELDS, "organization_ref", "direct_supervisor_employee_no", "project_manager_employee_no", "hrbp_employee_no", "employee_type", "employment_status", "job_family", "job_category", "standard_position", "position_level", "hire_date"]
+        fields = ["employee_no", "display_name", "bu", *ORGANIZATION_FIELDS, "organization_ref", "direct_supervisor_employee_no", "project_manager_employee_no", "hrbp_employee_no", "employee_type", "employment_status", "job_family", "job_category", "standard_position", "position_level", "hire_date"]
         for member in members:
             source = source_by_no.get(member.employee_no)
             values = {field: getattr(member, field, None) for field in fields}
@@ -1520,6 +1520,7 @@ class PerformanceProjectService:
                 employee_no=person.employee_no,
                 portal_user_id=person.portal_user_id,
                 display_name=person.display_name,
+                bu=getattr(person, "bu", None),
                 **{field: getattr(person, field) for field in ORGANIZATION_FIELDS},
                 organization_ref=organization_path(person),
                 direct_supervisor_employee_no=person.direct_supervisor_employee_no,

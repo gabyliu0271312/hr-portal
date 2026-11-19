@@ -8,7 +8,7 @@
         <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" @action="handleCompletionAction" />
         <ProjectMemberListPanel v-else-if="activeTab === 'members'" :project-id="0" :cycle-id="cycleId" readonly :provider="memberProvider" @select-member="openMember" />
         <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :project-id="0" :cycle-name="overview.cycle.cycle_name" readonly :provider="matrixProvider" @open-member="openMember" />
-        <ProjectStatisticsReportPanel v-else :cycle-id="cycleId" :cycle-name="overview.cycle.cycle_name" :provider="statisticsProvider" :self-final-provider="selfFinalProvider" />
+        <ProjectStatisticsReportPanel v-else :cycle-id="cycleId" :cycle-name="overview.cycle.cycle_name" :provider="statisticsProvider" :self-final-provider="selfFinalProvider" :comparison-provider="comparisonProvider" />
       </PerformanceLineTabs>
     </template>
     <PerformanceReviewEvaluationDrawer
@@ -36,7 +36,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { resultViewApi, type PerformanceReferenceTab, type PerformanceResultViewOverview, type ProjectMember } from '@/api/performance'
 import PerformanceMemberReminderDialog from './PerformanceMemberReminderDialog.vue'
 import { usePerformanceMemberReminder } from '@/composables/usePerformanceMemberReminder'
-import type { ProjectReportDimension } from '@/components/performance/projectStatisticsReport'
+import type { ProjectReportComparisonQuery, ProjectReportDimension } from '@/components/performance/projectStatisticsReport'
 import PerformancePageTitle from '@/components/performance/PerformancePageTitle.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from '@/components/performance/PerformanceLineTabs.vue'
 import CompletionRatePanel from '@/components/performance/CompletionRatePanel.vue'
@@ -96,13 +96,20 @@ async function load() {
 }
 const memberProvider = (query: { keyword?: string; page: number; pageSize: number; sortBy?: string; sortOrder?: 'asc' | 'desc' }) => resultViewApi.members(props.kind, props.cycleId, query.keyword, query.page, query.pageSize, query.sortBy, query.sortOrder)
 const matrixProvider = () => resultViewApi.matrix(props.kind, props.cycleId)
-const statisticsProvider = async ({ dimension = 'department' }: { cycleId: number; dimension?: ProjectReportDimension }) => {
-  const report = await resultViewApi.statistics(props.kind, props.cycleId, dimension)
+const statisticsProvider = async ({ dimension = 'department', indicatorKey }: { cycleId: number; dimension?: ProjectReportDimension; indicatorKey?: string }) => {
+  const report = await resultViewApi.statistics(props.kind, props.cycleId, dimension, indicatorKey)
   return { ...report, ratings: report.ratings.map(rating => ({ ...rating, color: rating.color ?? undefined })) }
 }
 const selfFinalProvider = async () => {
   const report = await resultViewApi.selfFinalComparison(props.kind, props.cycleId)
-  return { ...report, ratings: report.ratings.map(rating => ({ ...rating, color: rating.color ?? undefined })) }
+  const normalize = (ratings: typeof report.ratings) => ratings.map(rating => ({ ...rating, color: rating.color ?? undefined }))
+  return { ...report, ratings: normalize(report.ratings), xRatings: report.xRatings ? normalize(report.xRatings) : undefined, yRatings: report.yRatings ? normalize(report.yRatings) : undefined }
+}
+
+const comparisonProvider = async (query: ProjectReportComparisonQuery) => {
+  const report = await resultViewApi.comparison(props.kind, props.cycleId, query)
+  const normalize = (ratings: typeof report.ratings) => ratings.map(rating => ({ ...rating, color: rating.color ?? undefined }))
+  return { ...report, ratings: normalize(report.ratings), xRatings: report.xRatings ? normalize(report.xRatings) : undefined, yRatings: report.yRatings ? normalize(report.yRatings) : undefined }
 }
 
 const drawerMember = ref<(ProjectMember & { project_id: number }) | null>(null)

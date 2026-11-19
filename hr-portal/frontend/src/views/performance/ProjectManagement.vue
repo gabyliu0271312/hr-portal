@@ -43,7 +43,7 @@
             </template>
             <ProjectMemberListPanel v-else-if="activeTab === 'members'" :key="contentKey" :cycle-id="selectedProject ? undefined : activeCycle.cycle_id" :project-id="memberProjectId" @filter="emit('member-filter')" @authorize-selected="openDelegation('AUTHORIZE', $event)" @transfer-selected="openDelegation('TRANSFER', $event)" @select-member="openMember" @remind-evaluate="handleEvaluateRemind" />
             <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :key="contentKey" :project-id="memberProjectId" :cycle-id="selectedProject ? undefined : activeCycle.cycle_id" :scope-key="scopeKey" :provider="matrixProvider" :cycle-name="activeCycle.cycle_name" @open-member="openMatrixMember" />
-            <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :key="contentKey" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" :provider="statisticsProvider" :self-final-provider="selfFinalProvider" />
+            <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :key="contentKey" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" :provider="statisticsProvider" :self-final-provider="selfFinalProvider" :comparison-provider="comparisonProvider" />
             <p v-else class="pane-hint">该页签内容将在后续迭代中开发</p>
           </PerformanceLineTabs>
         </div>
@@ -87,7 +87,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import PerformanceManagementMemberScope from '@/components/performance/PerformanceManagementMemberScope.vue'
 import PerformanceWorkbenchTimeline, { type WorkbenchTimelineNode } from '@/components/performance/PerformanceWorkbenchTimeline.vue'
-import type { ProjectReportProvider } from '@/components/performance/projectStatisticsReport'
+import type { ProjectReportComparisonProvider, ProjectReportProvider } from '@/components/performance/projectStatisticsReport'
 import { ElMessage } from 'element-plus'
 import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -411,8 +411,8 @@ const matrixProvider = computed(() => {
 const statisticsProvider = computed<ProjectReportProvider>(() => {
   const scope = { ...managementScope.value }
   const key = scopeKey.value
-  return async ({ cycleId, dimension = 'department' }) => {
-    const report = await projectContext.loadReport(`management:${key}:statistics:${dimension}`, () => projectManagementApi.levelStatistics(cycleId, dimension, scope))
+  return async ({ cycleId, dimension = 'department', indicatorKey }) => {
+    const report = await projectContext.loadReport(`management:${key}:statistics:${dimension}:${indicatorKey || ''}`, () => projectManagementApi.levelStatistics(cycleId, dimension, scope, indicatorKey))
     return { ...report, ratings: report.ratings.map(rating => ({ ...rating, color: rating.color ?? undefined })) }
   }
 })
@@ -422,7 +422,19 @@ const selfFinalProvider = computed(() => {
   const key = scopeKey.value
   return async () => {
     const report = await projectContext.loadReport(`management:${key}:self-final`, () => projectManagementApi.selfFinalComparison(cycleId, scope))
-    return { ...report, ratings: report.ratings.map(rating => ({ ...rating, color: rating.color ?? undefined })) }
+    const normalize = (ratings: typeof report.ratings) => ratings.map(rating => ({ ...rating, color: rating.color ?? undefined }))
+    return { ...report, ratings: normalize(report.ratings), xRatings: report.xRatings ? normalize(report.xRatings) : undefined, yRatings: report.yRatings ? normalize(report.yRatings) : undefined }
+  }
+})
+
+const comparisonProvider = computed<ProjectReportComparisonProvider>(() => {
+  const cycleId = activeCycle.value?.cycle_id || 0
+  const scope = { ...managementScope.value }
+  const key = scopeKey.value
+  return async query => {
+    const report = await projectContext.loadReport(`management:${key}:comparison:${JSON.stringify(query)}`, () => projectManagementApi.comparison(cycleId, query, scope))
+    const normalize = (ratings: typeof report.ratings) => ratings.map(rating => ({ ...rating, color: rating.color ?? undefined }))
+    return { ...report, ratings: normalize(report.ratings), xRatings: report.xRatings ? normalize(report.xRatings) : undefined, yRatings: report.yRatings ? normalize(report.yRatings) : undefined }
   }
 })
 

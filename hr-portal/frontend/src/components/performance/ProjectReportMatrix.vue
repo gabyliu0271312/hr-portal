@@ -1,6 +1,6 @@
 <template>
   <div ref="root" class="report-matrix">
-    <div class="matrix-toolbar"><span class="matrix-rating-tab">绩效评级</span></div>
+    <div class="matrix-toolbar"><ElDropdown v-if="report.indicators?.length" trigger="click" @command="emit('indicator-change', $event)"><button type="button" class="matrix-rating-tab">{{ report.indicatorLabel || '绩效评级' }}<DownOutlinedIcon /></button><template #dropdown><ElDropdownMenu><ElDropdownItem v-for="indicator in report.indicators" :key="indicator.key" :command="indicator.key">{{ indicator.label }}</ElDropdownItem></ElDropdownMenu></template></ElDropdown><span v-else class="matrix-rating-tab">{{ report.indicatorLabel || '绩效评级' }}</span></div>
     <div class="matrix-scroll">
       <el-table ref="table" :data="rows" row-key="id" :fit="false" :max-height="496" style="width: 100%" :default-sort="{ prop: 'total', order: 'descending' }" :row-class-name="rowClassName" :empty-text="`暂无${report.rowLabel}统计数据`" @sort-change="sort = { prop: $event.prop ?? 'total', order: $event.order }" :expand-row-keys="expandedKeys" @expand-change="(row, expanded) => updateExpanded(row.id, expanded)">
         <el-table-column prop="name" :label="report.rowLabel" min-width="240" fixed="left" class-name="matrix-department-column">
@@ -12,7 +12,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column v-for="(rating, index) in report.ratings" :key="rating.key" :label="rating.label" :min-width="index === report.ratings.length - 1 ? lastRatingWidth : 140" align="right" sortable="custom" :prop="rating.key" class-name="matrix-rating-column">
+        <el-table-column v-for="rating in report.ratings" :key="rating.key" :label="rating.label" :min-width="ratingWidth" align="right" sortable="custom" :prop="rating.key" class-name="matrix-rating-column">
           <template #header>
             <PerformanceSortHeader :label="rating.label" :order="sort.prop === rating.key ? sort.order : null" @click="changeSort(rating.key)">
               <PerformanceRatingTag :label="rating.label" :color="rating.color" />
@@ -29,6 +29,7 @@
           <template #header><PerformanceSortHeader label="总人数" :order="sort.prop === 'total' ? sort.order : null" @click="changeSort('total')" /></template>
           <template #default="{ row }"><div class="matrix-total">{{ row.total }}</div></template>
         </el-table-column>
+        <template #empty><div class="matrix-empty"><MetricTemplateEmptyIllustration /><span>暂无{{ report.rowLabel }}统计数据</span></div></template>
       </el-table>
     </div>
   </div>
@@ -36,17 +37,20 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { ElTable, ElTableColumn, type TableInstance } from 'element-plus'
+import { ElDropdown, ElDropdownItem, ElDropdownMenu, ElTable, ElTableColumn, type TableInstance } from 'element-plus'
+import DownOutlinedIcon from './DownOutlinedIcon.vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'
 import PerformanceRatingTag from './PerformanceRatingTag.vue'
+import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.vue'
 import PerformanceSortHeader from './PerformanceSortHeader.vue'
 import { getProjectReportMatrixConfig, reportPercent, reportTotal, type ProjectReportMatrixConfig, type ProjectStatisticsReport, type ReportDepartment } from './projectStatisticsReport'
 
 const props = defineProps<{ report: ProjectStatisticsReport; config?: ProjectReportMatrixConfig }>()
+const emit = defineEmits<{ 'indicator-change': [key: string] }>()
 const root = ref<HTMLElement | null>(null)
 const table = ref<TableInstance>()
 const tableWidth = ref(0)
-const lastRatingWidth = computed(() => Math.max(140, tableWidth.value - 240 - 110 - Math.max(0, props.report.ratings.length - 1) * 140))
+const ratingWidth = computed(() => Math.max(140, (tableWidth.value - 240 - 110) / Math.max(1, props.report.ratings.length)))
 interface MatrixRow extends Omit<ReportDepartment, 'children'> { total: number; depth: number; children?: MatrixRow[] }
 const expandedKeys = ref<string[]>([])
 const matrixConfig = computed(() => props.config ?? getProjectReportMatrixConfig(props.report.dimension))
@@ -94,7 +98,8 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
 <style scoped>
 .report-matrix { position: relative; min-width: 0; min-height: 200px; }
 .matrix-toolbar { display: flex; height: 48px; }
-.matrix-rating-tab { display: flex; align-items: center; box-sizing: border-box; height: 32px; padding: 0 16px; border: 1px solid #3370ff; border-radius: 6px; color: #3370ff; font-size: 14px; font-weight: 500; line-height: 22px; }
+.matrix-rating-tab { display: flex; align-items: center; gap: 8px; box-sizing: border-box; height: 32px; padding: 0 16px; border: 1px solid #3370ff; border-radius: 6px; background: #fff; color: #3370ff; font: inherit; font-size: 14px; font-weight: 500; line-height: 22px; }
+button.matrix-rating-tab { cursor: pointer; }.matrix-rating-tab :deep(svg) { width: 14px; height: 14px; }
 .matrix-scroll { min-width: 0; overflow-x: auto; }
 .report-matrix :deep(.el-table) { --el-table-border-color: #eff0f1; --el-table-header-bg-color: #f8f9fa; --el-table-header-text-color: #646a73; --el-table-text-color: rgba(0, 0, 0, .88); border-radius: 8px 8px 0 0; font-size: 14px; font-weight: 400; }
 .report-matrix :deep(.el-table__header-wrapper) { border-top: 1px solid var(--el-table-border-color); border-radius: 8px 8px 0 0; }
@@ -111,7 +116,9 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
 .matrix-heat-1 { background: #e1eaff; color: #133c9a; }
 .matrix-heat-2 { background: #bacefd; color: #133c9a; }
 .matrix-heat-3 { background: #82a7fc; color: #fff; }
-.matrix-heat-2:hover { background: #a9bff3; }
+.matrix-heat-1:hover, .matrix-heat-2:hover, .matrix-heat-3:hover { background: #bacefd; }
+.matrix-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 240px; gap: 12px; color: #8f959e; }
+.report-matrix :deep(.el-table__empty-text) { width: 100%; line-height: 22px; }
 .matrix-zero { padding: 16px 12px; color: #8f959e; }
 .matrix-department { display: flex; align-items: center; height: 54px; }
 .matrix-department-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

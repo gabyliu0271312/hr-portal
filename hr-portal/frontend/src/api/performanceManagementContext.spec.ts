@@ -43,6 +43,15 @@ describe('management request scope', () => {
     expect(JSON.parse(requests[1].data)).toEqual({ employee_nos: ['E1'] })
   })
 
+  it('preserves indicator and comparison axes together with management scope', async () => {
+    const requests: Parameters<AxiosAdapter>[0][] = []
+    api.defaults.adapter = async config => { requests.push(config); return response(config) }
+    await projectManagementApi.levelStatistics(9, 'sequence', undefined, 'rating:contribution')
+    await projectManagementApi.comparison(9, { kind: 'history', xKey: 'rating:old', yKey: 'rating:current', historyCycleId: 8 })
+    expect(requests[0].params).toMatchObject({ cycle_id: 9, project_id: '29', management_role: 'hrbp', dimension: 'sequence', indicator_key: 'rating:contribution' })
+    expect(requests[1].params).toMatchObject({ cycle_id: 9, project_id: '29', management_role: 'hrbp', kind: 'history', x_key: 'rating:old', y_key: 'rating:current', history_cycle_id: 8 })
+  })
+
   it('preserves the selected project on object paths so mismatched paths are rejected by the server', async () => {
     const requests: Parameters<AxiosAdapter>[0][] = []
     api.defaults.adapter = async config => { requests.push(config); return response(config) }
