@@ -1,6 +1,6 @@
 <template>
   <ElPopover :visible="open" role="menu" trigger="click" placement="bottom-start" :width="240" :show-arrow="false" popper-class="report-comparison-popover" :popper-style="{ padding: '0', maxWidth: 'calc(100vw - 24px)' }" @hide="activeDimension = undefined">
-    <template #reference><button ref="trigger" type="button" class="comparison-button" aria-haspopup="menu" :aria-expanded="open" @click="open = !open" @keydown.down.prevent="openMenu"><AddOutlinedIcon />添加对比</button></template>
+    <template #reference><button ref="trigger" type="button" class="comparison-button" :class="{ 'is-limit': atLimit }" aria-haspopup="menu" :aria-disabled="atLimit" :aria-expanded="open" @mouseenter="limitHint = atLimit" @mouseleave="limitHint = false" @focus="limitHint = atLimit" @blur="limitHint = false" @click="toggleMenu" @keydown.down.prevent="openMenu"><AddOutlinedIcon />添加对比<span v-if="selected.length > 1">{{ selected.length }}/10</span></button></template>
     <div ref="menu" class="comparison-menu" role="menu" aria-label="添加对比" @keydown="navigateMenu">
       <div class="comparison-menu-title">我的团队数据</div>
       <button type="button" role="menuitemcheckbox" :aria-checked="selected.includes('summary')" @focus="activeDimension = undefined" @mouseenter="activeDimension = undefined" @click="emit('toggle', 'summary')">汇总<span v-if="selected.includes('summary')" class="comparison-check" aria-hidden="true">✓</span></button>
@@ -15,18 +15,24 @@
       </ElPopover>
     </div>
   </ElPopover>
+  <PerformancePopover :visible="atLimit && limitHint" :anchor="trigger || null" :width="268" name="comparison-limit-hint" @close="limitHint = false"><strong>最多添加 10 组对比</strong><p>请先清除已有对比再添加新对比</p></PerformancePopover>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElPopover, ElTree } from 'element-plus'
 import AddOutlinedIcon from './AddOutlinedIcon.vue'
+import PerformancePopover from './PerformancePopover.vue'
 import { reportTotal, type ReportDepartment } from './projectStatisticsReport'
 type Dimension = 'team' | 'sequence' | 'department'
 const props = defineProps<{ groups: Partial<Record<Dimension, ReportDepartment[]>>; selected: string[] }>()
 const emit = defineEmits<{ request: [dimension: Dimension]; toggle: [key: string] }>()
 const dimensions = [{ value: 'team', label: '团队' }, { value: 'sequence', label: '序列' }, { value: 'department', label: '部门' }] as const
 const open = ref(false)
+const atLimit = computed(() => props.selected.length >= 10)
+const limitHint = ref(false)
+watch(atLimit, () => { open.value = false; limitHint.value = false })
+function toggleMenu() { if (!atLimit.value) open.value = !open.value }
 const activeDimension = ref<Dimension>()
 const trigger = ref<HTMLButtonElement>()
 const menu = ref<HTMLElement>()
@@ -42,7 +48,7 @@ function activate(dimension: Dimension) {
 }
 function filterNode(value: string, data: Record<string, any>) { return !value || data.name.toLocaleLowerCase().includes(value.trim().toLocaleLowerCase()) }
 function filterTree(dimension: Dimension) { trees[dimension]?.filter(searches.value[dimension] || '') }
-async function openMenu() { open.value = true; await nextTick(); menu.value?.querySelector<HTMLButtonElement>('button')?.focus() }
+async function openMenu() { if (atLimit.value) return; open.value = true; await nextTick(); menu.value?.querySelector<HTMLButtonElement>('button')?.focus() }
 async function focusSearch(dimension: Dimension) { activate(dimension); await nextTick(); searchInputs[dimension]?.focus() }
 function focusTree(dimension: Dimension) { trees[dimension]?.$el.querySelector('[role="treeitem"]')?.focus() }
 function navigateTree(event: KeyboardEvent, dimension: Dimension) {
@@ -75,6 +81,10 @@ onBeforeUnmount(() => { document.removeEventListener('keydown', escape); documen
 <style scoped>
 .comparison-button { display: inline-flex; align-items: center; gap: 4px; height: 28px; border: 1px solid #3370ff; border-radius: 6px; background: #fff; color: var(--color-primary); padding: 0 8px; font: inherit; line-height: 20px; cursor: pointer; }
 .comparison-button:hover { background: #e0e9ff; }.comparison-button :deep(svg) { width: 14px; height: 14px; }
+.comparison-button.is-limit { color: #bbbfc4; border-color: #dee0e3; cursor: not-allowed; }
+.comparison-button.is-limit:hover { background: #fff; }
+.comparison-limit-hint strong { font-size: 14px; font-weight: 600; }
+.comparison-limit-hint p { margin: 8px 0 0; color: #8f959e; }
 .comparison-menu-title { box-sizing: border-box; height: 32px; padding: 6px 12px; color: #8f959e; font-size: 12px; line-height: 20px; }
 .comparison-menu > button, .comparison-menu :deep(.el-tooltip__trigger) { display: flex; align-items: center; width: 100%; height: 32px; border: 0; padding: 0 12px; background: #fff; color: #1f2329; font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
 .comparison-menu button:hover, .comparison-menu button:focus-visible { background: #f5f6f7; outline: none; }

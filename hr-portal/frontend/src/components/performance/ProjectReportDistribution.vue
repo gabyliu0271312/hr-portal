@@ -7,7 +7,7 @@
     <div class="axis-name">人数占比</div>
     <div class="comparison-row">
       <ProjectReportComparisonMenu :groups="comparisonGroups" :selected="selectedKeys" @request="emit('compare', $event)" @toggle="toggleSeries" />
-      <span v-for="item in series" :key="item.key" class="series-legend" :style="seriesStyle(item)">{{ item.label }}：{{ reportTotal(item.counts) }}<button type="button" :aria-label="`移除${item.label}`" @click="toggleSeries(item.key)">×</button></span>
+      <span v-for="item in series" :key="item.key" class="series-legend" :style="seriesStyle(item)">{{ item.label }}：{{ reportTotal(item.counts) }}<button v-if="item.key !== 'summary' || series.length > 1" type="button" :aria-label="`移除${item.label}`" @click="toggleSeries(item.key)">×</button></span>
     </div>
     <figure class="distribution-figure" :aria-label="`${indicatorLabel}人数占比分布`">
       <div class="chart-scroll">
@@ -47,7 +47,7 @@ const indicatorOptions = computed(() => props.report.indicators?.length ? props.
 const evaluated = computed(() => reportTotal(props.report.distribution))
 const comparisonDimensions = ['team', 'sequence', 'department'] as const
 const selectedKeys = ref(['summary'])
-const palette = ['#4e83fd', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948']
+const palette = ['#4e83fd', '#50cefb', '#935af6', '#fad355', '#f76964', '#ffa53d', '#f14ba9', '#14e1c6', '#db66db', '#c3dd40']
 const colorSlots = new Map<string, string>()
 const selectedLabels = new Map<string, string>()
 function flatten(rows: ReportDepartment[]): ReportDepartment[] { return rows.flatMap(row => [row, ...flatten(row.children || [])]) }
@@ -57,13 +57,27 @@ const comparisonGroups = computed(() => Object.fromEntries(comparisonDimensions.
 })))
 const rowsByKey = computed(() => new Map<string, ReportDepartment>(comparisonDimensions.flatMap(dimension => flatten(comparisonGroups.value[dimension]).map(row => [`${dimension}:${row.id}`, row] as const))))
 function toggleSeries(key: string) {
-  if (selectedKeys.value.includes(key)) selectedKeys.value = selectedKeys.value.filter(value => value !== key)
-  else {
+  if (selectedKeys.value.includes(key)) {
+    if (key === 'summary' && selectedKeys.value.length === 1) return
+    selectedKeys.value = selectedKeys.value.filter(value => value !== key)
+    if (!selectedKeys.value.length) selectedKeys.value = ['summary']
+  } else {
+    if (selectedKeys.value.length >= 10) return
     if (key !== 'summary') {
       const row = rowsByKey.value.get(key)
       if (!row) return
       selectedLabels.set(key, row.name)
-      if (!colorSlots.has(key)) colorSlots.set(key, palette[colorSlots.size + 1] || '#646a73')
+      const used = new Set(selectedKeys.value.map(value => value === 'summary' ? palette[0] : colorSlots.get(value)))
+      if (!colorSlots.has(key) || used.has(colorSlots.get(key))) {
+        const color = (selectedKeys.value.includes('summary') ? palette.slice(1) : [...palette.slice(1), palette[0]]).find(color => !used.has(color))
+        if (!color) return
+        for (const [previous, assigned] of colorSlots) if (assigned === color && !selectedKeys.value.includes(previous)) colorSlots.delete(previous)
+        colorSlots.set(key, color)
+      }
+    }
+    if (key === 'summary') {
+      const blueGroup = selectedKeys.value.find(value => colorSlots.get(value) === palette[0])
+      if (blueGroup) colorSlots.set(blueGroup, palette.slice(1).find(color => !selectedKeys.value.some(value => colorSlots.get(value) === color))!)
     }
     selectedKeys.value = [...selectedKeys.value, key]
   }
@@ -72,12 +86,11 @@ function toggleSeries(key: string) {
 const series = computed(() => selectedKeys.value.map(key => {
   if (key === 'summary') return { key, label: '汇总', counts: props.report.distribution, color: palette[0] }
   const row = rowsByKey.value.get(key)
-  return { key, label: row?.name || selectedLabels.get(key) || key, counts: row?.counts || {}, color: colorSlots.get(key) || '#646a73' }
+  return { key, label: row?.name || selectedLabels.get(key) || key, counts: row?.counts || {}, color: colorSlots.get(key) || palette[0] }
 }))
 const share = (item: typeof series.value[number], key: string) => reportPercent(item.counts[key] ?? 0, reportTotal(item.counts))
 function seriesStyle(item: typeof series.value[number]) {
-  const slot = [...colorSlots.keys()].indexOf(item.key)
-  return { backgroundColor: item.color, backgroundImage: item.color === '#646a73' ? `repeating-linear-gradient(${slot % 2 ? 45 : 135}deg, transparent 0 ${3 + slot % 4}px, rgba(255,255,255,.65) ${3 + slot % 4}px ${5 + slot % 4}px)` : undefined }
+  return { backgroundColor: item.color }
 }
 const hasData = computed(() => series.value.some(item => reportTotal(item.counts) > 0))
 const maximum = computed(() => Math.max(10, Math.ceil(Math.max(0, ...series.value.flatMap(item => props.report.ratings.map(rating => Number(share(item, rating.key))))) / 10) * 10))
