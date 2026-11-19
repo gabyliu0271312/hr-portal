@@ -197,6 +197,7 @@ class PerformanceTaskAuthorizationPayload(BaseModel):
     recipient_employee_no: str = Field(min_length=1, max_length=64)
     reason: str = Field(default="", max_length=1000)
     idempotency_key: str | None = Field(default=None, max_length=64)
+    source_authorization_id: int | None = Field(default=None, ge=1)
     no_origin_reviewer_authorize: bool | None = None
     scope_mode: Literal["PARTIAL", "ALL"] = "ALL"
     scope_kind: Literal["DIRECT_SUBORDINATES", "DEPARTMENT", "PEOPLE"] = "PEOPLE"
@@ -5634,6 +5635,15 @@ async def create_task_delegation(
         scope = await _task_management_scope(context, project, db, _task_authorization_key(node))
         if scope is not None and task.target_employee_no not in scope:
             raise HTTPException(403, "TASK_AUTHORIZATION_FORBIDDEN")
+    source_parent = None
+    if payload.source_authorization_id is not None:
+        source_records, _groups = _calibration_delegation_groups(await _task_delegations(db, task.id))
+        source_parent = next((record for record in source_records
+                              if record.id == payload.source_authorization_id and record.task_id == task.id
+                              and record.status == "ACTIVE" and record.authorization_type == "AUTHORIZE"
+                              and (record.authorization_settings or {}).get("allow_reauthorize")), None)
+        if source_parent is None or node.node_type != "calibration" or payload.action != "AUTHORIZE":
+            raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_FORBIDDEN")
     if payload.idempotency_key and not materialize:
         existing = await db.scalar(select(PerformanceNodeTaskAuthorization).where(
             PerformanceNodeTaskAuthorization.task_id == task.id,
@@ -5643,9 +5653,10 @@ async def create_task_delegation(
         ))
         if existing is not None:
             saved = existing.authorization_settings or {}
-            requested = payload.model_dump(exclude={"action", "recipient_employee_no", "reason", "idempotency_key"})
+            requested = payload.model_dump(exclude={"action", "recipient_employee_no", "reason", "idempotency_key", "source_authorization_id"})
             defaults = PerformanceTaskAuthorizationPayload(action=payload.action, recipient_employee_no=payload.recipient_employee_no).model_dump()
             if (existing.recipient_employee_no != payload.recipient_employee_no or existing.reason != payload.reason.strip()
+                    or saved.get("parent_authorization_id") != payload.source_authorization_id and payload.source_authorization_id is not None
                     or any(saved.get(key, defaults[key]) != value for key, value in requested.items())):
                 raise HTTPException(status_code=409, detail="TASK_IDEMPOTENCY_CONFLICT")
             return {"id": existing.id, "task_id": task.id, "authorization_type": existing.authorization_type, "status": existing.status, "read_only": existing.read_only, "notification_status": saved.get("notification_status", "not_requested"), "idempotent": True}
@@ -5656,7 +5667,11 @@ async def create_task_delegation(
     current_snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
     if task.member_snapshot_id != current_snapshot_id or node.project_id != project.id:
         raise HTTPException(status_code=409, detail="TASK_SNAPSHOT_NOT_CURRENT")
-    if not await _authorize_task_delegation(task, node, project, context, actor.actor_ref, db):
+    if source_parent is not None and source_parent.recipient_employee_no != actor.actor_ref:
+        source_scope = await _task_management_scope_or_empty(context, project, db, TASK_CALIBRATION_AUTHORIZATION_KEY)
+        if source_scope is not None and task.target_employee_no not in source_scope:
+            raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_FORBIDDEN")
+    elif not await _authorize_task_delegation(task, node, project, context, actor.actor_ref, db):
         raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_FORBIDDEN")
     if not str(task.handler_ref or "").strip():
         if payload.action == "TRANSFER":
@@ -5670,7 +5685,8 @@ async def create_task_delegation(
         PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.source_snapshot_id,
         PerformanceAuthorizationSnapshotPerson.employee_no == payload.recipient_employee_no,
     ))
-    if recipient is None or recipient.employee_no == task.handler_ref or recipient.employment_status in {"离职", "已离职"}:
+    if (recipient is None or recipient.employee_no == task.handler_ref or recipient.employment_status in {"离职", "已离职"}
+            or node.node_type == "calibration" and recipient.employee_no == task.target_employee_no):
         raise HTTPException(status_code=422, detail="TASK_AUTHORIZATION_RECIPIENT_INVALID")
     recipient_scope = await _task_recipient_scope(context, project, node, db)
     if recipient_scope is not None and recipient.employee_no not in recipient_scope:
@@ -5706,8 +5722,8 @@ async def create_task_delegation(
             item.status = "REPLACED"
     elif any(item.authorization_type == "AUTHORIZE" and item.recipient_employee_no == recipient.employee_no for item in active):
         raise HTTPException(status_code=409, detail="TASK_ALREADY_AUTHORIZED")
-    parent = next((item for item in active if item.recipient_employee_no == actor.actor_ref and (item.authorization_settings or {}).get("allow_reauthorize")), None) if actor.actor_ref != str(task.handler_ref) else None
-    authorization_settings = payload.model_dump(exclude={"action", "recipient_employee_no", "reason"})
+    parent = source_parent or (next((item for item in active if item.recipient_employee_no == actor.actor_ref and (item.authorization_settings or {}).get("allow_reauthorize")), None) if actor.actor_ref != str(task.handler_ref) else None)
+    authorization_settings = payload.model_dump(exclude={"action", "recipient_employee_no", "reason", "source_authorization_id"})
     if payload.idempotency_key:
         authorization_settings["idempotency_key"] = payload.idempotency_key
     if parent:
@@ -6315,6 +6331,87 @@ async def project_management_authorization_records(
     return result
 
 
+def _calibration_source_rules(phase, tasks):
+    keys = {(task.handler_ref, task.target_employee_no) for task in tasks}
+    assignments = [item for item in phase.get("assignments") or [] if (item.get("handler_ref"), item.get("employee_no")) in keys]
+    rule_ids = {rule_id for item in assignments for rule_id in item.get("source_rule_ids") or []}
+    return [deepcopy({**source["rule"], "rule_id": source["rule_id"]}) for source in phase.get("rule_sources") or []
+            if source.get("rule_id") in rule_ids and source.get("rule")]
+
+
+def _calibration_scope_label(rules):
+    relations = {"ALL_SUBORDINATES": "全部下级", "DIRECT_SUBORDINATES": "直属下级", "INDIRECT_SUBORDINATES": "间接下级"}
+    fields = {"department": "部门", "employee": "人员", "hire_date": "入职日期", "calibrator_relation": "校准人关系"}
+    operators = {"INCLUDE": "包含", "EXCLUDE": "不包含", "before": "早于", "not_before": "不早于", "after": "晚于", "not_after": "不晚于"}
+    summaries = []
+    for rule in rules:
+        if rule.get("scope") == "PROJECT_ALL":
+            summary = "项目全员"
+        else:
+            groups = []
+            for group in rule.get("scope_groups") or []:
+                conditions = []
+                for condition in group.get("conditions") or []:
+                    values = "、".join(relations.get(value, value) for value in condition.get("values") or [])
+                    if condition.get("field") == "calibrator_relation" and condition.get("operator") == "INCLUDE":
+                        conditions.append(values)
+                    else:
+                        conditions.append(f"{fields.get(condition.get('field'), condition.get('field'))}{operators.get(condition.get('operator'), condition.get('operator'))}{values}")
+                groups.append(" 且 ".join(conditions))
+            summary = " 或 ".join(f"（{group}）" if len(groups) > 1 else group for group in groups)
+        if summary and summary not in summaries:
+            summaries.append(summary)
+    return " 或 ".join(f"（{summary}）" if len(summaries) > 1 else summary for summary in summaries) or "已冻结的校准范围"
+
+
+def _calibration_rule_origins(events, node_id, phase_id, rule_ids):
+    def ids(state):
+        flow = (state or {}).get("flow_settings") or {}
+        calibration = ((flow.get("node_settings") or {}).get(node_id) or {}).get("calibration") or {}
+        return {rule.get("rule_id") for phase in calibration.get("phases") or [] if phase.get("phase_id") == phase_id for rule in phase.get("rules") or []}
+    origins = {}
+    for event in sorted(events, key=lambda event: (event.event_at, event.id)):
+        before, after = event.before_state or {}, event.after_state or {}
+        if event.event_type == "PERFORMANCE_PROJECT_STARTED":
+            added = ids(after)
+        elif (event.event_type == "PERFORMANCE_PROJECT_UPDATED" and before.get("status") == after.get("status") == PROJECT_STATUS_STARTED
+              and isinstance(before.get("flow_settings"), dict) and isinstance(after.get("flow_settings"), dict)):
+            added = ids(after) - ids(before)
+        else:
+            continue
+        for rule_id in added & set(rule_ids):
+            origins.setdefault(rule_id, event)
+    return origins
+
+
+def _calibration_delegation_groups(records):
+    def frozen(value):
+        if isinstance(value, dict):
+            return tuple((key, frozen(item)) for key, item in sorted(value.items()))
+        if isinstance(value, list):
+            return tuple(frozen(item) for item in value)
+        return value
+    by_id = {record.id: record for record in records if record.status == "ACTIVE" and record.authorization_type == "AUTHORIZE"}
+    def effective(record):
+        visited = {record.id}
+        current = record
+        while (current.authorization_settings or {}).get("parent_authorization_id") is not None:
+            parent_id = current.authorization_settings["parent_authorization_id"]
+            parent = by_id.get(parent_id)
+            if parent is None or parent_id in visited or parent.task_id != record.task_id:
+                return False
+            visited.add(parent_id)
+            current = parent
+        return True
+    active = [record for record in by_id.values() if effective(record)]
+    groups = {}
+    for record in active:
+        settings = {key: value for key, value in (record.authorization_settings or {}).items() if key not in {"idempotency_key", "parent_authorization_id", "notification_status"}}
+        key = (record.recipient_employee_no, record.grantor_employee_no, frozen(settings), getattr(record, "batch_id", None), record.read_only)
+        groups.setdefault(key, []).append(record)
+    return active, list(groups.values())
+
+
 @router.get("/project-management/calibration-authorization")
 async def project_management_calibration_authorization(
     cycle_id: int = Query(..., ge=1),
@@ -6345,6 +6442,18 @@ async def project_management_calibration_authorization(
             PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.source_snapshot_id,
         ))).scalars().all())
         names = {person.employee_no: person.display_name for person in people}
+        people_by_no = {person.employee_no: person for person in people}
+        visibility_rules = await load_subject_visibility_rules(db)
+        actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
+        events = list((await db.execute(select(PerformanceAuditEvent).where(
+            PerformanceAuditEvent.cycle_ref == project.cycle_ref,
+            PerformanceAuditEvent.subject_type == "PERFORMANCE_PROJECT",
+            PerformanceAuditEvent.subject_ref == project.project_ref,
+            PerformanceAuditEvent.event_type.in_(["PERFORMANCE_PROJECT_STARTED", "PERFORMANCE_PROJECT_UPDATED"]),
+        ).order_by(PerformanceAuditEvent.event_at, PerformanceAuditEvent.id))).scalars().all())
+        portal_ids = {int(event.actor_ref) for event in events if event.actor_type == "PORTAL_USER" and str(event.actor_ref).isdigit()}
+        users = {user.id: user.display_name for user in (await db.execute(select(User).where(User.id.in_(portal_ids)))).scalars().all()} if portal_ids else {}
+        task_people = {}
         nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
             PerformanceProjectNodeSnapshot.project_id == project.id,
             PerformanceProjectNodeSnapshot.node_type == "calibration",
@@ -6371,32 +6480,107 @@ async def project_management_calibration_authorization(
                     stage_start = start
                 if end is not None and (stage_end is None or end > stage_end):
                     stage_end = end
-                assignments = [assignment for assignment in phase.get("assignments", []) if assignment["handler_ref"] == handler]
-                active_records = list((await db.execute(select(PerformanceNodeTaskAuthorization).where(PerformanceNodeTaskAuthorization.task_id.in_([task.id for task in group]), PerformanceNodeTaskAuthorization.status == "ACTIVE"))).scalars().all())
-                authorized_task_ids = {record.task_id for record in active_records}
-                distribution_info = distribution_summary(flow, node, phase_id, assessment_names)
-                items.append({
-                    "id": f"{project.id}:{node.id}:{phase_id}:{handler}",
+                assignments = [assignment for assignment in phase.get("assignments", []) if assignment["handler_ref"] == handler and any(task.target_employee_no == assignment["employee_no"] for task in group)]
+                records = list((await db.execute(select(PerformanceNodeTaskAuthorization).where(PerformanceNodeTaskAuthorization.task_id.in_([task.id for task in group]), PerformanceNodeTaskAuthorization.status == "ACTIVE"))).scalars().all())
+                active_records, delegated_groups = _calibration_delegation_groups(records)
+                for task in group:
+                    if task.id in task_people:
+                        continue
+                    person = people_by_no.get(task.target_employee_no)
+                    role = await _member_visibility_role(context, project, person, scope, str(actor.actor_ref), db)
+                    visible = visibility_rules[role]
+                    supervisor = getattr(person, "direct_supervisor_employee_no", None)
+                    path = organization_path(person) if person is not None else None
+                    profile = mask_profile_values({
+                        "department": getattr(person, "department", None),
+                        "direct_supervisor": names.get(supervisor, supervisor),
+                        "job_sequence": format_job_sequence(getattr(person, "job_family", None), getattr(person, "job_category", None)),
+                    }, visible)
+                    task_people[task.id] = {
+                        "task_id": task.id, "employee_no": task.target_employee_no,
+                        "display_name": names.get(task.target_employee_no, task.target_employee_no),
+                        "department": profile["department"],
+                        "leaf_department": organization_leaf(person) if person is not None and "department" in visible else None,
+                        "direct_supervisor_name": profile["direct_supervisor"],
+                        "direct_supervisor_employee_no": supervisor if "direct_supervisor" in visible else None,
+                        "job_sequence": profile["job_sequence"],
+                        "department_path": path if "department" in visible else None,
+                        "organization_ref": path if "department" in visible else None,
+                        "visible_profile_fields": visible,
+                    }
+                rules = _calibration_source_rules(phase, group)
+                origins = _calibration_rule_origins(events, node.node_id, phase_id, [rule["rule_id"] for rule in rules])
+                origin = next(iter(origins.values()), None) if rules and len(origins) == len(rules) and len({event.id for event in origins.values()}) == 1 else None
+                authorized_by = (users.get(int(origin.actor_ref), origin.actor_ref) if origin.actor_type == "PORTAL_USER" and str(origin.actor_ref).isdigit() else names.get(origin.actor_ref, origin.actor_ref)) if origin else None
+                root_authorized = {record.task_id for record in active_records if (record.authorization_settings or {}).get("parent_authorization_id") is None}
+                allow_authorize = any(assignment.get("allow_authorize") for assignment in assignments)
+                base_id = f"{project.id}:{node.id}:{phase_id}:{handler}"
+                distribution_info = distribution_summary(flow, node, phase_id, assessment_names, source_rule_ids=[rule["rule_id"] for rule in rules])
+                base = {
+                    "id": base_id, "source": "BACKEND",
                     "project_id": project.id, "node_id": node.node_id, "phase_id": phase_id,
                     "calibrator": names.get(handler, handler),
                     "status": "已校准" if all(_calibration_completed(task) for task in group) else "待校准",
-                    "scope": "已冻结的校准范围", "authorized_count": len(group),
-                    "allow_authorize": any(assignment.get("allow_authorize") for assignment in assignments),
+                    "scope": _calibration_scope_label(rules), "scope_rules": rules,
+                    "authorized_count": len(group), "allow_authorize": allow_authorize,
                     "can_authorize": bool(group) and all(
                         (operation_scope is None or task.target_employee_no in operation_scope)
                         and any(assignment.get("allow_authorize") and assignment.get("employee_no") == task.target_employee_no for assignment in assignments)
                         for task in group
                     ),
-                    "can_revoke": bool(active_records) and all(
-                        operation_scope is None or task.target_employee_no in operation_scope for task in group
-                    ),
-                    "unauthorized_count": sum(task.id not in authorized_task_ids for task in group), "distribution_rule": None,
-                    "authorized_by": names.get(active_records[-1].grantor_employee_no, active_records[-1].grantor_employee_no) if active_records else None, "authorized_at": max((record.created_at for record in active_records), default=None),
-                    "task_ids": [task.id for task in group],
+                    "can_revoke": False,
+                    "unauthorized_count": sum(task.id not in root_authorized for task in group) if allow_authorize else None,
+                    "unauthorized_task_ids": [task.id for task in group if task.id not in root_authorized] if allow_authorize else [],
+                    "distribution_rule": "后台配置规则" if distribution_info.get("force_distribution_enabled") else None, "authorized_by": authorized_by,
+                    "authorized_at": origin.event_at if origin else None,
+                    "end_at": end.isoformat() if end else None,
+                    "task_ids": [task.id for task in group], "source_authorization_ids": {},
                     "distribution_info": distribution_info,
-                    "task_people": [{"task_id": task.id, "employee_no": task.target_employee_no, "display_name": names.get(task.target_employee_no, task.target_employee_no), "direct_supervisor_employee_no": next((person.direct_supervisor_employee_no for person in people if person.employee_no == task.target_employee_no), None), "department_path": next(("/".join(str(getattr(person, key)) for key in ("company_org", "department", "department_2", "department_3", "department_4", "department_5") if getattr(person, key, None)) for person in people if person.employee_no == task.target_employee_no), None)} for task in group],
-                    "authorizations": [{"id": record.id, "task_id": record.task_id, "recipient": names.get(record.recipient_employee_no, record.recipient_employee_no)} for record in active_records],
-                })
+                    "task_people": [task_people[task.id] for task in group], "authorizations": [],
+                }
+                items.append(base)
+                for delegated in delegated_groups:
+                    source_ids = {record.task_id: record.id for record in delegated}
+                    child_tasks = [task for task in group if task.id in source_ids]
+                    settings = delegated[0].authorization_settings or {}
+                    can_continue = bool(settings.get("allow_reauthorize"))
+                    child_authorized = {record.task_id for record in active_records if (record.authorization_settings or {}).get("parent_authorization_id") in source_ids.values()}
+                    child_rules = _calibration_source_rules(phase, child_tasks)
+                    child_distribution = distribution_summary(flow, node, phase_id, assessment_names, source_rule_ids=[rule["rule_id"] for rule in child_rules])
+                    inherit_distribution = settings.get("distribution_mode", "INHERIT") == "INHERIT"
+                    if not inherit_distribution:
+                        child_distribution = {**child_distribution, "rules": [], "lines": [], "groups": []}
+                    child_scope = "任务内全部人员"
+                    child_scope_rules = []
+                    if settings.get("scope_mode", "ALL") == "PARTIAL":
+                        kind = settings.get("scope_kind", "PEOPLE")
+                        if kind == "DIRECT_SUBORDINATES":
+                            child_scope = "被授权人的全部实线下级"
+                        else:
+                            field = "department" if kind == "DEPARTMENT" else "employee"
+                            values = settings.get("department_paths" if kind == "DEPARTMENT" else "selected_employee_nos") or []
+                            child_scope_rules = [{"subject_type": "PERSON", "operator": "INCLUDE", "scope": "RULE", "allow_authorize": can_continue,
+                                                  "scope_groups": [{"conditions": [{"field": field, "operator": "INCLUDE", "values": values}]}]}]
+                            child_scope = ("指定部门：" if kind == "DEPARTMENT" else "指定人员：") + "、".join(value if kind == "DEPARTMENT" else names.get(value, value) for value in values)
+                    items.append({
+                        **base, "id": f"{base_id}:delegation:{min(record.id for record in delegated)}", "source": "DELEGATION",
+                        "calibrator": names.get(delegated[0].recipient_employee_no, delegated[0].recipient_employee_no),
+                        "status": "已校准" if all(_calibration_completed(task) for task in child_tasks) else "待校准",
+                        "scope": child_scope,
+                        "scope_rules": child_scope_rules, "authorized_count": len(child_tasks), "allow_authorize": can_continue,
+                        "can_authorize": can_continue and all(operation_scope is None or task.target_employee_no in operation_scope for task in child_tasks),
+                        "can_revoke": bool(delegated) and all(operation_scope is None or task.target_employee_no in operation_scope for task in child_tasks),
+                        "unauthorized_count": sum(task.id not in child_authorized for task in child_tasks) if can_continue else None,
+                        "unauthorized_task_ids": [task.id for task in child_tasks if task.id not in child_authorized] if can_continue else [],
+                        "authorized_by": names.get(delegated[0].grantor_employee_no, delegated[0].grantor_employee_no),
+                        "authorized_at": min((record.created_at for record in delegated if record.created_at is not None), default=None),
+                        "task_ids": [task.id for task in child_tasks],
+                        "source_authorization_ids": {str(task_id): record_id for task_id, record_id in source_ids.items()},
+                        "distribution_rule": ("沿用父任务规则" if inherit_distribution else "无需满足分布规则") if child_distribution.get("force_distribution_enabled") else None,
+                        "distribution_info": child_distribution,
+                        "task_people": [task_people[task.id] for task in child_tasks],
+                        "authorizations": [{"id": record.id, "task_id": record.task_id, "recipient": names.get(record.recipient_employee_no, record.recipient_employee_no)} for record in delegated],
+                    })
     cycle = await _get_cycle(db, cycle_id)
     return {
         "cycle_id": cycle_id,

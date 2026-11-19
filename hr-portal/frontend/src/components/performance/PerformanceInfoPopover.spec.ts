@@ -47,6 +47,18 @@ describe('PerformanceInfoPopover', () => {
     expect(popover.querySelector('.performance-info-popover__multiline')?.textContent).toBe('第一行\n第二行')
   })
 
+  it('renders captured recommendation and constraint groups without list dots', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(PerformanceInfoPopover, { attachTo: document.body, props: { width: 'auto', groups: [{ title: '建议分布', lines: ['绩效评级：3星 的人员 = 30%'] }, { title: '强制分布', lines: ['绩效评级：5星 + 4星 的人员 ≤ 25%'] }] } })
+    await wrapper.get('.performance-info-popover__anchor').trigger('mouseenter')
+    vi.advanceTimersByTime(124)
+    await wrapper.vm.$nextTick()
+    expect([...document.querySelectorAll('.performance-info-popover__heading')].map(node => node.textContent)).toEqual(['建议分布', '强制分布'])
+    expect(document.querySelectorAll('.performance-info-popover__group')).toHaveLength(2)
+    expect(document.querySelector('.performance-info-popover__dot')).toBeNull()
+    expect(document.querySelector('.performance-info-popover')?.textContent).toContain('5星 + 4星 的人员 ≤ 25%')
+  })
+
   it('renders list content through the same shared popover', async () => {
     vi.useFakeTimers()
     const wrapper = mount(PerformanceInfoPopover, {

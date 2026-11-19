@@ -45,26 +45,51 @@ def _distribution_rule_lines(rule, assessment_names=None) -> list[str]:
     return lines
 
 
-def distribution_summary(flow, node, phase_id, assessment_names=None) -> dict:
-    """解析校准任务所属阶段当前生效的绩效结果分布规则（节点级 distribution + phase 级 distribution_rules 覆盖）。"""
+def distribution_summary(flow, node, phase_id, assessment_names=None, source_rule_ids=None) -> dict:
+    """解析当前来源的阶段分布，未指定来源时保留原阶段规则优先行为。"""
     calibration = (((flow or {}).get("node_settings") or {}).get(node.node_id) or {}).get("calibration") or {}
     enabled = bool(calibration.get("force_distribution_enabled"))
     distribution = calibration.get("distribution") or {}
-    rules = list(distribution.get("rules") or [])
+    defaults = list(distribution.get("rules") or [])
+    rules = list(defaults)
     for phase in calibration.get("phases") or []:
         if phase.get("phase_id") != phase_id:
             continue
-        for rule in phase.get("rules") or []:
-            phase_rules = rule.get("distribution_rules")
-            if phase_rules:
-                rules = list(phase_rules)
-                break
+        if source_rule_ids is None:
+            rules = next((list(rule["distribution_rules"]) for rule in phase.get("rules") or [] if rule.get("distribution_rules")), defaults)
+        else:
+            selected = [rule for rule in phase.get("rules") or [] if rule.get("rule_id") in source_rule_ids]
+            rules = []
+            for source in selected:
+                for rule in source.get("distribution_rules") or defaults:
+                    if rule not in rules:
+                        rules.append(rule)
+            if not selected:
+                rules = list(defaults)
         break
+    groups = []
+    symbols = {"EQ": "=", "LT": "<", "LTE": "≤", "GT": ">", "GTE": "≥"}
+    for control, title in (("SOFT", "建议分布"), ("HARD", "强制分布")):
+        lines = []
+        for rule in rules:
+            item_name = (assessment_names or {}).get(rule.get("assessment_item_id")) or rule.get("assessment_item_id") or "未命名评估项"
+            for condition in rule.get("conditions") or []:
+                if condition.get("control_mode") != control:
+                    continue
+                codes = " + ".join(condition.get("grade_codes") or [])
+                operator = symbols.get(condition.get("operator"), condition.get("operator", ""))
+                unit = "%" if condition.get("unit") == "PERCENT" else "人"
+                line = f"{item_name}：{codes} 的人员  {operator}  {condition.get('value')}{unit}"
+                if line not in lines:
+                    lines.append(line)
+        if enabled and lines:
+            groups.append({"title": title, "lines": lines})
     return {
         "force_distribution_enabled": enabled,
         "mode": distribution.get("mode", "UNIFIED"),
         "rules": rules,
         "lines": [line for rule in rules for line in _distribution_rule_lines(rule, assessment_names)],
+        "groups": groups,
     }
 
 

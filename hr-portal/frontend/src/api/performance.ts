@@ -268,7 +268,12 @@ export interface ProjectAuthorizationRecords {
 export interface ProjectCalibrationAuthorization {
   project_id: number
   task_ids: number[]
-  task_people?: Array<{ task_id: number; employee_no: string; display_name: string; direct_supervisor_employee_no?: string; department_path?: string }>
+  task_people?: Array<PerformanceFocusGroupChangePerson & { task_id: number; direct_supervisor_employee_no?: string; department_path?: string }>
+  source?: 'BACKEND' | 'DELEGATION'
+  scope_rules?: PerformanceProjectFlowRule[]
+  end_at?: string | null
+  unauthorized_task_ids?: number[]
+  source_authorization_ids?: Record<string, number>
   authorizations: Array<{ id: number; task_id: number; recipient: string }>
   id: string
   allow_authorize: boolean
@@ -280,7 +285,7 @@ export interface ProjectCalibrationAuthorization {
   authorized_count: number
   unauthorized_count: number | null
   distribution_rule: string | null
-  distribution_info?: { force_distribution_enabled: boolean; mode: string; rules: PerformanceDistributionRule[]; lines: string[] }
+  distribution_info?: { force_distribution_enabled: boolean; mode: string; rules: PerformanceDistributionRule[]; lines: string[]; groups?: Array<{ title: string; lines: string[] }> }
   authorized_by: string | null
   authorized_at: string | null
 }
@@ -1303,7 +1308,7 @@ export const projectManagementApi = {
     }
     return result
   },
-  async authorizeTask(projectId: number, taskId: number, action: 'AUTHORIZE' | 'TRANSFER', recipientEmployeeNo: string, reason: string, options?: { scope_mode?: 'PARTIAL' | 'ALL'; scope_kind?: string; selected_employee_nos?: string[]; department_paths?: string[]; distribution_mode?: string; allow_reauthorize?: boolean; notify_original: boolean; no_origin_reviewer_authorize?: boolean; idempotency_key?: string }): Promise<{ id?: number; task_id: number; status?: string; notification_status?: 'preview_only' | string; idempotent?: boolean; skipped?: boolean }> {
+  async authorizeTask(projectId: number, taskId: number, action: 'AUTHORIZE' | 'TRANSFER', recipientEmployeeNo: string, reason: string, options?: { source_authorization_id?: number; scope_mode?: 'PARTIAL' | 'ALL'; scope_kind?: string; selected_employee_nos?: string[]; department_paths?: string[]; distribution_mode?: string; allow_reauthorize?: boolean; notify_original: boolean; no_origin_reviewer_authorize?: boolean; idempotency_key?: string }): Promise<{ id?: number; task_id: number; status?: string; notification_status?: 'preview_only' | string; idempotent?: boolean; skipped?: boolean }> {
     const { data } = await api.post(`/performance/projects/${projectId}/tasks/${taskId}/delegations`, { action, recipient_employee_no: recipientEmployeeNo, reason, ...options })
     return data
   },

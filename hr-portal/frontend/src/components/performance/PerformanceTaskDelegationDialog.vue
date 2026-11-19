@@ -1,12 +1,13 @@
 <template>
   <PerformanceDialogShell v-model="open" :title="calibration ? '新建授权' : `${verb}他人处理`" :loading="locked" dialog-class="delegation-dialog">
     <template v-if="!calibration" #description>{{ action === 'TRANSFER' ? '转交后，原评估人将失去任务权限' : '授权后，原评估人在截止时间之前仍有该任务的操作权限。' }}</template>
+    <PerformancePromptNotice v-if="calibration" type="info" multiline class="stage-notice">可以协助校准人将校准范围内的人员授权其他人校准。授权后，会生成一个新校准任务。原校准人仍需完成任务。</PerformancePromptNotice>
     <p v-if="calibration && readOnly" class="readonly-notice" role="alert">校准任务已完成。授权后，被授权人仅有查看权限，无法修改被评估人的绩效结果。</p>
     <PerformanceFormItem v-if="!calibration && reviewees.length" label="被评估人">
       <div class="reviewee-tags"><PerformanceMemberIdentity v-for="reviewee in reviewees" :key="`${reviewee.project_id}:${reviewee.employee_no}`" :display-name="reviewee.display_name || reviewee.employee_no || ''" size="sm" tag /></div>
     </PerformanceFormItem>
     <PerformanceFormItem :label="calibration ? '授权给' : `${verb}给`" required>
-      <PerformanceSearchSelect v-model="recipient" :options="options" placeholder="搜索成员" aria-label="选择授权接收人" :disabled="locked || loading" :loading="loading" />
+      <PerformanceSearchSelect v-model="recipient" :options="options" :placeholder="calibration ? '请选择被授权人' : '搜索成员'" aria-label="选择授权接收人" :disabled="locked || loading" :loading="loading" />
     </PerformanceFormItem>
     <PerformanceFormItem v-if="!calibration && mapped" :label="`${verb}环节`" class="stage-field">
       <PerformancePromptNotice v-if="hasNoOriginReviewer" class="stage-notice" type="warning">存在无原处理人的任务：授权前需选择是否授权；无原处理人的任务不可转交。</PerformancePromptNotice>
@@ -25,7 +26,7 @@
           </div></template>
         </PerformanceRadioGroup>
       </PerformanceFormItem>
-      <PerformanceFormItem label="强制 / 建议分布规则" required><PerformanceRadioGroup v-model="distribution" :options="distributionOptions" name="authorization-distribution" /></PerformanceFormItem>
+      <PerformanceFormItem v-if="hasDistributionRules !== false" label="强制 / 建议分布规则" required><PerformanceRadioGroup v-model="distribution" :options="distributionOptions" name="authorization-distribution" /></PerformanceFormItem>
       <div class="switch-setting"><span>允许继续授权他人校准</span><UiSwitch v-model="allowReauthorize" aria-label="允许继续授权他人校准" /></div>
       <p class="helper">开启后，被授权人和项目管理角色可以继续授权他人对校准范围内的人员进行校准</p>
       <div class="switch-setting"><span>通知原校准人任务将授权他人处理</span><UiSwitch v-model="notifyOriginal" aria-label="通知原校准人任务将授权他人处理" /></div>
@@ -57,7 +58,7 @@ import UiButton from '../ui/UiButton.vue'
 import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
 import UiSwitch from '../ui/UiSwitch.vue'
 
-const props = defineProps<{ modelValue: boolean; action: 'AUTHORIZE' | 'TRANSFER'; tasks: Array<PerformanceTaskDelegationTarget & { direct_supervisor_employee_no?: string; department_path?: string }>; calibration?: boolean; readOnly?: boolean; distributionLines?: string[] }>()
+const props = defineProps<{ modelValue: boolean; action: 'AUTHORIZE' | 'TRANSFER'; tasks: Array<PerformanceTaskDelegationTarget & { source_authorization_id?: number; direct_supervisor_employee_no?: string; department_path?: string }>; calibration?: boolean; readOnly?: boolean; distributionLines?: string[]; hasDistributionRules?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; completed: [count: number, notificationStatus?: string, recordId?: number, skippedCount?: number]; refresh: [] }>()
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const verb = computed(() => props.action === 'TRANSFER' ? '转交' : '授权')
@@ -105,10 +106,11 @@ function toggleTask(key: string, checked: boolean) {
 }
 const filteredTasks = computed(() => {
   if (props.calibration) {
-    if (scopeMode.value === 'ALL') return props.tasks
     if (typeof recipient.value !== 'string') return []
+    const eligible = props.tasks.filter(task => task.employee_no !== recipient.value)
+    if (scopeMode.value === 'ALL') return eligible
     const selected = new Set(Array.isArray(employees.value) ? employees.value : []), paths = Array.isArray(departments.value) ? departments.value : []
-    return props.tasks.filter(task => {
+    return eligible.filter(task => {
       const person = task.department_path || task.direct_supervisor_employee_no ? task : people.value.find(person => person.employee_no === task.employee_no)
       return scopeKind.value === 'PEOPLE' ? Boolean(task.employee_no && selected.has(task.employee_no)) : scopeKind.value === 'DEPARTMENT' ? Boolean(person?.department_path && paths.some(path => person.department_path === path || person.department_path!.startsWith(path + '/'))) : person?.direct_supervisor_employee_no === recipient.value
     })
@@ -118,7 +120,7 @@ const filteredTasks = computed(() => {
 })
 const noOriginTasks = computed(() => props.action === 'AUTHORIZE' && !props.calibration ? [...new Map(stageOptions.value.filter(task => task.role_key === activeRole.value && !task.handler_ref && filteredTasks.value.some(selected => taskKey(selected) === taskKey(task))).map(task => [taskKey(task), task])).values()] : [])
 const candidateTasks = computed(() => props.calibration ? props.tasks : filteredTasks.value.length ? filteredTasks.value : mapped.value ? stageOptions.value.filter(option => option.role_key === activeRole.value && actionable(option)) : props.tasks)
-const requests = computed<DelegationRequest[]>(() => filteredTasks.value.map(task => ({ project_id: task.project_id, task_id: task.task_id, action: props.action, recipient: String(recipient.value), options: { ...(props.calibration ? { scope_mode: scopeMode.value as 'PARTIAL' | 'ALL', scope_kind: scopeKind.value, selected_employee_nos: Array.isArray(employees.value) ? employees.value : [], department_paths: Array.isArray(departments.value) ? departments.value : [], distribution_mode: distribution.value, allow_reauthorize: allowReauthorize.value } : {}), notify_original: notifyOriginal.value, ...(noOriginTasks.value.some(item => taskKey(item) === taskKey(task)) && noOriginChoice.value ? { no_origin_reviewer_authorize: noOriginChoice.value === 'AUTHORIZE' } : {}) }, taskLabel: requestTaskLabel(task), recipientLabel: `${options.value.find(option => option.value === recipient.value)?.label || String(recipient.value)}（${String(recipient.value)}）` })))
+const requests = computed<DelegationRequest[]>(() => filteredTasks.value.map(task => ({ project_id: task.project_id, task_id: task.task_id, action: props.action, recipient: String(recipient.value), options: { ...(props.calibration ? { ...('source_authorization_id' in task && task.source_authorization_id ? { source_authorization_id: task.source_authorization_id as number } : {}), scope_mode: scopeMode.value as 'PARTIAL' | 'ALL', scope_kind: scopeKind.value, selected_employee_nos: Array.isArray(employees.value) ? employees.value : [], department_paths: Array.isArray(departments.value) ? departments.value : [], distribution_mode: distribution.value, allow_reauthorize: allowReauthorize.value } : {}), notify_original: notifyOriginal.value, ...(noOriginTasks.value.some(item => taskKey(item) === taskKey(task)) && noOriginChoice.value ? { no_origin_reviewer_authorize: noOriginChoice.value === 'AUTHORIZE' } : {}) }, taskLabel: requestTaskLabel(task), recipientLabel: `${options.value.find(option => option.value === recipient.value)?.label || String(recipient.value)}（${String(recipient.value)}）` })))
 const canSubmit = computed(() => typeof recipient.value === 'string' && options.value.some(option => option.value === recipient.value) && filteredTasks.value.length > 0 && !visibleStages.value.some(stage => selectedStages.value.includes(stage.key) && stage.handlers.length && !stage.handlers.some(handler => selectedTasks.value.includes(handler.key) && !handler.disabled)) && !loading.value && !error.value && !isUncertain(requests.value))
 let version = 0
 watch(() => [props.modelValue, props.action, props.tasks, props.calibration], () => {

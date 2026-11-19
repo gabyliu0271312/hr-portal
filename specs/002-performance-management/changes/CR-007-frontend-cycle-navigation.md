@@ -167,6 +167,22 @@
 - [ ] CR-007-F04 授权查看页：两个查看按钮分别路由至授权/转交记录、校准授权工作区。2026-11-10用户明确：两页查看不依赖独立任务授权功能，复用原项目管理查看范围；无评估任务授权/转交则成员授权/转交按钮disabled，无校准任务授权则协助/撤销按钮disabled，写接口不借查看权放行，详见PM-001-T11增量。记录查询只消费真实任务授权审计，不将人员静态权限或结果发布转交冒充任务授权记录，也不导入飞书生产人员数据。校准列表读取冻结阶段任务而非伪造“已校准”。本地已实现任务授权/撤销生产者、持久化和处理权限链；本轮补充父授权撤销级联、只读继承和 PostgreSQL 定向持久化验证，但完整真实登录/UI/部署验收仍未完成。
 - [ ] CR-007-F05 像素与业务验收：持续以参考页实际CSS像素、视口/DPR和受控Vue路由截图复核，不以构建或单测通过宣称像素完全一致。
 
+### 2026-11-19 F04 校准授权查看还原（实施中）
+
+- 已确认入口沿现有独立全屏工作区；无新页面蓝图。范围由冻结阶段 `rule_sources/assignments.source_rule_ids` 解释，人数及名单消费同一组可见有效任务；复用 FocusGroupPeopleDialog，采用实采五列：被评估人、一级部门、末级部门、直属上级、序列。
+- 原 GET `/project-management/calibration-authorization` 增量返回后台/委托来源、各行真实授权人/时间、截止、范围规则、未授权任务ID、按行生效分布。委托行按原阶段/处理人、接收人、发起人及授权设置分组，不将委托元数据错误覆盖后台行。后台行不可撤销；继续授权开关与访问者写权限分离。人数资料继续服从快照及字段可见规则。
+- 原提交链保留；继续授权携带可选 `source_authorization_id`，服务端核验同任务有效来源、再授权开关与人员范围，子记录关联父记录，既有撤销级联复用。无新表/迁移、无平行执行链。
+- 规则提示消费当前行有效规则，分建议/强制两组、虚线间隔；2026-11-19实采254×175px（随内容自适应），14/22px，标题600，padding 12px 16px，圆角8px，白底及共享popover阴影。无配置隐藏列；禁用提示分别为“此任务不允许授权他人校准”“请联系管理员在「项目设置」中移除此用户的校准权限”。
+- 后台授权元数据仅从可证明规则新增/启动的原项目审计读取，历史无证据保留空值。修改仅限原授权页、共享浮层/授权弹窗可选参数、API DTO、原路由/校准服务及既有测试；保护其他会话报表/主数据变更。
+- 飞书授权操作经用户单独批准：任务内全部人员实际2人（原范围3人），授权alice成功；submit轮询后列表回读新增子任务且原未授权数3→1。真实飞书数据仅作受限采集，不入普通Git；此操作不代表本地API/生产验收。
+- 本地前端验证：最终不带 `-t` 执行 `npm --prefix hr-portal/frontend run test -- src/views/performance/ProjectManagement.spec.ts src/components/performance/PerformanceInfoPopover.spec.ts src/components/performance/focus-group/FocusGroupPeopleDialog.spec.ts --silent` → **3文件67 passed、exit0**。此前相同文件定向筛选18 passed、49未选、exit0；覆盖蓝字两类同源名单、五列、无配置隐藏列、禁用原因、分组无圆点、接收人本人排除及source_authorization_id透传。首次较宽运行有本卡提示条缺type与并行报表旧参数断言失败；本卡type=info已修，并行报表负责人同步后完整回归通过，未将首次失败算通过。
+- 构建：`npm --prefix hr-portal/frontend run build` → vue-tsc+Vite通过（3780模块、exit0），含既有VueUse PURE提示；首次构建有本卡测试columns可空及并行报表seriesStyle在途错误，本卡已补默认值并复跑通过。
+- 真实Vite独立浏览器上下文+合成API（所有/api/v1请求均隔离）验证：1440×1000/DPR1，浮层254×175px、14/22px、双组/虚线/共享阴影，周期选择器右对齐x1230宽186；提示条x44/y144高40；人数同源五列/两条、无配置列隐藏，pageErrors=0。PNG已查看：`ui-blueprints/CR-007-F04-implemented-authorization-rule-hover-20261119.png`、`ui-blueprints/CR-007-F04-implemented-authorization-people-20261119.png`。中间一次预览登录页误截图已作废并以校验路由后正确截图替换，不计验收通过。
+- 后端最终定向验证：`DB_HOST=127.0.0.1 DB_PORT=1 PYTHONPATH=hr-portal/backend hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_projects.py -q --tb=short -k "calibration or delegation or task_authorization or authorization_records"` → **240 passed、2 skipped、638 deselected、exit0**，一条既有python_multipart弃用警告；末次补分布标签/NONE空规则及子PARTIAL独立范围后14.64秒。覆盖父子来源、同源差集、脱敏、来源再授权允许/拒绝、审计缺证、只读继承、幂等、接收人等于被评估人的422，以及INHERIT/NONE和三种部分范围。2项跳过不计通过，未连接业务数据库。提交前补跑 `test_performance_user_authorization.py -k actual_task_delegation_endpoints` → **1 passed、13 deselected、6.17秒、exit0**（同样DB_HOST=127.0.0.1/DB_PORT=1及既有弃用警告）；同步父/子两行的权限断言。
+- 最终构建：共享文件写入稳定后复跑 `npm --prefix hr-portal/frontend run build` → vue-tsc+Vite **3780模块、58.38秒、exit0**，仍有既有VueUse PURE提示。此前复跑曾遇并行成员抽屉在途未闭合标签（PerformanceReviewEvaluationDrawer.vue:311），已由对应负责人完成写入，主线程未覆盖该局部改动。目标文件 `git diff --check` 通过（LF/CRLF提示保留）。
+- 提交前整合复测：成员修复合入main后，前端同三文件 **70 passed、exit0**；后端两文件 `test_performance_projects.py test_performance_user_authorization.py -k "calibration or delegation or task_authorization or authorization_records"` → **241 passed、2 skipped、654 deselected、11.54秒、exit0**，既有python_multipart警告。首次出现两项校准完成测试夹具缺少新成员详情合同的project.status，已仅在该测试补STARTED并复跑通过，保留团队共享详情不返回member_actions断言。
+- 待验收：真实本地JWT API/PostgreSQL/部署尚未验证，F04/F05仍未勾选；不以局部浮层尺寸一致宣称整页像素一致。本轮本地代码、定向回归、受控UI证据已收束；用户已授权在main提交推送，未部署。
+
 ### 当前实现和证据
 
 - 主实现：`projects_router.py`、`api/performance.ts`、`ProjectManagement.vue`、`CompletionRatePanel.vue`、`CompletionNodeCard.vue`、`PerformanceManagementTable.vue`、`PerformanceReminderPanel.vue`、`performanceReminder.ts`、现有路由；新增 `ProjectManagementReminder.vue`、`ProjectAuthorizationRecords.vue`、`ProjectCalibrationAuthorization.vue`。

@@ -10330,28 +10330,168 @@ async def test_task_authorization_view_unions_scopes_without_expanding_operation
 async def test_calibration_authorization_view_separates_operation_capabilities(monkeypatch, allowed):
     from unittest.mock import AsyncMock
     from app.performance import projects_router as routes
-    project_row = SimpleNamespace(id=3, settings={})
+    project_row = SimpleNamespace(id=3, cycle_ref="C1", project_ref="P3", settings={})
     node = SimpleNamespace(id=4, node_id="cal", project_id=3, config={"calibration": {"phases": [{"phase_id": "p1", "assignments": [{"handler_ref": "H", "employee_no": "E", "allow_authorize": True}]}]}})
     task = SimpleNamespace(id=7, phase_id="p1", handler_ref="H", target_employee_no="E", status="pending")
-    record = SimpleNamespace(id=8, task_id=7, grantor_employee_no="H", recipient_employee_no="R", created_at=None)
+    record = SimpleNamespace(id=8, task_id=7, grantor_employee_no="H", recipient_employee_no="R", created_at=None, status="ACTIVE", authorization_type="AUTHORIZE", authorization_settings={}, read_only=False)
     monkeypatch.setattr(routes, "_task_authorization_projects", AsyncMock(return_value=[(project_row, {"E"})]))
     monkeypatch.setattr(routes, "_task_management_scope_or_empty", AsyncMock(return_value=None if allowed else set()))
     monkeypatch.setattr(routes, "_get_cycle", AsyncMock(return_value=SimpleNamespace(name="周期")))
     monkeypatch.setattr(routes, "calibration_task_scope", lambda *args: True)
     monkeypatch.setattr(routes, "calibration_phase_window", lambda *args: {})
-    monkeypatch.setattr(routes, "distribution_summary", lambda *args: {})
+    monkeypatch.setattr(routes, "distribution_summary", lambda *args, **kwargs: {})
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="VIEWER")))
     class Db:
         async def scalar(self, statement): return 1
         async def get(self, model, key): return SimpleNamespace(source_snapshot_id=2)
         async def execute(self, statement):
             model = statement.column_descriptions[0]["entity"]
-            rows = {routes.PerformanceAuthorizationSnapshotPerson: [], routes.PerformanceProjectNodeSnapshot: [node], routes.PerformanceNodeTask: [task], routes.PerformanceNodeTaskAuthorization: [record]}[model]
+            rows = {routes.PerformanceAuditEvent: [], routes.PerformanceAuthorizationSnapshotPerson: [], routes.PerformanceProjectNodeSnapshot: [node], routes.PerformanceNodeTask: [task], routes.PerformanceNodeTaskAuthorization: [record]}[model]
             return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
     result = await routes.project_management_calibration_authorization(1, context(), Db())
-    row, = result["items"]
+    row, child = result["items"]
     assert row["task_ids"] == [7] and row["allow_authorize"] is True
-    assert row["can_authorize"] is allowed and row["can_revoke"] is allowed
-    assert len(row["authorizations"]) == 1
+    assert row["can_authorize"] is allowed and row["can_revoke"] is False
+    assert row["source"] == "BACKEND" and row["source_authorization_ids"] == {}
+    assert row["authorized_by"] is None and row["authorized_at"] is None and row["authorizations"] == []
+    assert child["source"] == "DELEGATION" and child["source_authorization_ids"] == {"7": 8}
+    assert child["can_revoke"] is allowed and child["can_authorize"] is False and child["unauthorized_count"] is None
+    assert len(child["authorizations"]) == 1
+
+
+def test_calibration_f04_source_rules_preserve_boolean_scope_and_distribution():
+    from app.performance import projects_router as routes
+    from app.performance.calibration_service import distribution_summary
+    distribution = lambda grade, mode: {"assessment_item_id": "grade", "conditions": [{"control_mode": mode, "grade_codes": [grade, "A"], "operator": "LTE", "value": 25, "unit": "PERCENT"}]}
+    other, own = distribution("OTHER", "HARD"), distribution("S", "SOFT")
+    condition = lambda field, values: {"field": field, "operator": "INCLUDE", "values": values}
+    rules = [
+        {"rule_id": "other", "scope": "PROJECT_ALL", "distribution_rules": [other]},
+        {"rule_id": "own", "scope": "RULE", "scope_groups": [
+            {"conditions": [condition("calibrator_relation", ["DIRECT_SUBORDINATES"]), condition("department", ["研发"])]},
+            {"conditions": [condition("calibrator_relation", ["INDIRECT_SUBORDINATES"])]},
+        ], "distribution_rules": [own]},
+    ]
+    phase = {"phase_id": "p1", "assignments": [{"handler_ref": "H", "employee_no": "E", "source_rule_ids": ["own"]}, {"handler_ref": "OTHER", "employee_no": "E", "source_rule_ids": ["other"]}], "rule_sources": [{"rule_id": rule["rule_id"], "rule": rule} for rule in rules]}
+    selected = routes._calibration_source_rules(phase, [SimpleNamespace(handler_ref="H", target_employee_no="E")])
+    assert selected == [rules[1]]
+    assert routes._calibration_scope_label(selected) == "（直属下级 且 部门包含研发） 或 （间接下级）"
+    assert routes._calibration_scope_label([{"scope": "PROJECT_ALL"}]) == "项目全员"
+    flow = {"node_settings": {"cal": {"calibration": {"force_distribution_enabled": True, "distribution": {"rules": [other]}, "phases": [{"phase_id": "p1", "rules": rules}]}}}}
+    node = SimpleNamespace(node_id="cal")
+    summary = distribution_summary(flow, node, "p1", {"grade": "综合评估"}, source_rule_ids=["own"])
+    assert summary["rules"] == [own]
+    assert summary["groups"] == [{"title": "建议分布", "lines": ["综合评估：S + A 的人员  ≤  25%"]}]
+    assert all("OTHER" not in line for line in summary["lines"])
+    flow["node_settings"]["cal"]["calibration"]["distribution"]["rules"] = []
+    assert distribution_summary(flow, node, "p1", source_rule_ids=[])["rules"] == []
+    own["conditions"].append({"control_mode": "HARD", "grade_codes": ["B"], "operator": "EQ", "value": 2, "unit": "PEOPLE"})
+    assert distribution_summary(flow, node, "p1", {"grade": "综合评估"}, ["own"])["groups"][1] == {"title": "强制分布", "lines": ["综合评估：B 的人员  =  2人"]}
+
+
+def test_calibration_f04_rule_origins_require_started_addition_evidence():
+    from datetime import UTC, datetime, timedelta
+    from app.performance.projects_router import _calibration_rule_origins
+    def state(status, ids):
+        return {"status": status, "flow_settings": {"node_settings": {"cal": {"calibration": {"phases": [{"phase_id": "p1", "rules": [{"rule_id": key} for key in ids]}]}}}}}
+    now = datetime(2026, 11, 19, tzinfo=UTC)
+    def event(identity, kind, before, after):
+        return SimpleNamespace(id=identity, event_type=kind, before_state=before, after_state=after, event_at=now + timedelta(minutes=identity), actor_type="PORTAL_USER", actor_ref="17")
+    draft = event(1, "PERFORMANCE_PROJECT_UPDATED", state("DRAFT", []), state("DRAFT", ["a"]))
+    started = event(2, "PERFORMANCE_PROJECT_STARTED", state("DRAFT", ["a"]), state("STARTED", ["a"]))
+    updated = event(3, "PERFORMANCE_PROJECT_UPDATED", state("STARTED", ["a"]), state("STARTED", ["a", "b"]))
+    unrelated = event(4, "PERFORMANCE_PROJECT_UPDATED", state("STARTED", ["a", "b"]), state("STARTED", ["a", "b"]))
+    origins = _calibration_rule_origins([unrelated, updated, started, draft], "cal", "p1", ["a", "b", "missing"])
+    assert origins == {"a": started, "b": updated}
+    assert _calibration_rule_origins([draft, unrelated], "cal", "p1", ["a", "b"]) == {}
+    assert _calibration_rule_origins([started, updated], "other", "p1", ["a"]) == {}
+    incomplete = event(5, "PERFORMANCE_PROJECT_UPDATED", {"status": "STARTED"}, state("STARTED", ["a", "b"]))
+    assert _calibration_rule_origins([incomplete], "cal", "p1", ["a", "b"]) == {}
+
+
+def test_calibration_f04_effective_groups_reject_cycles_and_preserve_distinct_settings():
+    from app.performance.projects_router import _calibration_delegation_groups
+    def record(identity, task_id=7, parent=None, **settings):
+        return SimpleNamespace(id=identity, task_id=task_id, recipient_employee_no="R", grantor_employee_no="H", authorization_type="AUTHORIZE", status="ACTIVE", read_only=False, authorization_settings={"parent_authorization_id": parent, **settings})
+    records = [record(1), record(2, 8), record(3, allow_reauthorize=True), record(4, parent=5), record(5, parent=4), record(6, parent=99), record(7, 9, parent=1)]
+    effective, groups = _calibration_delegation_groups(records)
+    assert [item.id for item in effective] == [1, 2, 3]
+    assert [[item.id for item in group] for group in groups] == [[1, 2], [3]]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("visible", [False, True])
+async def test_calibration_f04_projection_aggregates_children_and_masks_profiles(monkeypatch, visible):
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    rule = {"rule_id": "r1", "scope": "PROJECT_ALL", "allow_authorize": True}
+    phase = {"phase_id": "p1", "rule_sources": [{"rule_id": "r1", "rule": rule}], "assignments": [{"handler_ref": "H", "employee_no": key, "allow_authorize": True, "source_rule_ids": ["r1"]} for key in ("E1", "E2", "E3")]}
+    project_row = SimpleNamespace(id=3, cycle_ref="C1", project_ref="P3", settings={})
+    node = SimpleNamespace(id=4, node_id="cal", project_id=3, node_type="calibration", config={"calibration": {"role_code": "assessment.calibrator", "phases": [phase]}})
+    tasks = [SimpleNamespace(id=index, project_id=3, task_kind="calibration", phase_id="p1", handler_ref="H", target_employee_no=key, status="pending") for index, key in enumerate(("E1", "E2", "E3"), 7)]
+    now = datetime(2026, 11, 19, tzinfo=UTC)
+    def record(identity, task_id, recipient, grantor="H", parent=None, allow=True, status="ACTIVE"):
+        return SimpleNamespace(id=identity, task_id=task_id, grantor_employee_no=grantor, recipient_employee_no=recipient, created_at=now, status=status, authorization_type="AUTHORIZE", read_only=False, authorization_settings={"allow_reauthorize": allow, "scope_mode": "ALL", "idempotency_key": f"key{identity}", "parent_authorization_id": parent, "notification_status": str(identity)})
+    records = [record(11, 7, "R"), record(12, 8, "R"), record(13, 7, "CHILD", "R", 11, False), record(14, 9, "ORPHAN", "REMOVED", 99)]
+    people = [SimpleNamespace(employee_no=key, display_name=f"姓名{key}", department="一级", department_2="末级", department_3=None, department_4=None, department_5=None, company_org="公司", organization_ref="公司/一级/末级", direct_supervisor_employee_no="H", job_family="专业", job_category="研发") for key in ("E1", "E2", "E3", "H", "R", "CHILD")]
+    after = {"status": "STARTED", "flow_settings": {"node_settings": {"cal": {"calibration": {"phases": [{"phase_id": "p1", "rules": [rule]}]}}}}}
+    event = SimpleNamespace(id=1, event_type="PERFORMANCE_PROJECT_STARTED", actor_type="PORTAL_USER", actor_ref="17", before_state={}, after_state=after, event_at=now)
+    monkeypatch.setattr(routes, "_task_authorization_projects", AsyncMock(return_value=[(project_row, {"E1", "E2", "E3"})]))
+    monkeypatch.setattr(routes, "_task_management_scope_or_empty", AsyncMock(return_value=None))
+    monkeypatch.setattr(routes, "_get_cycle", AsyncMock(return_value=SimpleNamespace(name="周期")))
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="VIEWER")))
+    monkeypatch.setattr(routes, "load_subject_visibility_rules", AsyncMock(return_value={"hrbp": ["department", "job_sequence", "direct_supervisor"] if visible else []}))
+    monkeypatch.setattr(routes, "calibration_phase_window", lambda *args: {"start_at": "2026-11-01T00:00:00Z", "end_at": "2026-12-01T00:00:00Z"})
+    class Db:
+        async def scalar(self, statement): return 1
+        async def get(self, model, key): return SimpleNamespace(source_snapshot_id=2)
+        async def execute(self, statement):
+            rows = {routes.PerformanceAuditEvent: [event], routes.User: [SimpleNamespace(id=17, display_name="真实Portal用户")], routes.PerformanceAuthorizationSnapshotPerson: people, routes.PerformanceProjectNodeSnapshot: [node], routes.PerformanceNodeTask: tasks, routes.PerformanceNodeTaskAuthorization: records}[statement.column_descriptions[0]["entity"]]
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
+    result = await routes.project_management_calibration_authorization(1, context(), Db())
+    backend, delegated, child = result["items"]
+    assert backend["authorized_by"] == "真实Portal用户" and backend["authorized_at"] == now
+    assert backend["scope"] == "项目全员" and backend["scope_rules"] == [rule]
+    assert backend["can_revoke"] is False and backend["unauthorized_task_ids"] == [9]
+    assert delegated["task_ids"] == [7, 8] and delegated["source_authorization_ids"] == {"7": 11, "8": 12}
+    assert delegated["authorized_count"] == 2 and len(delegated["authorizations"]) == 2
+    assert delegated["unauthorized_count"] == 1 and delegated["unauthorized_task_ids"] == [8]
+    assert child["task_ids"] == [7] and child["unauthorized_count"] is None
+    assert backend["end_at"] == result["end_at"] == "2026-12-01T00:00:00+00:00"
+    person = delegated["task_people"][0]
+    assert person["department"] == ("一级" if visible else None)
+    assert person["leaf_department"] == ("末级" if visible else None)
+    assert person["organization_ref"] == person["department_path"] == ("公司/一级/末级" if visible else None)
+    assert person["direct_supervisor_name"] == ("姓名H" if visible else None)
+    assert (person["job_sequence"] is not None) is visible
+    if not visible:
+        assert person["direct_supervisor_employee_no"] is None
+    assert backend["distribution_rule"] is None and delegated["distribution_rule"] is None
+    distribution = {"assessment_item_id": "grade", "conditions": [{"control_mode": "SOFT", "grade_codes": ["A"], "operator": "EQ", "value": 30, "unit": "PERCENT"}]}
+    project_row.settings = {"flow_settings": {"node_settings": {"cal": {"calibration": {"force_distribution_enabled": True, "distribution": {"rules": [distribution]}}}}}}
+    enabled = (await routes.project_management_calibration_authorization(1, context(), Db()))["items"]
+    assert enabled[0]["distribution_rule"] == "后台配置规则"
+    assert enabled[1]["distribution_rule"] == "沿用父任务规则" and enabled[1]["distribution_info"]["groups"]
+    for record_row in records[:2]:
+        record_row.authorization_settings["distribution_mode"] = "NONE"
+    no_distribution = (await routes.project_management_calibration_authorization(1, context(), Db()))["items"][1]
+    assert no_distribution["distribution_rule"] == "无需满足分布规则"
+    assert no_distribution["distribution_info"]["rules"] == no_distribution["distribution_info"]["groups"] == no_distribution["distribution_info"]["lines"] == []
+    for kind, values_key, values, label, field in [
+        ("DEPARTMENT", "department_paths", ["公司/一级"], "指定部门：公司/一级", "department"),
+        ("PEOPLE", "selected_employee_nos", ["E1", "E2"], "指定人员：姓名E1、姓名E2", "employee"),
+        ("DIRECT_SUBORDINATES", "selected_employee_nos", [], "被授权人的全部实线下级", None),
+    ]:
+        for record_row in records[:2]:
+            record_row.authorization_settings = {"scope_mode": "PARTIAL", "scope_kind": kind, values_key: values, "allow_reauthorize": True}
+        partial = (await routes.project_management_calibration_authorization(1, context(), Db()))["items"][1]
+        assert partial["scope"] == label and partial["task_ids"] == [7, 8]
+        if field is None:
+            assert partial["scope_rules"] == []
+        else:
+            assert partial["scope_rules"][0]["scope"] == "RULE"
+            assert partial["scope_rules"][0]["scope_groups"] == [{"conditions": [{"field": field, "operator": "INCLUDE", "values": values}]}]
 
 
 @pytest.mark.asyncio
@@ -11041,6 +11181,7 @@ async def test_explicit_calibration_completion_locks_final_without_rewriting_tas
     from fastapi import FastAPI
     from httpx import ASGITransport, AsyncClient
     data = management_member_data
+    data.project.status = "STARTED"
     data.tasks[:] = [data.task(2, submitted=submitted)]
     final_task = data.tasks[0]
     final_task.handler_ref = "ADMIN"
@@ -11938,6 +12079,74 @@ def task_delegation_backend(monkeypatch):
             for index, record in enumerate(self.records, 1): record.id = index
         async def commit(self): self.commits += 1
     return SimpleNamespace(routes=routes, models=models, task=task, node=node, project=target, recipient=recipient, identity=identity, db=Db(), scope=scope, notices=notices)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["valid", "disabled", "wrong_task", "revoked", "transfer", "missing", "outside"])
+async def test_calibration_f04_explicit_source_guards_and_inherits_readonly(task_delegation_backend, case):
+    from fastapi import HTTPException
+    data = task_delegation_backend
+    data.task.task_kind = data.node.node_type = "calibration"
+    data.task.phase_id = "p1"
+    data.node.config = {"calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "p1", "assignments": [{"handler_ref": "ORIGINAL", "employee_no": "E1", "allow_authorize": False}]}]}}
+    parent = data.models.PerformanceNodeTaskAuthorization(id=1, task_id=9 if case == "wrong_task" else 7, project_id=3, cycle_ref="C1", authorization_type="TRANSFER" if case == "transfer" else "AUTHORIZE", grantor_employee_no="ORIGINAL", recipient_employee_no="FIRST", read_only=True, status="REVOKED" if case == "revoked" else "ACTIVE", authorization_settings={"allow_reauthorize": case != "disabled"})
+    if case != "missing":
+        data.db.records.append(parent)
+    if case == "outside":
+        data.scope.return_value = {"OTHER"}
+    payload = data.routes.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="RECIPIENT", source_authorization_id=1, idempotency_key="f04-source")
+    if case != "valid":
+        with pytest.raises(HTTPException) as error:
+            await data.routes.create_task_delegation(3, 7, payload, context(), data.db)
+        assert (error.value.status_code, error.value.detail) == (403, "TASK_AUTHORIZATION_FORBIDDEN")
+        assert data.db.commits == 0 and not data.db.events
+        return
+    result = await data.routes.create_task_delegation(3, 7, payload, context(), data.db)
+    child = data.db.records[-1]
+    assert result["read_only"] is True and child.authorization_settings["parent_authorization_id"] == 1
+    assert "source_authorization_id" not in child.authorization_settings
+    retry = await data.routes.create_task_delegation(3, 7, payload, context(), data.db)
+    assert retry["idempotent"] is True and len(data.db.records) == 2 and data.db.commits == 1
+    parent.authorization_settings = {"allow_reauthorize": False}
+    with pytest.raises(HTTPException) as disabled_retry:
+        await data.routes.create_task_delegation(3, 7, payload, context(), data.db)
+    assert disabled_retry.value.detail == "TASK_AUTHORIZATION_FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_calibration_f04_rejects_recipient_who_is_reviewee(task_delegation_backend):
+    from fastapi import HTTPException
+    data = task_delegation_backend
+    data.task.task_kind = data.node.node_type = "calibration"
+    data.task.phase_id = "p1"
+    data.node.config = {"calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "p1", "assignments": [{"handler_ref": "ORIGINAL", "employee_no": "E1", "allow_authorize": True}]}]}}
+    data.recipient.employee_no = "E1"
+    with pytest.raises(HTTPException) as error:
+        await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="E1"), context(), data.db)
+    assert (error.value.status_code, error.value.detail) == (422, "TASK_AUTHORIZATION_RECIPIENT_INVALID")
+    assert data.db.commits == 0 and not data.db.records
+
+
+@pytest.mark.asyncio
+async def test_calibration_f04_keeps_forced_distribution_none_rejection(task_delegation_backend):
+    from fastapi import HTTPException
+    data = task_delegation_backend
+    data.task.task_kind = data.node.node_type = "calibration"
+    data.task.phase_id = "p1"
+    data.node.config = {"calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "p1", "assignments": [{"handler_ref": "ORIGINAL", "employee_no": "E1", "allow_authorize": True}]}]}}
+    data.project.settings = {"flow_settings": {"node_settings": {"review": {"calibration": {"force_distribution_enabled": True}}}}}
+    with pytest.raises(HTTPException) as error:
+        await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="RECIPIENT", distribution_mode="NONE"), context(), data.db)
+    assert (error.value.status_code, error.value.detail) == (409, "CALIBRATION_DISTRIBUTION_AUTHORIZATION_UNSUPPORTED")
+    assert data.db.commits == 0 and not data.db.records
+
+
+def test_calibration_f04_source_id_validation():
+    from pydantic import ValidationError
+    from app.performance.projects_router import PerformanceTaskAuthorizationPayload
+    for identity in (0, -1):
+        with pytest.raises(ValidationError):
+            PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="R", source_authorization_id=identity)
 
 
 @pytest.mark.asyncio

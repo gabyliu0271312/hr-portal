@@ -1028,6 +1028,58 @@ it('keeps calibration rows readable while both unauthorized operations stay disa
   wrapper.unmount(); loaded.mockRestore(); candidates.mockRestore(); revoking.mockRestore(); delete routeQuery.cycle_id
 })
 
+it('opens shared calibration people lists and renders source rules with disabled reasons', async () => {
+  const { default: Calibration } = await import('./ProjectCalibrationAuthorization.vue')
+  const { default: People } = await import('@/components/performance/focus-group/FocusGroupPeopleDialog.vue')
+  pinia = createPinia(); setActivePinia(pinia)
+  usePerformanceProjectContextStore().setNavigation(navigationOf(1))
+  routeQuery.cycle_id = '1'
+  const item = { id: 'cal:1', project_id: 3, source: 'BACKEND' as const, task_ids: [11, 12], task_people: [{ task_id: 11, employee_no: 'E1', display_name: '员工甲', department: '研发' }, { task_id: 12, employee_no: 'E2', display_name: '员工乙', department: '产品' }], unauthorized_task_ids: [12], authorizations: [], calibrator: '校准人', status: '待校准', scope: '全部下级', authorized_count: 2, unauthorized_count: 1, allow_authorize: false, can_authorize: false, can_revoke: false, distribution_rule: '后台配置规则', distribution_info: { force_distribution_enabled: true, mode: 'UNIFIED', rules: [], lines: [], groups: [{ title: '强制分布', lines: ['绩效评级：优秀 的人员 ≤ 25%'] }] }, authorized_by: '授权人甲', authorized_at: '2026-11-19T09:18:00Z' }
+  const loaded = vi.spyOn(projectManagementApi, 'calibrationAuthorization').mockResolvedValue({ cycle_id: 1, cycle_name: '测试周期', items: [item] })
+  const wrapper = mount(Calibration, { attachTo: document.body, global: { plugins: [pinia] } })
+  await flushPromises()
+  expect(wrapper.text()).toContain('分布规则')
+  expect(wrapper.text()).toContain('发起授权时间')
+  expect(wrapper.findAll('.count-link')).toHaveLength(1)
+  await wrapper.get('.count-link').trigger('click')
+  expect(wrapper.getComponent(People).props('title')).toBe('可校准人员')
+  expect(wrapper.getComponent(People).props('rows').map((person: { employee_no: string }) => person.employee_no)).toEqual(['E1', 'E2'])
+  expect((wrapper.getComponent(People).props('columns') || []).map((column: { label: string }) => column.label)).toEqual(['被评估人', '一级部门', '末级部门', '直属上级', '序列'])
+  wrapper.getComponent(People).vm.$emit('update:modelValue', false)
+  const reasons = wrapper.findAllComponents({ name: 'PerformanceInfoPopover' }).map(component => component.props('content'))
+  expect(reasons).toContain('此任务不允许授权他人校准')
+  expect(reasons).toContain('请联系管理员在「项目设置」中移除此用户的校准权限')
+  loaded.mockResolvedValue({ cycle_id: 1, cycle_name: '测试周期', items: [{ ...item, allow_authorize: true, distribution_info: { ...item.distribution_info, force_distribution_enabled: false } }] })
+  await wrapper.getComponent({ name: 'PerformanceListToolbar' }).vm.$emit('search'); await flushPromises()
+  expect(wrapper.text()).not.toContain('分布规则')
+  await wrapper.findAll('.count-link')[1].trigger('click')
+  expect(wrapper.getComponent(People).props('title')).toBe('未授权人员')
+  expect(wrapper.getComponent(People).props('rows').map((person: { employee_no: string }) => person.employee_no)).toEqual(['E2'])
+  wrapper.unmount(); loaded.mockRestore(); delete routeQuery.cycle_id
+})
+
+it('excludes the calibration recipient and preserves parent authorization when submitting all people', async () => {
+  const { default: Dialog } = await import('@/components/performance/PerformanceTaskDelegationDialog.vue')
+  const { default: Select } = await import('@/components/performance/PerformanceSearchSelect.vue')
+  const candidates = vi.spyOn(projectManagementApi, 'delegationCandidatesBatch').mockResolvedValue([11, 12, 13].map(task_id => ({ project_id: 3, task_id, candidates: [{ employee_no: 'R', display_name: '接收人' }] })))
+  const submit = vi.spyOn(projectManagementApi, 'authorizeTask').mockResolvedValue({ task_id: 11, id: 50, notification_status: 'preview_only' })
+  const wrapper = mount(Dialog, { attachTo: document.body, props: { modelValue: true, action: 'AUTHORIZE', calibration: true, hasDistributionRules: false, tasks: [{ task_id: 11, project_id: 3, employee_no: 'E1', source_authorization_id: 21 }, { task_id: 12, project_id: 3, employee_no: 'E2', source_authorization_id: 22 }, { task_id: 13, project_id: 3, employee_no: 'R', source_authorization_id: 23 }] } })
+  await flushPromises()
+  wrapper.getComponent(Select).vm.$emit('update:modelValue', 'R')
+  await wrapper.vm.$nextTick()
+  const all = document.querySelector<HTMLInputElement>('input[name="authorization-scope"][value="ALL"]')!
+  all.click(); await wrapper.vm.$nextTick()
+  expect(document.querySelector('.scope-count')?.textContent).toContain('总人数：2 人')
+  expect(document.body.textContent).not.toContain('强制 / 建议分布规则')
+  ;([...document.querySelectorAll<HTMLButtonElement>('.delegation-dialog button')].find(button => button.textContent?.trim() === '确定')!).click()
+  await flushPromises()
+  expect(submit).toHaveBeenCalledTimes(2)
+  expect(submit).toHaveBeenCalledWith(3, 11, 'AUTHORIZE', 'R', '', expect.objectContaining({ source_authorization_id: 21, scope_mode: 'ALL', allow_reauthorize: false }))
+  expect(submit).toHaveBeenCalledWith(3, 12, 'AUTHORIZE', 'R', '', expect.objectContaining({ source_authorization_id: 22 }))
+  expect(wrapper.emitted('completed')?.[0][0]).toBe(2)
+  wrapper.unmount(); candidates.mockRestore(); submit.mockRestore()
+})
+
 it('opens the shared delegation dialog from calibration authorization with real task references', async () => {
   const { default: Calibration } = await import('./ProjectCalibrationAuthorization.vue')
   const { default: Dialog } = await import('@/components/performance/PerformanceTaskDelegationDialog.vue')

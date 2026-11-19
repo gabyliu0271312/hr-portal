@@ -260,9 +260,11 @@ def test_actual_task_delegation_endpoints_consume_assigned_keys_and_revoke_immed
     assert all(not row['can_revoke'] for row in records.json()['authorization_records'])
     calibration_rows = client.get('/api/v1/performance/project-management/calibration-authorization?cycle_id=1')
     assert calibration_rows.status_code == 200, calibration_rows.text
-    row, = calibration_rows.json()['items']
+    rows = calibration_rows.json()['items']
+    assert len(rows) == 2
+    row = next(row for row in rows if row['source'] == 'BACKEND')
     assert row['allow_authorize'] is True
-    assert row['can_authorize'] is False and row['can_revoke'] is False
+    assert all(row['can_authorize'] is False and row['can_revoke'] is False for row in rows)
     assert client.post(evaluation + '/delegations', json=payload).status_code == 403
     assert client.post(calibration + '/delegations', json=payload).status_code == 403
     authorization = session.scalar(select(PerformanceNodeTaskAuthorization).where(PerformanceNodeTaskAuthorization.task_id == 2))
