@@ -1117,14 +1117,14 @@ it('excludes the calibration recipient and preserves parent authorization when s
   wrapper.unmount(); candidates.mockRestore(); submit.mockRestore()
 })
 
-it('renders real authorization subtrees and revokes only the selected branch', async () => {
+it.each([false, true, null, undefined])('renders real authorization subtrees and revokes only the selected branch with notify=%s', async notifyOriginal => {
   const { default: Calibration } = await import('./ProjectCalibrationAuthorization.vue')
   pinia = createPinia(); setActivePinia(pinia)
   usePerformanceProjectContextStore().setNavigation(navigationOf(1))
   routeQuery.cycle_id = '1'
   const base = { project_id: 3, task_ids: [11], calibrator: '同名校准人', status: '已校准', scope: '任务内全部人员', authorized_count: 1, unauthorized_count: 0, allow_authorize: false, can_authorize: false, can_revoke: true, distribution_rule: null, authorized_by: '管理者', authorized_at: null }
   const loaded = vi.spyOn(projectManagementApi, 'calibrationAuthorization').mockResolvedValue({ cycle_id: 1, cycle_name: '测试周期', items: [
-    { ...base, id: 'child', parent_id: 'root-a', source: 'DELEGATION', notify_original: false, authorizations: [{ id: 21, task_id: 11, recipient: 'R1' }] },
+    { ...base, id: 'child', parent_id: 'root-a', source: 'DELEGATION', notify_original: notifyOriginal, authorizations: [{ id: 21, task_id: 11, recipient: 'R1' }] },
     { ...base, id: 'root-b', source: 'BACKEND', authorizations: [] },
     { ...base, id: 'grandchild', parent_id: 'child', source: 'DELEGATION', authorizations: [{ id: 22, task_id: 11, recipient: 'R2' }] },
     { ...base, id: 'root-a', source: 'BACKEND', authorizations: [] },
@@ -1141,9 +1141,11 @@ it('renders real authorization subtrees and revokes only the selected branch', a
   expect(persons()).toHaveLength(4)
   await wrapper.findAll('.actions')[2].findAll('button')[1].trigger('click')
   expect(document.querySelector('.performance-confirm-dialog__title')?.textContent).toContain('确定撤销授权吗?')
-  expect(document.querySelectorAll('.performance-confirm-dialog__details li')).toHaveLength(2)
+  expect(document.querySelectorAll('.performance-confirm-dialog__details li')).toHaveLength(typeof notifyOriginal === 'boolean' ? 2 : 1)
   expect(document.querySelector('.performance-confirm-dialog__details')?.textContent).toContain('子任务将会回收')
-  expect(document.querySelector('.performance-confirm-dialog__details')?.textContent).toContain('本次撤销也不会通知原校准人')
+  if (notifyOriginal === true) expect(document.querySelector('.performance-confirm-dialog__details')?.textContent).toContain('由于授权时选择了通知原校准人，故本次撤销也会通知原校准人。')
+  else if (notifyOriginal === false) expect(document.querySelector('.performance-confirm-dialog__details')?.textContent).toContain('本次撤销也不会通知原校准人')
+  else expect(document.querySelector('.performance-confirm-dialog__details')?.textContent).not.toContain('通知原校准人')
   document.querySelector<HTMLButtonElement>('.performance-confirm-dialog__button--danger')!.click()
   await flushPromises()
   expect(revoking).toHaveBeenCalledTimes(1)

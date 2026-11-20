@@ -115,7 +115,7 @@ const confirmOpen = ref(false)
 const revokeTarget = ref<ProjectCalibrationAuthorization | null>(null)
 const revokeDetails = computed(() => [
   '撤销后，被授权人的校准任务和由该任务授权产生的子任务将会回收。',
-  ...(revokeTarget.value?.notify_original === false ? ['由于授权时选择了不通知原校准人，故本次撤销也不会通知原校准人。'] : []),
+  ...(revokeTarget.value?.notify_original === true ? ['由于授权时选择了通知原校准人，故本次撤销也会通知原校准人。'] : revokeTarget.value?.notify_original === false ? ['由于授权时选择了不通知原校准人，故本次撤销也不会通知原校准人。'] : []),
 ])
 const target = ref<ProjectCalibrationAuthorization | null>(null)
 const peopleOpen = ref(false)

@@ -11999,6 +11999,75 @@ async def test_revoke_task_authorization_preserves_submitted_and_draft_answers(m
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("notify,node_type,mapped,delivery,expected", [
+    (True, "calibration", True, "success", "success"),
+    (True, "calibration", True, "failed", "failed"),
+    (True, "calibration", True, "preview_only", "preview_only"),
+    (True, "calibration", True, "skipped", "skipped"),
+    (True, "calibration", False, "success", "recipient_unmapped"),
+    (False, "calibration", True, "success", None),
+    (None, "calibration", True, "success", None),
+    (True, "evaluation", True, "success", None),
+    (True, "calibration", True, "forbidden", None),
+])
+async def test_calibration_revoke_notice_follows_original_setting_and_shared_delivery(monkeypatch, notify, node_type, mapped, delivery, expected):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as router
+    from fastapi import HTTPException
+    task = SimpleNamespace(id=7, project_id=3, task_kind=node_type, phase_id="p1", cycle_ref="C1", target_employee_no="E1", handler_ref="ORIGINAL", answer_version=9, answers={"grade": "A"}, draft_answers={"grade": "B"})
+    record = SimpleNamespace(id=11, status="ACTIVE", grantor_employee_no="OPERATOR", recipient_employee_no="RECIPIENT", authorization_settings={"notify_original": notify, "notification_status": "success", "source_rule_id": "rule-a"})
+    child = SimpleNamespace(id=12, status="ACTIVE", authorization_settings={"parent_authorization_id": 11, "notify_original": True})
+    project = SimpleNamespace(id=3, cycle_ref="C1", name="测试项目")
+    node = SimpleNamespace(project_id=3, node_type=node_type, name="校准", config={"calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "p1", "assignments": [{"handler_ref": "ORIGINAL", "employee_no": "E1"}]}]}})
+    monkeypatch.setattr(router, "_task_management_scope", AsyncMock(return_value=set()))
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="OUTSIDE" if delivery == "forbidden" else "OPERATOR")))
+    sending = AsyncMock(return_value=SimpleNamespace(status="skipped" if delivery == "preview_only" else delivery, errors=["NOTIFICATION_PREVIEW_ONLY"] if delivery == "preview_only" else []))
+    monkeypatch.setattr(router, "send_notification", sending)
+    class Db:
+        def __init__(self): self.commits = 0; self.identity_queries = []
+        async def execute(self, statement): return SimpleNamespace(first=lambda: (task, node, project, record), scalars=lambda: SimpleNamespace(all=lambda: [record, child]))
+        async def refresh(self, *args, **kwargs): pass
+        async def scalar(self, statement):
+            if statement.column_descriptions[0]["entity"] is router.User:
+                self.identity_queries.append(str(statement.compile(compile_kwargs={"literal_binds": True})))
+                return SimpleNamespace(id=42, feishu_user_id="open-original") if mapped else None
+            return project
+        def add(self, item): pass
+        async def commit(self): self.commits += 1
+    db = Db()
+    if delivery == "forbidden":
+        with pytest.raises(HTTPException) as error:
+            await router.revoke_task_delegation(3, 7, 11, context(), db)
+        assert error.value.detail == "TASK_AUTHORIZATION_REVOKE_FORBIDDEN"
+        assert record.status == child.status == "ACTIVE" and db.commits == 0
+        sending.assert_not_awaited()
+        return
+    result = await router.revoke_task_delegation(3, 7, 11, context(), db)
+    assert result == {"id": 11, "status": "REVOKED", "answer_version": 9}
+    assert child.status == "REPLACED" and "revoke_notification_status" not in child.authorization_settings
+    assert record.authorization_settings.get("revoke_notification_status") == expected
+    assert record.authorization_settings["notification_status"] == "success" and record.authorization_settings["source_rule_id"] == "rule-a"
+    assert task.answers == {"grade": "A"} and task.draft_answers == {"grade": "B"} and db.commits == 1
+    if notify is True and node_type == "calibration":
+        assert len(db.identity_queries) == 1 and "'ORIGINAL'" in db.identity_queries[0]
+    else:
+        assert not db.identity_queries
+    if expected not in {None, "recipient_unmapped"}:
+        sending.assert_awaited_once()
+        config = sending.await_args.args[0]
+        assert config.receivers[0].user_ids == [42]
+        assert config.message.title_template == "绩效校准任务授权撤销通知"
+        assert "子任务已回收" in config.message.content_template
+        assert sending.await_args.kwargs == {"biz_type": "performance_task_authorization_revoke", "biz_id": "11"}
+    else:
+        sending.assert_not_awaited()
+    with pytest.raises(HTTPException) as error:
+        await router.revoke_task_delegation(3, 7, 11, context(), db)
+    assert error.value.detail == "TASK_AUTHORIZATION_NOT_ACTIVE"
+    assert sending.await_count == (1 if expected not in {None, "recipient_unmapped"} else 0)
+
+
+@pytest.mark.asyncio
 async def test_authorization_postgres_migration_and_reopen():
     import os
     if os.getenv("RUN_PERFORMANCE_DB_TEST") != "1":

@@ -5930,6 +5930,20 @@ async def revoke_task_delegation(
         subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id),
         after_state={"project_id": project.id, "authorization_id": str(record.id), "recipient_employee_no": record.recipient_employee_no},
     ))
+    if getattr(node, "node_type", None) == "calibration" and (record.authorization_settings or {}).get("notify_original") is True:
+        notification_status = "recipient_unmapped"
+        if str(task.handler_ref or "").strip():
+            original_user = await db.scalar(select(User).join(PerformanceIdentityLink, PerformanceIdentityLink.portal_user_id == User.id).where(
+                PerformanceIdentityLink.employee_no == task.handler_ref, PerformanceIdentityLink.is_active.is_(True), User.is_active.is_(True),
+            ))
+            if original_user and original_user.feishu_user_id:
+                notice_result = await send_notification(NotificationConfig(
+                    receivers=[FixedUsersRule(type="fixed_users", user_ids=[original_user.id])],
+                    message=MessageConfig(title_template="绩效校准任务授权撤销通知", content_template="项目“{{project_name}}”中的“{{node_name}}”授权已撤销，被授权人的校准任务和由该任务授权产生的子任务已回收。"),
+                ), {"project_name": project.name, "node_name": node.name}, db,
+                    biz_type="performance_task_authorization_revoke", biz_id=str(record.id))
+                notification_status = "preview_only" if "NOTIFICATION_PREVIEW_ONLY" in notice_result.errors else notice_result.status
+        record.authorization_settings = {**record.authorization_settings, "revoke_notification_status": notification_status}
     await db.commit()
     return {"id": record.id, "status": record.status, "answer_version": task.answer_version}
 

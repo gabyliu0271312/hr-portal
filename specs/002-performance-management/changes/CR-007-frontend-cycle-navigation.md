@@ -223,6 +223,16 @@
 - UI：本地Vite真实路由、独立Chromium上下文、所有/api/v1请求合成隔离，1440×1000/DPR1；根/子行缩进0/24px，范围灰底504×154px、选择框448×32px，树可展开为3节点，撤销两条说明及危险描边按钮可见，pageErrors=[]。独立PNG均已查看：`ui-blueprints/CR-007-F04-implemented-authorization-hierarchy-20261120.png`、`ui-blueprints/CR-007-F04-implemented-authorization-department-tree-20261120.png`、`ui-blueprints/CR-007-F04-implemented-authorization-revoke-20261120.png`。首次自动化定位到禁用子行导致超时，改按启用按钮定位后通过，未绕过应用禁用状态。
 - 边界：已完成本轮局部调整及本地验证；真实JWT/API/业务数据库保存回读、生产部署和整页同数据像素验收未执行，F04/F05保持未整体勾选。Spec012通用UI规则适用，数仓/UCP专属要求不适用。
 
+### 2026-11-20 F04 撤销授权通知补齐
+
+- 用户明确补齐撤销确认的通知文案及实际通知。目标页另一条授权实采文案：“由于授权时选择了通知原校准人，故本次撤销也会通知原校准人。”原false文案保留；true显示会通知，false显示不会通知，null/缺失不猜历史设置。
+- 原DELETE撤销接口仅对校准节点且持久化notify_original严格为true调用现有send_notification；沿原授权链以task.handler_ref通过有效PerformanceIdentityLink＋有效Portal用户解析原校准人，接入原全局blocked/test_receiver/normal、部署保险丝与身份切换控制。不另建投递链/表或改请求DTO；缺身份映射不发，不通知级联回收子记录。普通评估授权撤销行为保持。
+- 使用独立biz_type=performance_task_authorization_revoke和真实授权记录ID；投递结果写入原JSON的revoke_notification_status，保留授权时notification_status和其他配置。失败/跳过/preview_only/recipient_unmapped不记为已发送。权限、有效状态、项目锁和级联校验均先于通知；重复撤销409且不重复调用发送。仍沿每条授权原DELETE请求粒度发送，不新增整行批量事务或通知重试机制，无迁移。
+- 后端命令沿上段两文件授权/校准定向筛选 → **271 passed、2 skipped、864 deselected、19.12秒、exit0**。新增9场景覆盖true/false/缺失、普通评估不受影响、成功/失败/跳过/预览、未映射、越权和重复撤销无通知、子记录不重复通知、答案与既有配置保留。首轮新增夹具漏冻结校准配置导致7项失败，补齐真实phase/assignment后通过，未放宽业务校验。
+- 共享投递控制回归：`DB_HOST=127.0.0.1 DB_PORT=1 PYTHONPATH=hr-portal/backend hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_projects.py -q --tb=short -k "global_blocked_mode or global_test_receiver_mode or global_normal_mode or fuse_off_still_preview or notification_preview_logs"` → **6 passed、1115 deselected、7.27秒、exit0**；后端均有既有python_multipart弃用警告。所有传输隔离，无真实发送。
+- 前端：`npm --prefix hr-portal/frontend run test -- src/views/performance/ProjectManagement.spec.ts src/components/performance/PerformanceConfirmDialog.spec.ts --silent` → **2文件77 passed、exit0**，覆盖通知true/false/null/undefined。`npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite通过、3789模块、exit0**，既有VueUse PURE提示。
+- 本地真实Vue路由＋独立Chromium、所有API合成隔离：420px确认框显示完整“会通知”说明，点保留关闭；pageErrors=[]、writeRequests=[]。真实飞书接收、真实JWT/业务库回读和生产部署未验收，F04/F05保持未整体勾选。未commit/push/deploy。
+
 ### 当前实现和证据
 
 - 主实现：`projects_router.py`、`api/performance.ts`、`ProjectManagement.vue`、`CompletionRatePanel.vue`、`CompletionNodeCard.vue`、`PerformanceManagementTable.vue`、`PerformanceReminderPanel.vue`、`performanceReminder.ts`、现有路由；新增 `ProjectManagementReminder.vue`、`ProjectAuthorizationRecords.vue`、`ProjectCalibrationAuthorization.vue`。
