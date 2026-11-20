@@ -68,16 +68,16 @@ def test_projection_resolves_each_sides_authorized_rating_and_whitelists_metadat
     before = deepcopy(comparison)
     schemas = {"a": record(1, "low")["schema"], "b": record(2, "high")["schema"]}
     schemas["a"][0]["fields"][0]["options"] = [
-        {"id": "low", "label": "自评待提升", "color": "#fff3e5", "foreground": "#8f4700", "description": "私有说明"},
+        {"id": "low", "label": "自评待提升", "code": "3星-", "color": "#fff3e5", "foreground": "#8f4700", "description": "私有说明"},
         {"id": "high", "label": "不应使用的另一选项"},
     ]
     schemas["b"][0]["fields"][0]["options"] = [
-        {"id": "high", "label": "上级优秀", "color": "#d9f5d6", "foreground": "#237b1b", "required": True},
+        {"id": "high", "label": "上级优秀", "code": "4星", "color": "#d9f5d6", "foreground": "#237b1b", "required": True},
         {"id": "low", "label": "不应使用的另一侧选项"},
     ]
     match = project_comparison(comparison, schemas, current_node_id)["matches"][0]
-    assert match["first_rating"] == {"label": "自评待提升", "color": "#fff3e5", "foreground": "#8f4700"}
-    assert match["second_rating"] == {"label": "上级优秀", "color": "#d9f5d6", "foreground": "#237b1b"}
+    assert match["first_rating"] == {"label": "自评待提升", "code": "3星-", "color": "#fff3e5", "foreground": "#8f4700"}
+    assert match["second_rating"] == {"label": "上级优秀", "code": "4星", "color": "#d9f5d6", "foreground": "#237b1b"}
     assert "options" not in match and "schema" not in match
     assert comparison == before
 
@@ -115,7 +115,8 @@ def test_projection_prunes_hidden_rating_metadata_and_group_reason(hidden_side):
     ([{"id": "low"}], None),
     ([{"id": "low", "label": ""}], None),
     ([{"id": "low", "label": "待提升"}], {"label": "待提升"}),
-    ([{"id": "low", "label": "待提升", "color": None, "foreground": 123}], {"label": "待提升"}),
+    ([{"id": "low", "label": "待提升", "code": 3, "color": None, "foreground": 123}], {"label": "待提升"}),
+    ([{"id": "low", "label": "待提升", "code": "3星-"}], {"label": "待提升", "code": "3星-"}),
 ])
 def test_projection_rating_metadata_handles_missing_options_and_optional_fields(options, expected):
     comparison = compare_ratings(rule(), {"a": [record(1, "low")], "b": [record(2, "high")]})
@@ -194,10 +195,106 @@ def runtime(monkeypatch, active=True, hide=False):
                 answer_version=2, answers={"i": "high"}, comparison_state=None, status="completed", submitted_at=datetime.now(UTC))]
     project = SimpleNamespace(id=7, cycle_ref="cycle", settings={"template_id": 3, "comparison_rules_snapshot": {"version": 1, "rules": [{**rule(), "template_id": 3}]}})
     db = SimpleNamespace(scalar=AsyncMock(return_value=SimpleNamespace(semester_diff_rules=[{"id": "r1"}] if active else [])),
-                         execute=AsyncMock(side_effect=[Rows(nodes), Rows(tasks)]))
+                         execute=AsyncMock(side_effect=[Rows(nodes), Rows(tasks), Rows([])]))
     monkeypatch.setattr(routes, "_reference_template", AsyncMock(side_effect=lambda task, node, project, db: node.config["template"]))
     monkeypatch.setattr(routes, "_task_visible_content", AsyncMock(side_effect=lambda task, node, db, **kwargs: (record(task.id, "")["schema"], task.answers)))
     return db, project, nodes, tasks
+
+
+def submission(task_id, version, actor="actual", node_id="a", actor_type="EMPLOYEE", **after):
+    return SimpleNamespace(subject_ref=str(task_id), event_type="PERFORMANCE_TASK_SUBMITTED",
+                           actor_type=actor_type, actor_ref=actor,
+                           after_state={"project_id": 7, "node_id": node_id, "version": version, **after})
+
+
+@pytest.mark.asyncio
+async def test_runtime_reviewer_projection_batches_actual_submitters_from_frozen_people(monkeypatch):
+    db, project, nodes, tasks = runtime(monkeypatch)
+    tasks[0].handler_ref = "not-the-submitter"
+    tasks.append(SimpleNamespace(**{**tasks[0].__dict__, "id": 3}))
+    events = [submission(1, 1), submission(3, 1, "delegate"),
+              submission(2, 2, "portal-id", "b", "PORTAL_USER",
+                         identity_switch={"business_actor_type": "EMPLOYEE", "business_actor_ref": "switched"})]
+    db.execute.side_effect = [Rows(nodes), Rows(tasks), Rows(events), Rows([
+        ("actual", "冻结提交人"), ("delegate", "授权提交人"), ("switched", "切换身份提交人")])]
+    internal, projected = await service.evaluate_task(db, tasks[0], nodes[0], project)
+    matches = projected["matches"]
+    assert [match["first_reviewer"] for match in matches] == [{"display_name": "冻结提交人"}, {"display_name": "授权提交人"}]
+    assert all(match["second_reviewer"] == {"display_name": "切换身份提交人"} for match in matches)
+    assert all("reviewer" not in str(match) for match in internal["matches"])
+    assert "employee_no" not in str(matches) and "actual" not in str(matches) and "avatar_url" not in str(matches)
+    assert db.execute.await_count == 4
+    query = db.execute.await_args_list[-1].args[0]
+    assert "source_snapshot_id = performance_authorization_snapshot_people.snapshot_id" in str(query)
+    assert query.compile().params["id_1"] == tasks[0].member_snapshot_id
+    assert query.compile().params["project_id_1"] == project.id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["missing", "wrong-version", "missing-version", "wrong-project", "wrong-node", "portal", "blank-name", "outside-snapshot"])
+async def test_runtime_reviewer_projection_never_invents_identity(monkeypatch, case):
+    db, project, nodes, tasks = runtime(monkeypatch)
+    tasks[0].handler_ref = "must-not-fallback"
+    event = submission(1, 1)
+    if case == "wrong-version":
+        event.after_state["version"] = 99
+    elif case == "missing-version":
+        event.after_state.pop("version")
+    elif case == "wrong-project":
+        event.after_state["project_id"] = 99
+    elif case == "wrong-node":
+        event.after_state["node_id"] = "other"
+    elif case == "portal":
+        event.actor_type = "PORTAL_USER"
+    events = [] if case == "missing" else [event]
+    db.execute.side_effect = [Rows(nodes), Rows(tasks), Rows(events), Rows([("actual", " ")] if case == "blank-name" else [])]
+    _, projected = await service.evaluate_task(db, tasks[0], nodes[0], project)
+    assert projected["matches"][0]["first_reviewer"] is None
+    assert projected["matches"][0]["second_reviewer"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["no-match", "hidden", "historical", "anonymous"])
+async def test_runtime_no_visible_or_historical_identity_does_not_query(monkeypatch, case):
+    db, project, nodes, tasks = runtime(monkeypatch, active=case != "historical", hide=case == "hidden")
+    if case == "no-match":
+        tasks[0].answers = {"i": "high"}
+    elif case == "anonymous":
+        for node in nodes:
+            node.config["template"]["executor_label"] = "360°评估人"
+    elif case == "historical":
+        saved = compare_ratings(rule(), {"a": [record(1, "low", version=99)], "b": [record(2, "high", version=99)]})
+        saved["reason"] = "历史理由"
+        tasks[0].comparison_state = saved
+    _, projected = await service.evaluate_task(db, tasks[0], nodes[0], project, include_history=True)
+    assert db.execute.await_count == 2
+    if projected:
+        assert all(match["first_reviewer"] is None and match["second_reviewer"] is None for match in projected["matches"])
+
+
+@pytest.mark.asyncio
+async def test_shared_reviewer_uses_shared_source_task_and_revision_not_handler_version(monkeypatch):
+    db, project, nodes, tasks = runtime(monkeypatch)
+    nodes[0].config["template"]["include_final_result"] = True
+    member = SimpleNamespace(shared_result_state={"source_task_id": 45, "revision": 8,
+        "source_actor_type": "EMPLOYEE", "source_actor_ref": "shared-actual", "submitted_at": "2026-11-20T01:00:00Z"})
+    db.scalar.side_effect = [db.scalar.return_value, member]
+    db.execute.side_effect = [Rows(nodes), Rows(tasks), Rows([]), Rows([("shared-actual", "共享提交人")])]
+    internal, projected = await service.evaluate_task(db, tasks[0], nodes[0], project)
+    match = projected["matches"][0]
+    assert match["first_task_id"] == 45 and match["first_version"] == 8
+    assert match["first_reviewer"] == {"display_name": "共享提交人"}
+    assert match["second_reviewer"] is None
+    assert "共享提交人" not in str(internal) and "submitter_ref" not in str(internal)
+
+
+@pytest.mark.asyncio
+async def test_draft_override_is_not_attributed_to_previous_formal_submitter(monkeypatch):
+    db, project, nodes, tasks = runtime(monkeypatch)
+    db.execute.side_effect = [Rows(nodes), Rows(tasks), Rows([submission(1, 1), submission(2, 2, "other", "b")]), Rows([("other", "另一环节提交人")])]
+    _, projected = await service.evaluate_task(db, tasks[0], nodes[0], project, {"i": "low"})
+    assert projected["matches"][0]["first_reviewer"] is None
+    assert projected["matches"][0]["second_reviewer"] == {"display_name": "另一环节提交人"}
 
 
 @pytest.mark.asyncio
@@ -250,7 +347,7 @@ async def test_overview_projects_comparison_from_current_entry(monkeypatch, hidd
     monkeypatch.setattr(routes, "_node_timing", lambda *_: {})
     monkeypatch.setattr(routes, "_self_summary_state", lambda *_: (False, False))
     db.get = AsyncMock(return_value=None)
-    db.execute = AsyncMock(side_effect=[Rows(nodes), Rows([tasks[0]]), Rows(nodes), Rows(tasks)])
+    db.execute = AsyncMock(side_effect=[Rows(nodes), Rows([tasks[0]]), Rows(nodes), Rows(tasks), Rows([])])
     result = await routes.review_overview(7, SimpleNamespace(), db, task_id=1, cycle_id=None)
     payload = result["categories"][0]["nodes"][0]
     assert payload["task_id"] == 1
@@ -455,7 +552,7 @@ async def test_two_rules_same_node_only_second_matches_and_each_is_projected(mon
     second = {**rule(), "id": "r2", "template_id": 3}
     project.settings["comparison_rules_snapshot"]["rules"] = [first, second]
     db.scalar.return_value.semester_diff_rules = [{"id": "r1"}, {"id": "r2"}]
-    db.execute.side_effect = [Rows(nodes), Rows(tasks), Rows(nodes), Rows(tasks)]
+    db.execute.side_effect = [Rows(nodes), Rows(tasks), Rows(nodes), Rows(tasks), Rows([])]
     internal, projected = await service.evaluate_task(db, tasks[0], nodes[0], project)
     assert [group["rule_id"] for group in internal["groups"]] == ["r1", "r2"]
     assert not internal["groups"][0]["matches"] and internal["groups"][1]["matches"]
@@ -524,7 +621,7 @@ async def test_deleted_first_rule_history_survives_second_submission_and_has_no_
     old = compare_ratings(first, {"a": [record(1, "low")], "b": [record(2, "high")]})
     old["reason"] = "historical-r1"
     tasks[0].comparison_state = {"groups": {"r1": old}}
-    db.execute.side_effect = [Rows(nodes), Rows(tasks)]
+    db.execute.side_effect = [Rows(nodes), Rows(tasks), Rows([])]
     internal, projected = await service.evaluate_task(db, tasks[0], nodes[0], project)
     assert [group["rule_id"] for group in internal["groups"]] == ["r2"]
     monkeypatch.setattr(service, "evaluate_task", AsyncMock(return_value=(internal, projected)))
@@ -535,7 +632,7 @@ async def test_deleted_first_rule_history_survives_second_submission_and_has_no_
     project.settings["comparison_rules_snapshot"]["rules"] = [first, second]
     db.scalar.return_value.semester_diff_rules = [{"id": "r2"}]
     fresh[0].comparison_state = deepcopy(tasks[0].comparison_state)
-    db.execute.side_effect = [Rows(nodes), Rows(fresh), Rows(nodes), Rows(fresh)]
+    db.execute.side_effect = [Rows(nodes), Rows(fresh), Rows(nodes), Rows(fresh), Rows([])]
     _, history = await service.evaluate_task(db, fresh[0], nodes[0], project, include_history=True)
     by_id = {group["rule_id"]: group for group in history["groups"]}
     assert by_id["r1"]["reason"] == "historical-r1" and not by_id["r1"]["active"]

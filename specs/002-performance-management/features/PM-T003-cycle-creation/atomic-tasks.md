@@ -157,6 +157,10 @@
   - UI证据：真实本地Vite组件+合成数据，独立无持久化验证页面；打开详情、Esc关闭并焦点回到查看详情按钮。1280×800桌面及390×844窄屏已查看PNG `../../ui-blueprints/PM-T003-I06-F02-readonly-comparison-detail-20261120.png`、`../../ui-blueprints/PM-T003-I06-F02-readonly-comparison-mobile-20261120.png`；移动弹窗358px，无页面横向溢出，pageerror=0。首轮浏览器驱动因直接引用Vue依赖入口未正常渲染，改用Vite预构建入口后实际通过；未把首轮当通过。
   - 验收边界：未操作真实业务提交/API→SQL回读/生产或真实外发；原REA详情采集失败后未重试，不宣称详情像素级还原。F02整体保留未勾选，历史数据库闭环等阻塞见下文。全量build首轮被并行360邀请组件TS2554阻断；并行修改补齐其契约后复核 `npm --prefix hr-portal/frontend run build` exit0，vue-tsc通过、3789模块、Vite 56.72秒，仅既有VueUse PURE告警。本轮文件 `git diff --check` 通过。
 
+  - 2026-11-20 目标DOM精调（覆盖上文初版居中弹窗）：通过目标已打开成员侧栏实际点击“查看详情”，确认真实为372×186锚定popover，提示按钮右对齐而非跟随文案。改用共享PerformancePopover/SelectTag/RatingTag：20/24 padding、8px圆角、组距20、行距8、24px人员标签、20px评级代码胶囊/12px字号；去掉目标不存在的标题/分隔线/实际档差/底部按钮。提示条40px、按钮64×22、右距16，保留再次点击/外部点击关闭，增加Esc及焦点恢复；多人同侧任务/版本归并避免重复记录。
+  - 精调契约：first_rating/second_rating增加可选code；first_reviewer/second_reviewer仅附加到授权投影，普通实际提交人须由project/node/version匹配提交审计证明，共享按source_task_id/revision/source_actor，姓名来自冻结授权人员。缺可信身份/匿名/历史返回null，不回退handler。冻结表无头像字段，省略真实头像；前端使用共享文字头像占位，不伪造真实照片。无可见匹配无新增身份查询，有匹配批量查审计和人员，无逐match N+1。不变更计算/存储/签名/事务/迁移/通知权限。
+  - 精调浏览器证据：本地Vite真实组件+合成数据，实测372×186、padding20/24、评级12px和20px高、3星-背景rgb(217,243,253)/文字rgb(0,71,97)与源站一致；移动390px下left16、width358，无横向溢出。点击外部/重复按钮/Esc关闭通过，焦点恢复，pageerror0。已查看独立PNG `../../ui-blueprints/PM-T003-I06-F02-anchored-detail-dom-20261120.png` 和 `../../ui-blueprints/PM-T003-I06-F02-anchored-detail-mobile-20261120.png`，本轮源站REA inspect超时后停止该调用，改以既有CDP连接直接读DOM和computedStyle。未以合成人物证明真实API→SQL回读或生产通过。
+
 - [ ] PM-T003-I06-F03 差异通知
   - Goal/Type：事务outbox、统一scheduler、正式评级组合去重、另一侧有效评估人通知。
   - Test contract：Given三态/转交/只读/撤销/并发提交，When入队/claim/发送失败/删除，Then不重复、不误发、可审计、失败可重试且未知不盲重发。

@@ -2643,8 +2643,10 @@ export interface PerformanceComparisonMatch {
   second_version: number
   first_value: string
   second_value: string
-  first_rating?: { label: string; color?: string; foreground?: string } | null
-  second_rating?: { label: string; color?: string; foreground?: string } | null
+  first_rating?: { label: string; code?: string; color?: string; foreground?: string } | null
+  second_rating?: { label: string; code?: string; color?: string; foreground?: string } | null
+  first_reviewer?: { display_name: string; avatar_url?: string } | null
+  second_reviewer?: { display_name: string; avatar_url?: string } | null
   reference_node_name?: string
   first_node_name?: string
   second_node_name?: string

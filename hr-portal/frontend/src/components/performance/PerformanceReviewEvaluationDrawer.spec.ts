@@ -113,7 +113,7 @@ describe('PerformanceReviewEvaluationDrawer', () => {
   })
 
   const activeComparison: PerformanceComparisonResult = {
-    rule_id: 'active', matches: [{ content_id: 'value', item_id: 'rating', label: '年度综合评级', operator: 'gte', threshold: 2, difference: 3, first_task_id: 145, second_task_id: 146, first_version: 1, second_version: 2, first_value: 'a', second_value: 'd', first_node_name: '上级评估', second_node_name: '自评', first_rating: { label: '符合预期', color: '#3370ff' }, second_rating: { label: '超出预期', color: '#34c724' } }],
+    rule_id: 'active', matches: [{ content_id: 'value', item_id: 'rating', label: '年度综合评级', operator: 'gte', threshold: 2, difference: 3, first_task_id: 145, second_task_id: 146, first_version: 1, second_version: 2, first_value: 'a', second_value: 'd', first_node_name: '上级评估', second_node_name: '自评', first_reviewer: { display_name: '评估人甲' }, second_reviewer: { display_name: '评估人乙' }, first_rating: { label: '符合预期', code: '3星-', color: '#3370ff' }, second_rating: { label: '超出预期', code: '4星', color: '#34c724' } }],
     show_notice_in_review: true, fill_in_diff_reason: false, reason_required: false, context: 'active-context', reason: null, active: true,
   }
 
@@ -126,21 +126,51 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     const button = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === '查看详情')!
     button.click()
     await flushPromises()
-    const detail = [...document.body.querySelectorAll<HTMLElement>('[role="dialog"]')].find(dialog => dialog.textContent?.includes('实际相差 3 档'))!
-    expect(detail.textContent).toContain('符合预期')
-    expect(detail.textContent).toContain('超出预期')
-    expect(detail.textContent).toContain('档位相差≥2档')
-    expect(detail.querySelector('input, textarea')).toBeNull()
-    detail.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click()
+    const detail = document.body.querySelector<HTMLElement>('.comparison-detail-popover')!
+    expect(detail.textContent).toContain('3星-')
+    expect(detail.textContent).toContain('4星')
+    expect(detail.textContent).toContain('评估人甲')
+    expect(detail.textContent).toContain('评估人乙')
+    expect(detail.textContent).not.toContain('实际相差')
+    expect(detail.querySelector('input, textarea, button, h2')).toBeNull()
+    expect(document.body.querySelector('.performance-dialog-overlay')).toBeNull()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
-    expect(document.body.textContent).not.toContain('实际相差 3 档')
+    expect(document.body.querySelector('.comparison-detail-popover')).toBeNull()
     expect(detailLoader).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
 
+  it('deduplicates shared counterpart records and keeps unavailable reviewer identities explicit', async () => {
+    const first = { ...structuredClone(activeComparison.matches[0]!), reference_node_name: '自评', first_reviewer: null }
+    const comparison = { ...structuredClone(activeComparison), matches: [first, { ...first, first_task_id: 150, first_reviewer: { display_name: '另一评估人' } }] }
+    const wrapper = mount(PerformanceComparisonNotice, { props: { comparison, readonly: true, taskId: 145 }, attachTo: document.body })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(document.body.querySelectorAll('.comparison-detail__record')).toHaveLength(3)
+    expect(document.body.querySelectorAll('.comparison-detail__item')).toHaveLength(3)
+    expect(document.body.textContent).toContain('评估人信息不可用')
+    expect(document.body.textContent).toContain('另一评估人')
+  })
+
+  it('toggles the anchored detail and closes it on an outside click', async () => {
+    const wrapper = mount(PerformanceComparisonNotice, { props: { comparison: structuredClone(activeComparison), readonly: true, taskId: 145 }, attachTo: document.body })
+    const button = wrapper.get('button')
+    await button.trigger('click')
+    expect(document.body.querySelector('.comparison-detail-popover')).not.toBeNull()
+    expect(button.attributes('aria-expanded')).toBe('true')
+    await button.trigger('click')
+    expect(document.body.querySelector('.comparison-detail-popover')).toBeNull()
+    await button.trigger('click')
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    await flushPromises()
+    expect(document.body.querySelector('.comparison-detail-popover')).toBeNull()
+    expect(button.attributes('aria-expanded')).toBe('false')
+  })
+
   it('isolates detail groups and dismisses stale details when the comparison changes', async () => {
     const comparison = { ...structuredClone(activeComparison), groups: [structuredClone(activeComparison), { ...structuredClone(activeComparison), rule_id: 'other', matches: [{ ...activeComparison.matches[0]!, label: '价值观', difference: 2, first_rating: { label: '第二组评级' } }] }] }
-    const wrapper = mount(PerformanceComparisonNotice, { props: { comparison, readonly: true, taskId: 145 } })
+    const wrapper = mount(PerformanceComparisonNotice, { props: { comparison, readonly: true, taskId: 145 }, attachTo: document.body })
     await wrapper.findAll('button')[1]!.trigger('click')
     expect(document.body.textContent).toContain('第二组评级')
     expect(document.body.textContent).not.toContain('符合预期')
@@ -150,7 +180,7 @@ describe('PerformanceReviewEvaluationDrawer', () => {
   })
 
   it('retains reasons without resurrecting deleted or disabled notices and never displays raw rating IDs', async () => {
-    const wrapper = mount(PerformanceComparisonNotice, { props: { comparison: { ...structuredClone(activeComparison), active: false, reason: '已提交理由' }, readonly: true } })
+    const wrapper = mount(PerformanceComparisonNotice, { props: { comparison: { ...structuredClone(activeComparison), active: false, reason: '已提交理由' }, readonly: true }, attachTo: document.body })
     expect(wrapper.text()).toContain('已提交理由')
     expect(wrapper.find('.prompt-notice').exists()).toBe(false)
     await wrapper.setProps({ comparison: { ...structuredClone(activeComparison), show_notice_in_review: false } })

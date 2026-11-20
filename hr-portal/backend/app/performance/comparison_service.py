@@ -39,7 +39,70 @@ def _rating_projection(field, value):
     option = next((option for option in field.get("options") or [] if str(option.get("id")) == str(value)), None)
     if option is None or not isinstance(option.get("label"), str) or not option["label"]:
         return None
-    return {key: option[key] for key in ("label", "color", "foreground") if isinstance(option.get(key), str)}
+    return {key: option[key] for key in ("label", "code", "color", "foreground") if isinstance(option.get(key), str)}
+
+
+async def _match_reviewers(db, task, project, records, projected):
+    if not projected or not projected.get("matches"):
+        return {}
+    from app.performance.models import PerformanceAuditEvent, PerformanceAuthorizationSnapshotPerson, PerformanceProjectMemberSnapshot
+
+    by_identity = {(node_id, record["task_id"], record["version"]): record
+                   for node_id, node_records in records.items() for record in node_records}
+    matched_records = {}
+    for match in projected["matches"]:
+        for side in ("first", "second"):
+            identity = (match[f"{side}_node_id"], match[f"{side}_task_id"], match[f"{side}_version"])
+            record = by_identity.get(identity)
+            if record is not None and record.get("formal") and not record.get("anonymous"):
+                matched_records[identity] = record
+    if not matched_records:
+        return {}
+
+    actor_refs = {identity: str(record["submitter_ref"]) for identity, record in matched_records.items()
+                  if record.get("submitter_type") == "EMPLOYEE" and record.get("submitter_ref")}
+    task_ids = {str(record["task_id"]): identity for identity, record in matched_records.items()
+                if not record.get("shared")}
+    if task_ids:
+        events = list((await db.execute(select(PerformanceAuditEvent).where(
+            PerformanceAuditEvent.cycle_ref == task.cycle_ref,
+            PerformanceAuditEvent.employee_no == task.target_employee_no,
+            PerformanceAuditEvent.subject_type == "PERFORMANCE_NODE_TASK",
+            PerformanceAuditEvent.subject_ref.in_(list(task_ids)),
+            PerformanceAuditEvent.event_type.in_(["PERFORMANCE_TASK_SUBMITTED", "CALIBRATION_ADJUSTED"]),
+        ).order_by(PerformanceAuditEvent.event_at.desc(), PerformanceAuditEvent.id.desc()))).scalars().all())
+        seen = set()
+        for event in events:
+            identity = task_ids.get(str(event.subject_ref))
+            record = matched_records.get(identity) if identity is not None else None
+            if record is None or identity in seen:
+                continue
+            seen.add(identity)
+            after = event.after_state or {}
+            if (event.event_type != "PERFORMANCE_TASK_SUBMITTED" or after.get("project_id") != project.id
+                    or after.get("node_id") != identity[0] or after.get("version") != record["version"]):
+                continue
+            switch = after.get("identity_switch") or {}
+            if event.actor_type == "EMPLOYEE":
+                actor_refs[identity] = str(event.actor_ref)
+            elif switch.get("business_actor_type") == "EMPLOYEE" and switch.get("business_actor_ref"):
+                actor_refs[identity] = str(switch["business_actor_ref"])
+    if not actor_refs:
+        return {}
+    people = list((await db.execute(select(
+        PerformanceAuthorizationSnapshotPerson.employee_no,
+        PerformanceAuthorizationSnapshotPerson.display_name,
+    ).join(PerformanceProjectMemberSnapshot,
+        PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
+    ).where(
+        PerformanceProjectMemberSnapshot.id == task.member_snapshot_id,
+        PerformanceProjectMemberSnapshot.project_id == project.id,
+        PerformanceAuthorizationSnapshotPerson.employee_no.in_(set(actor_refs.values())),
+    ))).all())
+    names = {str(employee_no): display_name.strip() for employee_no, display_name in people
+             if display_name and display_name.strip()}
+    return {identity: {"display_name": names[actor_ref]} for identity, actor_ref in actor_refs.items()
+            if actor_ref in names}
 
 
 def ordinary_evaluation(node):
@@ -147,6 +210,8 @@ def project_comparison(comparison, schemas, current_node_id=None):
         visible["label"] = "" if first.get("hide_name") or second.get("hide_name") else first.get("label", "")
         visible["first_rating"] = _rating_projection(first, match.get("first_value"))
         visible["second_rating"] = _rating_projection(second, match.get("second_value"))
+        visible["first_reviewer"] = None
+        visible["second_reviewer"] = None
         source_is_first = current_node_id == second_id
         visible["source_task_id"] = visible["first_task_id" if source_is_first else "second_task_id"]
         visible["source_version"] = visible["first_version" if source_is_first else "second_version"]
@@ -241,13 +306,18 @@ async def _evaluate_rule(db, task, node, project, rule, previous, historical, an
                 schema, visible_answers = await routes._task_visible_content(source, candidate, db, template=template)
                 revision = source.answer_version
             shared_seen = shared_seen or shared
-            record = {"task_id": source.id, "version": revision, "schema": schema, "answers": visible_answers}
-            if shared_results.participates(source, candidate):
+            record = {"task_id": source.id, "version": revision, "schema": schema, "answers": visible_answers,
+                      "formal": not (is_current and answers is not None) and source.status == "completed" and source.submitted_at is not None,
+                      "shared": shared, "anonymous": template.get("executor_label") == "360°评估人"}
+            if shared:
                 member = await db.scalar(select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == source.member_snapshot_id, PerformanceProjectMember.employee_no == source.target_employee_no))
                 state = getattr(member, "shared_result_state", None) or {}
                 if not (is_current and answers is not None):
                     record["version"] = state.get("revision", revision)
                     record["task_id"] = state.get("source_task_id") or source.id
+                    if state.get("submitted_at") and state.get("source_task_id") and state.get("revision") is not None:
+                        record["submitter_type"] = state.get("source_actor_type")
+                        record["submitter_ref"] = state.get("source_actor_ref")
                 record["identity"] = f"shared:{task.member_snapshot_id}:{candidate.node_id}"
             records[candidate.node_id].append(record)
     if answers is not None and not all_formal:
@@ -292,6 +362,11 @@ async def _evaluate_rule(db, task, node, project, rule, previous, historical, an
     projected = project_comparison(comparison, schemas, node.node_id)
     if projected is not None:
         projected.update(active=True, historical=False)
+        reviewers = await _match_reviewers(db, task, project, records, projected)
+        for match in projected["matches"]:
+            for side in ("first", "second"):
+                identity = (match[f"{side}_node_id"], match[f"{side}_task_id"], match[f"{side}_version"])
+                match[f"{side}_reviewer"] = reviewers.get(identity)
     return comparison, with_names(projected)
 
 
