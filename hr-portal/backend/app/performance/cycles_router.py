@@ -69,6 +69,7 @@ class CyclePayload(BaseModel):
     leaver_start_date: date | None = None
     leaver_end_date: date | None = None
     leaver_participation_mode: Literal["CREATE_TASK", "REPORT_ONLY"] = "CREATE_TASK"
+    allow_delete_360: bool = False
     overdue_submission_enabled: bool = True
     overdue_submission_scope: Literal["EVALUATION", "ALL"] = "EVALUATION"
 
@@ -104,6 +105,7 @@ class CyclePatch(BaseModel):
     leaver_start_date: date | None = None
     leaver_end_date: date | None = None
     leaver_participation_mode: Literal["CREATE_TASK", "REPORT_ONLY"] | None = None
+    allow_delete_360: bool | None = None
     overdue_submission_enabled: bool | None = None
     overdue_submission_scope: Literal["EVALUATION", "ALL"] | None = None
 
@@ -386,6 +388,7 @@ class CycleSummary(BaseModel):
     leaver_start_date: date | None
     leaver_end_date: date | None
     leaver_participation_mode: str
+    allow_delete_360: bool = False
     overdue_submission_enabled: bool
     overdue_submission_scope: str
     status: str

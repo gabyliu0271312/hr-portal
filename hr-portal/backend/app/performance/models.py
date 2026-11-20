@@ -739,6 +739,7 @@ class PerformanceCycle(Base):
     leaver_start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     leaver_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     leaver_participation_mode: Mapped[str] = mapped_column(String(16), nullable=False, default=CYCLE_LEAVER_MODE_CREATE_TASK)
+    allow_delete_360: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     overdue_submission_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     overdue_submission_scope: Mapped[str] = mapped_column(String(16), nullable=False, default="EVALUATION", server_default="EVALUATION")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=CYCLE_STATUS_DRAFT)

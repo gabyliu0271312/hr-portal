@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   performanceReview360InviteApi,
+  type PerformanceReview360InvitedReviewer,
   type PerformanceReview360InviteCandidate,
   type PerformanceReview360InviteList,
 } from '@/api/performance'
@@ -10,6 +11,7 @@ import UiButton from '../ui/UiButton.vue'
 import PerformanceReviewer360InviteBody from './PerformanceReviewer360InviteBody.vue'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import PerformanceDisabledReason from './PerformanceDisabledReason.vue'
+import PerformanceConfirmDialog from './PerformanceConfirmDialog.vue'
 
 const props = withDefaults(defineProps<{
   projectId?: number | string
@@ -31,6 +33,7 @@ const candidateLoading = ref(false)
 const candidateError = ref('')
 const candidateKeyword = ref('')
 const inviting = ref(false)
+const limitDialogOpen = ref(false)
 const searchKey = ref(0)
 let contextVersion = 0
 let listRequest = 0
@@ -41,38 +44,51 @@ const contextMatches = computed(() => Boolean(roster.value
   && (!props.projectId || String(props.projectId) === String(roster.value.project_id))
   && (!props.data?.task_id || String(props.data.task_id) === String(roster.value.task_id))
   && (!props.data?.employee_no || props.data.employee_no === roster.value.employee_no)))
-const canInvite = computed(() => Boolean(props.data && contextMatches.value && !props.readonly && !props.disabled
+const canEdit = computed(() => Boolean(props.data && contextMatches.value && !props.readonly && !props.disabled
   && !loading.value && !conflict.value && roster.value?.task_id && typeof roster.value.version === 'string' && roster.value.version
-  && roster.value.editable === true && roster.value.can_invite === true && projectId.value))
+  && roster.value.editable === true && projectId.value))
+function effectiveLimit(data?: PerformanceReview360InviteList) {
+  if (!data) return null
+  const limits = [data.effective_limit,
+    data.maximum_invite_mode === 'LIMIT' ? data.maximum_invited_count : null,
+    data.second_prompt_enabled && data.second_prompt_mode === 'LIMIT' ? data.second_prompt_count : null,
+  ].filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0)
+  return limits.length ? Math.min(...limits) : null
+}
+const limit = computed(() => effectiveLimit(roster.value))
+const limitReached = computed(() => limit.value !== null && (roster.value?.count ?? 0) >= limit.value)
+const canInvite = computed(() => canEdit.value && roster.value?.can_invite === true && !limitReached.value)
 const inviteDisabledReason = computed(() => conflict.value ? '名单已变化，请重新读取名单后再操作'
-  : props.disabled ? '当前暂不可操作'
-    : !canInvite.value ? '当前任务不允许邀请评估人，请重新打开任务确认权限' : inviting.value ? '正在邀请，请稍候' : '')
+  : props.readonly ? '当前为只读查看，请通过编辑入口修改名单'
+    : props.disabled ? '当前暂不可操作'
+      : inviting.value ? '正在更新名单，请稍候'
+        : limitReached.value ? '已达360°评估人邀请数量上限'
+          : roster.value?.invite_disabled_reason || (!canInvite.value ? '当前任务不允许邀请评估人，请重新打开任务确认权限' : ''))
 const items = computed(() => roster.value?.items ?? [])
 const counted = computed(() => roster.value?.count ?? 0)
 const candidateOptions = computed(() => candidates.value.map(candidate => ({
   value: candidate.employee_no, label: candidate.display_name,
-  searchText: `${candidateKeyword.value} ${candidate.display_name} ${candidate.employee_no} ${candidate.department || ''}`,
-  subLabel: candidate.department || undefined,
+  searchText: `${candidateKeyword.value} ${candidate.display_name} ${candidate.employee_no} ${candidate.department || ''} ${candidate.relationship || ''}`,
+  subLabel: [candidate.department, candidate.relationship].filter(Boolean).join(' · ') || undefined,
   avatarFallback: candidate.display_name.slice(-1),
   disabled: candidateLoading.value || inviting.value || items.value.some(item => item.employee_no === candidate.employee_no),
   disabledText: items.value.some(item => item.employee_no === candidate.employee_no) ? '已邀请' : undefined,
 })))
 const minimumHint = computed(() => {
   const minimum = roster.value?.minimum_invited_count ?? 0
-  const remaining = Math.max(0, minimum - counted.value)
   const prefix = roster.value?.exclude_default_invite_from_limit ? '除系统默认邀请外，' : ''
-  return `${prefix}${remaining ? `仍需邀请至少 ${remaining} 人` : `已满足最少邀请人数（${minimum} 人）`}`
+  return `${prefix}当前计入邀请额度 ${counted.value} 人，${counted.value < minimum ? `建议至少邀请 ${minimum} 人（还差 ${minimum - counted.value} 人）` : `已满足最少邀请建议（${minimum} 人）`}`
 })
 const limitHint = computed(() => {
   const data = roster.value
   if (!data) return ''
   const hints: string[] = []
-  if (data.maximum_invited_count != null) hints.push(`${data.maximum_invite_mode === 'LIMIT' ? '最多可邀请' : '建议最多邀请'} ${data.maximum_invited_count} 人`)
-  if (data.second_prompt_enabled && data.second_prompt_count && counted.value >= data.second_prompt_count) {
-    hints.push(`已达到二次触发提示人数（${data.second_prompt_count} 人）${data.second_prompt_mode === 'LIMIT' ? '，达到二次邀请上限' : ''}`)
-  }
+  if (limit.value !== null) hints.push(`最多可邀请 ${limit.value} 人${limitReached.value ? '，已达邀请数量上限' : ''}`)
+  if (data.maximum_invite_mode !== 'LIMIT' && data.maximum_invited_count != null) hints.push(`建议最多邀请 ${data.maximum_invited_count} 人`)
+  if (data.second_prompt_enabled && data.second_prompt_mode !== 'LIMIT' && data.second_prompt_count != null && counted.value >= data.second_prompt_count) hints.push(`已达到二次触发提示人数（${data.second_prompt_count} 人）`)
   return hints.join('；')
 })
+const limitDescription = computed(() => `本次最多可邀请 ${limit.value ?? 0} 位360°评估人，当前计入额度 ${counted.value} 人${roster.value?.exclude_default_invite_from_limit ? '（不包含系统默认邀请）' : ''}，无法继续邀请。`)
 function isCurrent(version: number) { return !disposed && version === contextVersion }
 function matchesSnapshot(next: PerformanceReview360InviteList, current: PerformanceReview360InviteList) {
   return String(next.project_id) === String(current.project_id)
@@ -131,40 +147,57 @@ function closeSearch() {
   candidateError.value = ''
   candidateKeyword.value = ''
 }
-async function inviteCandidate(employeeNo: string | string[] | null) {
-  if (typeof employeeNo !== 'string' || !canInvite.value || inviting.value || candidateLoading.value || candidateError.value
-    || !candidates.value.some(candidate => candidate.employee_no === employeeNo)
-    || items.value.some(item => item.employee_no === employeeNo)) return
+async function mutateRoster(employeeNo: string, revoke = false) {
+  if (inviting.value || !canEdit.value) return
   const version = contextVersion
   const data = roster.value!
-  const candidateName = candidates.value.find(candidate => candidate.employee_no === employeeNo)!.display_name
+  const candidateName = candidates.value.find(candidate => candidate.employee_no === employeeNo)?.display_name || employeeNo
   inviting.value = true
   error.value = ''
   emit('busy', true)
   try {
-    const result = await performanceReview360InviteApi.submit(projectId.value!, [employeeNo], data.task_id, data.version!)
-    if (!isCurrent(version) || !canInvite.value) return
+    const result = revoke
+      ? await performanceReview360InviteApi.revoke(projectId.value!, employeeNo, data.task_id, data.version!)
+      : await performanceReview360InviteApi.submit(projectId.value!, [employeeNo], data.task_id, data.version!)
+    if (!isCurrent(version)) return
     if (!result.reviewer_360 || !matchesSnapshot(result.reviewer_360, data)) {
       conflict.value = true
       error.value = '名单已更新，请重新读取名单后继续操作'
       return
     }
+    const previousCount = data.count ?? 0
     roster.value = result.reviewer_360
+    closeSearch()
+    searchKey.value++
+    const reached = !revoke && limitReached.value && previousCount < (limit.value ?? 0)
     emit('change', result.reviewer_360)
-    if (result.rejected?.length) ElMessage.warning(`部分人员不可邀请：${candidateName}`)
+    if (reached) limitDialogOpen.value = true
+    if ('rejected' in result && result.rejected?.length) ElMessage.warning(`部分人员不可邀请：${candidateName}`)
   } catch (err: unknown) {
     if (!isCurrent(version)) return
     const response = (err as { response?: { status?: number; data?: { detail?: string } } }).response
     conflict.value = response?.status === 409
-    error.value = conflict.value ? '名单已变化，请重新读取名单后再操作；本次邀请未自动重试'
-      : response?.data?.detail === 'INVITE_LIMIT_REACHED' ? '已达邀请人数上限，无法继续邀请' : '邀请失败，请稍后重试'
+    error.value = conflict.value ? '名单已变化，请重新读取名单后再操作；本次操作未自动重试'
+      : response?.data?.detail === 'INVITE_LIMIT_REACHED' ? '已达邀请人数上限，无法继续邀请' : revoke ? '移除失败，请稍后重试' : '邀请失败，请稍后重试'
+    if (response?.data?.detail === 'INVITE_LIMIT_REACHED') limitDialogOpen.value = true
     ElMessage.error(error.value)
   } finally {
     inviting.value = false
     if (!disposed) emit('busy', false)
   }
 }
-watch(() => [props.projectId, props.nodeId, props.data, props.readonly, props.disabled] as const, () => {
+async function inviteCandidate(employeeNo: string | string[] | null) {
+  if (typeof employeeNo !== 'string' || !canInvite.value || inviting.value || candidateLoading.value || candidateError.value
+    || !candidates.value.some(candidate => candidate.employee_no === employeeNo)
+    || items.value.some(item => item.employee_no === employeeNo)) return
+  await mutateRoster(employeeNo)
+}
+async function revokeReviewer(row: PerformanceReview360InvitedReviewer) {
+  if (!canEdit.value || row.can_revoke !== true || !items.value.includes(row)) return
+  await mutateRoster(row.employee_no, true)
+}
+watch(() => [props.projectId, props.nodeId, props.data, props.readonly, props.disabled] as const, (next, previous) => {
+  if (previous && next[0] === previous[0] && next[1] === previous[1] && next[3] === previous[3] && next[4] === previous[4] && next[2] === roster.value) return
   contextVersion++
   searchKey.value++
   listRequest++
@@ -173,6 +206,7 @@ watch(() => [props.projectId, props.nodeId, props.data, props.readonly, props.di
   roster.value = props.data
   error.value = ''
   conflict.value = false
+  limitDialogOpen.value = false
   if (!props.data && !props.readonly) void load()
 }, { immediate: true, flush: 'sync' })
 onBeforeUnmount(() => {
@@ -184,8 +218,8 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="invite-panel" aria-label="360° 评估邀请" :aria-busy="inviting || loading">
-    <PerformanceReviewer360InviteBody :items="items" :total="roster?.total ?? 0" :minimum-hint="minimumHint" :limit-hint="limitHint" interactive>
-      <template v-if="!readonly" #search>
+    <PerformanceReviewer360InviteBody :items="items" :total="roster?.total ?? 0" :minimum-hint="minimumHint" :limit-hint="limitHint" :editable="canEdit" interactive>
+      <template #search>
         <PerformanceDisabledReason class="invite-panel__search" :disabled="!canInvite || inviting" :reason="inviteDisabledReason">
           <PerformanceSearchSelect :key="searchKey" :model-value="null" :options="candidateOptions" remote-search hide-arrow option-style="none" option-layout="detailed" placeholder="搜索成员" aria-label="搜索可邀请成员" :loading="candidateLoading" loading-text="正在加载成员…" :empty-text="candidateError || '暂无可以邀请的成员'" :disabled="!canInvite || inviting" @search="loadCandidates" @close="closeSearch" @update:model-value="inviteCandidate">
             <template v-if="candidateError" #footer><UiButton variant="text" @click="loadCandidates(candidateKeyword)">重试</UiButton></template>
@@ -197,18 +231,24 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="loading" class="invite-panel__state" role="status">正在加载 360° 评估邀请…</div>
       </template>
-      <template v-if="!readonly" #actions="{ row }">
-        <PerformanceDisabledReason disabled :reason="row.revoke_disabled_reason || '周期删除策略尚未开放，暂不可撤销邀请'">
-          <UiButton variant="text" size="small" disabled aria-label="撤销邀请">撤销</UiButton>
-        </PerformanceDisabledReason>
+      <template #actions="{ row }">
+        <button type="button" class="invite-panel__remove" :disabled="inviting" :aria-label="`移除${row.display_name}`" @click="revokeReviewer(row)"><span aria-hidden="true">×</span></button>
       </template>
     </PerformanceReviewer360InviteBody>
+    <PerformanceConfirmDialog v-model="limitDialogOpen" appearance="submit" message="已达360°评估人邀请数量上限" :description="limitDescription" :show-cancel="false" confirm-text="我知道了" confirm-variant="primary" @confirm="limitDialogOpen = false" />
   </section>
 </template>
 
 <style scoped>
 .invite-panel { min-width: 0; }
 .invite-panel__search { display: flex; width: 100%; min-width: 0; }
-.invite-panel__error { padding: 8px 0; color: var(--color-danger); overflow-wrap: anywhere; }
-.invite-panel__state { padding: 24px 0; color: var(--color-text-secondary); }
+.invite-panel__search :deep(.performance-info-popover__anchor),
+.invite-panel__search :deep(.performance-select-shell) { flex: 1; width: 100%; min-width: 0; }
+.invite-panel__search :deep(.performance-search-select__trigger) { width: 100%; min-width: 0; }
+.invite-panel__error { padding: var(--spacing-2) 0; color: var(--color-danger); overflow-wrap: anywhere; }
+.invite-panel__state { padding: var(--spacing-6) 0; color: var(--color-text-secondary); }
+.invite-panel__remove { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 16px; height: 20px; padding: 0; border: 0; background: transparent; color: var(--color-primary); font: inherit; cursor: pointer; }
+.invite-panel__remove:hover:not(:disabled) { color: var(--color-primary-hover); }
+.invite-panel__remove:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.invite-panel__remove:disabled { cursor: not-allowed; color: var(--color-text-disabled); }
 </style>

@@ -136,8 +136,9 @@ async function mountView(path = '/performance/settings/cycles') {
 async function selectEnabledTemplate(wrapper: ReturnType<typeof mountView> extends Promise<infer T> ? T : never) {
   await wrapper.get('.evaluation-template-field .performance-select-shell__selector').trigger('click')
   await flushPromises()
-  ;(document.body.querySelector('.evaluation-template-option') as HTMLButtonElement).click()
+  ;(Array.from(document.body.querySelectorAll<HTMLButtonElement>('.evaluation-template-option')).at(-1)!).click()
   await flushPromises()
+  expect(wrapper.getComponent(PerformanceSelectShell).props('modelValue')).toEqual(['101'])
 }
 
 describe('周期人员和部门快照表格', () => {
@@ -962,6 +963,36 @@ describe('CycleManagement', () => {
     wrapper.get('.project-table-wrap')
     wrapper.get('.project-table-wrap table')
     wrapper.get('.project-table-wrap .fixed-operation')
+  })
+
+  it('includes the 360 delete policy in cycle create and edit payloads', async () => {
+    mocks.create.mockResolvedValueOnce(cycle)
+    const wrapper = await mountView('/performance/settings/cycles/new')
+    await wrapper.get('#cycle-year').trigger('click')
+    await wrapper.get('[aria-label="年份选择器"]').findAll('.year-options button').find(item => item.text() === '2026')!.trigger('click')
+    await wrapper.get('#cycle-type').trigger('click')
+    await wrapper.get('[aria-label="周期类型选择器"]').findAll('[role="option"]').find(item => item.text() === '自定义')!.trigger('click')
+    await wrapper.get('#cycle-name').setValue('可撤销周期')
+    await wrapper.get('#cycle-start').setValue('2026-01-01T09:00')
+    await wrapper.get('#cycle-end').setValue('2026-12-31T18:00')
+    await selectEnabledTemplate(wrapper)
+    await wrapper.get('#allow-delete-360').setValue(true)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists() ? wrapper.get('[role="alert"]').text() : '').toBe('')
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ allow_delete_360: true }))
+  })
+
+  it('reads the 360 delete policy as disabled when legacy cycle data omits it', async () => {
+    mocks.get.mockResolvedValueOnce({ ...cycle, allow_delete_360: undefined })
+    const wrapper = await mountView('/performance/settings/cycles/1/edit')
+    await flushPromises()
+    expect((wrapper.get('#allow-delete-360').element as HTMLInputElement).checked).toBe(false)
+  })
+
+  it('keeps the 360 delete policy disabled by default', async () => {
+    const wrapper = await mountView('/performance/settings/cycles/new')
+    expect((wrapper.get('#allow-delete-360').element as HTMLInputElement).checked).toBe(false)
   })
 
   it('shows a save success status after creating a cycle', async () => {

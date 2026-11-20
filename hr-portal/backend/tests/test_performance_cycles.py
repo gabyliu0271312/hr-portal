@@ -118,6 +118,9 @@ async def test_cycle_overdue_patch_requires_global_switches():
 
 def test_cycle_payload_validates_overdue_configuration():
     payload = CyclePayload(**_payload())
+    assert payload.allow_delete_360 is False
+    assert CyclePayload(**_payload(allow_delete_360=True)).allow_delete_360 is True
+    assert CyclePatch(allow_delete_360=True).model_dump(exclude_unset=True) == {"allow_delete_360": True}
     assert payload.overdue_submission_enabled is True
     assert payload.overdue_submission_scope == "EVALUATION"
     assert CyclePatch(overdue_submission_enabled=False, overdue_submission_scope="ALL").model_dump(exclude_unset=True) == {
@@ -127,6 +130,37 @@ def test_cycle_payload_validates_overdue_configuration():
         CyclePatch(overdue_submission_scope="INVALID")
     with pytest.raises(ValidationError):
         CyclePayload(**_payload(overdue_submission_enabled="not-a-boolean"))
+
+
+@pytest.mark.asyncio
+async def test_cycle_360_delete_policy_roundtrip_audit_and_omitted_patch(monkeypatch):
+    from app.performance import cycle_service
+
+    cycle = SimpleNamespace(
+        id=1, cycle_ref="cycle:1", name="本周期", language="zh-CN", period_year=2026,
+        period_type="YEAR", period_subtype=None, template_id=None,
+        start_at=datetime(2026, 1, 1, tzinfo=timezone.utc), end_at=datetime(2026, 12, 31, tzinfo=timezone.utc),
+        lock_rule="IMMEDIATE", lock_at=None, pre_lock_sync_mode="MANUAL", leaver_enabled=False,
+        leaver_start_date=None, leaver_end_date=None, leaver_participation_mode="CREATE_TASK",
+        allow_delete_360=False, overdue_submission_enabled=True, overdue_submission_scope="EVALUATION", status="LOCKED",
+    )
+    class Db:
+        async def execute(self, statement):
+            return SimpleNamespace(scalar_one=lambda: cycle)
+        async def commit(self): pass
+        async def refresh(self, value): pass
+
+    events = []
+    monkeypatch.setattr(cycle_service.PerformanceAuditService, "append_event", lambda self, event: events.append(event))
+    service = PerformanceCycleService(Db())
+    await service.update_cycle(cycle, CyclePatch(allow_delete_360=True).model_dump(exclude_unset=True), actor_type="SYSTEM_ACCOUNT", actor_id=1)
+    assert service.serialize(cycle)["allow_delete_360"] is True
+    assert events[-1].before_state["allow_delete_360"] is False
+    assert events[-1].after_state["allow_delete_360"] is True
+    await service.update_cycle(cycle, {"name": "更新名称"}, actor_type="SYSTEM_ACCOUNT", actor_id=1)
+    assert cycle.allow_delete_360 is True
+    await service.update_cycle(cycle, {"allow_delete_360": False}, actor_type="SYSTEM_ACCOUNT", actor_id=1)
+    assert service.serialize(cycle)["allow_delete_360"] is False
 
 
 def test_cycle_payload_rejects_end_before_start():

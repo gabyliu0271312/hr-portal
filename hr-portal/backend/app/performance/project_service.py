@@ -1504,7 +1504,8 @@ class PerformanceProjectService:
         before = self.serialize(project)
         from app.performance.comparison_config_service import PerformanceComparisonConfigService
         comparison_snapshot = await PerformanceComparisonConfigService(self.db).snapshot(cycle, template_id)
-        project.settings = {**(project.settings or {}), "comparison_rules_snapshot": comparison_snapshot}
+        project.settings = {**(project.settings or {}), "comparison_rules_snapshot": comparison_snapshot,
+                            "reviewer_360_default_on_submit": any(node.get("node_type") in {"reviewer_360_invite", "reviewer_360_confirm"} for node in nodes)}
         member_snapshot = PerformanceProjectMemberSnapshot(
             project_id=project.id,
             cycle_ref=project.cycle_ref,
@@ -1582,7 +1583,7 @@ class PerformanceProjectService:
                     ))
             if node_type == "evaluation" and node_role_code(raw_node) == ROLE_REVIEWER_360:
                 invite = (((flow_settings.get("node_settings") or {}).get(node_id) or {}).get("invite") or {})
-                if invite.get("default_invite", "DIRECT_SUBORDINATES") == "DIRECT_SUBORDINATES":
+                if invite.get("default_invite", "DIRECT_SUBORDINATES") == "DIRECT_SUBORDINATES" and not project.settings.get("reviewer_360_default_on_submit"):
                     timing = node_times.get(node_id) or {}
                     available_at = _parse_time(timing.get("start_at"))
                     due_at = _parse_time(timing.get("end_at") or timing.get("appeal_deadline"))
@@ -1603,6 +1604,7 @@ class PerformanceProjectService:
                                 available_at=available_at,
                                 due_at=due_at,
                                 status="pending",
+                                source_type="DEFAULT",
                             ))
                             self.audit.append_event(AuditEventInput(
                                 event_type="REVIEWER_360_INVITED",

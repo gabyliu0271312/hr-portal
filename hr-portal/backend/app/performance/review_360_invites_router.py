@@ -67,6 +67,8 @@ class InvitedReviewerOut(BaseModel):
     can_revoke: bool = False
     revoke_disabled_reason: str | None = None
     is_manual_by_actor: bool = False
+    is_draft: bool = False
+    inviter_ref: str | None = None
 
 
 class InviteListOut(BaseModel):
@@ -79,6 +81,8 @@ class InviteListOut(BaseModel):
     manual_count: int = 0
     can_invite: bool = False
     editable: bool = False
+    effective_limit: int | None = None
+    invite_disabled_reason: str | None = None
     items: list[InvitedReviewerOut]
     total: int
     minimum_invited_count: int
@@ -99,6 +103,7 @@ class InviteCandidateOut(BaseModel):
     job_sequence: str | None = None
     position_level: str | None = None
     employment_status: str | None = None
+    relationship: str | None = None
 
 
 class InviteCandidatesOut(BaseModel):
@@ -373,21 +378,18 @@ async def list_candidates(
     current = await service.roster(db, task, node, project, editable=editable, actor_ref=actor.actor_ref)
     target_ref = task.target_employee_no
     invited_nos = {item["employee_no"] for item in current["items"]}
-    people = await _snapshot_people(db, snapshot.source_snapshot_id)
-    candidates = [
-        person for person in people
-        if person.employee_no != target_ref
-        and person.employee_no not in invited_nos
-        and _employment_status(person) != "离职"
-    ]
+    people = await service.candidate_people(db, task, _target, snapshot)
+    candidates = [person for person in people if person.employee_no not in invited_nos]
     if keyword:
         lowered = keyword.strip().lower()
         candidates = [
             person for person in candidates
             if lowered in person.display_name.lower() or lowered in person.employee_no.lower()
         ]
+    from app.performance.projects_router import _reviewer_360_relationship
+    people_by_no = _people_by_no(await _snapshot_people(db, snapshot.source_snapshot_id))
     return InviteCandidatesOut(
-        items=[_candidate_out(person) for person in candidates],
+        items=[_candidate_out(person).model_copy(update={"relationship": _reviewer_360_relationship(target_ref, person.employee_no, people_by_no)}) for person in candidates],
         total=len(candidates),
     )
 
@@ -406,9 +408,8 @@ async def submit_invites(
     current = await service.roster(db, task, source_node, project, editable=True, actor_ref=actor.actor_ref)
     service.require_version(payload.reviewer_360_version, current["version"])
     target_ref = task.target_employee_no
-    member_snapshot_id = snapshot.id
     existing_nos = {item["employee_no"] for item in current["items"]}
-    people_by_no = _people_by_no(await _snapshot_people(db, snapshot.source_snapshot_id))
+    people_by_no = _people_by_no(await service.candidate_people(db, task, evaluation_node, snapshot))
     accepted, already, rejected = [], [], []
     for employee_no in dict.fromkeys(payload.employee_nos):
         if employee_no in existing_nos:
@@ -423,9 +424,8 @@ async def submit_invites(
             continue
         accepted.append(employee_no)
 
-    maximum_count = current["maximum_invited_count"]
-    maximum_mode = current["maximum_invite_mode"]
-    if accepted and maximum_count is not None and maximum_mode == "LIMIT":
+    maximum_count = current["effective_limit"]
+    if accepted and maximum_count is not None:
         capacity = int(maximum_count) - current["count"]
         if capacity <= 0:
             raise HTTPException(status_code=422, detail="INVITE_LIMIT_REACHED")
@@ -433,58 +433,17 @@ async def submit_invites(
         rejected.extend(overflow)
 
     if accepted:
-        timing = ((project.settings or {}).get("flow_settings") or {}).get("node_times") or {}
-        node_time = timing.get(evaluation_node.node_id) or (evaluation_node.config or {}).get("time") or {}
-        available_at = _parse_node_time(node_time.get("start_at"))
-        due_at = _parse_node_time(node_time.get("end_at") or node_time.get("appeal_deadline"))
+        delta = service.draft_delta(task)
         for employee_no in accepted:
-            PerformanceAuditService(db).append_event(
-                AuditEventInput(
-                    event_type="REVIEWER_360_INVITED",
-                    actor_type=actor.actor_type,
-                    actor_ref=actor.actor_ref,
-                    cycle_ref=project.cycle_ref,
-                    employee_no=target_ref,
-                    subject_type=DYNAMIC_IDENTITY_TYPE_REVIEWER_360,
-                    subject_ref=employee_no,
-                    after_state={
-                        "project_id": project.id,
-                        "node_id": evaluation_node.node_id,
-                        "source_type": "SELF" if str(actor.actor_ref) == target_ref else "MANUAL",
-                        "assigned_by_type": actor.actor_type,
-                        "assigned_by_ref": str(actor.actor_ref),
-                        "source_task_id": task.id,
-                    },
-                )
-            )
-            exists = await db.scalar(
-                select(PerformanceNodeTask.id).where(
-                    PerformanceNodeTask.project_id == project.id,
-                    PerformanceNodeTask.member_snapshot_id == member_snapshot_id,
-                    PerformanceNodeTask.node_snapshot_id == evaluation_node.id,
-                    PerformanceNodeTask.target_employee_no == target_ref,
-                    PerformanceNodeTask.handler_ref == employee_no,
-                    PerformanceNodeTask.task_kind == "evaluation",
-                    PerformanceNodeTask.revoked_at.is_(None),
-                )
-            )
-            if exists is None:
-                db.add(
-                    PerformanceNodeTask(
-                        project_id=project.id,
-                        cycle_ref=project.cycle_ref,
-                        member_snapshot_id=member_snapshot_id,
-                        node_snapshot_id=evaluation_node.id,
-                        target_employee_no=target_ref,
-                        handler_ref=employee_no,
-                        task_kind="evaluation",
-                        phase_id="",
-                        available_at=available_at,
-                        due_at=due_at,
-                        status="pending",
-                        source_type="INVITE",
-                    )
-                )
+            if employee_no in delta["remove"]:
+                delta["remove"].remove(employee_no)
+            else:
+                delta["add"][employee_no] = {
+                    "source_type": "SELF" if str(actor.actor_ref) == target_ref else "MANUAL",
+                    "assigned_by_ref": str(actor.actor_ref),
+                    "invited_at": datetime.now(UTC).isoformat(),
+                }
+        service.set_draft_delta(task, delta)
         await db.commit()
     current = await service.roster(db, task, source_node, project, editable=True, actor_ref=actor.actor_ref)
     return InviteSubmitOut(
@@ -510,6 +469,19 @@ async def revoke_invite(
     task, node, project, actor, _snapshot, _target, _editable = await service.task_context(db, context, project_id, source_task_id, write=True)
     current = await service.roster(db, task, node, project, editable=True, actor_ref=actor.actor_ref)
     service.require_version(reviewer_360_version, current["version"])
-    if not any(item["employee_no"] == employee_no for item in current["items"]):
+    item = next((item for item in current["items"] if item["employee_no"] == employee_no), None)
+    if item is None:
         raise HTTPException(404, "INVITE_NOT_FOUND")
-    raise HTTPException(403, "REVIEWER_360_REVOKE_NOT_ENABLED")
+    if not item["can_revoke"]:
+        if not item["is_draft"] and item["source_type"] != "DEFAULT" and item["status"] == "completed":
+            raise HTTPException(409, "INVITE_ALREADY_COMPLETED")
+        raise HTTPException(403, "REVIEWER_360_REVOKE_NOT_ENABLED")
+    delta = service.draft_delta(task)
+    if item["is_draft"]:
+        delta["add"].pop(employee_no, None)
+    else:
+        delta["remove"].append(employee_no)
+    service.set_draft_delta(task, delta)
+    await db.commit()
+    current = await service.roster(db, task, node, project, editable=True, actor_ref=actor.actor_ref)
+    return {"reviewer_360": current, "version": current["version"]}

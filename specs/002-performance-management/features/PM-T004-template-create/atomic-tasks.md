@@ -1,5 +1,21 @@
 # PM-T004 原子任务
 
+- [ ] PM-T004-T05-F41-V2 360°邀请草稿、配置消费与运行交互闭环（2026-11-20）
+  - Goal/确认：用户要求完成本轮REA评估全部优化，明确选择“草稿可删，生效后受控”。前置F41统一任务入口已落地，承接CR-005-T05生命周期与删除开关子项；不据此勾选匿名/推荐等整卡。
+  - Reading：Spec002基线、CR-005最新优化契约、F41原交互及本UI文档V2、Spec012 START/spec相关/UI护栏/N00/N11、execution-contract/acceptance-evidence/migration-coordination。
+  - Allowed：后端reviewer_360_task_service/review_360_invites_router/project_service/projects_router的360范围、周期models/cycles_router/cycle_service、新单头迁移0318及既有projects/cycles测试；前端InvitePanel/InviteBody、performance API对应DTO、周期CycleManagement及现有同名测试、必要Review/SelfSummaryTask挂钩、现有tokens；本任务/ui-interaction/CR-005。每文件唯一写入者，API360与周期段串行合并。
+  - Forbidden：生产操作、真实消息/通知、commit/push、旧迁移、冻结快照修改、物理删除历史评价、新脚本/调研报告/测试文档、匿名或推荐算法扩展。
+  - Contract：原URL/source_task_id/版本合同不变，增删保存来源任务draft_answers.__reviewer_360增量，表单答案不注入或覆盖名单草稿；正式提交同事务锁/校验/合并/派发/撤销。新DTO is_draft/inviter_ref/effective_limit/invite_disabled_reason/候选relationship，旧数据默认只读安全回退。主/二次硬上限取min，最少人数仍建议，自愿不占额度，其他执行人限制来自冻结事实。
+  - Policy：默认不可删除；本人自己的非默认未提交私有草稿可移除；已生效撤销须周期allow_delete_360开关、确认节点真实上级、节点时窗、未提交评价同时成立，保留草稿历史与审计。开关默认false，旧项目任务不重建。
+  - UI：既有工作区局部修复，无新信息架构；沿REA固定四邀请来源组、真实关系、空组暂无人员、20px头像/浅蓝可删标签与×、真实搜索/上限禁用/共享确认弹窗。周期原评估设置原位加单开关。交互V2见ui-interaction；独立实现PNG为PM-T004-T05-F41-invite-runtime-v2-20261120.png和PM-T004-T05-F41-cycle-delete-policy-20261120.png。
+  - Given/When/Then：在合法任务/冻结人员/配置下搜索选人、删草稿、重开应保持草稿且不创建评价；正式提交才生效。达二次LIMIT搜索禁用和弹窗，SUGGESTED可继续；默认/提交评价/无周期授权不可撤销；跨人/跨任务/过期/前置未完成/旧version拒绝且无副作用。多确认处理人增量互不覆盖。
+  - Validation：扩展既有pytest projects/cycles与Vitest InvitePanel/Renderer/Review/SelfSummaryTask/CycleManagement、vue-tsc/Vite、diff；新迁移heads/upgrade-downgrade SQL与实际数据库分别记录，真实Vue隔离API UI截图不等同数据库验收。
+  - Backend evidence：既有`.venv`、PYTHONPATH=backend、DB_HOST=127.0.0.1/DB_PORT=1，`pytest tests/test_performance_projects.py -q --tb=line`由后端代理最终执行983 passed/5 skipped；主线程`pytest tests/test_performance_cycles.py -q --tb=line`74 passed/1 skipped。保留python_multipart弃用警告，均为既有fake-session/数据流测试，不等同真实数据库。覆盖草稿增删/提交/来源/自愿任务复用与撤销恢复/历史/失效时窗；周期开关默认false、PATCH遗漏保留、开关前后审计读回通过。
+  - Frontend evidence：前端代理六文件467 passed（InvitePanel31、SelfSummary150、Review144、Drawer73、Renderer36、PreviewStep33），主线程CycleManagement52 passed；周期新用例补齐年份并修复选取旧浮层的测试辅助选择器，原创建/失败/时间转换回归均过。主线程`npm --prefix hr-portal/frontend run build`vue-tsc+Vite通过（3786 modules，保留VueUse PURE注释警告）；最终局部搜索容器CSS后InvitePanel31/31复验，diff-check通过，仅换行转换提示。
+  - UI evidence：Vite5181、实际Vue组件+隔离内存API/合成人员，1280×900验证4→5额度、7→8总人数、上限禁用及单按钮弹窗、移除草稿后恢复搜索、四邀请来源分类；390px无横向溢出，pageerror=0。最终截图重采并查看`../../ui-blueprints/PM-T004-T05-F41-invite-runtime-v2-20261120.png`，搜索/主体均712px、分类首列不换行、20px成员头像与胶囊。实际CycleManagement+受控API/内存路由验证默认关闭和可开启，截图`../../ui-blueprints/PM-T004-T05-F41-cycle-delete-policy-20261120.png`已查看，pageerror=0。非真实登录/API/DB端到端验收。
+  - Migration/DoD：0318_pm_cycle_360_delete_policy→0317_performance_bu_snapshot，Alembic单头与upgrade/downgrade --sql通过，新布尔列NOT NULL DEFAULT false；本机Docker daemon不可用且无本地PG监听，实际数据库upgrade/downgrade/重升、新连接回读、双事务并发未执行，6个skip不记通过。代码/本地回归/构建/受控UI完成，完整验收保持未勾选；无生产操作、通知或commit/push。
+
+
 - [ ] PM-T004-T05-F41 360°邀请与确认接入统一任务框架（2026-11-19）
   - Goal/确认：用户要求邀请未正式提交时使用共享空态（默认邀请不算本人操作）；确认未开始使用共享图标，开始后复用沟通人员表六列，未完成进入模板填写、已完成进入共享侧栏；用户明确选择名单调整与正式提交分离。
   - Reading/复用：Spec002基线、CR-005-T05、CR-008工作区、CR-010沟通表与侧栏、F12共享配置预览；Spec012 UI护栏及execution-contract/acceptance-evidence。原路由、工作区和组件接入，无新页面或视觉体系。

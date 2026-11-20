@@ -1961,7 +1961,8 @@ describe('PerformanceReview', () => {
     expect(wrapper.get('.member-avatar').text()).toBe('甲')
     expect(wrapper.get('.member-name').text()).toBe('测试员工甲')
     if (entry === 'invite') {
-      expect(wrapper.find('button[aria-label="撤销邀请"]').exists()).toBe(true)
+      expect(wrapper.find('button[aria-label="撤销邀请"]').exists()).toBe(false)
+      expect(wrapper.find('.invite-panel__remove').exists()).toBe(false)
     } else {
       wrapper.findComponent({ name: 'PerformanceManagementTable' }).vm.$emit('row-click', person)
       await flushPromises()

@@ -1033,6 +1033,10 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         "node_type": getattr(node, "node_type", task.task_kind), **((node.config or {}).get("template") or {}),
     }) in MANAGER_ROLE_CODES
     if reviewer_task:
+        from app.performance.reviewer_360_task_service import previous_ready
+        if not await previous_ready(db, task, node):
+            editable, submit_allowed = False, False
+    if reviewer_task:
         schema = build_self_summary_schema(await _self_summary_template(task, node, db), include_prompts=True, filling=editable and submit_allowed and (task.submitted_at is None or view == "edit"))
         answers = project_self_summary_answers(schema, task.answers or {})
     else:
@@ -8310,7 +8314,7 @@ async def add_project_reviewee(
         # 新加入成员同样为其直属下属生成邀请任务
         if node.node_type == "evaluation" and node_role_code(raw_node) == ROLE_REVIEWER_360:
             invite = (((flow_settings.get("node_settings") or {}).get(node.node_id) or {}).get("invite") or {})
-            if invite.get("default_invite", "DIRECT_SUBORDINATES") == "DIRECT_SUBORDINATES":
+            if invite.get("default_invite", "DIRECT_SUBORDINATES") == "DIRECT_SUBORDINATES" and not (project.settings or {}).get("reviewer_360_default_on_submit"):
                 available_at = _parse_time(timing.get("start_at"))
                 due_at = _parse_time(timing.get("end_at") or timing.get("appeal_deadline"))
                 for reviewer in people:

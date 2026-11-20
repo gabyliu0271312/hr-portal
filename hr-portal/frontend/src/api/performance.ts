@@ -379,6 +379,8 @@ export interface PerformanceReview360InvitedReviewer {
   status: 'invited' | 'pending' | 'completed'
   source_label: string
   source_type?: string
+  is_draft?: boolean
+  inviter_ref?: string | null
   relationship?: string | null
   can_revoke?: boolean
   revoke_disabled_reason?: string | null
@@ -395,6 +397,8 @@ export interface PerformanceReview360InviteList {
   count?: number
   manual_count?: number
   can_invite?: boolean
+  effective_limit?: number | null
+  invite_disabled_reason?: string | null
   editable?: boolean
   items: PerformanceReview360InvitedReviewer[]
   total: number
@@ -410,6 +414,7 @@ export interface PerformanceReview360InviteList {
 export interface PerformanceReview360InviteCandidate {
   employee_no: string
   display_name: string
+  relationship?: string | null
   department: string | null
   job_family: string | null
   job_category: string | null
@@ -2691,6 +2696,7 @@ export interface PerformanceCycle {
   leaver_start_date: string | null
   leaver_end_date: string | null
   leaver_participation_mode: PerformanceCycleLeaverMode
+  allow_delete_360?: boolean
   overdue_submission_enabled: boolean
   overdue_submission_scope: 'EVALUATION' | 'ALL'
   status: 'DRAFT' | 'active' | 'inactive' | 'LOCKED'

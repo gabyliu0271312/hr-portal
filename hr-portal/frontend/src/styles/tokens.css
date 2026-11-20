@@ -285,6 +285,9 @@
   --performance-member-pill-padding-right: var(--spacing-2);
   --performance-member-pill-background: rgba(31, 35, 41, 0.1);
   --performance-member-pill-color: var(--color-text-tertiary);
+  --performance-invite-tag-background: var(--performance-member-pill-background);
+  --performance-invite-tag-editable-background: rgba(51, 112, 255, 0.12);
+  --performance-invite-group-width: 108px;
   --performance-member-status-height: 20px;
   --performance-member-status-font-size: var(--font-size-xs);
   --performance-member-status-line-height: 20px;
