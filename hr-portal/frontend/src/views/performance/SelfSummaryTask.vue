@@ -19,7 +19,7 @@
             <span v-if="!task.reference_tabs?.length">参考内容</span>
           </nav>
           <div class="reference-scroll">
-            <PerformanceReferenceContent v-if="isSplit && selectedReference" class="task-reference-content" show-title :reference="selectedReference" @remind="openReminder" />
+            <PerformanceReferenceContent v-if="isSplit && selectedReference" class="task-reference-content" show-title :reference="selectedReference" @fill="fillReference" @remind="openReminder" />
             <section v-else class="state">暂无参考内容</section>
           </div>
         </template>
@@ -48,7 +48,7 @@
               </PerformanceTemplateRenderer>
             </div>
           </div>
-          <PerformanceReferenceContent v-if="!isSplit && activeReference" class="task-reference-content" show-title :reference="activeReference" @remind="openReminder" />
+          <PerformanceReferenceContent v-if="!isSplit && activeReference" class="task-reference-content" show-title :reference="activeReference" @fill="fillReference" @remind="openReminder" />
         </template>
         <template #footer><PerformanceSelfSummaryFooter v-if="!loading && !loadError && !viewing && !draftPending && !reconsiderationClosed && !task.final_result_locked" v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !task.final_result_locked && !loading && !reviewer360Busy && !reviewer360Conflict" :editable="canEdit" :can-giveup="canGiveup && !submitting" :message="saveMessage" @submit="submit()" @cancel="closeTask" @giveup="giveupConfirmOpen = true" /></template>
       </PerformanceSplitWorkspace>
@@ -86,6 +86,7 @@ import PerformanceTemplateRenderer from '@/components/performance/PerformanceTem
 import PerformanceReconsiderationContent from '@/components/performance/PerformanceReconsiderationContent.vue'
 import PerformancePromptNotice, { promptDefinitions } from '@/components/performance/PerformancePromptNotice.vue'
 import { supportsReminderSourceTask } from '@/components/performance/performanceReminder'
+import { performanceTaskEntryRoute } from '@/components/performance/performanceTaskEntry'
 import { performanceTemplateFieldErrorKey, performanceTemplateFieldValue, performanceTemplateInstanceCount, performanceTemplateInitialAnswers, performanceTemplateInstanceUnknown, performanceTemplateWritableAnswers } from '@/components/performance/performanceTemplateAnswers'
 
 const props = withDefaults(defineProps<{ taskKind?: 'work_summary' | 'evaluation' | 'reviewer_360_invite' | 'reviewer_360_confirm'; embedded?: boolean; taskId?: string | number; employeeNo?: string; projectId?: number; cycleId?: number; draftChoice?: 'use' | 'discard' }>(), { taskKind: 'work_summary', embedded: false })
@@ -429,6 +430,26 @@ function saveDraft() {
     }
   })()
   return saveChain
+}
+
+let openingReference = false
+async function fillReference(reference: PerformanceReferenceTab) {
+  if (openingReference || submitting.value || reviewer360Busy.value || !reference.can_fill || !reference.task_id || !reference.task_kind || !reference.employee_no || reference.final_result_locked || ['completed', 'not_started'].includes(reference.status)) return
+  const projectId = reference.project_id || task.value.project_id || contextProjectId.value
+  const target = performanceTaskEntryRoute({ ...reference, task_id: reference.task_id, task_kind: reference.task_kind, node_type: reference.task_kind, entry_mode: 'template_task', executor_label: '', start_at: null, end_at: reference.deadline_at || null, action_url: '' }, projectId, reference.employee_no)
+  if (!target) return
+  const epoch = taskEpoch
+  openingReference = true
+  window.clearTimeout(saveTimer)
+  try {
+    await saveDraft()
+    if (disposed || epoch !== taskEpoch || sharedResultConflict.value || reviewer360Conflict.value) return
+    const query = new URLSearchParams(target.split('?')[1])
+    if (contextCycleId.value) query.set('cycle_id', String(contextCycleId.value))
+    if (reference.phase_id) query.set('phase_id', reference.phase_id)
+    await router.push(`${target.split('?')[0]}?${query}`)
+  } catch (error) { if (!disposed && epoch === taskEpoch) saveMessage.value = errorMessage(error, '草稿保存失败，当前输入已保留，请重试') }
+  finally { openingReference = false }
 }
 
 function openReminder(reference: PerformanceReferenceTab) {

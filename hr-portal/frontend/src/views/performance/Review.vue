@@ -530,7 +530,7 @@ function openDrawerReminder(reference: PerformanceReferenceTab, sourceTaskId?: n
   const member = drawerMember.value
   openMemberReminder({ projectId: Number(activeProjectId.value), cycleId: projectContext.activeCycleId || undefined, employeeNo: reference.employee_no || member?.member.employee_no || '', displayName: member?.member.display_name, sourceTaskId: sourceTaskId || (member && supportsReminderSourceTask(member.node.task_kind || member.node.node_type) ? member.task_id : undefined), nodeId: reference.node_id, targetKind: reference.kind === 'reviewer_360' ? 'reviewer_360' : undefined, taskId: reference.kind === 'reviewer_360' ? undefined : reference.task_id || undefined })
 }
-async function editDrawerTask(payload: { task_id: string | number; employee_no: string; draft_choice?: 'use' | 'discard'; task_kind?: string; node_id?: string }) {
+async function editDrawerTask(payload: { task_id: string | number; employee_no: string; draft_choice?: 'use' | 'discard'; task_kind?: string; node_id?: string; phase_id?: string | null; project_id?: number }) {
   const current = drawerMember.value
   projectContext.invalidateDrawerDetails()
   drawerMember.value = null
@@ -541,6 +541,7 @@ async function editDrawerTask(payload: { task_id: string | number; employee_no: 
   let taskRoute = performanceTaskEntryRoute({ ...node, task_kind: payload.task_kind || node.task_kind, entry_mode: 'template_task', task_id: Number(payload.task_id), draft_choice: payload.draft_choice }, activeProjectId.value, payload.employee_no)
   if (!taskRoute) return
   if ((payload.task_kind || node.task_kind) === 'result_reconsideration' && projectContext.activeCycleId) taskRoute += `&cycle_id=${projectContext.activeCycleId}`
+  if (payload.phase_id) taskRoute += `&phase_id=${encodeURIComponent(payload.phase_id)}`
   await router.replace({ query: { ...clearDrawerQuery(), project_id: String(activeProjectId.value || ''), node: node.node_id, task_id: String(payload.task_id), employee_no: payload.employee_no } })
   await router.push(taskRoute)
 }

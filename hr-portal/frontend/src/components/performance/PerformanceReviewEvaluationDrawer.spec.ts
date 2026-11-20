@@ -38,6 +38,32 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue(structuredClone(task))
   })
 
+  it.each([true, false])('renders reference task actions from server capability and forwards the real target with can_fill=%s', async allowed => {
+    const reference: PerformanceReferenceTab = { key: 'reference-work', node_id: 'work', node_name: '工作总结', task_id: 77, task_kind: 'work_summary', project_id: 3, phase_id: 'phase-a', employee_no: 'E001', status: 'pending', form_schema: [], answers: {}, can_fill: allowed, can_remind: true }
+    const detailLoader = vi.fn().mockResolvedValue({ ...structuredClone(task), reference_tabs: [reference] })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, activeTab: reference.key, detailLoader } })
+    await flushPromises()
+    const content = wrapper.getComponent(PerformanceReferenceContent)
+    if (allowed) {
+      const button = content.findAll('button').find(item => item.text() === '去完成')!
+      expect(button).toBeDefined()
+      expect(content.findComponent(PerformanceReminderButton).exists()).toBe(false)
+      await button.trigger('click')
+      expect(wrapper.emitted('edit')).toEqual([[{ task_id: 77, task_kind: 'work_summary', node_id: 'work', employee_no: 'E001', project_id: 3, phase_id: 'phase-a' }]])
+    } else {
+      expect(content.text()).not.toContain('去完成')
+      content.getComponent(PerformanceReminderButton).vm.$emit('click')
+      expect(wrapper.emitted('remind')).toEqual([[expect.objectContaining({ task_id: 77, employee_no: 'E001' }), 145]])
+    }
+  })
+
+  it.each(['not_started', 'completed', 'locked', 'missing'])('hides invalid reference fill and reminder actions for %s', condition => {
+    const reference: PerformanceReferenceTab = { key: 'work', node_id: 'work', node_name: '工作总结', task_id: condition === 'missing' ? null : 77, task_kind: 'work_summary', employee_no: 'E001', status: condition === 'not_started' || condition === 'completed' ? condition : 'pending', final_result_locked: condition === 'locked', can_fill: true, can_remind: condition !== 'missing', form_schema: [], answers: {} }
+    const wrapper = mount(PerformanceReferenceContent, { props: { reference } })
+    expect(wrapper.text()).not.toContain('去完成')
+    expect(wrapper.findComponent(PerformanceReminderButton).exists()).toBe(false)
+  })
+
   it.each([false, true])('isolates member management from readonly results with allowed=%s', async allowed => {
     const member = { project_id: 1, employee_no: 'E001', display_name: '成员' }
     const detailLoader = vi.fn().mockResolvedValue({ ...structuredClone(task), member_actions: { can_remove: allowed, task_map: [] } })

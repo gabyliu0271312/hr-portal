@@ -549,7 +549,11 @@ describe('PerformanceTemplatePreviewStep', () => {
     expect(wrapper.text()).toContain('搜索成员')
     expect(wrapper.text()).toContain('按关系')
     expect(wrapper.text()).toContain('已邀请列表：当前共 0 人')
-    expect(wrapper.findAll('.ptp-invite-row')).toHaveLength(4)
+    expect(wrapper.findAll('.reviewer-360-content__table tr')).toHaveLength(4)
+    expect(wrapper.findComponent({ name: 'PerformanceReviewer360InviteBody' }).exists()).toBe(true)
+    expect(wrapper.findAll('.reviewer-360-content__table tr').map(row => row.findAll('td').map(cell => cell.text()))).toEqual([
+      ['相同上级同事', ''], ['不同上级同事', ''], ['虚线上级', ''], ['直属下级', ''],
+    ])
   })
 
   it('renders built-in OKR for work_summary stage even without reference config (固有展示)', async () => {

@@ -577,6 +577,28 @@ async def _reviewer_360_reference(project, snapshot_id, employee_no, node, tasks
     return payload
 
 
+async def _reference_task_can_fill(task, node, project, context, db):
+    if (context is None or getattr(task, "revoked_at", None) is not None
+            or task.status != "pending" or _task_completed(task) or _calibration_completed(task)):
+        return False
+    overdue_allowed = False if task.task_kind in {"calibration", "result_reconsideration", "reviewer_360_invite", "reviewer_360_confirm"} else await _overdue_submission_allowed(task, node, db)
+    editable, submit_allowed = _self_summary_state(task, *_task_window(task, node, project), overdue_allowed)
+    if not editable or not submit_allowed or await _final_result_locked(task, node, db):
+        return False
+    try:
+        await _self_summary_task(task.id, context, db, task.task_kind)
+        actor = await resolve_trusted_performance_actor(db, context,
+            cycle_ref=None if task.task_kind == "result_reconsideration" else task.cycle_ref,
+            require_employee_identity=True)
+    except PerformanceIdentityMappingNotFound:
+        return False
+    except HTTPException as exc:
+        if exc.status_code in {403, 404, 422}:
+            return False
+        raise
+    return actor.actor_type == "EMPLOYEE" and await _task_edit_allowed(db, task, actor.actor_ref)
+
+
 async def _node_reference_tabs(
     task: PerformanceNodeTask,
     node: PerformanceProjectNodeSnapshot,
@@ -609,13 +631,19 @@ async def _node_reference_tabs(
             select(PerformanceNodeTask)
             .where(
                 PerformanceNodeTask.project_id == project.id,
+                PerformanceNodeTask.cycle_ref == project.cycle_ref,
                 PerformanceNodeTask.member_snapshot_id == task.member_snapshot_id,
                 PerformanceNodeTask.node_snapshot_id == reference_node.id,
                 PerformanceNodeTask.target_employee_no == task.target_employee_no,
+                PerformanceNodeTask.task_kind == reference_node.node_type,
                 PerformanceNodeTask.revoked_at.is_(None),
             )
             .order_by(PerformanceNodeTask.id)
         )).scalars().all()
+        source_task = [item for item in source_task if item.project_id == project.id
+                       and item.cycle_ref == project.cycle_ref and item.member_snapshot_id == task.member_snapshot_id
+                       and item.node_snapshot_id == reference_node.id and item.target_employee_no == task.target_employee_no
+                       and item.task_kind == reference_node.node_type and getattr(item, "revoked_at", None) is None]
         source = next((item for item in source_task if _task_completed(item)), None) or (source_task[0] if source_task else None)
         status = _reference_status(source, reference_node, project)
         completed = status == "completed"
@@ -632,16 +660,33 @@ async def _node_reference_tabs(
             result.append({
                 "key": f"reference-{reference_node.node_id}", "node_id": reference_node.node_id,
                 "node_name": (relation.get("reference_settings") or {}).get("page_name") or reference_node.name,
-                "task_id": None, "employee_no": task.target_employee_no, "status": status,
-                "submitted_at": None, "form_schema": [], "answers": {},
-                "can_remind": bool(context is not None and await can_remind_member(
+                "task_id": None, "task_kind": None, "project_id": project.id, "phase_id": None,
+                "employee_no": task.target_employee_no, "status": status,
+                "submitted_at": None, "form_schema": [], "answers": {}, "can_fill": False,
+                "can_remind": bool(source_task and context is not None and await can_remind_member(
                     project, task.target_employee_no, context, db, source_task_id=task.id,
                     node_id=reference_node.node_id, target_kind="reviewer_360")),
                 "content_loaded": content_loaded,
                 **feedback,
             })
             continue
-        final_locked = content_loaded and source is not None and await _final_result_locked(source, reference_node, db)
+        can_fill, can_remind = False, False
+        for candidate in source_task:
+            if await _reference_task_can_fill(candidate, reference_node, project, context, db):
+                source, can_fill = candidate, True
+                break
+        if not can_fill and context is not None:
+            for candidate in source_task:
+                if (_task_completed(candidate) or _calibration_completed(candidate)
+                        or await _final_result_locked(candidate, reference_node, db)):
+                    continue
+                if await can_remind_member(project, candidate.target_employee_no, context, db,
+                        source_task_id=task.id, node_id=reference_node.node_id, task_id=candidate.id):
+                    source, can_remind = candidate, True
+                    break
+        status = _reference_status(source, reference_node, project)
+        completed = status == "completed"
+        final_locked = source is not None and await _final_result_locked(source, reference_node, db)
         if content_loaded and source is not None and (completed or final_locked):
             _, visible_answers = await _task_visible_content(source, reference_node, db)
             source_template = await _self_summary_template(source, reference_node, db)
@@ -661,18 +706,18 @@ async def _node_reference_tabs(
             "node_id": reference_node.node_id,
             "node_name": reference_page_name or reference_node.name,
             "task_id": source.id if source is not None else None,
-            "employee_no": task.target_employee_no,
+            "task_kind": source.task_kind if source is not None else None,
+            "project_id": source.project_id if source is not None else project.id,
+            "phase_id": getattr(source, "phase_id", None),
+            "employee_no": source.target_employee_no if source is not None else task.target_employee_no,
             "status": status,
             "submitted_at": source.submitted_at if completed and source is not None else None,
             "final_result_locked": final_locked,
             "form_schema": schema,
             "answers": visible_answers,
             "content_loaded": content_loaded,
-            "can_remind": bool(
-                source is not None and not completed and context is not None
-                and await can_remind_member(project, task.target_employee_no, context, db,
-                    source_task_id=task.id, node_id=reference_node.node_id, task_id=source.id)
-            ),
+            "can_fill": can_fill,
+            "can_remind": can_remind,
         })
     return result
 

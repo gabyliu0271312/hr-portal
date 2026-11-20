@@ -553,6 +553,25 @@ describe('SelfSummaryTask', () => {
     vi.spyOn(performanceReviewApi, 'submitSelfSummary').mockResolvedValue({ answers: {}, version: 3, submitted_at: '2026-09-11T00:00:00Z', editable: true, submit_allowed: true })
   })
 
+  it.each([false, true])('saves current input before opening an authorized reference task, failure=%s', async failure => {
+    const reference = { key: 'reference-target', node_id: 'target-evaluation', node_name: '后续评估', project_id: 3, task_id: 77, task_kind: 'evaluation', phase_id: 'phase-a', employee_no: 'E001', status: 'pending', can_fill: true, can_remind: false, form_schema: [], answers: {} }
+    vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue({ ...structuredClone(task), reference_tabs: [reference] })
+    const save = vi.mocked(performanceReviewApi.saveSelfSummaryDraft)
+    if (failure) save.mockRejectedValue(new Error('offline'))
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    wrapper.getComponent(PerformanceTemplateRenderer).vm.$emit('update-answer', 'text', '跳转前保留的输入')
+    const tab = wrapper.findAll('.split-single-tabs .summary-tabs button').find(button => button.text() === '后续评估')
+    await tab.trigger('click')
+    await wrapper.getComponent(PerformanceReferenceContent).findAll('button').find(button => button.text() === '去完成').trigger('click')
+    await flushPromises()
+    expect(save).toHaveBeenCalled()
+    if (failure) {
+      expect(push).not.toHaveBeenCalled()
+      expect(wrapper.getComponent(PerformanceTemplateRenderer).props('answers').text).toBe('跳转前保留的输入')
+    } else expect(push).toHaveBeenCalledWith('/performance/review/template-task?task_id=77&project_id=3&node=target-evaluation&employee_no=E001&phase_id=phase-a')
+  })
+
   it('keeps the restored draft revision during autosave and retains input on a shared-result conflict', async () => {
     vi.useFakeTimers()
     const loaded = { ...structuredClone(task), task_kind: 'calibration', result_version: 9, draft_base_result_version: 4, has_draft: true, draft_answers: { text: '私人草稿' }, form_schema: [{ id: 's', name: '校准', fields: [{ id: 'text', type: 'rich_text', label: '结果' }] }] }

@@ -18,6 +18,7 @@ import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 import PerformanceReferenceSkeleton from './PerformanceReferenceSkeleton.vue'
 import PerformanceOkrPanel from './PerformanceOkrPanel.vue'
 import PerformanceReviewer360Preview from './PerformanceReviewer360Preview.vue'
+import PerformanceReviewer360InviteBody from './PerformanceReviewer360InviteBody.vue'
 import PerformanceResultReviewer360Block from './PerformanceResultReviewer360Block.vue'
 import PerformanceReconsiderationContent from './PerformanceReconsiderationContent.vue'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
@@ -56,7 +57,7 @@ async function load() {
 const selectedNode = computed(() => nodes.value.find(node => node.node_id === selectedId.value) || null)
 const isResultView = computed(() => selectedNode.value?.node_type === 'result_view')
 const isCalibration = computed(() => selectedNode.value?.node_type === 'calibration')
-const isInvite = computed(() => selectedNode.value?.node_type === 'reviewer_360_invite')
+const isInvite = computed(() => ['reviewer_360_invite', 'reviewer_360_confirm'].includes(selectedNode.value?.node_type || ''))
 const isResultReconsideration = computed(() => selectedNode.value?.node_type === 'result_reconsideration')
 /** REA 复议 final：显示绩效结果并允许修改（模板节点级配置，取消后右栏绩效结果内容链隐藏只剩复议理由） */
 const showResultAndModify = computed(() => selectedNode.value?.show_result_and_modify !== false)
@@ -396,20 +397,7 @@ function contentDescription(content: PerformanceTemplateContent) {
                 <!-- 360°邀请环节：邀请表单（REA 实测：标题 58 / 引导 21 / 说明 2 行 / 搜索 32 / 单选 32 / 表格 52×4） -->
                 <template v-if="isInvite">
                   <div class="ptp-page-title">{{ rightTitle }}</div>
-                  <div class="ptp-invite-lead">通过「搜索」添加 360° 评估人</div>
-                  <div class="ptp-invite-desc">已邀请 0 人，除系统默认邀请外，仍需邀请至少 5 人。上级和 HRBP 也可以给员工邀请 360° 评估人。</div>
-                  <div class="ptp-search"><span class="ptp-search__placeholder">搜索成员</span></div>
-                  <div class="ptp-invite-count">已邀请列表：当前共 0 人</div>
-                  <div class="ptp-invite-tabs">
-                    <span class="ptp-invite-tab ptp-invite-tab--active">按关系</span>
-                    <span class="ptp-invite-tab">按邀请人</span>
-                  </div>
-                  <div class="ptp-invite-table">
-                    <div v-for="relation in ['相同上级同事', '不同上级同事', '虚线上级', '直属下级']" :key="relation" class="ptp-invite-row">
-                      <span class="ptp-invite-row__label">{{ relation }}</span>
-                      <span class="ptp-invite-row__cell"></span>
-                    </div>
-                  </div>
+                  <PerformanceReviewer360InviteBody />
                 </template>
 
                 <template v-else-if="isResultView">
@@ -417,7 +405,7 @@ function contentDescription(content: PerformanceTemplateContent) {
                     <div v-if="region.group?.isReviewer360" class="ptp-result-360">
                       <PerformanceResultReviewer360Block
                         :title="region.label"
-                        :contents="[{ task_id: -1, form_schema: region.blocks.flatMap(block => block.sections), answers: {}, reviewer: { employee_no: 'preview', display_name: '评估人' } }]"
+                        :contents="[{ task_id: -1, form_schema: region.blocks.flatMap(block => block.sections), answers: Object.fromEntries(region.blocks.flatMap(block => block.sections.flatMap(section => section.fields.map(field => [field.id, field.previewValue])))), reviewer: { employee_no: 'preview', display_name: '评估人' } }]"
                       />
                     </div>
                     <template v-else>
@@ -680,20 +668,4 @@ function contentDescription(content: PerformanceTemplateContent) {
 .ptp-empty__image { display: block; width: 120px; height: 120px; }
 .ptp-empty__desc { margin-top: 16px; font-size: 14px; line-height: 22px; color: #646a73; text-align: center; }
 
-/* ---------- 360° 邀请：按 REA 实测（引导 21 / 说明 21×2 / 搜索 32 / 单选 32 / 表格 52×4） ---------- */
-.ptp-invite-lead { margin-top: 16px; font-size: 14px; font-weight: 600; line-height: 21px; color: #1f2329; }
-.ptp-invite-desc { font-size: 14px; line-height: 21px; color: #646a73; }
-.ptp-search { margin-top: 8px; height: 32px; padding: 0 12px; box-sizing: border-box; border: 1px solid #d0d3d4; border-radius: 6px; display: flex; align-items: center; }
-.ptp-search__placeholder { font-size: 14px; line-height: 21px; color: #8f959e; }
-.ptp-invite-count { margin-top: 20px; font-size: 14px; font-weight: 600; line-height: 21px; color: #1f2329; }
-.ptp-invite-tabs { display: flex; margin-top: 8px; }
-.ptp-invite-tab { height: 32px; padding: 0 16px; box-sizing: border-box; border: 1px solid #d0d3d4; background: #fff; display: inline-flex; align-items: center; font-size: 14px; line-height: 22px; font-weight: 400; color: #1f2329; }
-.ptp-invite-tab:first-child { border-radius: 6px 0 0 6px; }
-.ptp-invite-tab:last-child { border-radius: 0 6px 6px 0; border-left: 0; }
-.ptp-invite-tab--active { font-weight: 500; color: #1456f0; }
-.ptp-invite-table { margin-top: 12px; border: 1px solid #d0d3d4; border-radius: 6px; overflow: hidden; }
-.ptp-invite-row { display: flex; height: 52px; box-sizing: border-box; align-items: stretch; }
-.ptp-invite-row + .ptp-invite-row { box-shadow: inset 0 1px 0 #eff0f1; }
-.ptp-invite-row__label { width: 109px; flex: none; padding: 0 12px; box-sizing: border-box; background: #f5f6f7; display: flex; align-items: center; font-size: 14px; line-height: 21px; color: #646a73; }
-.ptp-invite-row__cell { flex: 1; min-width: 0; }
 </style>

@@ -25,13 +25,14 @@
       <img v-if="reference.status === 'not_started'" src="/performance-not-started.svg" alt="" width="120" height="121">
       <img v-else src="/performance-no-submit.svg" alt="" width="120" height="120">
       <p>{{ reference.status === 'completed' ? '暂无可查看内容' : '暂未提交' }}</p>
-      <PerformanceReminderButton v-if="reference.can_remind" @click="$emit('remind', reference)" />
+      <UiButton v-if="canFill" variant="primary" @click="emit('fill', reference)">去完成</UiButton>
+      <PerformanceReminderButton v-else-if="canRemind" @click="emit('remind', reference)" />
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { employeeSwitchEpoch } from '@/stores/identitySwitch'
 import { performanceOkrApi, type EmployeeOkrResponse, type PerformanceReferenceTab } from '@/api/performance'
 import PerformanceComparisonNotice from './PerformanceComparisonNotice.vue'
@@ -39,9 +40,12 @@ import PerformanceOkrPanel from './PerformanceOkrPanel.vue'
 import PerformanceReviewer360Preview from './PerformanceReviewer360Preview.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 import PerformanceReminderButton from './PerformanceReminderButton.vue'
+import UiButton from '../ui/UiButton.vue'
 
 const props = defineProps<{ reference: PerformanceReferenceTab; showTitle?: boolean }>()
-const emit = defineEmits<{ remind: [reference: PerformanceReferenceTab] }>()
+const emit = defineEmits<{ remind: [reference: PerformanceReferenceTab]; fill: [reference: PerformanceReferenceTab] }>()
+const canFill = computed(() => props.reference.can_fill === true && Boolean(props.reference.task_id && props.reference.task_kind) && props.reference.status !== 'not_started' && props.reference.status !== 'completed' && !props.reference.final_result_locked)
+const canRemind = computed(() => !canFill.value && props.reference.can_remind && props.reference.status !== 'not_started' && props.reference.status !== 'completed' && !props.reference.final_result_locked)
 const okr = ref(props.reference.okr || null)
 const okrs = ref(props.reference.okrs || [])
 const okrLoading = ref(false)

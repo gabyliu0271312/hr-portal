@@ -1545,6 +1545,9 @@ export type PerformanceReconsiderationDetail = {
   edit_task_id?: number | null
 }
 export type PerformanceReferenceTab = {
+  can_fill?: boolean
+  project_id?: number
+  phase_id?: string | null
   comparison?: PerformanceComparisonResult | null
   key: string
   content_loaded?: boolean

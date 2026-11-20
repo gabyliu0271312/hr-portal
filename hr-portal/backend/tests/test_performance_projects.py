@@ -2928,6 +2928,189 @@ def test_prompt_only_schema_has_no_answer_fields():
     ]}) == []
 
 
+@pytest.fixture
+def reference_task_data(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes, member_reminders
+    from app.performance.models import PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceProjectNodeSnapshot
+
+    project = SimpleNamespace(id=3, cycle_ref="C1", status="STARTED", settings={})
+    node = PerformanceProjectNodeSnapshot(id=32, project_id=3, node_id="source", node_type="work_summary", name="来源", config={"template": {}})
+    entry = PerformanceNodeTask(id=10, project_id=3, cycle_ref="C1", member_snapshot_id=21, node_snapshot_id=31,
+        target_employee_no="E1", handler_ref="ACTOR", task_kind="evaluation", status="pending")
+    def task(task_id, handler="ACTOR", **changes):
+        values = dict(id=task_id, project_id=3, cycle_ref="C1", member_snapshot_id=21, node_snapshot_id=32,
+            target_employee_no="E1", handler_ref=handler, task_kind="work_summary", status="pending", submitted_at=None,
+            available_at=None, due_at=None, revoked_at=None, phase_id="", answers={"secret": "未提交答案"}, draft_answers={"secret": "私有草稿"})
+        return PerformanceNodeTask(**{**values, **changes})
+    tasks = [task(11)]
+    grants, queries = [], []
+    class Db:
+        async def execute(self, query):
+            queries.append(query)
+            entity = query.column_descriptions[0]["entity"]
+            params = query.compile().params
+            if entity is PerformanceNodeTaskAuthorization:
+                values = [grant for grant in grants if grant.task_id == params["task_id_1"]]
+            elif entity is PerformanceProjectNodeSnapshot:
+                values = [node]
+            else:
+                assert entity is PerformanceNodeTask
+                if len(query.column_descriptions) == 2:
+                    values = [(item, node) for item in tasks if item.id == params["id_2"]]
+                else:
+                    values = tasks
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values), first=lambda: values[0] if values else None)
+    identity = AsyncMock(return_value=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ACTOR"))
+    overdue = AsyncMock(return_value=True)
+    locked = AsyncMock(return_value=False)
+    reminder = AsyncMock(return_value=False)
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", identity)
+    monkeypatch.setattr(routes, "_overdue_submission_allowed", overdue)
+    monkeypatch.setattr(routes, "_final_result_locked", locked)
+    monkeypatch.setattr(member_reminders, "can_remind_member", reminder)
+    monkeypatch.setattr(routes, "_get_project", AsyncMock(return_value=project))
+    monkeypatch.setattr(routes, "_project_data_scope", AsyncMock(return_value=None))
+    return SimpleNamespace(routes=routes, project=project, node=node, entry=entry, task=task, tasks=tasks, grants=grants,
+        db=Db(), queries=queries, identity=identity, overdue=overdue, locked=locked, reminder=reminder,
+        template={"content": [{"content_slot": "reference", "reference_kind": "node", "reference_value": "source"}]})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("permission,allowed", [("owner", True), ("delegate", True), ("readonly", False), ("transferred", False), ("other", False), ("unmapped", False), ("system", False), ("management_scope", False)])
+async def test_reference_can_fill_uses_trusted_identity_and_task_authorization(reference_task_data, permission, allowed):
+    from unittest.mock import AsyncMock
+    from app.performance.auth_context import PerformanceIdentityMappingNotFound
+    data = reference_task_data
+    task = data.tasks[0]
+    if permission in {"delegate", "readonly", "other", "transferred"}:
+        task.handler_ref = "ORIGINAL"
+    if permission in {"delegate", "readonly", "transferred"}:
+        data.grants.append(SimpleNamespace(task_id=11, status="ACTIVE", authorization_type="TRANSFER" if permission == "transferred" else "AUTHORIZE",
+            recipient_employee_no="RECIPIENT" if permission == "transferred" else "ACTOR", read_only=permission == "readonly"))
+    if permission == "transferred":
+        data.identity.return_value.actor_ref = "ORIGINAL"
+    if permission == "unmapped":
+        data.identity.side_effect = PerformanceIdentityMappingNotFound("missing")
+    if permission == "system":
+        data.identity.return_value.actor_type = "SYSTEM_ACCOUNT"
+    actor_context = context()
+    if permission == "management_scope":
+        actor_context = SimpleNamespace(management_role="activity_manager")
+        data.routes._project_data_scope = AsyncMock(return_value={"OTHER"})
+    assert await data.routes._reference_task_can_fill(task, data.node, data.project, actor_context, data.db) is allowed
+    if permission == "owner":
+        assert all(call.kwargs == {"cycle_ref": "C1", "require_employee_identity": True} for call in data.identity.await_args_list)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state,allowed", [("open", True), ("not_started", False), ("late_allowed", True), ("late_denied", False),
+    ("completed", False), ("submitted", False), ("revoked", False), ("locked", False), ("calibration_completed", False)])
+async def test_reference_can_fill_obeys_window_completion_and_final_lock(reference_task_data, state, allowed):
+    from datetime import timedelta
+    data = reference_task_data
+    task = data.tasks[0]
+    if state == "not_started": task.available_at = datetime.now(UTC) + timedelta(days=1)
+    if state.startswith("late_"):
+        task.due_at = datetime.now(UTC) - timedelta(days=1)
+        data.overdue.return_value = state == "late_allowed"
+    if state == "completed": task.status = "completed"
+    if state == "submitted": task.submitted_at = datetime.now(UTC)
+    if state == "revoked": task.revoked_at = datetime.now(UTC)
+    if state == "locked": data.locked.return_value = True
+    if state == "calibration_completed": task.calibration_completed_at = datetime.now(UTC)
+    assert await data.routes._reference_task_can_fill(task, data.node, data.project, context(), data.db) is allowed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["calibration", "result_reconsideration", "reviewer_360_invite", "reviewer_360_confirm"])
+async def test_reference_special_tasks_never_use_general_late_submission(reference_task_data, kind):
+    from datetime import timedelta
+    data = reference_task_data
+    task = data.tasks[0]
+    task.task_kind = data.node.node_type = kind
+    task.due_at = datetime.now(UTC) - timedelta(days=1)
+    assert not await data.routes._reference_task_can_fill(task, data.node, data.project, context(), data.db)
+    data.overdue.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["calibration", "result_reconsideration"])
+@pytest.mark.parametrize("valid", [False, True])
+async def test_reference_special_tasks_preserve_scope_and_withdrawal_checks(reference_task_data, monkeypatch, kind, valid):
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    from app.performance import reconsideration_service
+    data = reference_task_data
+    task = data.tasks[0]
+    task.task_kind = data.node.node_type = kind
+    task.phase_id = "phase-2"
+    if kind == "calibration":
+        monkeypatch.setattr(data.routes, "calibration_task_scope", lambda *_args: valid)
+        authorize = AsyncMock()
+        monkeypatch.setattr(data.routes, "PerformanceObjectAuthorizationService", lambda _db: SimpleNamespace(authorize=authorize))
+    else:
+        monkeypatch.setattr(reconsideration_service, "reconsideration_for_task", AsyncMock(return_value=object(), side_effect=None if valid else HTTPException(404, "TASK_NOT_FOUND")))
+    assert await data.routes._reference_task_can_fill(task, data.node, data.project, context(), data.db) is valid
+    if kind == "calibration" and valid:
+        request = authorize.await_args.args[0]
+        assert (request.employee_no, request.project_id, request.node_id, request.phase_id) == ("E1", 3, "source", "phase-2")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("selection", ["fill", "remind", "fallback", "empty"])
+async def test_reference_targets_prefer_fill_then_exact_reminder_then_display(reference_task_data, monkeypatch, selection):
+    from unittest.mock import AsyncMock
+    data = reference_task_data
+    completed = data.task(11, "OTHER", status="completed", submitted_at=datetime.now(UTC))
+    other, own = data.task(12, "OTHER"), data.task(13, phase_id="selected-phase")
+    data.tasks[:] = [] if selection == "empty" else [completed, other, own]
+    if selection != "fill": own.handler_ref = "OTHER"
+    data.reminder.side_effect = lambda *_args, **kwargs: selection == "remind" and kwargs["task_id"] == 13
+    monkeypatch.setattr(data.routes, "_task_visible_content", AsyncMock(return_value=([], {"secret": "不可见"})))
+    monkeypatch.setattr(data.routes, "_self_summary_template", AsyncMock(return_value={"content": []}))
+    monkeypatch.setattr(data.routes.comparison_service, "evaluate_task", AsyncMock(return_value=(None, None)))
+    tabs = await data.routes._node_reference_tabs(data.entry, data.node, data.project, "FORGED", data.db, data.template, ["source"], context=context())
+    tab = tabs[0]
+    expected = None if selection == "empty" else 11 if selection == "fallback" else 13
+    assert tab["task_id"] == expected
+    assert (tab["can_fill"], tab["can_remind"]) == (selection == "fill", selection == "remind")
+    assert tab["project_id"] == 3 and tab["employee_no"] == "E1"
+    assert tab["task_kind"] == ("work_summary" if expected else None)
+    assert tab["phase_id"] == ("selected-phase" if expected == 13 else "" if expected else None)
+    assert tab["answers"] == {} and tab["form_schema"] == [] and "私有草稿" not in str(tab)
+    if selection == "fill": data.reminder.assert_not_awaited()
+    for call in data.reminder.await_args_list:
+        assert call.kwargs["source_task_id"] == 10 and call.kwargs["node_id"] == "source"
+    if selection == "remind":
+        assert data.reminder.await_args.kwargs["task_id"] == tab["task_id"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field,value", [("project_id", 99), ("cycle_ref", "OTHER"), ("member_snapshot_id", 99),
+    ("target_employee_no", "OTHER"), ("node_snapshot_id", 99), ("task_kind", "evaluation"), ("revoked_at", "revoked")])
+async def test_reference_targets_reject_tasks_outside_frozen_scope(reference_task_data, field, value):
+    data = reference_task_data
+    setattr(data.tasks[0], field, value)
+    tabs = await data.routes._node_reference_tabs(data.entry, data.node, data.project, "ACTOR", data.db, data.template, ["source"], context=context())
+    assert tabs[0]["task_id"] is None and tabs[0]["can_fill"] is tabs[0]["can_remind"] is False
+    query = next(query for query in data.queries if query.column_descriptions[0]["entity"] is data.routes.PerformanceNodeTask)
+    sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+    assert all(fragment in sql for fragment in ["cycle_ref = 'C1'", "project_id = 3", "member_snapshot_id = 21", "target_employee_no = 'E1'", "node_snapshot_id = 32", "task_kind = 'work_summary'", "revoked_at IS NULL"])
+
+
+@pytest.mark.asyncio
+async def test_reference_final_lock_applies_before_lazy_content_load(reference_task_data):
+    data = reference_task_data
+    data.locked.return_value = True
+    tabs = await data.routes._node_reference_tabs(data.entry, data.node, data.project, "ACTOR", data.db, data.template, ["source"], context=context(), view="drawer", tab="other")
+    tab = tabs[0]
+    assert tab["final_result_locked"] is True and tab["content_loaded"] is False
+    assert tab["can_fill"] is tab["can_remind"] is False
+    assert tab["answers"] == {} and tab["form_schema"] == []
+    data.reminder.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_reference_tabs_include_unsubmitted_node_and_manager_reminder(monkeypatch):
     from app.performance import projects_router
@@ -2971,7 +3154,10 @@ async def test_reference_tabs_include_unsubmitted_node_and_manager_reminder(monk
         submitted_at=None,
         answers={"work": "草稿"},
     )
-    project = SimpleNamespace(id=3, settings={"template_id": 77})
+    project = SimpleNamespace(id=3, cycle_ref="C1", settings={"template_id": 77})
+    reference_task.cycle_ref = "C1"
+    reference_task.task_kind = "work_summary"
+    reference_task.status = "pending"
 
     async def current_template(*_args):
         return {"content": [{"content_slot": "reference", "reference_kind": "node", "reference_value": "work-summary"}]}
@@ -3002,6 +3188,7 @@ async def test_reference_tabs_include_unsubmitted_node_and_manager_reminder(monk
     monkeypatch.setattr(projects_router, "_reference_template", reference_template)
     from app.performance import member_reminders
     from unittest.mock import AsyncMock
+    monkeypatch.setattr(projects_router, "_reference_task_can_fill", AsyncMock(return_value=False))
     reminder = AsyncMock(return_value=True)
     monkeypatch.setattr(member_reminders, "can_remind_member", reminder)
     tabs = await projects_router._reference_tabs(task, node, project, "M001", Db(), context=context())
@@ -6084,7 +6271,8 @@ def test_employee_http_responses_do_not_serialize_hidden_secrets(monkeypatch, en
         answer_version=1, status="completed", answers={"visible": {"tags": ["a", "secret-option"], "notes": {"a": "Allowed", "secret-option": "secret-note"}, "extra": "secret-extra"}, "hidden": "secret-answer", "readonly": "secret-forged"})
     node = SimpleNamespace(id=11, project_id=3, node_id="summary", node_type="work_summary", node_order=1,
                            name="Summary", config={"template": template})
-    target_project = SimpleNamespace(id=3, name="Project", settings={})
+    target_project = SimpleNamespace(id=3, name="Project", cycle_ref="cycle:one", settings={})
+    task.cycle_ref = "cycle:one"
     cycle = SimpleNamespace(name="Cycle", start_at=None, end_at=None)
     current_task = SimpleNamespace(**{**vars(task), "id": 10, "task_kind": "evaluation"})
     current_node = SimpleNamespace(id=12, node_id="review", node_type="evaluation", name="Review", config={"template": {"content": [
@@ -6949,7 +7137,9 @@ async def test_reference_tabs_project_relation_settings_and_keep_projected_answe
     source_node = SimpleNamespace(id=32, node_id="source", node_type="work_summary", name="来源节点", config={"template": {"content": [content]}})
     task = SimpleNamespace(member_snapshot_id=21, target_employee_no="E001", handler_ref="M001")
     source = SimpleNamespace(id=11, status="completed", submitted_at=datetime.now(UTC), answers={"visible": answer, "hidden": "隐藏答案", "extra": "未知答案"})
-    project = SimpleNamespace(id=3)
+    project = SimpleNamespace(id=3, cycle_ref="C1")
+    source.project_id, source.cycle_ref, source.member_snapshot_id = 3, "C1", 21
+    source.node_snapshot_id, source.target_employee_no, source.task_kind = 32, "E001", "work_summary"
     before = deepcopy((node.config, source_node.config, source.answers))
 
     class Db:
@@ -7000,7 +7190,9 @@ async def test_reference_tab_prefers_relation_page_name_over_source_stage_name()
     source_node = SimpleNamespace(id=32, node_id="source", node_type="work_summary", name="来源节点", config={"template": {"content": [content]}})
     task = SimpleNamespace(member_snapshot_id=21, target_employee_no="E001", handler_ref="M001")
     source = SimpleNamespace(id=11, status="completed", submitted_at=datetime.now(UTC), answers={"visible": "答"})
-    project = SimpleNamespace(id=3)
+    project = SimpleNamespace(id=3, cycle_ref="C1")
+    source.project_id, source.cycle_ref, source.member_snapshot_id = 3, "C1", 21
+    source.node_snapshot_id, source.target_employee_no, source.task_kind = 32, "E001", "work_summary"
 
     class Db:
         async def get(self, *_args):

@@ -193,11 +193,11 @@ async function closeMember() {
   await router.replace({ query })
 }
 function finishClosingMember() { if (!drawerOpen.value) drawerMember.value = null }
-async function fillFromDrawer(payload: { task_id: string | number; employee_no: string; node_id?: string; node_name?: string; task_kind?: string; draft_choice?: 'use' | 'discard' }) {
+async function fillFromDrawer(payload: { task_id: string | number; employee_no: string; node_id?: string; node_name?: string; task_kind?: string; phase_id?: string | null; project_id?: number; draft_choice?: 'use' | 'discard' }) {
   const member = drawerMember.value
   const projectId = member?.project_id ?? Number(route.query.member_project_id)
   if (!member || !Number.isFinite(projectId) || projectId <= 0) return
-  const path = '/performance/review/template-task'
+  const path = payload.task_kind === 'work_summary' ? '/performance/review/self-summary' : '/performance/review/template-task'
   const query: Record<string, string> = {
     task_id: String(payload.task_id),
     management_role: managementRole.value,
@@ -205,6 +205,7 @@ async function fillFromDrawer(payload: { task_id: string | number; employee_no: 
     project_id: String(projectId),
     node: payload.node_id || '',
     employee_no: payload.employee_no,
+    ...(payload.phase_id ? { phase_id: payload.phase_id } : {}),
     ...(payload.draft_choice ? { draft_choice: payload.draft_choice } : {}),
     ...(payload.task_kind === 'result_reconsideration' ? {
       return_entry: 'management',

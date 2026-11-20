@@ -14,7 +14,7 @@
             <PerformanceReviewCompletionNotice v-for="(message, index) in managementCompletionMessages" :key="index" :task-id="currentManagementTab ? task?.task_id ?? undefined : managementTab.task_id ?? undefined" :task-kind="managementTab.task_kind" :employee-no="displayPerson.employee_no" :editable="managementTabEditable && index === managementCompletionMessages.length - 1" variant="evaluation-drawer" :message="message" @edit="edit" />
             <PerformanceComparisonNotice v-if="managementTabLocked" :comparison="managementTab.comparison" :task-id="managementTab.task_id" readonly />
             <PerformanceTemplateRenderer v-if="managementTabLocked" mode="readonly" :sections="managementTab.form_schema" :answers="managementTab.answers" />
-            <PerformanceReferenceContent v-else-if="managementTab.kind === 'okr' || managementTab.kind === 'reviewer_360' || managementTab.form_schema.length || managementTab.status === 'completed'" :reference="managementTab" @remind="forwardReminder" />
+            <PerformanceReferenceContent v-else-if="managementTab.kind === 'okr' || managementTab.kind === 'reviewer_360' || managementTab.form_schema.length || managementTab.status === 'completed'" :reference="managementTab" @fill="fillReference" @remind="forwardReminder" />
             <div v-else-if="stageView" class="performance-stage-empty">
               <img src="/performance-no-submit.svg" alt="" width="120" height="120">
               <p>暂未提交</p>
@@ -50,7 +50,7 @@
             <PerformanceReviewCompletionNotice v-if="activeReference.final_result_locked && activeReference.answer_submissions?.length" :editable="false" variant="evaluation-drawer" :message="referenceSubmissionMessage" />
             <PerformanceComparisonNotice v-if="activeReference.final_result_locked" :comparison="activeReference.comparison" :task-id="activeReference.task_id" readonly />
             <PerformanceTemplateRenderer v-if="activeReference.final_result_locked" mode="readonly" :sections="activeReference.form_schema" :answers="activeReference.answers" />
-            <PerformanceReferenceContent v-else :reference="activeReference" @remind="forwardReminder" />
+            <PerformanceReferenceContent v-else :reference="activeReference" @fill="fillReference" @remind="forwardReminder" />
           </div>
         </section>
         <section v-else class="performance-review-evaluation-drawer__tab-content performance-review-evaluation-drawer__tab-placeholder">该页签内容将在后续迭代中开发</section>
@@ -99,7 +99,7 @@ const emit = defineEmits<{
   'update:activeTab': [value: string]
   close: []
   closed: []
-  edit: [payload: { task_id: string | number; employee_no: string; node_id?: string; node_name?: string; task_kind?: string; draft_choice?: 'use' | 'discard' }]
+  edit: [payload: { task_id: string | number; employee_no: string; node_id?: string; node_name?: string; task_kind?: string; phase_id?: string | null; project_id?: number; draft_choice?: 'use' | 'discard' }]
   'copy-link': []
   remind: [reference: PerformanceReferenceTab, sourceTaskId?: number]
   authorize: [payload: PerformanceMemberContext]
@@ -270,6 +270,10 @@ function fillStage() {
   const stage = stageView.value
   if (!stage || !task.value || managementTabLocked.value || stage.final_result_locked || !stage.can_fill || stage.task_id == null) return
   emit('edit', { task_id: stage.task_id, employee_no: displayPerson.value.employee_no, node_id: stage.node_id })
+}
+function fillReference(reference: PerformanceReferenceTab) {
+  if (!reference.can_fill || !reference.task_id || !reference.task_kind || reference.final_result_locked || ['completed', 'not_started'].includes(reference.status)) return
+  emit('edit', { task_id: reference.task_id, employee_no: reference.employee_no || displayPerson.value.employee_no, node_id: reference.node_id, task_kind: reference.task_kind, phase_id: reference.phase_id, project_id: reference.project_id || task.value?.project_id })
 }
 function forwardReminder(reference: PerformanceReferenceTab) {
   const source = task.value
