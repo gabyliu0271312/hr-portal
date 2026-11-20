@@ -79,7 +79,7 @@ describe('PerformanceReview360InvitePanel', () => {
     expect(wrapper.text()).not.toContain('除直属下级外')
   })
 
-  it.each([{ readonly: true }, { disabled: true }, { data: snapshot({ count: 5 }) }])('keeps disabled search free of tooltips and native title: %j', async overrides => {
+  it.each([{ disabled: true }, { data: snapshot({ count: 5 }) }])('keeps disabled search free of tooltips and native title: %j', async overrides => {
     const wrapper = render({ data: snapshot(), ...overrides })
     const input = wrapper.get('input[role="combobox"]')
     expect(input.attributes('disabled')).toBeDefined()
@@ -333,8 +333,8 @@ describe('PerformanceReview360InvitePanel', () => {
     expect(suggested.find('[role="alertdialog"]').exists()).toBe(false)
   })
 
-  it('removes only a server-authorized tag with task/version and releases a full quota', async () => {
-    const row = { ...reviewer('B'), can_revoke: true, is_draft: true }
+  it.each([false, true])('removes a server-authorized draft or effective tag at the hard limit and restores search: draft=%s', async isDraft => {
+    const row = { ...reviewer('B'), can_revoke: true, is_draft: isDraft }
     const wrapper = render({ data: snapshot({ count: 1, maximum_invited_count: 1, can_invite: false, items: [reviewer('A', 'DEFAULT'), row] }) })
     const changed = snapshot({ count: 0, total: 1, items: [reviewer('A', 'DEFAULT')], version: 'revoke-v2' })
     const pending = deferred<any>()
@@ -364,11 +364,32 @@ describe('PerformanceReview360InvitePanel', () => {
     expect(wrapper.text()).toContain(status === 409 ? '本次操作未自动重试' : '移除失败，请稍后重试')
   })
 
-  it('keeps real search readonly and hides removable controls even when a snapshot has write flags', () => {
+  it('shows only the grouped roster in readonly even when snapshot write flags are present', async () => {
     const wrapper = render({ readonly: true, data: snapshot({ items: [{ ...reviewer('B'), can_revoke: true }] }) })
-    expect(wrapper.get('input[role="combobox"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('input[role="combobox"]').exists()).toBe(false)
+    expect(wrapper.find('.reviewer-360-content__intro').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('通过「搜索」')
+    expect(wrapper.text()).not.toContain('建议至少邀请')
+    expect(wrapper.text()).toContain('已邀请列表：当前共 2 人')
     expect(wrapper.find('.invite-panel__remove').exists()).toBe(false)
     expect(wrapper.find('.is-removable').exists()).toBe(false)
+    await wrapper.get('button[role="radio"][aria-checked="false"]').trigger('click')
+    expect(wrapper.text()).toContain('自己邀请')
+    expect(api.list).not.toHaveBeenCalled()
+    expect(api.candidates).not.toHaveBeenCalled()
+  })
+
+  it('keeps confirmation search enabled above both hard limits and never shows a quota popup', async () => {
+    const wrapper = render({ data: snapshot({ task_kind: 'reviewer_360_confirm', count: 8, maximum_invited_count: 3, second_prompt_enabled: true, second_prompt_count: 5, second_prompt_mode: 'LIMIT', effective_limit: null }) })
+    expect(wrapper.getComponent(PerformanceSearchSelect).props('disabled')).toBe(false)
+    expect(wrapper.text()).not.toContain('最多邀请')
+    expect(wrapper.text()).not.toContain('已达邀请上限')
+    api.submit.mockResolvedValue({ reviewer_360: snapshot({ task_kind: 'reviewer_360_confirm', count: 9, version: 'confirm-v2', maximum_invited_count: 3, second_prompt_enabled: true, second_prompt_count: 5, second_prompt_mode: 'LIMIT', effective_limit: null }) })
+    await selectCandidate(wrapper)
+    await flushPromises()
+    expect(api.submit).toHaveBeenCalledWith(10, ['C'], 101, 'roster-v1')
+    expect(wrapper.getComponent(PerformanceSearchSelect).props('disabled')).toBe(false)
+    expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false)
   })
 
   it('ignores a late revoke after switching task context', async () => {

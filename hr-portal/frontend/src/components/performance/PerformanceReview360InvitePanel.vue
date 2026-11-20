@@ -47,7 +47,7 @@ const canEdit = computed(() => Boolean(props.data && contextMatches.value && !pr
   && !loading.value && !conflict.value && roster.value?.task_id && typeof roster.value.version === 'string' && roster.value.version
   && roster.value.editable === true && projectId.value))
 function effectiveLimit(data?: PerformanceReview360InviteList) {
-  if (!data) return null
+  if (!data || data.task_kind === 'reviewer_360_confirm') return null
   const limits = [data.effective_limit,
     data.maximum_invite_mode === 'LIMIT' ? data.maximum_invited_count : null,
     data.second_prompt_enabled && data.second_prompt_mode === 'LIMIT' ? data.second_prompt_count : null,
@@ -72,10 +72,10 @@ const minimumHint = computed(() => {
   const prefix = roster.value?.exclude_default_invite_from_limit ? '除系统默认邀请外，' : ''
   const hints = minimum > 0 ? [`建议至少邀请 ${minimum} 人`] : []
   if (limit.value !== null) hints.push(`最多邀请 ${limit.value} 人`)
-  else if (roster.value?.maximum_invited_count != null) hints.push(`建议最多邀请 ${roster.value.maximum_invited_count} 人`)
+  else if (roster.value?.task_kind !== 'reviewer_360_confirm' && roster.value?.maximum_invited_count != null) hints.push(`建议最多邀请 ${roster.value.maximum_invited_count} 人`)
   hints.push(`现已邀请 ${counted.value} 人`)
   const extraHints = limitReached.value ? ['已达邀请上限不能再继续添加。'] : []
-  if (roster.value?.second_prompt_enabled && roster.value.second_prompt_mode !== 'LIMIT' && roster.value.second_prompt_count != null && counted.value >= roster.value.second_prompt_count) extraHints.push(`已达到二次触发提示人数（${roster.value.second_prompt_count} 人）。`)
+  if (roster.value?.task_kind !== 'reviewer_360_confirm' && roster.value?.second_prompt_enabled && roster.value.second_prompt_mode !== 'LIMIT' && roster.value.second_prompt_count != null && counted.value >= roster.value.second_prompt_count) extraHints.push(`已达到二次触发提示人数（${roster.value.second_prompt_count} 人）。`)
   return `${prefix}${hints.join('，')}。${extraHints.join('')}上级和 HRBP 也可继续补充邀请 360° 评估人。`
 })
 const limitDescription = computed(() => `本次最多可邀请 ${limit.value ?? 0} 位360°评估人，当前计入额度 ${counted.value} 人${roster.value?.exclude_default_invite_from_limit ? '（不包含系统默认邀请）' : ''}，无法继续邀请。`)
@@ -208,7 +208,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="invite-panel" aria-label="360° 评估邀请" :aria-busy="inviting || loading">
-    <PerformanceReviewer360InviteBody :items="items" :total="roster?.total ?? 0" :minimum-hint="minimumHint" :editable="canEdit" interactive>
+    <PerformanceReviewer360InviteBody :items="items" :total="roster?.total ?? 0" :minimum-hint="minimumHint" :editable="canEdit" :show-editor="!readonly" interactive>
       <template #search>
         <PerformanceSearchSelect class="invite-panel__search" :key="searchKey" :model-value="null" :options="candidateOptions" remote-search hide-arrow option-style="none" option-layout="detailed" placeholder="搜索成员" aria-label="搜索可邀请成员" :loading="candidateLoading" loading-text="正在加载成员…" :empty-text="candidateError || '暂无可以邀请的成员'" :disabled="!canInvite || inviting" @search="loadCandidates" @close="closeSearch" @update:model-value="inviteCandidate">
           <template v-if="candidateError" #footer><UiButton variant="text" @click="loadCandidates(candidateKeyword)">重试</UiButton></template>

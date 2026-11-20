@@ -154,7 +154,9 @@ def invite_settings(project, node, target):
     return (configured.get(target.node_id) or {}).get("invite") or (configured.get(node.node_id) or {}).get("invite") or {}
 
 
-def effective_limit(settings):
+def effective_limit(settings, task):
+    if task.task_kind == "reviewer_360_confirm":
+        return None
     limits = []
     if settings.get("maximum_invite_mode") == "LIMIT" and settings.get("maximum_invited_count") is not None:
         limits.append(int(settings["maximum_invited_count"]))
@@ -224,6 +226,15 @@ def source_code(source, inviter, target_ref, people):
     return "OTHER"
 
 
+def can_revoke_own_invite(task, node, actor_ref, event):
+    if event is None or task.task_kind != "reviewer_360_invite" or node.node_type != "reviewer_360_invite":
+        return False
+    state = event.after_state or {}
+    inviter = state.get("assigned_by_ref") or event.actor_ref
+    return (str(task.target_employee_no) == str(actor_ref) == str(inviter)
+            and state.get("source_type") not in {"DEFAULT", "VOLUNTARY"})
+
+
 async def can_revoke_effective(db, task, node, actor_ref, editable):
     from app.performance.assessment_roles import MANAGER_ROLE_CODES, node_role_code
 
@@ -253,7 +264,10 @@ async def roster(db, task, node, project, *, editable=False, snapshot=False, act
     from app.performance import review_360_invites_router as invites
 
     if snapshot and (task.answers or {}).get(SNAPSHOT_KEY) is not None:
-        return readonly_payload(task.answers[SNAPSHOT_KEY])
+        payload = {**readonly_payload(task.answers[SNAPSHOT_KEY]), "task_kind": task.task_kind}
+        if task.task_kind == "reviewer_360_confirm":
+            payload["effective_limit"] = None
+        return payload
     target = await evaluation_node(db, project, node)
     member_snapshot = await db.get(PerformanceProjectMemberSnapshot, task.member_snapshot_id)
     if member_snapshot is None or member_snapshot.project_id != project.id or member_snapshot.cycle_ref != task.cycle_ref:
@@ -299,7 +313,9 @@ async def roster(db, task, node, project, *, editable=False, snapshot=False, act
         source = source_code(source, inviter, task.target_employee_no, people)
         own_draft = is_draft and str(inviter) == str(actor_ref or task.handler_ref) and source not in {"DEFAULT", "UNKNOWN", "VOLUNTARY"}
         submitted = evaluation is not None and evaluation.submitted_at is not None
-        can_revoke = editable and source != "DEFAULT" and (own_draft or not is_draft and revoke_effective and not submitted)
+        effective_allowed = (not is_draft and evaluation.source_type not in {"DEFAULT", "VOLUNTARY"}
+                             and (revoke_effective or can_revoke_own_invite(task, node, actor_ref or task.handler_ref, event)))
+        can_revoke = editable and source != "DEFAULT" and not submitted and (own_draft or effective_allowed)
         reason = None if can_revoke else ("系统默认邀请不可删除" if source == "DEFAULT" else "评价已提交，不可撤销" if submitted else REVOKE_REASON)
         items.append({
             "employee_no": employee_no, "display_name": person.display_name if person else employee_no,
@@ -318,10 +334,10 @@ async def roster(db, task, node, project, *, editable=False, snapshot=False, act
         })
     exclude_default = bool(settings.get("exclude_default_invite_from_limit", False))
     count = sum(item["source_type"] != "DEFAULT" or not exclude_default for item in items)
-    limit = effective_limit(settings)
+    limit = effective_limit(settings, task)
     disabled = "当前环节不可编辑" if not editable else "已达到邀请人数上限" if limit is not None and count >= limit else None
     return {
-        "project_id": project.id, "task_id": task.id, "employee_no": task.target_employee_no,
+        "project_id": project.id, "task_id": task.id, "task_kind": task.task_kind, "employee_no": task.target_employee_no,
         "node_id": target.node_id, "version": roster_version(tasks, events, delta),
         "items": items, "total": len(items), "count": count,
         "manual_count": sum(item["is_manual_by_actor"] for item in items),
@@ -347,7 +363,8 @@ async def apply_delta(db, task, node, project, actor, current):
     delta = draft_delta(task)
     if set(delta["add"]) - allowed:
         raise HTTPException(422, "REVIEWER_360_CANDIDATE_NOT_ALLOWED")
-    if current["effective_limit"] is not None and current["count"] > current["effective_limit"] and delta["add"]:
+    limit = effective_limit(invite_settings(project, node, target), task)
+    if limit is not None and current["count"] > limit and delta["add"]:
         raise HTTPException(422, "INVITE_LIMIT_REACHED")
     tasks = [item for item in await invites._invite_tasks(db, project.id, target.id, task.target_employee_no)
              if item.member_snapshot_id == task.member_snapshot_id and item.cycle_ref == task.cycle_ref and item.revoked_at is None]
@@ -361,8 +378,10 @@ async def apply_delta(db, task, node, project, actor, current):
         evaluation = existing.get(employee_no)
         if evaluation is None:
             continue
-        state = (active[employee_no].after_state or {}) if employee_no in active else {}
-        if not can_revoke or state.get("source_type") == "DEFAULT" or evaluation.source_type in {"DEFAULT", "VOLUNTARY"}:
+        event = active.get(employee_no)
+        state = (event.after_state or {}) if event else {}
+        own_invite = can_revoke_own_invite(task, node, actor.actor_ref, event)
+        if not (can_revoke or own_invite) or state.get("source_type") == "DEFAULT" or evaluation.source_type in {"DEFAULT", "VOLUNTARY"}:
             raise HTTPException(403, "REVIEWER_360_REVOKE_NOT_ENABLED")
         if evaluation.submitted_at is not None:
             raise HTTPException(409, "INVITE_ALREADY_COMPLETED")

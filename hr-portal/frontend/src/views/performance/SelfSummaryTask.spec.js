@@ -647,6 +647,112 @@ describe('comparison runtime', () => {
   })
 })
 
+describe('shared task entry with real controls', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    vi.useFakeTimers()
+    localStorage.setItem('userMode', 'fullScreenMode')
+    vi.mocked(useRoute).mockReturnValue({ path: '/performance/review/template-task', query: { task_id: '145', employee_no: 'E001' } })
+    vi.mocked(useRouter).mockReturnValue({ back, push, replace: vi.fn().mockResolvedValue(undefined) })
+    vi.spyOn(performanceReviewApi, 'saveTemplateTaskDraft').mockResolvedValue({ answers: {}, version: 2 })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.mocked(useRoute).mockReturnValue({ query: { task_id: 'task-1' } })
+  })
+
+  it.each(['pending', 'submitted', 'use', 'discard', 'view-edit'])('edits manager evaluation through actual fields with entry=%s', async entry => {
+    const loaded = {
+      ...structuredClone(task), task_id: 145, task_kind: 'evaluation', node_id: 'manager', node_name: '上级评估', executor_role_code: 'assessment.line_manager',
+      submitted_at: entry === 'pending' ? null : '2026-11-01T00:00:00Z',
+      has_draft: entry === 'use' || entry === 'discard', draft_answers: { rating: 'five' },
+      form_schema: [structuredClone(task.form_schema[2]), { id: 'source', name: '来源', fields: [{ id: 'source', type: 'rich_text', label: '来源只读', readonly: true }] }],
+      answers: { rating: 'one', source: '<p>保留来源内容</p>' },
+      management_tabs: [{ key: 'management-manager', node_id: 'manager', node_name: '上级评估', status: 'completed', form_schema: [{ id: 'management', name: '管理只读投影', fields: [{ ...structuredClone(task.form_schema[2].fields[0]), readonly: true }] }], answers: { rating: 'one' } }],
+    }
+    const load = vi.spyOn(performanceReviewApi, 'templateTask').mockImplementation(async () => structuredClone(loaded))
+    if (entry === 'use' || entry === 'discard') vi.mocked(useRoute).mockReturnValue({ path: '/performance/review/template-task', query: { task_id: '145', employee_no: 'E001', draft_choice: entry } })
+    if (entry === 'view-edit') vi.mocked(useRoute).mockReturnValue({ path: '/performance/review/template-task', query: { task_id: '145', employee_no: 'E001', view: '1' } })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    if (entry === 'view-edit') {
+      expect(wrapper.getComponent(PerformanceTemplateRenderer).props('mode')).toBe('readonly')
+      await wrapper.get('button[aria-label="编辑已提交内容"]').trigger('click')
+      await flushPromises()
+      expect(useRouter().replace).toHaveBeenCalledWith({ query: { task_id: '145', employee_no: 'E001' } })
+    }
+    expect(load).toHaveBeenCalledWith('145', 'E001')
+    const renderer = wrapper.getComponent(PerformanceTemplateRenderer)
+    expect(renderer.props('mode')).toBe('edit')
+    expect(renderer.props('editable')).toBe(true)
+    expect(renderer.props('sections')[0].fields[0].readonly).not.toBe(true)
+    expect(wrapper.text()).not.toContain('管理只读投影')
+    const radio = wrapper.get('[role="radio"][aria-checked="true"]')
+    expect(radio.text()).toBe(entry === 'use' ? '5星' : '1星')
+    expect(radio.attributes('aria-disabled')).toBeUndefined()
+    const target = entry === 'use' ? '1星' : '5星'
+    await wrapper.findAll('[role="radio"]').find(option => option.text() === target).trigger('click')
+    await vi.advanceTimersByTimeAsync(350)
+    expect(performanceReviewApi.saveTemplateTaskDraft).toHaveBeenLastCalledWith(145, { rating: entry === 'use' ? 'one' : 'five' }, 1, 'E001', undefined)
+    expect(renderer.props('answers').source).toBe('<p>保留来源内容</p>')
+    expect(wrapper.get('.self-summary-footer .performance-button--primary').element.disabled).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each([{ editable: false }, { submit_allowed: false }, { final_result_locked: true }, { fieldReadonly: true }])('preserves the server edit restriction through actual rating controls: %o', async restriction => {
+    const field = { ...structuredClone(task.form_schema[2].fields[0]), readonly: restriction.fieldReadonly === true }
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_id: 145, task_kind: 'evaluation', answers: { rating: 'one' }, form_schema: [{ id: 'rating', name: '上级评估', fields: [field] }], ...restriction })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    for (const radio of wrapper.findAll('[role="radio"]')) {
+      expect(radio.attributes('aria-disabled')).toBe('true')
+      await radio.trigger('click')
+    }
+    expect(wrapper.getComponent(PerformanceTemplateRenderer).props('answers').rating).toBe('one')
+    await vi.advanceTimersByTimeAsync(350)
+    expect(performanceReviewApi.saveTemplateTaskDraft).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('holds a submitted manager draft readonly until the real draft chooser selects it', async () => {
+    vi.spyOn(performanceReviewApi, 'templateTask').mockImplementation(async () => ({ ...structuredClone(task), task_kind: 'evaluation', task_id: 145, submitted_at: '2026-11-01T00:00:00Z', has_draft: true, draft_answers: { rating: 'five' }, answers: { rating: 'one' }, form_schema: [structuredClone(task.form_schema[2])] }))
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' }, attachTo: document.body, global: { stubs: { Teleport: true } } })
+    await flushPromises()
+    expect(wrapper.getComponent(PerformanceTemplateRenderer).props('mode')).toBe('readonly')
+    expect(wrapper.find('.self-summary-footer').exists()).toBe(false)
+    await wrapper.findAll('.draft-choice-buttons button').find(button => button.text() === '使用草稿').trigger('click')
+    await flushPromises()
+    expect(wrapper.getComponent(PerformanceTemplateRenderer).props('mode')).toBe('edit')
+    expect(wrapper.get('[role="radio"][aria-checked="true"]').text()).toBe('5星')
+    wrapper.unmount()
+  })
+
+  it.each(['reviewer_360_invite', 'reviewer_360_confirm'])('reopens submitted %s through the real completion notice and roster search', async taskKind => {
+    vi.mocked(useRoute).mockReturnValue({ path: '/performance/review/template-task', query: { task_id: '145', employee_no: 'E001', view: '1' } })
+    const roster = { project_id: 3, task_id: 145, employee_no: 'E001', node_id: 'feedback', version: 'current', count: 0, manual_count: 0, editable: true, can_invite: true, items: [], total: 0, minimum_invited_count: 0, maximum_invited_count: null, maximum_invite_mode: 'LIMIT', second_prompt_enabled: false, second_prompt_count: null, second_prompt_mode: 'SUGGESTED', exclude_default_invite_from_limit: false }
+    const load = vi.spyOn(performanceReviewApi, 'templateTask').mockImplementation(async (_id, _employee, options) => {
+      const data = { ...roster, version: options?.view === 'edit' ? 'current' : 'snapshot', editable: options?.view === 'edit', can_invite: options?.view === 'edit' }
+      return { ...structuredClone(task), task_id: 145, task_kind: taskKind, submitted_at: '2026-11-01T00:00:00Z', reviewer_360: data, answers: {}, form_schema: [{ id: 'reviewers', name: '', fields: [], elements: [{ kind: 'reviewer_360', id: 'roster', data }] }] }
+    })
+    vi.spyOn(performanceReview360InviteApi, 'candidates').mockResolvedValue({ items: [] })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    expect(wrapper.getComponent(PerformanceTemplateRenderer).props('mode')).toBe('readonly')
+    await wrapper.get('button[aria-label="编辑已提交内容"]').trigger('click')
+    await flushPromises()
+    expect(load).toHaveBeenLastCalledWith('145', 'E001', { view: 'edit' })
+    expect(wrapper.getComponent(PerformanceTemplateRenderer).props('mode')).toBe('edit')
+    const search = wrapper.getComponent({ name: 'PerformanceSearchSelect' })
+    expect(search.props('disabled')).toBe(false)
+    const input = search.get('input')
+    expect(input.element.disabled).toBe(false)
+    await input.setValue('成员')
+    await vi.advanceTimersByTimeAsync(350)
+    expect(performanceReview360InviteApi.candidates).toHaveBeenCalledWith(3, '成员', 145)
+    wrapper.unmount()
+  })
+})
+
 describe('SelfSummaryTask', () => {
   beforeEach(() => {
     vi.restoreAllMocks()

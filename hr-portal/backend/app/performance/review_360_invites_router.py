@@ -74,6 +74,7 @@ class InvitedReviewerOut(BaseModel):
 class InviteListOut(BaseModel):
     project_id: int | None = None
     task_id: int | None = None
+    task_kind: str | None = None
     employee_no: str | None = None
     node_id: str | None = None
     version: str | None = None

@@ -10,10 +10,11 @@ const props = withDefaults(defineProps<{
   limitHint?: string
   interactive?: boolean
   editable?: boolean
+  showEditor?: boolean
 }>(), {
   items: () => [], total: 0,
   minimumHint: '除系统默认邀请外，建议至少邀请 5 人。上级和 HRBP 也可继续补充邀请 360° 评估人。',
-  limitHint: '', interactive: false, editable: false,
+  limitHint: '', interactive: false, editable: false, showEditor: true,
 })
 const groupBy = ref<'relationship' | 'inviter'>('relationship')
 function inviterGroup(item: PerformanceReview360InvitedReviewer) {
@@ -39,12 +40,12 @@ const groups = computed(() => {
 
 <template>
   <div class="reviewer-360-invite-body">
-    <div class="reviewer-360-content__intro">
+    <div v-if="showEditor" class="reviewer-360-content__intro">
       <div>通过「搜索」添加 360° 评估人</div>
       <div class="reviewer-360-content__description">{{ [minimumHint, limitHint].filter(Boolean).join('') }}</div>
     </div>
-    <slot name="search"><div class="reviewer-360-content__search">搜索成员</div></slot>
-    <div class="reviewer-360-content__list-title">已邀请列表：当前共 {{ total }} 人</div>
+    <template v-if="showEditor"><slot name="search"><div class="reviewer-360-content__search">搜索成员</div></slot></template>
+    <div class="reviewer-360-content__list-title" :class="{ 'is-readonly': !showEditor }">已邀请列表：当前共 {{ total }} 人</div>
     <div class="reviewer-360-content__segmented" role="radiogroup" aria-label="邀请列表分组方式">
       <template v-if="interactive">
         <button type="button" role="radio" :aria-checked="groupBy === 'relationship'" :class="{ 'is-checked': groupBy === 'relationship' }" @click="groupBy = 'relationship'">按关系</button>
@@ -84,6 +85,7 @@ const groups = computed(() => {
 .reviewer-360-content__description{color:var(--performance-invite-text-color);font-weight:400}
 .reviewer-360-content__search{display:flex;align-items:center;height:var(--performance-button-height);padding:0 var(--spacing-3);box-sizing:border-box;border:1px solid var(--performance-invite-border-color);border-radius:var(--performance-control-radius);color:var(--color-text-placeholder)}
 .reviewer-360-content__list-title{margin-top:24px;margin-bottom:6px}
+.reviewer-360-content__list-title.is-readonly{margin-top:0}
 .reviewer-360-content__segmented{display:inline-flex;height:32px;margin:0 0 8px;border-radius:var(--performance-control-radius);background:var(--color-bg-card);vertical-align:top}
 .reviewer-360-content__segmented span,.reviewer-360-content__segmented button{display:block;padding:4px 16px;box-sizing:border-box;border:1px solid var(--performance-invite-border-color);border-radius:6px 0 0 6px;background:var(--color-bg-card);color:inherit;font:inherit;line-height:22px}
 .reviewer-360-content__segmented button{cursor:pointer}

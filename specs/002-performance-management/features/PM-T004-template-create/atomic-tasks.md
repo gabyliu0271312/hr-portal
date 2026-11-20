@@ -1,5 +1,17 @@
 # PM-T004 原子任务
 
+- [ ] PM-T004-T05-F41-V4 本人再次编辑删除、确认不限额与只读名单（2026-11-20 用户最新确认）
+  - Goal/契约：合法编辑时本人自己的已生效邀请且对方未评价可删，达限只禁止添加，删除恢复搜索；默认/已提交不可删。确认不受主/二次人数上限影响。只读状态只展示名单/分组，隐藏搜索与邀请说明；外层共享完成/编辑提示保留。本规则覆盖V2/V3本人只能删草稿及read禁用搜索仍显示的旧口径。
+  - Reading/复用：Spec002启动/基线、CR005新补充、F41 V3与UI-V4，沿任务时间/处理人授权、双版本、私有增量、正式提交复验和审计，复用InviteBody/Panel与SearchSelect，不另建框架。
+  - Allowed/shared：backend reviewer_360_task_service/review_360_invites_router及既有test_performance_projects；frontend performance.ts仅名单task_kind、InvitePanel/Body及同名测试；共享编辑故障确证时SelfSummaryTask/Review/performanceTaskEntry/Drawer及既有spec允许最小修复。规格/任务/独立PNG主线程负责，同文件单写者。禁止新脚本报告测试文件/迁移/生产/提交推送，冻结历史与已提交评价不删除。
+  - DTO/policy：名单追加task_kind供前后端同源判定，确认effective_limit=null且不反算配置LIMIT；POST和正式submit均免除确认额度，其他授权和评价时窗保持。本人有效邀请可撤销判据来自真实审计操作人，未明来源不扩权；DELETE只写remove草稿，submit在原锁内复验本人来源/当前评价未提交再撤销，周期确认上级删除他人规则保留。
+  - Given/When/Then：达限自己的有效未评价邀请显示×，移除回最新版本/额度后搜索可用；只读无搜索/邀请说明/删除且分组可切换；确认超过两层LIMIT仍可候选/新增/提交，无达限弹窗；本人删他人/默认/已提交或无权拒绝，提交竞态409且历史不丢。共享上级评估编辑反馈按实际入口与API事实定位，不猜改权限。
+  - Backend evidence：主线程现有.venv、PYTHONPATH=backend、DB_HOST=127.0.0.1/DB_PORT=1执行`pytest tests/test_performance_projects.py tests/test_performance_overdue_submission_policy.py -q --tb=line`：1056 passed/5 skipped/1既有python_multipart警告。覆盖本人有效邀请来源/提交状态重验、默认/越权/失效拒绝、确认双LIMIT豁免、自愿任务撤销恢复；代理完整projects1046 passed/5 skipped。真实PG/双事务并发not-run，skip不计通过。
+  - Frontend evidence：主线程InvitePanel37+Renderer36=73 passed，Review144+TemplateContentSettings108+Drawer82=334 passed，SelfSummaryTask168 passed，合计575 passed；最后`npm --prefix hr-portal/frontend run build`vue-tsc+Vite通过（48.36s，exit0，3789 modules），保留既有VueUse PURE提示。git diff --check通过，仅换行提示。
+  - UI evidence：实际Vue+隔离内存API/合成人员，1280×800确认达限搜索disabled而本人有效邀请×可用，DELETE携带task/version，回最新名单后搜索恢复；read无搜索/邀请说明/删除且保留分组名单；确认count9超过主1/二次2仍搜索可用，pageerror=0。独立实现图`../../ui-blueprints/PM-T004-T05-F41-v4-limit-delete-20261120.png`与`PM-T004-T05-F41-v4-readonly-roster-20261120.png`已查看，不代表真实部署/数据库验收。
+  - Shared entry findings/DoD：仅在现有SelfSummaryTask.spec.js补12例真实Renderer/评级控件/CompletionNotice/SearchSelect覆盖，上级pending/submitted/use/discard/view1→编辑均能修改并保存，无权/最终锁/字段readonly仍拒绝；两类360真实编辑发view=edit后可请求候选。未发现确证业务代码bug，不猜改权限或入口。部署故障仍unknown，需要现场进入前后URL与template-task响应editable/submit_allowed/final_result_locked/submitted_at/has_draft/fields.readonly、360 view=edit及roster count/effective_limit。无新增迁移/生产/通知/commit/push，完整验收前不勾选。
+
+
 - [ ] PM-T004-T05-F41-V3 360°共享任务生命周期与目标DOM修复（2026-11-20）
   - Goal/确认：用户明确完成全部修复，复用普通任务逾期首次补交、提交后提示/真实提交记录、截止前再次编辑和配置前端同源，仅对邀请名单UI差异原位修复；禁用搜索无hover提示，只共享not-allowed光标。
   - Reading/复用：START_HERE/Spec002基线、CR005/F41及UI-V3、Spec012 UI规范N00/N11，复用_self_summary_state/_overdue_submission_allowed/_task_edit_allowed、统一template-task与SelfSummaryTask/CompletionNotice/TemplateRenderer/InviteBody/SearchSelect，不新增状态机。

@@ -389,6 +389,7 @@ export interface PerformanceReview360InvitedReviewer {
 }
 
 export interface PerformanceReview360InviteList {
+  task_kind?: 'reviewer_360_invite' | 'reviewer_360_confirm'
   project_id?: number
   task_id?: number
   employee_no?: string
