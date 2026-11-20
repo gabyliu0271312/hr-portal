@@ -44,22 +44,50 @@ describe('PerformanceDistributionTips', () => {
     expect(wrapper.find('.distribution-tips__note').text()).toContain('四舍五入')
   })
 
-  it('skips rules that are not violated', () => {
+  it('keeps satisfied rules in both groups and supports collapse and expand', async () => {
     const data = tips()
-    data.rules[0].conditions[0].violated = false
-    data.rules[0].conditions[1].violated = false
+    data.rules[0].conditions = data.rules[0].conditions.map(condition => ({ ...condition, current_people: condition.target_people, diff: 0, violated: false }))
     const wrapper = mount(PerformanceDistributionTips, { props: { tips: data } })
-    expect(wrapper.findAll('.distribution-tips__group-title').length).toBe(0)
-    expect(wrapper.findAll('.distribution-tips__rule').length).toBe(0)
+    expect(wrapper.findAll('.distribution-tips__group-title').map(el => el.text())).toEqual(['强制分布', '建议分布'])
+    expect(wrapper.findAll('.distribution-tips__status-tag').map(el => el.text())).toEqual(['已符合', '已符合'])
+    expect(wrapper.findAll('.distribution-tips__status-tag--success')).toHaveLength(2)
+    expect(wrapper.find('.distribution-tips__diff').exists()).toBe(false)
+    await wrapper.find('.distribution-tips__toggle').trigger('click')
+    expect(wrapper.find('.distribution-tips__rule').exists()).toBe(false)
+    await wrapper.find('.distribution-tips__toggle').trigger('click')
+    expect(wrapper.findAll('.distribution-tips__rule')).toHaveLength(2)
   })
 
   it.each(['HARD', 'SOFT'] as const)('%s does not warn when the current count is below an inclusive upper limit', controlMode => {
     const data = tips()
     data.rules[0].conditions = [{ ...data.rules[0].conditions[0], control_mode: controlMode, grades: ['4星', '5星'], value: 25, target_people: 30, current_people: 5, diff: -25, violated: false }]
     const wrapper = mount(PerformanceDistributionTips, { props: { tips: data } })
-    expect(wrapper.find('.distribution-tips__status-tag').exists()).toBe(false)
+    expect(wrapper.find('.distribution-tips__status-tag').text()).toBe('已符合')
+    expect(wrapper.find('.distribution-tips__status-tag').classes()).toContain('distribution-tips__status-tag--success')
+    expect(wrapper.find('.distribution-tips__rule-formula').text()).toBe('4星 + 5星 小于等于 25%')
+    expect(wrapper.find('.distribution-tips__rule-state').text()).toBe('需小于等于 30 人，当前 5 人')
     expect(wrapper.text()).not.toContain('需减少')
     expect(wrapper.text()).not.toContain('需增加')
+  })
+
+  it.each(['HARD', 'SOFT'] as const)('%s keeps mixed states and updates a satisfied rule to violated', async controlMode => {
+    const data = tips()
+    const base = { ...data.rules[0].conditions[0], control_mode: controlMode, target_people: 30 }
+    data.rules[0].conditions = [
+      { ...base, current_people: 5, diff: -25, violated: false },
+      { ...base, current_people: 35, diff: 5, violated: true },
+    ]
+    const wrapper = mount(PerformanceDistributionTips, { props: { tips: data } })
+    expect(wrapper.findAll('.distribution-tips__status-tag').map(el => el.text())).toEqual(['已符合', '不符合'])
+    expect(wrapper.findAll('.distribution-tips__rule')[0].find('.distribution-tips__diff').exists()).toBe(false)
+    expect(wrapper.findAll('.distribution-tips__rule')[1].text()).toContain('需减少 5人')
+    const updated = { ...data, rules: [{ ...data.rules[0], conditions: data.rules[0].conditions.map(condition => ({ ...condition, current_people: 35, diff: 5, violated: true })) }] }
+    await wrapper.setProps({ tips: updated })
+    expect(wrapper.findAll('.distribution-tips__status-tag').map(el => el.text())).toEqual(['不符合', '不符合'])
+    expect(wrapper.findAll('.distribution-tips__diff')).toHaveLength(2)
+    await wrapper.setProps({ tips: data })
+    expect(wrapper.findAll('.distribution-tips__status-tag').map(el => el.text())).toEqual(['已符合', '不符合'])
+    expect(wrapper.findAll('.distribution-tips__diff')).toHaveLength(1)
   })
 
   it.each(['HARD', 'SOFT'] as const)('%s renders all comparison boundaries and adjustment directions', controlMode => {

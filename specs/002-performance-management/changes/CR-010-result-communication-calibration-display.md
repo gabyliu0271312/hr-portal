@@ -449,14 +449,15 @@
 - [x] 本次局部 Bug 增量的代码、定向回归、构建与本地组件视觉验证完成；关联现有 T03/T04，不代表其他历史卡或生产验收完成。
 - 用户确认范围：强制/建议分布统一梳理；上限30人、当前5人属于符合，不显示减少25人的错误告警；等于目标35人、当前0人应提示增加35人；提示区始终铺满所属内容容器，固定左右内边距，不在大屏居中限宽。
 - 根因与契约：后端原以 `diff != 0` 判断违反，忽略比较符；现按 `EQ/LT/LTE/GT/GTE` 对当前人数和既有取整后的目标人数判断。保留接口 `diff = current_people - target_people`，不改 URL、DTO、比例取整、授权、阶段/项目范围、撤销过滤、评级来源或正式结果解析。
-- 前端复用 `PerformanceDistributionTips.vue`，沿既有行为仅展示违反规则，不新增已符合标签；正差额提示减少、负差额提示增加。严格小于/大于调整至最近合法整数，等于阈值时仍须减少/增加1人。人数与比例统一使用精确目标文案：需等于/小于/小于等于/大于/大于等于 N 人，不再将等于写成最少需或把小于等于写成小于。
+- 前端复用 `PerformanceDistributionTips.vue`。用户后续明确纠正：强制/建议分布的已符合规则必须保留，显示绿色“已符合”标签、完整公式、目标及当前人数，仅不显示增减提示；不符合规则保留原强制红色/建议橙色标签，正差额提示减少、负差额提示增加。本条覆盖上一轮“仅展示违反规则”的错误展示口径。严格小于/大于调整至最近合法整数，等于阈值时仍须减少/增加1人。人数与比例统一使用精确目标文案：需等于/小于/小于等于/大于/大于等于 N 人，不再将等于写成最少需或把小于等于写成小于。
 - 布局：移除组件自身1080px最大宽及水平auto margin，保留 `width:100%`、border-box和左右24px padding，增加 `min-width:0`。不影响其他正文/只读容器的限宽。沿CR-010既有页面和Spec012 N000/N00/N11通用护栏，属于校验/文案/局部样式修复，无新信息架构，无需新完整蓝图；无UCP/数仓专属任务或数据库迁移。
 - 修改文件：`backend/app/performance/projects_router.py`、既有 `backend/tests/test_performance_projects.py`、`frontend/src/components/performance/PerformanceDistributionTips.vue/.spec.ts` 及本记录、PM-T003交互中的交叉引用。保留并行改动；未创建脚本、独立报告或测试文档。
 - 后端：backend目录执行 `.venv/Scripts/python.exe -m pytest tests/test_performance_projects.py -k 'distribution_tips' -q --tb=short` → **63 passed、1048 deselected、1条既有python_multipart弃用警告**。原3项基线通过；新增60种强制/建议 × 人数/比例 × 五比较符低于/等于/高于阈值。新增夹具首次缺授权字段的失败已补齐并重跑通过。使用隔离Db/评级夹具，未执行真实数据库验收。
 - 前端：frontend目录执行 `npx vitest run src/components/performance/PerformanceDistributionTips.spec.ts src/views/performance/Review.spec.ts` → **2文件154 passed**（提示组件10、评估页面144）。覆盖用户两个示例、两种控制模式、严格比较调整量、目标文案及折叠行为；保留既有Review的jsdom XHR/Vue stub告警，不称零告警。
 - 构建：frontend目录执行 `npm run build` → **vue-tsc + Vite通过，built in 1m 12s**，仅既有VueUse PURE annotation提示。代码 `git diff --check` 通过。
-- 本地视觉：已有Vite 5173加载真实Vue提示组件与tokens，使用合成规则、独立临时浏览器页；2560/1440/390px视口分别测得组件宽2510/1390/340px，左右边缘均等于夹具容器的20px内容边界，组件左右padding始终24px、max-width=none，无横向溢出。合规上限规则隐藏，增加35人及严格大于时增加1人可见，折叠后规则组为0。截图 `C:/Users/gaby.liu/AppData/Local/Temp/CR-010-T03-distribution-{2560,1440,390}.png`，已读取2560和390截图；该证据仅证明实际组件布局与文案，不冒称完整鉴权页面、真实项目API或生产验收。
-- 未执行：全量后端/全量前端套件、真实业务库/生产项目验收、commit、push、部署及生产数据操作。本次无迁移、通知或评级写入。
+- 首轮本地视觉（合规隐藏的断言已被上述用户纠正覆盖）：已有Vite 5173加载真实Vue提示组件与tokens，使用合成规则、独立临时浏览器页；2560/1440/390px视口分别测得组件宽2510/1390/340px，左右边缘均等于夹具容器的20px内容边界，组件左右padding始终24px、max-width=none，无横向溢出。合规上限规则隐藏，增加35人及严格大于时增加1人可见，折叠后规则组为0。截图 `C:/Users/gaby.liu/AppData/Local/Temp/CR-010-T03-distribution-{2560,1440,390}.png`，已读取2560和390截图；该证据仅证明实际组件布局与文案，不冒称完整鉴权页面、真实项目API或生产验收。
+- 已符合保留增量验证：修改仅限提示组件、既有组件测试及两处现有交互记录，不改后端/DTO/权限/取整或铺满布局。frontend目录执行 `npx vitest run src/components/performance/PerformanceDistributionTips.spec.ts src/views/performance/Review.spec.ts` → **2文件156 passed**（组件12、页面144，既有jsdom XHR/Vue stub告警保留）；覆盖两模式全部符合、混合状态、状态双向切换、符合但diff非零不显示增减、折叠再展开与原不符合增减逻辑。`npm run build` → **vue-tsc + Vite通过，built in 1m 4s**，既有VueUse PURE提示。真实组件/合成规则在2560及390px验证四条规则全部保留，两条绿色已符合均无增减提示，两条不符合均增加35人，左右对齐且无横向溢出；截图 `C:/Users/gaby.liu/AppData/Local/Temp/CR-010-T03-satisfied-distribution-{2560,390}.png`，已读取390截图。此为本地组件证据，不是完整鉴权页面/真实API/生产验收。本次增量未重新运行后端测试（后端未改），未commit/push/部署。
+- 首轮未执行：全量后端/全量前端套件、真实业务库/生产项目验收、commit、push、部署及生产数据操作。本次无迁移、通知或评级写入。
 
 ## 19. CR-010-F13 结果查看配置与运行架构一致性（2026-11-10）
 

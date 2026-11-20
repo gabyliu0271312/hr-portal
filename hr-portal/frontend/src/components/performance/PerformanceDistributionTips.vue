@@ -13,7 +13,7 @@
       <section v-for="group in groups" :key="group.control_mode" class="distribution-tips__group">
         <h3 class="distribution-tips__group-title">{{ group.label }}</h3>
         <div v-for="(rule, ruleIndex) in group.rules" :key="ruleIndex" class="distribution-tips__rule">
-          <span class="distribution-tips__status-tag" :class="group.control_mode === 'HARD' ? 'distribution-tips__status-tag--error' : 'distribution-tips__status-tag--warning'">不符合</span>
+          <span class="distribution-tips__status-tag" :class="!rule.violated ? 'distribution-tips__status-tag--success' : group.control_mode === 'HARD' ? 'distribution-tips__status-tag--error' : 'distribution-tips__status-tag--warning'">{{ rule.violated ? '不符合' : '已符合' }}</span>
           <div class="distribution-tips__rule-body">
             <p class="distribution-tips__rule-heading">{{ rule.assessment_label }}：校准范围内全部人员需满足</p>
             <p class="distribution-tips__rule-line">
@@ -51,6 +51,7 @@ interface TipGroup {
   control_mode: 'HARD' | 'SOFT'
   label: string
   rules: Array<{
+    violated: boolean
     assessment_label: string
     formula: string
     needLabel: string
@@ -70,7 +71,6 @@ const groups = computed<TipGroup[]>(() => {
   ])
   for (const rule of tips.rules) {
     for (const condition of rule.conditions) {
-      if (!condition.violated) continue
       const group = byMode.get(condition.control_mode)
       if (!group) continue
       const unitLabel = condition.unit === 'PERCENT' ? '%' : '人'
@@ -80,16 +80,17 @@ const groups = computed<TipGroup[]>(() => {
       let diffCount = ''
       let diffClass: TipGroup['rules'][number]['diffClass'] = ''
       const diff = condition.diff + (condition.operator === 'LT' ? 1 : condition.operator === 'GT' ? -1 : 0)
-      if (diff > 0) {
+      if (condition.violated && diff > 0) {
         diffAction = '需减少 '
         diffCount = String(diff)
         diffClass = 'distribution-tips__diff--error'
-      } else if (diff < 0) {
+      } else if (condition.violated && diff < 0) {
         diffAction = '需增加 '
         diffCount = String(-diff)
         diffClass = 'distribution-tips__diff--warning'
       }
       group.rules.push({
+        violated: condition.violated,
         assessment_label: rule.assessment_label,
         formula,
         needLabel,
@@ -128,6 +129,7 @@ const groups = computed<TipGroup[]>(() => {
 .distribution-tips__group-title { margin: 0; font-size: 14px; font-weight: 600; line-height: 22px; }
 .distribution-tips__rule { display: flex; align-items: flex-start; gap: 16px; }
 .distribution-tips__status-tag { display: inline-flex; align-items: center; flex: none; height: 20px; padding: 0 6px; box-sizing: border-box; border-radius: 4px; font-size: 12px; line-height: 20px; }
+.distribution-tips__status-tag--success { background: var(--color-success-light); color: var(--color-success); }
 .distribution-tips__status-tag--error { background: color-mix(in srgb, var(--color-danger) 10%, transparent); color: var(--color-danger); }
 .distribution-tips__status-tag--warning { background: color-mix(in srgb, var(--color-warning) 10%, transparent); color: var(--color-warning); }
 .distribution-tips__rule-body { min-width: 0; }
