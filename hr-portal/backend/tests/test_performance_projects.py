@@ -278,7 +278,8 @@ async def test_calibration_same_handler_rules_stay_separate_with_overlap(monkeyp
     assert [row["distribution_info"]["rules"] for row in roots] == [[distributions[0]], [distributions[1]]]
     children = [row for row in rows if row["source"] == "DELEGATION"]
     assert len(children) == 1 and children[0]["source_rule_id"] == "a" and children[0]["task_ids"] == [7]
-    assert roots[0]["unauthorized_task_ids"] == [8] and roots[1]["unauthorized_count"] is None
+    assert roots[0]["unauthorized_task_ids"] == [8]
+    assert roots[1]["unauthorized_count"] == 1 and roots[1]["unauthorized_task_ids"] == [7]
 
 
 @pytest.mark.asyncio
@@ -10702,7 +10703,9 @@ async def test_calibration_authorization_view_separates_operation_capabilities(m
     assert row["source"] == "BACKEND" and row["source_authorization_ids"] == {}
     assert row["authorized_by"] is None and row["authorized_at"] is None and row["authorizations"] == []
     assert child["source"] == "DELEGATION" and child["source_authorization_ids"] == {"7": 8}
-    assert child["can_revoke"] is allowed and child["can_authorize"] is False and child["unauthorized_count"] is None
+    assert child["can_revoke"] is allowed and child["can_authorize"] is False
+    assert child["unauthorized_count"] == 1 and child["unauthorized_task_ids"] == [7]
+    assert row["unauthorized_count"] == 0 and row["unauthorized_task_ids"] == []
     assert len(child["authorizations"]) == 1
 
 
@@ -10804,7 +10807,7 @@ async def test_calibration_f04_projection_aggregates_children_and_masks_profiles
     assert delegated["task_ids"] == [7, 8] and delegated["source_authorization_ids"] == {"7": 11, "8": 12}
     assert delegated["authorized_count"] == 2 and len(delegated["authorizations"]) == 2
     assert delegated["unauthorized_count"] == 1 and delegated["unauthorized_task_ids"] == [8]
-    assert child["task_ids"] == [7] and child["unauthorized_count"] is None
+    assert child["task_ids"] == [7] and child["unauthorized_count"] == 1 and child["unauthorized_task_ids"] == [7]
     assert backend["end_at"] == result["end_at"] == "2026-12-01T00:00:00+00:00"
     person = delegated["task_people"][0]
     assert person["department"] == ("一级" if visible else None)

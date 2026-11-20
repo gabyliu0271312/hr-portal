@@ -196,6 +196,14 @@
 - 管理范围回归：`test_performance_management_scope.py -q --tb=short` → **20 passed、8.84秒、exit0**，既有python_multipart警告；项目权限/HRBP人员范围/跨周期拒绝仍保留。
 - 最终构建：报表负责人修正该测试类型后，`npm --prefix hr-portal/frontend run build` → **vue-tsc+Vite通过、1分11秒、exit0**，既有VueUse PURE注释提示。首次构建曾受并行报表测试 `ProjectStatisticsReportPanel.spec.ts:235` 可空string类型错误阻塞（exit2），未将首次失败计通过，未覆盖报表改动。真实JWT API/业务数据库/部署未验证；F04/F05未整体勾选。用户本轮已授权在main提交推送，仅纳入本卡代码/测试/PNG与本段；部署未执行。
 
+### 2026-11-20 F04 未授权人数显示修复
+
+- 用户反馈仅显示可校准人数。本轮取消“允许再次授权”对人数读取的影响：后台规则行及委托行均按同源有效任务/有效子授权差集返回 `unauthorized_count` 和 `unauthorized_task_ids`；关闭再授权时仍返回实际人数（含0）。前端人数链接只判断数值是否存在，不借此放开协助授权按钮或写接口权限。此显示口径覆盖此前关闭授权时显示“-”的约定，其他来源/规则分行/首项目逻辑保留。
+- 仅修改原校准GET的四处返回字段、原页面人数显示条件和既有前后端断言，保留并行360/其他业务改动；无新模型/迁移/外部写入。用户已授权本轮在main提交推送，部署未执行。
+- 后端：`DB_HOST=127.0.0.1 DB_PORT=1 PYTHONPATH=hr-portal/backend hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_user_authorization.py -q --tb=short -k "calibration or delegation or task_authorization or authorization_records"` → **247 passed、2 skipped、684 deselected、23.94秒、exit0**，既有python_multipart警告；覆盖禁止再授权的后台/子授权行仍返回人数及名单、0人数/空名单、原权限拒绝。
+- 前端：`npm --prefix hr-portal/frontend run test -- src/views/performance/ProjectManagement.spec.ts src/components/performance/focus-group/FocusGroupPeopleDialog.spec.ts --silent` → **2文件63 passed、exit0**；断言禁止授权时两个蓝字人数可见、未授权名单仅对应差集、0可点击空名单且所有写按钮仍禁用。
+- 真实Vite路由+独立浏览器上下文，所有API合成隔离，1440×1000/DPR1：两行人数分别为2/1与2/0，四个写按钮均disabled，点击未授权1仅打开员工乙一条名单，pageErrors=0。独立PNG已读取：`ui-blueprints/CR-007-F04-implemented-unauthorized-count-20261120.png`。尚未验证真实JWT API/业务数据库/生产；F04/F05保持未整体勾选。`npm --prefix hr-portal/frontend run build` → **vue-tsc+Vite通过、39.99秒、exit0**，仅既有VueUse PURE注释提示。目标差异格式检查通过。
+
 ### 当前实现和证据
 
 - 主实现：`projects_router.py`、`api/performance.ts`、`ProjectManagement.vue`、`CompletionRatePanel.vue`、`CompletionNodeCard.vue`、`PerformanceManagementTable.vue`、`PerformanceReminderPanel.vue`、`performanceReminder.ts`、现有路由；新增 `ProjectManagementReminder.vue`、`ProjectAuthorizationRecords.vue`、`ProjectCalibrationAuthorization.vue`。

@@ -29,7 +29,7 @@
             <span v-if="simpleScope(row) || !row.scope_rules?.length">{{ row.scope }}</span>
           </template>
           <button v-else-if="column.key === 'authorized_count'" type="button" class="count-link" @click="openPeople(row, false)">{{ row.authorized_count }}</button>
-          <template v-else-if="column.key === 'unauthorized_count'"><button v-if="row.allow_authorize && row.unauthorized_count !== null" type="button" class="count-link" @click="openPeople(row, true)">{{ row.unauthorized_count }}</button><span v-else>-</span></template>
+          <template v-else-if="column.key === 'unauthorized_count'"><button v-if="row.unauthorized_count != null" type="button" class="count-link" @click="openPeople(row, true)">{{ row.unauthorized_count }}</button><span v-else>-</span></template>
           <span v-else-if="column.key === 'distribution_rule'" class="distribution-cell">{{ row.distribution_rule || '--' }}<PerformanceInfoPopover v-if="row.distribution_info?.groups?.length || row.distribution_info?.lines?.length" class="distribution-info" :content="row.distribution_info?.lines || []" :groups="row.distribution_info?.groups" width="auto" aria-label="查看分布规则" /></span>
           <span v-else-if="column.key === 'action'" class="actions">
             <PerformanceInfoPopover :content="authorizeReason(row)" variant="disabled-action" width="auto"><button type="button" :disabled="!row.can_authorize || !row.allow_authorize || !row.task_ids.length || loading || saving" @click="openAuthorization(row)">协助授权</button></PerformanceInfoPopover>
