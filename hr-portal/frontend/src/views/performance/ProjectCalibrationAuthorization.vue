@@ -106,7 +106,7 @@ const columns = computed(() => [
   { key: 'scope', label: '校准范围', width: 180 }, { key: 'authorized_count', label: '可校准人数', width: 144 },
   { key: 'allow', label: '是否允许授权他人', width: 176 }, { key: 'unauthorized_count', label: '未授权人数', width: 144 },
   { key: 'distribution_rule', label: '分布规则', width: 168 }, { key: 'authorized_by', label: '授权人', width: 180 },
-  { key: 'authorized_at', label: '发起授权时间', width: 200 }, { key: 'action', label: '操作', width: 180 },
+  { key: 'authorized_at', label: '发起授权时间', width: 200 }, { key: 'action', label: '操作', width: 180, fixed: 'right' as const },
 ].filter(column => column.key !== 'distribution_rule' || rows.value.some(row => row.distribution_info?.force_distribution_enabled)))
 async function load() {
   if (!cycleId.value) { error.value = '请选择绩效周期'; return }

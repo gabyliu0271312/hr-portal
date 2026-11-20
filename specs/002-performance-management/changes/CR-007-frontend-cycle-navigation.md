@@ -204,6 +204,13 @@
 - 前端：`npm --prefix hr-portal/frontend run test -- src/views/performance/ProjectManagement.spec.ts src/components/performance/focus-group/FocusGroupPeopleDialog.spec.ts --silent` → **2文件63 passed、exit0**；断言禁止授权时两个蓝字人数可见、未授权名单仅对应差集、0可点击空名单且所有写按钮仍禁用。
 - 真实Vite路由+独立浏览器上下文，所有API合成隔离，1440×1000/DPR1：两行人数分别为2/1与2/0，四个写按钮均disabled，点击未授权1仅打开员工乙一条名单，pageErrors=0。独立PNG已读取：`ui-blueprints/CR-007-F04-implemented-unauthorized-count-20261120.png`。尚未验证真实JWT API/业务数据库/生产；F04/F05保持未整体勾选。`npm --prefix hr-portal/frontend run build` → **vue-tsc+Vite通过、39.99秒、exit0**，仅既有VueUse PURE注释提示。目标差异格式检查通过。
 
+### 2026-11-20 F04 操作列右侧固定修复
+
+- 用户明确：校准授权查看页最右侧操作列应与左侧被授权人列一样保持固定。仅在 ProjectCalibrationAuthorization.vue 原操作列增加 `fixed: 'right'`，复用 PerformanceManagementTable → UiTable；不新增 CSS、不改共享内核、API、权限或数据库。
+- 现有 ProjectManagement.spec.ts 增加左右固定表头/单元格及右侧0偏移断言；修改前定向测试1 failed（操作列缺 is-fixed-right），修改后 `npm --prefix hr-portal/frontend run test -- src/views/performance/ProjectManagement.spec.ts src/components/ui/UiTable.spec.ts --silent` → **2文件74 passed、exit0**，原无权按钮禁用和无写请求断言保留。
+- `npm --prefix hr-portal/frontend run build` → **exit2**，被未修改的 `PerformanceReview360InvitePanel.spec.ts:318/323` 两处 TS2339 阻塞：`Omit<DOMWrapper<Element>, "exists">` 不存在 exists。未扩展修改360测试，Vite构建未执行；不能宣称完整构建通过。
+- 本次未运行浏览器横向滚动或独立PNG验收、真实API/数据库/生产验收；F04/F05整体仍未勾选。已读Spec012 UI交互与守则，复用既有表格、不引入禁止项，数仓/UCP检查不适用。未提交、推送或部署。
+
 ### 当前实现和证据
 
 - 主实现：`projects_router.py`、`api/performance.ts`、`ProjectManagement.vue`、`CompletionRatePanel.vue`、`CompletionNodeCard.vue`、`PerformanceManagementTable.vue`、`PerformanceReminderPanel.vue`、`performanceReminder.ts`、现有路由；新增 `ProjectManagementReminder.vue`、`ProjectAuthorizationRecords.vue`、`ProjectCalibrationAuthorization.vue`。
