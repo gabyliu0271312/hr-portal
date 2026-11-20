@@ -278,6 +278,54 @@ def test_actual_task_delegation_endpoints_consume_assigned_keys_and_revoke_immed
     assert client.get('/api/v1/performance/project-management/calibration-authorization?cycle_id=1').status_code == 403
 
 
+@pytest.mark.parametrize('scope', [None, {'E1', 'NO_NAME'}])
+def test_authorization_records_display_task_snapshot_names_for_both_tabs(api, monkeypatch, scope):
+    client, db, session, app = api
+    session.add_all([
+        PerformanceProject(id=1, project_ref='P1', cycle_ref='C1', name='项目一', status='STARTED', settings={}),
+        PerformanceProject(id=2, project_ref='P2', cycle_ref='C1', name='项目二', status='STARTED', settings={}),
+        PerformanceProjectMemberSnapshot(id=1, project_id=1, cycle_ref='C1', snapshot_version=1, source_snapshot_id=1),
+        PerformanceProjectMemberSnapshot(id=2, project_id=1, cycle_ref='C1', snapshot_version=2, source_snapshot_id=2),
+        PerformanceProjectMemberSnapshot(id=3, project_id=2, cycle_ref='C1', snapshot_version=1, source_snapshot_id=3),
+        PerformanceProjectMember(id=1, snapshot_id=1, employee_no='E1', display_name='历史显示名'),
+        PerformanceProjectMember(id=2, snapshot_id=2, employee_no='E1', display_name='新快照显示名'),
+        PerformanceProjectMember(id=3, snapshot_id=3, employee_no='E1', display_name='其他项目显示名'),
+        PerformanceProjectMember(id=4, snapshot_id=1, employee_no='NO_NAME', display_name=''),
+        PerformanceProjectMember(id=5, snapshot_id=1, employee_no='HIDDEN', display_name='范围外人员'),
+        PerformanceProjectNodeSnapshot(id=1, project_id=1, node_id='eval', name='上级评估', node_type='evaluation', node_order=1, config={}),
+    ])
+    for task_id, snapshot_id, employee_no, event_type in [
+        (1, 1, 'E1', 'PERFORMANCE_TASK_AUTHORIZED'),
+        (2, 1, 'E1', 'PERFORMANCE_TASK_TRANSFERRED'),
+        (3, 2, 'E1', 'PERFORMANCE_TASK_TRANSFERRED'),
+        (4, 1, 'NO_NAME', 'PERFORMANCE_TASK_AUTHORIZED'),
+        (5, 1, 'HIDDEN', 'PERFORMANCE_TASK_AUTHORIZED'),
+    ]:
+        session.add(PerformanceNodeTask(id=task_id, project_id=1, cycle_ref='C1', member_snapshot_id=snapshot_id, node_snapshot_id=1, target_employee_no=employee_no, handler_ref=f'OWNER{task_id}', task_kind='evaluation', phase_id='', answers={}))
+        session.add(PerformanceAuditEvent(id=task_id, cycle_ref='C1', employee_no=employee_no, event_type=event_type, actor_type='EMPLOYEE', actor_ref='OWNER', subject_type='PERFORMANCE_NODE_TASK', subject_ref=str(task_id), after_state={'project_id': 1, 'initiator_name': '发起显示名', 'recipient_name': '接收显示名', 'reviewee_names': [employee_no] if employee_no != 'NO_NAME' else ['旧记录姓名']}))
+    session.commit()
+    project = session.get(PerformanceProject, 1)
+    async def permitted(*_args): return [(project, scope)]
+    async def view_scope(*_args): return scope
+    monkeypatch.setattr(projects, '_task_authorization_projects', permitted)
+    monkeypatch.setattr(projects, '_task_authorization_view_scope', view_scope)
+    url = '/api/v1/performance/project-management/authorization-records?cycle_id=1'
+    for _ in range(2):
+        response = client.get(url)
+        assert response.status_code == 200, response.text
+        result = response.json()
+        records = {row['task_id']: row for row in result['authorization_records'] + result['transfer_records']}
+        assert records[1]['reviewees'] == records[2]['reviewees'] == ['历史显示名']
+        assert records[3]['reviewees'] == ['新快照显示名']
+        assert records[4]['reviewees'] == (['NO_NAME'] if scope is not None else ['旧记录姓名'])
+        assert all(row['initiator'] == '发起显示名' and row['authorized_person'] == '接收显示名' for row in records.values())
+        assert {row['task_id'] for row in result['transfer_records']} == {2, 3}
+        assert (5 in records) == (scope is None)
+        assert all('其他项目显示名' not in row['reviewees'] for row in records.values())
+    assert session.get(PerformanceAuditEvent, 1).after_state['reviewee_names'] == ['E1']
+    assert session.get(PerformanceProjectMember, 1).display_name == '历史显示名'
+
+
 @pytest.fixture
 def member_actions_api(api):
     from datetime import timedelta

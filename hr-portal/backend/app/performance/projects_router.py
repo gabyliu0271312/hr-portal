@@ -6391,6 +6391,18 @@ async def project_management_authorization_records(
             PerformanceAuditEvent.subject_type == "PERFORMANCE_NODE_TASK",
             PerformanceAuditEvent.event_type.in_(["PERFORMANCE_TASK_AUTHORIZED", "PERFORMANCE_TASK_TRANSFERRED", "PERFORMANCE_TASK_AUTHORIZATION_REVOKED"]),
         ).order_by(PerformanceAuditEvent.event_at.desc(), PerformanceAuditEvent.id.desc()))).scalars().all())
+        task_ids = {int(event.subject_ref) for event in events if str(event.subject_ref).isdigit()
+                    and (event.after_state or {}).get("project_id") == project.id
+                    and (scope is None or event.employee_no in scope)}
+        names_statement = select(PerformanceNodeTask.id, PerformanceProjectMember.display_name).join(
+            PerformanceProjectMember, and_(
+                PerformanceProjectMember.snapshot_id == PerformanceNodeTask.member_snapshot_id,
+                PerformanceProjectMember.employee_no == PerformanceNodeTask.target_employee_no,
+            ),
+        ).where(PerformanceNodeTask.project_id == project.id, PerformanceNodeTask.id.in_(task_ids))
+        if scope is not None:
+            names_statement = names_statement.where(PerformanceNodeTask.target_employee_no.in_(scope))
+        reviewee_names = dict((await db.execute(names_statement)).all()) if task_ids else {}
         revoked = set()
         for event in events:
             state = event.after_state or {}
@@ -6415,12 +6427,16 @@ async def project_management_authorization_records(
                 revoked.add(record_id)
                 continue
             transfer = event.event_type == "PERFORMANCE_TASK_TRANSFERRED"
+            reviewees = ([event.employee_no] if event.employee_no else []) if scope is not None else state.get("reviewee_names") or ([event.employee_no] if event.employee_no else [])
+            reviewee_name = reviewee_names.get(int(event.subject_ref))
+            if reviewee_name:
+                reviewees = [reviewee_name]
             result["transfer_records" if transfer else "authorization_records"].append({
                 "id": str(event.id), "initiator": state.get("initiator_name") or event.actor_ref,
                 "status": "已撤销" if record_id in revoked or (persisted and persisted.status != "ACTIVE") else "已转交" if transfer else "已授权",
                 "authorized_person": state.get("recipient_name") or state.get("recipient_ref"),
                 "stages": state.get("stage_names") or [],
-                "reviewees": ([event.employee_no] if event.employee_no else []) if scope is not None else state.get("reviewee_names") or ([event.employee_no] if event.employee_no else []),
+                "reviewees": reviewees,
                 "submitted_at": event.event_at, "can_revoke": bool(persisted and persisted.status == "ACTIVE" and await _can_revoke_management_authorization(context, project, persisted, db)),
                 "authorization_id": persisted.id if persisted else None, "task_id": int(event.subject_ref) if str(getattr(event, "subject_ref", "")).isdigit() else None, "project_id": project.id,
             })

@@ -11799,9 +11799,13 @@ async def test_authorization_records_apply_project_employee_scope_and_revoke_eve
     class Db:
         async def scalar(self, query): return SimpleNamespace(node_type="evaluation")
         async def get(self, model, key): return None
-        async def execute(self, query): return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: events))
+        async def execute(self, query):
+            if "performance_audit_events" in str(query):
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: events))
+            return SimpleNamespace(all=lambda: [(7, "员工一")])
     result = await router.project_management_authorization_records(1, context("performance.projects.manage"), Db())
     assert len(result["authorization_records"]) == 1
+    assert result["authorization_records"][0]["reviewees"] == ["员工一"]
     assert result["authorization_records"][0]["status"] == "已撤销"
     assert result["authorization_records"][0]["can_revoke"] is False
 
