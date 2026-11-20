@@ -1924,7 +1924,7 @@ async def test_workbench_distribution_tips_disabled_when_force_distribution_off(
         "distribution": {"mode": "UNIFIED", "rules": [{"assessment_item_id": "grade", "min_people_operator": "GTE", "min_people_count": 3, "conditions": [{"control_mode": "HARD", "grade_codes": ["S"], "operator": "LTE", "value": 20, "unit": "PERCENT"}], "rounding_method": "ROUND"}], "scope_configured": False},
         "phases": [],
     }}}}
-    project = SimpleNamespace(id=1, settings={"flow_settings": flow, "template_id": ""})
+    project = SimpleNamespace(id=1, cycle_ref="C1", settings={"flow_settings": flow, "template_id": ""})
     node = SimpleNamespace(id=11, project_id=1, node_id="calibration", node_type="calibration", config={
         "calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "phase-1", "assignments": [{"handler_ref": "M1", "employee_no": "E1"}]}]},
         "template": {"content": [{"content_id": "assessment", "type": "rating", "name": "综合评估", "items": [{"id": "grade", "kind": "rating", "label": "绩效评级", "options": [{"id": "S", "code": "S", "label": "S"}]}]}]},
@@ -1958,14 +1958,14 @@ async def test_workbench_distribution_tips_computes_percent_target_and_diff(monk
         ], "scope_configured": False},
         "phases": [],
     }}}}
-    project = SimpleNamespace(id=1, settings={"flow_settings": flow, "template_id": ""})
+    project = SimpleNamespace(id=1, cycle_ref="C1", settings={"flow_settings": flow, "template_id": ""})
     node = SimpleNamespace(id=11, project_id=1, node_id="calibration", node_type="calibration", config={
         "calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "phase-1", "assignments": [{"handler_ref": "M1", "employee_no": no} for no in ("E1", "E2", "E3", "E4", "E5")]}]},
         "template": {"content": [{"content_id": "assessment", "type": "rating", "name": "综合评估", "items": [{"id": "grade", "kind": "rating", "label": "绩效评级", "options": [{"id": "S", "code": "S", "label": "S"}, {"id": "D", "code": "D", "label": "D"}]}]}]},
     })
     tasks = []
     for index, no in enumerate(("E1", "E2", "E3", "E4", "E5")):
-        tasks.append(SimpleNamespace(id=20 + index, project_id=1, cycle_ref="C1", task_kind="calibration", phase_id="phase-1", handler_ref="M1", status="pending", submitted_at=None, target_employee_no=no, available_at=None, due_at=None, answers={}))
+        tasks.append(SimpleNamespace(id=20 + index, member_snapshot_id=1, project_id=1, cycle_ref="C1", task_kind="calibration", phase_id="phase-1", handler_ref="M1", status="pending", submitted_at=None, target_employee_no=no, available_at=None, due_at=None, answers={}))
     grade = {"E1": "S", "E2": "S", "E3": "D", "E4": "A", "E5": "A"}
     async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="M1")
     async def answers(task, *args, **kwargs): return {"grade": grade[task.target_employee_no]}
@@ -1973,7 +1973,7 @@ async def test_workbench_distribution_tips_computes_percent_target_and_diff(monk
     monkeypatch.setattr(routes, "_calibration_answers", answers)
     class Db:
         async def get(self, model, key): return project if model is PerformanceProject else None
-        async def execute(self, query): return SimpleNamespace(all=lambda: [(task, node) for task in tasks])
+        async def execute(self, query): return SimpleNamespace(all=lambda: [(task, node) for task in tasks], scalars=lambda: SimpleNamespace(all=lambda: []))
     result = await routes.workbench_task_distribution_tips("calibration", 1, context(), Db(), None)
     assert result["enabled"] is True
     assert result["total_people"] == 5
@@ -2018,19 +2018,19 @@ async def test_workbench_distribution_tips_respects_comparison_operator(monkeypa
         "force_distribution_enabled": True,
         "distribution": {"mode": "UNIFIED", "rules": [rule], "scope_configured": False}, "phases": [],
     }}}}
-    project = SimpleNamespace(id=1, settings={"flow_settings": flow, "template_id": ""})
+    project = SimpleNamespace(id=1, cycle_ref="C1", settings={"flow_settings": flow, "template_id": ""})
     node = SimpleNamespace(id=11, project_id=1, node_id="calibration", node_type="calibration", config={
         "calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "phase-1", "assignments": [{"handler_ref": "M1", "employee_no": f"E{index}"} for index in range(5)]}]},
         "template": {"content": [{"content_id": "assessment", "type": "rating", "name": "综合评估", "items": [{"id": "grade", "kind": "rating", "label": "绩效评级", "options": [{"id": "S", "code": "S", "label": "S"}]}]}]},
     })
-    tasks = [SimpleNamespace(id=20 + index, project_id=1, task_kind="calibration", handler_ref="M1", phase_id="phase-1", target_employee_no=f"E{index}", answers={}) for index in range(5)]
+    tasks = [SimpleNamespace(id=20 + index, member_snapshot_id=1, project_id=1, task_kind="calibration", handler_ref="M1", phase_id="phase-1", target_employee_no=f"E{index}", answers={}) for index in range(5)]
     async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="M1")
     async def answers(task, *args, **kwargs): return {"grade": "S"} if task.id < 20 + current_people else {}
     monkeypatch.setattr(routes, "resolve_trusted_performance_actor", actor)
     monkeypatch.setattr(routes, "_calibration_answers", answers)
     class Db:
         async def get(self, model, key): return project if model is PerformanceProject else None
-        async def execute(self, query): return SimpleNamespace(all=lambda: [(task, node) for task in tasks])
+        async def execute(self, query): return SimpleNamespace(all=lambda: [(task, node) for task in tasks], scalars=lambda: SimpleNamespace(all=lambda: []))
 
     result = await routes.workbench_task_distribution_tips("calibration", 1, context(), Db(), None)
     condition = result["rules"][0]["conditions"][0]
@@ -2055,21 +2055,21 @@ async def test_workbench_distribution_tips_phase_rules_override_node_and_people_
         "distribution": {"mode": "UNIFIED", "rules": [node_rule], "scope_configured": False},
         "phases": [{"phase_id": "phase-1", "rules": [{"scope": "PROJECT_ALL", "allow_authorize": False, "distribution_rules": [phase_rule]}]}],
     }}}}
-    project = SimpleNamespace(id=1, settings={"flow_settings": flow, "template_id": ""})
+    project = SimpleNamespace(id=1, cycle_ref="C1", settings={"flow_settings": flow, "template_id": ""})
     node = SimpleNamespace(id=11, project_id=1, node_id="calibration", node_type="calibration", config={
         "calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "phase-1", "assignments": [{"handler_ref": "M1", "employee_no": no} for no in ("E1", "E2", "E3")]}]},
         "template": {"content": [{"content_id": "assessment", "type": "rating", "name": "综合评估", "items": [{"id": "grade", "kind": "rating", "label": "绩效评级", "options": [{"id": "S", "code": "S", "label": "S"}]}]}]},
     })
     tasks = []
     for index, no in enumerate(("E1", "E2", "E3")):
-        tasks.append(SimpleNamespace(id=30 + index, project_id=1, cycle_ref="C1", task_kind="calibration", phase_id="phase-1", handler_ref="M1", status="pending", submitted_at=None, target_employee_no=no, available_at=None, due_at=None, answers={}))
+        tasks.append(SimpleNamespace(id=30 + index, member_snapshot_id=1, project_id=1, cycle_ref="C1", task_kind="calibration", phase_id="phase-1", handler_ref="M1", status="pending", submitted_at=None, target_employee_no=no, available_at=None, due_at=None, answers={}))
     async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="M1")
     async def answers(task, *args, **kwargs): return {"grade": "S"}
     monkeypatch.setattr(routes, "resolve_trusted_performance_actor", actor)
     monkeypatch.setattr(routes, "_calibration_answers", answers)
     class Db:
         async def get(self, model, key): return project if model is PerformanceProject else None
-        async def execute(self, query): return SimpleNamespace(all=lambda: [(task, node) for task in tasks])
+        async def execute(self, query): return SimpleNamespace(all=lambda: [(task, node) for task in tasks], scalars=lambda: SimpleNamespace(all=lambda: []))
     result = await routes.workbench_task_distribution_tips("calibration", 1, context(), Db(), None)
     assert result["enabled"] is True
     # phase 级 distribution_rules 覆盖节点级：PEOPLE 单位直接取目标值
@@ -11766,7 +11766,15 @@ async def test_calibration_f04_projection_aggregates_children_and_masks_profiles
     assert enabled[1]["distribution_rule"] == "沿用父任务规则" and enabled[1]["distribution_info"]["groups"]
     for record_row in records[:2]:
         record_row.authorization_settings["distribution_mode"] = "NONE"
-    no_distribution = (await routes.project_management_calibration_authorization(1, context(), Db()))["items"][1]
+    projection = (await routes.project_management_calibration_authorization(1, context(), Db()))["items"]
+    no_distribution = projection[1]
+    assert projection[0]["distribution_info"]["rules"] == [distribution]
+    for index, record_row in enumerate(records[:2]):
+        record_row.authorization_settings = {**record_row.authorization_settings, "calibration_completed_at": f"2026-11-20T10:00:0{index}+00:00", "calibration_completed_by": "R"}
+    completed_projection = (await routes.project_management_calibration_authorization(1, context(), Db()))["items"]
+    assert len(completed_projection) == 3
+    assert [row["status"] for row in completed_projection] == ["待校准", "已校准", "待校准"]
+    assert completed_projection[0]["distribution_info"]["rules"] == [distribution]
     assert no_distribution["distribution_rule"] == "无需满足分布规则"
     assert no_distribution["distribution_info"]["rules"] == no_distribution["distribution_info"]["groups"] == no_distribution["distribution_info"]["lines"] == []
     for kind, values_key, values, label, field in [
@@ -13530,17 +13538,22 @@ async def test_calibration_f04_rejects_recipient_who_is_reviewee(task_delegation
 
 
 @pytest.mark.asyncio
-async def test_calibration_f04_keeps_forced_distribution_none_rejection(task_delegation_backend):
-    from fastapi import HTTPException
+@pytest.mark.parametrize("allow_reauthorize", [False, True])
+async def test_calibration_f04_allows_none_without_changing_parent_distribution(task_delegation_backend, allow_reauthorize):
+    from copy import deepcopy
     data = task_delegation_backend
     data.task.task_kind = data.node.node_type = "calibration"
     data.task.phase_id = "p1"
     data.node.config = {"calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "p1", "assignments": [{"handler_ref": "ORIGINAL", "employee_no": "E1", "allow_authorize": True}]}]}}
     data.project.settings = {"flow_settings": {"node_settings": {"review": {"calibration": {"force_distribution_enabled": True}}}}}
-    with pytest.raises(HTTPException) as error:
-        await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="RECIPIENT", distribution_mode="NONE"), context(), data.db)
-    assert (error.value.status_code, error.value.detail) == (409, "CALIBRATION_DISTRIBUTION_AUTHORIZATION_UNSUPPORTED")
-    assert data.db.commits == 0 and not data.db.records
+    original_settings = deepcopy(data.project.settings)
+    original_config = deepcopy(data.node.config)
+    result = await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="RECIPIENT", distribution_mode="NONE", allow_reauthorize=allow_reauthorize), context(), data.db)
+    assert result["status"] == "ACTIVE" and data.db.commits == 1
+    assert data.db.records[0].authorization_settings["distribution_mode"] == "NONE"
+    assert data.db.records[0].authorization_settings["allow_reauthorize"] is allow_reauthorize
+    assert data.project.settings == original_settings and data.node.config == original_config
+    assert data.task.calibration_completed_at is None
 
 
 def test_calibration_f04_source_id_validation():

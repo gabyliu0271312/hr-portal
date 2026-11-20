@@ -5793,10 +5793,6 @@ async def create_task_delegation(
             raise HTTPException(status_code=403, detail="CALIBRATION_RECIPIENT_OUTSIDE_SCOPE")
     if node.node_type == "calibration" and payload.action == "TRANSFER":
         raise HTTPException(status_code=422, detail="CALIBRATION_TRANSFER_NOT_SUPPORTED")
-    if node.node_type == "calibration" and payload.distribution_mode == "NONE":
-        calibration_settings = (((project.settings or {}).get("flow_settings") or {}).get("node_settings") or {}).get(node.node_id, {}).get("calibration") or {}
-        if calibration_settings.get("force_distribution_enabled"):
-            raise HTTPException(status_code=409, detail="CALIBRATION_DISTRIBUTION_AUTHORIZATION_UNSUPPORTED")
     if node.node_type == "calibration" and payload.scope_mode == "PARTIAL":
         target = await db.scalar(select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == task.member_snapshot_id, PerformanceProjectMember.employee_no == task.target_employee_no))
         in_scope = target is not None and (
@@ -6561,7 +6557,7 @@ def _calibration_delegation_groups(records):
     keys = {}
     def group_key(record):
         if record.id not in keys:
-            settings = {key: value for key, value in (record.authorization_settings or {}).items() if key not in {"idempotency_key", "parent_authorization_id", "notification_status", "notify_original"}}
+            settings = {key: value for key, value in (record.authorization_settings or {}).items() if key not in {"idempotency_key", "parent_authorization_id", "notification_status", "notify_original", "calibration_completed_at", "calibration_completed_by", "revoke_notification_status"}}
             parent_id = (record.authorization_settings or {}).get("parent_authorization_id")
             parent_key = group_key(by_id[parent_id]) if parent_id is not None else None
             keys[record.id] = (parent_key, record.recipient_employee_no, record.grantor_employee_no, frozen(settings), getattr(record, "batch_id", None), record.read_only)
@@ -6751,7 +6747,7 @@ async def project_management_calibration_authorization(
                         **base, "id": delegation_row_ids[delegated[0].id], "parent_id": parent_row_id, "source": "DELEGATION",
                         "source_rule_id": settings.get("source_rule_id"), "notify_original": notify_original,
                         "calibrator": names.get(delegated[0].recipient_employee_no, delegated[0].recipient_employee_no),
-                        "status": "已校准" if all(_calibration_completed(task) for task in child_tasks) else "待校准",
+                        "status": "已校准" if all((record.authorization_settings or {}).get("calibration_completed_at") for record in delegated) else "待校准",
                         "scope": child_scope,
                         "scope_rules": child_scope_rules, "authorized_count": len(child_tasks), "allow_authorize": can_continue,
                         "can_authorize": can_continue and all(operation_scope is None or task.target_employee_no in operation_scope for task in child_tasks),
@@ -7862,7 +7858,6 @@ async def workbench_task_distribution_tips(node_id: str, project_id: int, contex
     if project is None or not rows:
         return {"enabled": False, "total_people": 0, "rated_people": 0, "rules": [], "lines": []}
     node = rows[0][1]
-    current_phase_id = phase_id if isinstance(phase_id, str) else getattr(rows[0][0], "phase_id", "") or None
     flow = ((project.settings or {}).get("flow_settings") or {})
     if node.node_type == "calibration":
         configured = (flow.get("node_settings") or {}).get(node.node_id, {})
@@ -7893,8 +7888,9 @@ async def workbench_task_distribution_tips(node_id: str, project_id: int, contex
         for task in all_tasks:
             grouped.setdefault((task.member_snapshot_id, task.target_employee_no), []).append(task)
         result_context = (nodes, grouped, {(member.snapshot_id, member.employee_no): member for member in members})
-    rating_counts: dict[str, int] = {}
-    rated_people = 0
+    from app.performance.calibration_completion_service import authorization_groups, distribution_tips, member_key
+    groups, _records = await authorization_groups(db, project, node, [task for task, _node in rows], handler)
+    ratings_by_member = {}
     for task, _node in rows:
         if node.node_type == "calibration":
             try:
@@ -7906,16 +7902,7 @@ async def workbench_task_distribution_tips(node_id: str, project_id: int, contex
             ratings = _rating_values_from_answers(rating_answers, metadata)
         else:
             ratings = _task_rating_values(task, metadata)
-        rated = any(value is not None for value in ratings.values())
-        if rated:
-            rated_people += 1
-        for value in ratings.values():
-            if value is None:
-                continue
-            label = str(value.get("label") or "")
-            if label:
-                rating_counts[label] = rating_counts.get(label, 0) + 1
-    total_people = len(rows)
+        ratings_by_member[member_key(task)] = ratings
     flow = ((project.settings or {}).get("flow_settings") or {}) if project else {}
     template_id = str((project.settings or {}).get("template_id") or "")
     assessment_names = {}
@@ -7924,53 +7911,7 @@ async def workbench_task_distribution_tips(node_id: str, project_id: int, contex
         workflow = await db.get(PerformanceTemplateWorkflow, int(template_id))
         options = distribution_assessment_options(list(workflow.nodes or []) if workflow else [], list(workflow.content_library or []) if workflow else [])
         assessment_names = {option["id"]: option["label"] for option in options}
-    summary = distribution_summary(flow, node, current_phase_id, assessment_names)
-    enabled = bool(summary.get("force_distribution_enabled"))
-    if not enabled:
-        return {"enabled": False, "total_people": total_people, "rated_people": rated_people, "rules": [], "lines": []}
-    rounding_modes = {"ROUND": round, "CEIL": _ceil_int, "FLOOR": _floor_int, "NONE": round}
-    rules = []
-    for rule in summary.get("rules") or []:
-        conditions = []
-        for condition in rule.get("conditions") or []:
-            grades = list(condition.get("grade_codes") or [])
-            current_people = sum(rating_counts.get(grade, 0) for grade in grades)
-            unit = condition.get("unit", "PERCENT")
-            value = int(condition.get("value", 0) or 0)
-            if unit == "PERCENT" and total_people:
-                raw = value / 100 * total_people
-                target_people = rounding_modes.get(rule.get("rounding_method", "ROUND"), round)(raw)
-            elif unit == "PEOPLE":
-                target_people = value
-            else:
-                target_people = current_people
-            diff = current_people - target_people
-            operator = condition.get("operator")
-            satisfied = {
-                "EQ": current_people == target_people,
-                "LT": current_people < target_people,
-                "LTE": current_people <= target_people,
-                "GT": current_people > target_people,
-                "GTE": current_people >= target_people,
-            }.get(operator, False)
-            conditions.append({
-                "control_mode": condition.get("control_mode"),
-                "grades": grades,
-                "operator": condition.get("operator"),
-                "value": value,
-                "unit": unit,
-                "rounding": rule.get("rounding_method", "ROUND"),
-                "target_people": target_people,
-                "current_people": current_people,
-                "diff": diff,
-                "violated": not satisfied,
-            })
-        rules.append({
-            "assessment_item_id": rule.get("assessment_item_id"),
-            "assessment_label": assessment_names.get(rule.get("assessment_item_id")) or (metadata[0]["label"] if metadata else ""),
-            "conditions": conditions,
-        })
-    return {"enabled": True, "total_people": total_people, "rated_people": rated_people, "rules": rules, "lines": summary.get("lines") or []}
+    return distribution_tips(project, node, groups, ratings_by_member, metadata, assessment_names)
 
 
 @router.post("/projects/{project_id}/reminder-tasks/remind")

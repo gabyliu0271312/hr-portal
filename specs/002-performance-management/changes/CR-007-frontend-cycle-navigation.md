@@ -233,6 +233,17 @@
 - 前端：`npm --prefix hr-portal/frontend run test -- src/views/performance/ProjectManagement.spec.ts src/components/performance/PerformanceConfirmDialog.spec.ts --silent` → **2文件77 passed、exit0**，覆盖通知true/false/null/undefined。`npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite通过、3789模块、exit0**，既有VueUse PURE提示。
 - 本地真实Vue路由＋独立Chromium、所有API合成隔离：420px确认框显示完整“会通知”说明，点保留关闭；pageErrors=[]、writeRequests=[]。真实飞书接收、真实JWT/业务库回读和生产部署未验收，F04/F05保持未整体勾选。未commit/push/deploy。
 
+### 2026-11-20 F04 下级授权分布豁免与完成隔离
+
+- 用户最新明确：往下授权允许选择“无需满足分布规则”，仅豁免该授权任务，不影响之前的父任务。本决定替代2026-11-10记录中“项目强制分布开启时禁止NONE”的旧限制。
+- 原创建接口删除CALIBRATION_DISTRIBUTION_AUTHORIZATION_UNSUPPORTED拦截；NONE只保存到当前授权记录，不改项目配置、冻结规则、父授权或其他授权。重复有效授权、来源授权、管理范围及接收人校验保留。生产已有INHERIT记录不自动转换。
+- 原completion服务统一按actor、阶段、来源规则及有效父链组织授权范围。分布提示与完成检查共用计算；各评估项分别计数、按成员快照/工号去重并执行人数门槛；NONE组跳过、INHERIT及原owner组保持规则，HARD违规禁止完成、SOFT只提示。同actor混合组逐组检查，现有node/phase完成入口仍一次确认本人该阶段全部可写组，不新增按组单独完成入口。
+- 子授权完成写入既有authorization_settings.calibration_completed_at/by；原owner才写task.calibration_completed_at/by并执行自动开放检查。管理列表子行按授权记录完成状态显示，父行仍按原task；完成元数据不参与递归授权分组。无新表、迁移或历史回写；历史授权缺独立完成凭证不从共享task推测其已完成，历史父task标记保持原值。
+- completion digest纳入有效授权记录、设置及完成状态；预览后授权模式变化会返回CALIBRATION_SCOPE_CHANGED，强制分布违规返回CALIBRATION_DISTRIBUTION_VIOLATED。preview新增可选blocked_reason/has_original_tasks，前端复用原确认框说明仅完成授权任务，区分分布违规提示；允许再次点击重新预览，避免调整结果后按钮永久禁用。保留缺失结果本身不强制阻断、校准完成后期限内仍可编辑的既有行为；完成时校验不代表后续编辑后分布永远合规。
+- 后端完整回归：`DB_HOST=127.0.0.1 DB_PORT=1 PYTHONPATH=hr-portal/backend hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_shared_results.py hr-portal/backend/tests/test_performance_user_authorization.py -q --tb=short` → **1144 passed、5 skipped、28.94秒、exit0**，既有python_multipart弃用警告。新增SQLite真实ORM独立完成保存回读、NONE子完成父仍阻断、不推进父流程、授权变更使预览失效、NONE父的INHERIT后代不自动豁免、混合授权组与只读拒绝；权限入口部分使用mock，不作为完整真实鉴权验收。随后补管理列表完成元数据不拆组/子已完成父待校准断言，定向 **2 passed、1120 deselected、exit0**。首轮旧夹具缺快照字段及旧完成返回结构导致失败，补齐后通过。
+- 前端：`npm --prefix hr-portal/frontend run test -- src/views/performance/Review.spec.ts src/views/performance/ProjectManagement.spec.ts src/components/performance/PerformanceDistributionTips.spec.ts --silent` → **220 passed、exit0**；`npm --prefix hr-portal/frontend run build` → **vue-tsc+Vite通过、3789模块、exit0**，既有VueUse PURE提示。
+- UI：真实Vite路由、独立Chromium、所有API合成隔离；子授权完成确认显示父任务仍需完成，父任务HARD违规显示明确提示且不开确认框，pageErrors=[]。独立PNG已读取：`ui-blueprints/CR-007-F04-implemented-delegated-completion-none-20261120.png`。真实PostgreSQL/生产身份/API/部署未验收，5项跳过不计通过；F04/F05整体不勾选。未修改生产数据、未真实发送、未commit/push/deploy。
+
 ### 当前实现和证据
 
 - 主实现：`projects_router.py`、`api/performance.ts`、`ProjectManagement.vue`、`CompletionRatePanel.vue`、`CompletionNodeCard.vue`、`PerformanceManagementTable.vue`、`PerformanceReminderPanel.vue`、`performanceReminder.ts`、现有路由；新增 `ProjectManagementReminder.vue`、`ProjectAuthorizationRecords.vue`、`ProjectCalibrationAuthorization.vue`。

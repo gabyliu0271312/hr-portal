@@ -61,7 +61,7 @@ async def test_completion_allows_missing_results_without_fabricating_submission(
     node = SimpleNamespace(node_id="n")
     response = {"scope_version": "digest", "total_count": 1, "completed_count": 0, "missing_result_count": 1, "can_complete": True, "completed": False}
     async def scope(*args, **kwargs):
-        return project, node, actor, [task], {**response, "completed": task.calibration_completed_at is not None}
+        return project, node, actor, [(task, None)], {**response, "completed": task.calibration_completed_at is not None}
     monkeypatch.setattr(completion, "completion_scope", scope)
     monkeypatch.setattr(routes, "_sync_automatic_openings", AsyncMock())
     monkeypatch.setattr(completion, "PerformanceAuditService", lambda db: SimpleNamespace(append_event=lambda event: None))
@@ -93,6 +93,101 @@ def test_automatic_opening_requires_explicit_calibration_completion():
     assert not _previous_finished("e", node, [task])
     task.calibration_completed_at = datetime.now(UTC)
     assert _previous_finished("e", node, [task])
+
+
+@pytest.mark.asyncio
+async def test_none_authorization_completion_is_persisted_without_completing_parent(monkeypatch):
+    from sqlalchemy import BigInteger, create_engine
+    from sqlalchemy.dialects.postgresql import JSONB
+    from sqlalchemy.ext.compiler import compiles, deregister
+    from sqlalchemy.orm import Session
+    from app.performance import models, projects_router as routes
+    from tests.test_performance_user_authorization import AsyncDb
+
+    compiles(JSONB, "sqlite")(lambda *_args, **_kwargs: "JSON")
+    compiles(BigInteger, "sqlite")(lambda *_args, **_kwargs: "INTEGER")
+    engine = create_engine("sqlite://")
+    session = Session(engine, expire_on_commit=False)
+    try:
+        tables = [model.__table__ for model in (models.PerformanceProject, models.PerformanceProjectNodeSnapshot, models.PerformanceNodeTask, models.PerformanceNodeTaskAuthorization, models.PerformanceAuditEvent)]
+        models.PerformanceProject.metadata.create_all(engine, tables=tables)
+        rule = {"assessment_item_id": "grade", "min_people_operator": "GTE", "min_people_count": 1, "conditions": [{"control_mode": "HARD", "grade_codes": ["A"], "operator": "LTE", "value": 0, "unit": "PEOPLE"}]}
+        project = models.PerformanceProject(id=1, project_ref="p", cycle_ref="c", name="项目", status="STARTED", administrators=[], settings={"flow_settings": {"node_settings": {"cal": {"calibration": {"force_distribution_enabled": True, "distribution": {"rules": [rule]}}}}}})
+        node = models.PerformanceProjectNodeSnapshot(id=2, project_id=1, node_id="cal", node_type="calibration", name="校准", node_order=1, config={"calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "p", "assignments": [{"employee_no": "e", "handler_ref": "owner"}]}]}})
+        task = models.PerformanceNodeTask(id=3, project_id=1, cycle_ref="c", member_snapshot_id=7, node_snapshot_id=2, target_employee_no="e", handler_ref="owner", phase_id="p", task_kind="calibration", status="pending", answers={})
+        grant = models.PerformanceNodeTaskAuthorization(id=4, project_id=1, cycle_ref="c", task_id=3, authorization_type="AUTHORIZE", grantor_employee_no="owner", recipient_employee_no="delegate", status="ACTIVE", read_only=False, authorization_settings={"distribution_mode": "NONE", "allow_reauthorize": True})
+        session.add_all([project, node, task, grant]); session.commit()
+        db = AsyncDb(session)
+        actor = SimpleNamespace(actor_type="EMPLOYEE", actor_ref="delegate")
+        schema = [{"id": "s", "fields": [{"id": "grade", "type": "rating", "label": "评级", "options": [{"id": "A", "code": "A", "label": "A"}]}]}]
+        monkeypatch.setattr(routes, "resolve_trusted_performance_actor", AsyncMock(side_effect=lambda *_args, **_kwargs: actor))
+        monkeypatch.setattr(routes, "_self_summary_task", AsyncMock(return_value=(task, node)))
+        monkeypatch.setattr(routes, "_self_summary_template", AsyncMock(return_value={}))
+        monkeypatch.setattr(routes, "build_self_summary_schema", lambda _template: schema)
+        monkeypatch.setattr(routes, "_task_window", lambda *_args: (None, None))
+        monkeypatch.setattr(routes, "_effective_member_result", AsyncMock(return_value={"answers": {"grade": "A"}, "shared_state": {"revision": 1}}))
+        monkeypatch.setattr(routes, "_sync_automatic_openings", AsyncMock())
+        payload = SimpleNamespace(node_id="cal", phase_id="p")
+        preview = await completion.preview_completion(db, 1, payload, None)
+        assert preview["can_complete"] and not preview["has_original_tasks"]
+        result = await completion.confirm_completion(db, 1, SimpleNamespace(**vars(payload), scope_version=preview["scope_version"]), None)
+        assert result["completed"]
+        session.expire_all()
+        assert session.get(models.PerformanceNodeTaskAuthorization, 4).authorization_settings["calibration_completed_by"] == "delegate"
+        assert session.get(models.PerformanceNodeTask, 3).calibration_completed_at is None
+        routes._sync_automatic_openings.assert_not_awaited()
+        assert not routes._previous_finished("e", node, [task])
+        actor.actor_ref = "owner"
+        parent = await completion.preview_completion(db, 1, payload, None)
+        assert not parent["completed"] and not parent["can_complete"]
+        assert parent["blocked_reason"] == "CALIBRATION_DISTRIBUTION_VIOLATED"
+        with pytest.raises(HTTPException) as error:
+            await completion.confirm_completion(db, 1, SimpleNamespace(**vars(payload), scope_version=parent["scope_version"]), None)
+        assert error.value.detail == "CALIBRATION_DISTRIBUTION_VIOLATED"
+        actor.actor_ref = "delegate"
+        grant.authorization_settings = {"distribution_mode": "NONE", "allow_reauthorize": True}
+        session.commit()
+        old = await completion.preview_completion(db, 1, payload, None)
+        grant.authorization_settings = {**grant.authorization_settings, "distribution_mode": "INHERIT"}
+        session.commit()
+        with pytest.raises(HTTPException) as changed:
+            await completion.confirm_completion(db, 1, SimpleNamespace(**vars(payload), scope_version=old["scope_version"]), None)
+        assert changed.value.detail == "CALIBRATION_SCOPE_CHANGED"
+        assert "calibration_completed_at" not in grant.authorization_settings and task.calibration_completed_at is None
+        inherited = await completion.preview_completion(db, 1, payload, None)
+        assert not inherited["can_complete"]
+        grant.authorization_settings = {"distribution_mode": "NONE", "allow_reauthorize": True}
+        child = models.PerformanceNodeTaskAuthorization(id=5, project_id=1, cycle_ref="c", task_id=3, authorization_type="AUTHORIZE", grantor_employee_no="delegate", recipient_employee_no="child", status="ACTIVE", read_only=False, authorization_settings={"distribution_mode": "INHERIT", "parent_authorization_id": 4})
+        session.add(child); session.commit()
+        actor.actor_ref = "child"
+        assert not (await completion.preview_completion(db, 1, payload, None))["can_complete"]
+        child.recipient_employee_no = "delegate"
+        session.commit()
+        actor.actor_ref = "delegate"
+        assert not (await completion.preview_completion(db, 1, payload, None))["can_complete"]
+        child.status = "REVOKED"; grant.read_only = True
+        session.commit()
+        with pytest.raises(HTTPException) as readonly:
+            await completion.preview_completion(db, 1, payload, None)
+        assert readonly.value.status_code == 404
+    finally:
+        session.close(); engine.dispose(); deregister(JSONB); deregister(BigInteger)
+
+
+def test_distribution_scopes_deduplicate_people_and_keep_assessment_counts_separate():
+    tasks = [SimpleNamespace(id=i, member_snapshot_id=1, target_employee_no="e", phase_id="p") for i in (1, 2)]
+    conditions = [{"control_mode": "HARD", "grade_codes": ["A"], "operator": "LTE", "value": 0, "unit": "PEOPLE"}]
+    rule = {"assessment_item_id": "second", "min_people_count": 1, "conditions": conditions}
+    project = SimpleNamespace(settings={"flow_settings": {"node_settings": {"cal": {"calibration": {"force_distribution_enabled": True, "distribution": {"rules": [rule]}}}}}})
+    node = SimpleNamespace(node_id="cal")
+    groups = [{"tasks": tasks, "authorizations": [], "source_rule_ids": None, "mode": "INHERIT"}]
+    metadata = [{"answer_key": "first", "key": "rating:first", "label": "第一项"}, {"answer_key": "second", "key": "rating:second", "label": "第二项"}]
+    ratings = {(1, "e"): {"rating:first": {"label": "A"}, "rating:second": {"label": "B"}}}
+    result = completion.distribution_tips(project, node, groups, ratings, metadata)
+    assert result["total_people"] == 1 and result["rules"][0]["conditions"][0]["current_people"] == 0
+    assert not result["rules"][0]["conditions"][0]["violated"]
+    rule["min_people_count"] = 2
+    assert completion.distribution_tips(project, node, groups, ratings, metadata)["rules"] == []
 
 
 @pytest.mark.asyncio

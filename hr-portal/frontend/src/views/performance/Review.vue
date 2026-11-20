@@ -29,7 +29,7 @@
       @open-member="openMember"
       @remind-evaluate="openEvaluateReminder"
     >
-      <template #heading-actions><UiButton v-if="selectedNode?.node_type === 'calibration'" variant="primary" :disabled="calibrationCompletion?.completed || calibrationBusy || calibrationCompletion?.can_complete === false" :loading="calibrationBusy" @click="openCalibrationCompletion">{{ calibrationCompletion?.completed ? '已完成校准' : '完成校准' }}</UiButton><PerformanceResultReconsiderationMenu v-if="selectedNode?.node_type === 'result_view' && !resultLoading && !resultError && !reconsiderationError" :status="reconsideration" :expired="reconsiderationExpired" :busy="reconsiderationBusy" @start="reconsiderationPanel?.open()" /></template>
+      <template #heading-actions><UiButton v-if="selectedNode?.node_type === 'calibration'" variant="primary" :disabled="calibrationCompletion?.completed || calibrationBusy || (calibrationCompletion?.can_complete === false && calibrationCompletion?.blocked_reason !== 'CALIBRATION_DISTRIBUTION_VIOLATED')" :loading="calibrationBusy" @click="openCalibrationCompletion">{{ calibrationCompletion?.completed ? '已完成校准' : '完成校准' }}</UiButton><PerformanceResultReconsiderationMenu v-if="selectedNode?.node_type === 'result_view' && !resultLoading && !resultError && !reconsiderationError" :status="reconsideration" :expired="reconsiderationExpired" :busy="reconsiderationBusy" @start="reconsiderationPanel?.open()" /></template>
       <div v-if="selectedNode?.node_type === 'result_view'" class="review-results" aria-label="我的绩效结果">
         <div v-if="resultLoading" role="status">正在加载绩效结果…</div>
         <div v-else-if="resultError" role="alert">{{ resultError }} <button type="button" @click="loadMyResults">重新加载</button></div>
@@ -238,7 +238,7 @@ const calibrationConfirmOpen = ref(false)
 const calibrationBusy = ref(false)
 const calibrationError = ref('')
 let calibrationRequest = 0
-const calibrationDescription = computed(() => `${calibrationCompletion.value?.missing_result_count ? `当前有 ${calibrationCompletion.value.missing_result_count} 名被评估人尚无绩效结果，仍可确定完成校准。` : ''}完成后，终评结果将无法修改，校准内容仍可在允许的期限内继续编辑。`)
+const calibrationDescription = computed(() => `${calibrationCompletion.value?.missing_result_count ? `当前有 ${calibrationCompletion.value.missing_result_count} 名被评估人尚无绩效结果，仍可确定完成校准。` : ''}${calibrationCompletion.value?.has_original_tasks === false ? '本次仅完成你的授权任务，原校准人仍需完成父任务。' : '完成后，终评结果将无法修改，'}校准内容仍可在允许的期限内继续编辑。`)
 async function loadCalibrationCompletion() {
   const projectId = activeProjectId.value
   const node = selectedNode.value
@@ -262,6 +262,7 @@ async function openCalibrationCompletion() {
     const result = await projectManagementApi.calibrationCompletionPreview(projectId, node.node_id, node.phase_id)
     if (selectedNode.value?.node_id !== node.node_id || activeProjectId.value !== projectId) return
     calibrationCompletion.value = result
+    if (result.blocked_reason === 'CALIBRATION_DISTRIBUTION_VIOLATED') ElMessage.error('当前任务尚未满足强制分布规则，请调整后重新确认')
     calibrationConfirmOpen.value = !result.completed && result.can_complete
   } catch { ElMessage.error('校准完成状态加载失败，请重试') }
   finally { calibrationBusy.value = false }
@@ -280,7 +281,7 @@ async function confirmCalibrationCompletion() {
     projectContext.invalidateReviewOverview(projectId)
     ElMessage.success('已完成校准')
   } catch (cause: any) {
-    calibrationError.value = cause?.response?.status === 409 ? '校准范围已变化，请取消并重新确认' : '完成校准失败，请重试'
+    calibrationError.value = cause?.response?.data?.detail === 'CALIBRATION_DISTRIBUTION_VIOLATED' ? '当前任务尚未满足强制分布规则，请调整后重新确认' : cause?.response?.status === 409 ? '校准范围或规则已变化，请取消并重新确认' : '完成校准失败，请重试'
   } finally { calibrationBusy.value = false }
 }
 watch([activeProjectId, () => selectedNode.value?.node_id, () => selectedNode.value?.phase_id], () => { void loadCalibrationCompletion() })

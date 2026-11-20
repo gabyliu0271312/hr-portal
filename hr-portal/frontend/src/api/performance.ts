@@ -201,6 +201,8 @@ export interface PerformanceCalibrationCompletion {
   missing_result_count: number
   can_complete: boolean
   completed: boolean
+  blocked_reason?: 'SUBMISSION_NOT_ALLOWED' | 'CALIBRATION_DISTRIBUTION_VIOLATED' | null
+  has_original_tasks?: boolean
 }
 
 export interface PerformanceMemberReminderTask {

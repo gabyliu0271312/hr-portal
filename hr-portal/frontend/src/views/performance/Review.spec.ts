@@ -1692,6 +1692,43 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it('keeps delegated completion separate and reports hard distribution rejection', async () => {
+    Object.assign(routeQuery, { project_id: '1', node: 'calibration' })
+    const node = { ...overview.categories[2].nodes[0], status: 'pending' as const, phase_id: 'phase-2' }
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...overview, categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
+    vi.mocked(projectManagementApi.calibrationCompletionPreview).mockResolvedValue({ scope_version: 'child-scope', total_count: 1, completed_count: 0, missing_result_count: 0, can_complete: true, completed: false, has_original_tasks: false })
+    const confirm = vi.spyOn(projectManagementApi, 'calibrationCompletionConfirm').mockRejectedValue({ response: { status: 409, data: { detail: 'CALIBRATION_DISTRIBUTION_VIOLATED' } } })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('button').find(item => item.text() === '完成校准')!.trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).toContain('本次仅完成你的授权任务，原校准人仍需完成父任务。')
+    expect(document.body.textContent).not.toContain('终评结果将无法修改')
+    document.body.querySelector<HTMLButtonElement>('.performance-confirm-dialog--calibration-completion .performance-button--primary')!.click()
+    await flushPromises()
+    expect(confirm).toHaveBeenCalledWith(1, 'calibration', 'child-scope', 'phase-2')
+    expect(document.body.textContent).toContain('当前任务尚未满足强制分布规则，请调整后重新确认')
+    expect(document.body.textContent).not.toContain('校准范围或规则已变化')
+    wrapper.unmount()
+  })
+
+  it('rechecks distribution after adjustments instead of permanently disabling completion', async () => {
+    Object.assign(routeQuery, { project_id: '1', node: 'calibration' })
+    const node = { ...overview.categories[2].nodes[0], status: 'pending' as const, phase_id: 'phase-2' }
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...overview, categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
+    vi.mocked(projectManagementApi.calibrationCompletionPreview).mockResolvedValue({ scope_version: 'blocked', total_count: 1, completed_count: 0, missing_result_count: 0, can_complete: false, completed: false, blocked_reason: 'CALIBRATION_DISTRIBUTION_VIOLATED' })
+    const wrapper = mountView()
+    await flushPromises()
+    const button = wrapper.findAll('button').find(item => item.text() === '完成校准')!
+    expect(button.attributes('disabled')).toBeUndefined()
+    await button.trigger('click'); await flushPromises()
+    expect(document.body.textContent).not.toContain('确定要完成校准吗？')
+    vi.mocked(projectManagementApi.calibrationCompletionPreview).mockResolvedValue({ scope_version: 'updated', total_count: 1, completed_count: 0, missing_result_count: 0, can_complete: true, completed: false })
+    await button.trigger('click'); await flushPromises()
+    expect(document.body.textContent).toContain('确定要完成校准吗？')
+    wrapper.unmount()
+  })
+
   it('renders calibration with the manager list and passes the frozen phase', async () => {
     const node = { ...overview.categories[0].nodes[0], node_id: 'calibration', node_name: '校准', node_type: 'calibration', task_kind: 'calibration', phase_id: 'phase-2', status: 'pending' as const }
     Object.assign(routeQuery, { project_id: '1', node: 'calibration' })
