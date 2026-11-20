@@ -75,24 +75,18 @@ const groups = computed<TipGroup[]>(() => {
       if (!group) continue
       const unitLabel = condition.unit === 'PERCENT' ? '%' : '人'
       const formula = `${condition.grades.join(' + ')} ${operatorLabels[condition.operator] || condition.operator} ${condition.value}${unitLabel}`
-      let needLabel = ''
-      if (condition.unit === 'PERCENT') {
-        const comparison = condition.operator === 'LT' || condition.operator === 'LTE' ? '需小于' : '最少需'
-        needLabel = `${comparison} ${condition.target_people} 人`
-      } else {
-        needLabel = `${operatorLabels[condition.operator] || condition.operator} ${condition.target_people} 人`
-      }
+      const needLabel = `需${operatorLabels[condition.operator] || condition.operator} ${condition.target_people} 人`
       let diffAction = ''
       let diffCount = ''
       let diffClass: TipGroup['rules'][number]['diffClass'] = ''
-      const diff = Math.abs(condition.diff)
-      if (condition.diff < 0) {
+      const diff = condition.diff + (condition.operator === 'LT' ? 1 : condition.operator === 'GT' ? -1 : 0)
+      if (diff > 0) {
         diffAction = '需减少 '
         diffCount = String(diff)
         diffClass = 'distribution-tips__diff--error'
-      } else if (condition.diff > 0) {
+      } else if (diff < 0) {
         diffAction = '需增加 '
-        diffCount = String(diff)
+        diffCount = String(-diff)
         diffClass = 'distribution-tips__diff--warning'
       }
       group.rules.push({
@@ -114,11 +108,11 @@ const groups = computed<TipGroup[]>(() => {
 .performance-distribution-tips {
   display: flex;
   flex: none;
+  min-width: 0;
   width: 100%;
-  max-width: var(--performance-review-content-max-width, 1080px);
   flex-direction: column;
   gap: 12px;
-  margin: 0 auto 16px;
+  margin: 0 0 16px;
   padding: 12px 24px 16px;
   box-sizing: border-box;
   border-radius: 4px;

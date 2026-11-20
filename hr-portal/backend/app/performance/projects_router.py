@@ -7890,6 +7890,14 @@ async def workbench_task_distribution_tips(node_id: str, project_id: int, contex
             else:
                 target_people = current_people
             diff = current_people - target_people
+            operator = condition.get("operator")
+            satisfied = {
+                "EQ": current_people == target_people,
+                "LT": current_people < target_people,
+                "LTE": current_people <= target_people,
+                "GT": current_people > target_people,
+                "GTE": current_people >= target_people,
+            }.get(operator, False)
             conditions.append({
                 "control_mode": condition.get("control_mode"),
                 "grades": grades,
@@ -7900,7 +7908,7 @@ async def workbench_task_distribution_tips(node_id: str, project_id: int, contex
                 "target_people": target_people,
                 "current_people": current_people,
                 "diff": diff,
-                "violated": diff != 0,
+                "violated": not satisfied,
             })
         rules.append({
             "assessment_item_id": rule.get("assessment_item_id"),

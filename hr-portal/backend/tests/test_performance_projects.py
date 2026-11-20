@@ -1997,6 +1997,52 @@ async def test_workbench_distribution_tips_computes_percent_target_and_diff(monk
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("control_mode", ["HARD", "SOFT"])
+@pytest.mark.parametrize("unit", ["PERCENT", "PEOPLE"])
+@pytest.mark.parametrize("operator, current_people, violated", [
+    ("EQ", 0, True), ("EQ", 1, False), ("EQ", 2, True),
+    ("LT", 0, False), ("LT", 1, True), ("LT", 2, True),
+    ("LTE", 0, False), ("LTE", 1, False), ("LTE", 2, True),
+    ("GT", 0, True), ("GT", 1, True), ("GT", 2, False),
+    ("GTE", 0, True), ("GTE", 1, False), ("GTE", 2, False),
+])
+async def test_workbench_distribution_tips_respects_comparison_operator(monkeypatch, control_mode, unit, operator, current_people, violated):
+    from app.performance import projects_router as routes
+    from app.performance.models import PerformanceProject
+
+    rule = {"assessment_item_id": "grade", "min_people_operator": "GTE", "min_people_count": 1,
+            "conditions": [{"control_mode": control_mode, "grade_codes": ["S"], "operator": operator,
+                            "value": 20 if unit == "PERCENT" else 1, "unit": unit}], "rounding_method": "ROUND"}
+    flow = {"node_settings": {"calibration": {"calibration": {
+        "force_distribution_enabled": True,
+        "distribution": {"mode": "UNIFIED", "rules": [rule], "scope_configured": False}, "phases": [],
+    }}}}
+    project = SimpleNamespace(id=1, settings={"flow_settings": flow, "template_id": ""})
+    node = SimpleNamespace(id=11, project_id=1, node_id="calibration", node_type="calibration", config={
+        "calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "phase-1", "assignments": [{"handler_ref": "M1", "employee_no": f"E{index}"} for index in range(5)]}]},
+        "template": {"content": [{"content_id": "assessment", "type": "rating", "name": "综合评估", "items": [{"id": "grade", "kind": "rating", "label": "绩效评级", "options": [{"id": "S", "code": "S", "label": "S"}]}]}]},
+    })
+    tasks = [SimpleNamespace(id=20 + index, project_id=1, task_kind="calibration", handler_ref="M1", phase_id="phase-1", target_employee_no=f"E{index}", answers={}) for index in range(5)]
+    async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="M1")
+    async def answers(task, *args, **kwargs): return {"grade": "S"} if task.id < 20 + current_people else {}
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", actor)
+    monkeypatch.setattr(routes, "_calibration_answers", answers)
+    class Db:
+        async def get(self, model, key): return project if model is PerformanceProject else None
+        async def execute(self, query): return SimpleNamespace(all=lambda: [(task, node) for task in tasks])
+
+    result = await routes.workbench_task_distribution_tips("calibration", 1, context(), Db(), None)
+    condition = result["rules"][0]["conditions"][0]
+    assert condition["control_mode"] == control_mode
+    assert condition["operator"] == operator
+    assert condition["unit"] == unit
+    assert condition["target_people"] == 1
+    assert condition["current_people"] == current_people
+    assert condition["diff"] == current_people - 1
+    assert condition["violated"] is violated
+
+
+@pytest.mark.asyncio
 async def test_workbench_distribution_tips_phase_rules_override_node_and_people_unit(monkeypatch):
     from app.performance import projects_router as routes
     from app.performance.models import PerformanceProject
