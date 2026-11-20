@@ -1,7 +1,7 @@
 <template>
   <ul class="performance-organization-tree-nodes" role="group">
     <li v-for="node in nodes" :key="node.value" role="treeitem" :aria-expanded="node.children.length ? isExpanded(node) : undefined" :aria-selected="selected.includes(node.value)">
-      <div class="performance-organization-tree-node" :class="{ 'is-selected': selected.includes(node.value) }" :style="{ paddingLeft: `${8 + (node.level - 1) * 16}px` }">
+      <div class="performance-organization-tree-node" :class="{ 'is-selected': selected.includes(node.value) }" :style="{ paddingLeft: `calc(var(--spacing-2) + ${node.level - 1} * var(--performance-organization-tree-indent))` }">
         <button
           v-if="node.children.length"
           class="performance-organization-tree-node__expand"
@@ -14,21 +14,23 @@
           </svg>
         </button>
         <span v-else class="performance-organization-tree-node__expand performance-organization-tree-node__expand--placeholder" aria-hidden="true"></span>
-        <button class="performance-organization-tree-node__label" type="button" @click="$emit('toggle', node.value)">{{ node.label }}</button>
-        <button class="performance-organization-tree-node__checker" type="button" :aria-label="`${selected.includes(node.value) ? '取消选择' : '选择'}${node.label}`" @click="$emit('toggle', node.value)">
+        <UiCheckbox v-if="selectionIndicator === 'checkbox'" :model-value="selected.includes(node.value)" :disabled="disabled" :aria-label="`选择${node.label}`" @update:model-value="$emit('toggle', node.value)" />
+        <button class="performance-organization-tree-node__label" type="button" :disabled="disabled" @click="$emit('toggle', node.value)">{{ node.label }}</button>
+        <button v-if="selectionIndicator === 'checkmark'" class="performance-organization-tree-node__checker" type="button" :disabled="disabled" :aria-label="`${selected.includes(node.value) ? '取消选择' : '选择'}${node.label}`" @click="$emit('toggle', node.value)">
           <svg v-if="selected.includes(node.value)" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 4 4L19 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
         </button>
       </div>
-      <PerformanceOrganizationTreeNodes v-if="node.children.length && isExpanded(node)" :nodes="node.children" :selected="selected" :searching="searching" @toggle="$emit('toggle', $event)" />
+      <PerformanceOrganizationTreeNodes v-if="node.children.length && isExpanded(node)" :nodes="node.children" :selected="selected" :searching="searching" :selection-indicator="selectionIndicator" :default-expanded="defaultExpanded" :disabled="disabled" @toggle="$emit('toggle', $event)" />
     </li>
   </ul>
 </template>
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import UiCheckbox from '../ui/UiCheckbox.vue'
 import type { PerformanceHrbpOrganizationNode } from '@/api/performance'
 
-const props = withDefaults(defineProps<{ nodes: PerformanceHrbpOrganizationNode[]; selected: string[]; searching?: boolean }>(), { searching: false })
+const props = withDefaults(defineProps<{ nodes: PerformanceHrbpOrganizationNode[]; selected: string[]; searching?: boolean; selectionIndicator?: 'checkmark' | 'checkbox'; defaultExpanded?: boolean; disabled?: boolean }>(), { searching: false, selectionIndicator: 'checkmark', defaultExpanded: true, disabled: false })
 defineEmits<{ toggle: [value: string] }>()
 
 const expanded = ref(new Set<string>())
@@ -56,13 +58,15 @@ function toggleExpanded(node: PerformanceHrbpOrganizationNode) {
 
 watch([() => props.nodes, () => props.searching], ([nodes, searching]) => {
   if (searching) expanded.value = new Set()
-  else expandAll(nodes)
+  else if (props.defaultExpanded) expandAll(nodes)
 }, { immediate: true, deep: true })
 </script>
 
 <style scoped>
 .performance-organization-tree-nodes { margin: 0; padding: 0; list-style: none; }
-.performance-organization-tree-node { display: flex; align-items: center; width: 100%; height: var(--performance-select-option-height); padding-right: 8px; box-sizing: border-box; color: #1f2329; font: 400 14px/22px var(--font-sans); }
+.performance-organization-tree-node :deep(.ui-checkbox) { margin-right:var(--spacing-2); }
+.performance-organization-tree-node :deep(.ui-checkbox__label:empty) { display:none; }
+.performance-organization-tree-node { display: flex; align-items: center; width: 100%; height: var(--performance-select-option-height); padding-right: var(--spacing-2); box-sizing: border-box; color: var(--color-text-primary); font: var(--font-weight-normal) var(--font-size-md)/var(--input-line-height) var(--font-sans); }
 .performance-organization-tree-node:hover { background: var(--performance-select-option-hover); }
 .performance-organization-tree-node.is-selected { background: var(--performance-select-option-selected); }
 .performance-organization-tree-node.is-selected .performance-organization-tree-node__label { color: var(--performance-select-check-color); }

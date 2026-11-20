@@ -6544,12 +6544,30 @@ def _calibration_delegation_groups(records):
             current = parent
         return True
     active = [record for record in by_id.values() if effective(record)]
+    keys = {}
+    def group_key(record):
+        if record.id not in keys:
+            settings = {key: value for key, value in (record.authorization_settings or {}).items() if key not in {"idempotency_key", "parent_authorization_id", "notification_status", "notify_original"}}
+            parent_id = (record.authorization_settings or {}).get("parent_authorization_id")
+            parent_key = group_key(by_id[parent_id]) if parent_id is not None else None
+            keys[record.id] = (parent_key, record.recipient_employee_no, record.grantor_employee_no, frozen(settings), getattr(record, "batch_id", None), record.read_only)
+        return keys[record.id]
+    def order(record):
+        created_at = getattr(record, "created_at", None)
+        return (created_at.timestamp() if created_at is not None else float("-inf"), record.id)
     groups = {}
-    for record in active:
-        settings = {key: value for key, value in (record.authorization_settings or {}).items() if key not in {"idempotency_key", "parent_authorization_id", "notification_status"}}
-        key = (record.recipient_employee_no, record.grantor_employee_no, frozen(settings), getattr(record, "batch_id", None), record.read_only)
-        groups.setdefault(key, []).append(record)
-    return active, list(groups.values())
+    for record in sorted(active, key=order):
+        groups.setdefault(group_key(record), []).append(record)
+    children = {}
+    for key in groups:
+        children.setdefault(key[0], []).append(key)
+    ordered = []
+    pending = list(reversed(children.get(None, [])))
+    while pending:
+        key = pending.pop()
+        ordered.append(groups[key])
+        pending.extend(reversed(children.get(key, [])))
+    return active, ordered
 
 
 @router.get("/project-management/calibration-authorization")
@@ -6664,7 +6682,8 @@ async def project_management_calibration_authorization(
                 base_id = f"{project.id}:{node.id}:{phase_id}:{handler}" + (f":rule:{rule_id}" if rule_id is not None else "")
                 distribution_info = distribution_summary(flow, node, phase_id, assessment_names, source_rule_ids=[rule["rule_id"] for rule in rules])
                 base = {
-                    "id": base_id, "source": "BACKEND", "source_rule_id": rule_id,
+                    "id": base_id, "parent_id": None, "source": "BACKEND", "source_rule_id": rule_id,
+                    "notify_original": None,
                     "project_id": project.id, "node_id": node.node_id, "phase_id": phase_id,
                     "calibrator": names.get(handler, handler),
                     "status": "已校准" if all(_calibration_completed(task) for task in group) else "待校准",
@@ -6686,10 +6705,15 @@ async def project_management_calibration_authorization(
                     "task_people": [task_people[task.id] for task in group], "authorizations": [],
                 }
                 items.append(base)
+                delegation_row_ids = {record.id: f"{base_id}:delegation:{min(item.id for item in delegated)}" for delegated in delegated_groups for record in delegated}
                 for delegated in delegated_groups:
                     source_ids = {record.task_id: record.id for record in delegated}
                     child_tasks = [task for task in group if task.id in source_ids]
                     settings = delegated[0].authorization_settings or {}
+                    parent_id = settings.get("parent_authorization_id")
+                    parent_row_id = delegation_row_ids[parent_id] if parent_id is not None else base_id if rule_id is None or settings.get("source_rule_id") == rule_id else None
+                    notifications = [(record.authorization_settings or {}).get("notify_original") for record in delegated]
+                    notify_original = notifications[0] if all(type(value) is bool and value == notifications[0] for value in notifications) else None
                     can_continue = bool(settings.get("allow_reauthorize"))
                     child_authorized = {record.task_id for record in active_records if (record.authorization_settings or {}).get("parent_authorization_id") in source_ids.values()}
                     child_rules = [rule for rule in _calibration_source_rules(phase, child_tasks) if rule_id is None or rule["rule_id"] == rule_id]
@@ -6710,7 +6734,8 @@ async def project_management_calibration_authorization(
                                                   "scope_groups": [{"conditions": [{"field": field, "operator": "INCLUDE", "values": values}]}]}]
                             child_scope = ("指定部门：" if kind == "DEPARTMENT" else "指定人员：") + "、".join(value if kind == "DEPARTMENT" else names.get(value, value) for value in values)
                     items.append({
-                        **base, "id": f"{base_id}:delegation:{min(record.id for record in delegated)}", "source": "DELEGATION",
+                        **base, "id": delegation_row_ids[delegated[0].id], "parent_id": parent_row_id, "source": "DELEGATION",
+                        "source_rule_id": settings.get("source_rule_id"), "notify_original": notify_original,
                         "calibrator": names.get(delegated[0].recipient_employee_no, delegated[0].recipient_employee_no),
                         "status": "已校准" if all(_calibration_completed(task) for task in child_tasks) else "待校准",
                         "scope": child_scope,

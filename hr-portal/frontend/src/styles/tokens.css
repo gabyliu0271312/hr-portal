@@ -375,6 +375,10 @@
   --performance-delegation-roles-width: 180px;
   --performance-delegation-list-max-height: 240px;
   --performance-delegation-role-selected-bg: rgba(20, 86, 240, 0.15);
+  --performance-organization-tree-max-height: 224px;
+  --performance-organization-tree-indent: var(--spacing-4);
+  --performance-authorization-tree-indent: var(--spacing-6);
+  --performance-confirm-bullet-size: 6px;
   --drawer-width: 480px;
   --drawer-wide-width: 680px;
   --drawer-z-index: 2200;

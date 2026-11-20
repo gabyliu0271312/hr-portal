@@ -931,6 +931,7 @@ async def test_calibration_same_handler_rules_stay_separate_with_overlap(monkeyp
     assert [row["distribution_info"]["rules"] for row in roots] == [[distributions[0]], [distributions[1]]]
     children = [row for row in rows if row["source"] == "DELEGATION"]
     assert len(children) == 1 and children[0]["source_rule_id"] == "a" and children[0]["task_ids"] == [7]
+    assert roots[0]["parent_id"] is None and children[0]["parent_id"] == roots[0]["id"]
     assert roots[0]["unauthorized_task_ids"] == [8]
     assert roots[1]["unauthorized_count"] == 1 and roots[1]["unauthorized_task_ids"] == [7]
 
@@ -11679,6 +11680,21 @@ def test_calibration_f04_effective_groups_reject_cycles_and_preserve_distinct_se
     assert [[item.id for item in group] for group in groups] == [[1, 2], [3]]
 
 
+def test_calibration_f04_groups_follow_real_parents_and_stable_depth_first_order():
+    from app.performance.projects_router import _calibration_delegation_groups
+    def record(identity, task_id, recipient, parent=None, **settings):
+        return SimpleNamespace(id=identity, task_id=task_id, recipient_employee_no=recipient, grantor_employee_no="MANAGER", authorization_type="AUTHORIZE", status="ACTIVE", read_only=False, created_at=None, authorization_settings={"parent_authorization_id": parent, **settings})
+    records = [
+        record(1, 7, "P", notify_original=True), record(2, 8, "P", notify_original=False),
+        record(3, 9, "P", scope_mode="PARTIAL"), record(4, 7, "C", 1),
+        record(5, 8, "C", 2), record(6, 9, "C", 3),
+        record(7, 7, "S", 1), record(8, 7, "G", 4),
+    ]
+    for values in (records, list(reversed(records)), records[4:] + records[:4]):
+        _active, groups = _calibration_delegation_groups(values)
+        assert [[item.id for item in group] for group in groups] == [[1, 2], [4, 5], [8], [7], [3], [6]]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("visible", [False, True])
 async def test_calibration_f04_projection_aggregates_children_and_masks_profiles(monkeypatch, visible):
@@ -11718,6 +11734,21 @@ async def test_calibration_f04_projection_aggregates_children_and_masks_profiles
     assert delegated["authorized_count"] == 2 and len(delegated["authorizations"]) == 2
     assert delegated["unauthorized_count"] == 1 and delegated["unauthorized_task_ids"] == [8]
     assert child["task_ids"] == [7] and child["unauthorized_count"] == 1 and child["unauthorized_task_ids"] == [7]
+    assert backend["parent_id"] is None and backend["notify_original"] is None
+    assert delegated["parent_id"] is None and delegated["source_rule_id"] is None
+    assert child["parent_id"] == delegated["id"]
+    assert delegated["notify_original"] is None
+    for values, expected in [((True, True), True), ((False, False), False), ((True, False), None), ((None, False), None)]:
+        for record_row, value in zip(records[:2], values):
+            record_row.authorization_settings = {**record_row.authorization_settings, "source_rule_id": "r1"}
+            if value is None:
+                record_row.authorization_settings.pop("notify_original", None)
+            else:
+                record_row.authorization_settings["notify_original"] = value
+        root, projected, descendant = (await routes.project_management_calibration_authorization(1, context(), Db()))["items"]
+        assert projected["parent_id"] == root["id"]
+        assert descendant["parent_id"] == projected["id"]
+        assert projected["notify_original"] is expected and len(projected["authorizations"]) == 2
     assert backend["end_at"] == result["end_at"] == "2026-12-01T00:00:00+00:00"
     person = delegated["task_people"][0]
     assert person["department"] == ("一级" if visible else None)
@@ -11752,6 +11783,17 @@ async def test_calibration_f04_projection_aggregates_children_and_masks_profiles
         else:
             assert partial["scope_rules"][0]["scope"] == "RULE"
             assert partial["scope_rules"][0]["scope_groups"] == [{"conditions": [{"field": field, "operator": "INCLUDE", "values": values}]}]
+    records.extend([record(15, 9, "SECOND"), record(16, 9, "CHILD", "R", 15, False), record(17, 8, "SIBLING", "R", 12, False), record(18, 7, "GRANDCHILD", "MANAGER", 13, False)])
+    records.reverse()
+    tree = (await routes.project_management_calibration_authorization(1, context(), Db()))["items"]
+    assert [min(item["id"] for item in row["authorizations"]) for row in tree[1:]] == [11, 13, 18, 17, 15, 16]
+    assert tree[2]["parent_id"] == tree[1]["id"]
+    assert tree[3]["parent_id"] == tree[2]["id"]
+    assert tree[4]["parent_id"] == tree[1]["id"]
+    assert tree[6]["parent_id"] == tree[5]["id"]
+    assert tree[2]["calibrator"] == tree[6]["calibrator"]
+    assert [item["id"] for item in tree[2]["authorizations"]] == [13]
+    assert [item["id"] for item in tree[6]["authorizations"]] == [16]
 
 
 @pytest.mark.asyncio
@@ -11915,19 +11957,23 @@ async def test_task_delegation_parent_revoke_replaces_descendants(monkeypatch):
     task = SimpleNamespace(id=7, project_id=3, task_kind="evaluation", cycle_ref="C1", target_employee_no="E1", answer_version=9, answers={"grade": "A"}, draft_answers={"grade": "B"})
     parent = SimpleNamespace(id=11, status="ACTIVE", grantor_employee_no="ORIGINAL", recipient_employee_no="RECIPIENT", authorization_settings={}, revoked_by_employee_no=None, revoked_at=None)
     child = SimpleNamespace(id=12, status="ACTIVE", grantor_employee_no="RECIPIENT", recipient_employee_no="CHILD", authorization_settings={"parent_authorization_id": 11})
+    grandchild = SimpleNamespace(id=13, status="ACTIVE", authorization_settings={"parent_authorization_id": 12})
+    sibling = SimpleNamespace(id=14, status="ACTIVE", authorization_settings={})
+    sibling_child = SimpleNamespace(id=15, status="ACTIVE", authorization_settings={"parent_authorization_id": 14})
     project = SimpleNamespace(id=3, cycle_ref="C1")
     async def actor(*args, **kwargs): return SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ORIGINAL")
     monkeypatch.setattr(router, "resolve_trusted_performance_actor", actor)
     class Db:
         async def execute(self, statement):
-            return SimpleNamespace(first=lambda: (task, SimpleNamespace(), project, parent), scalars=lambda: SimpleNamespace(all=lambda: [parent, child]))
+            return SimpleNamespace(first=lambda: (task, SimpleNamespace(), project, parent), scalars=lambda: SimpleNamespace(all=lambda: [grandchild, sibling_child, parent, sibling, child]))
         async def refresh(self, *args, **kwargs): pass
         async def scalar(self, statement): return project
         def add(self, item): pass
         async def commit(self): pass
     await router.revoke_task_delegation(3, 7, 11, context(), Db())
     assert parent.status == "REVOKED"
-    assert child.status == "REPLACED"
+    assert child.status == grandchild.status == "REPLACED"
+    assert sibling.status == sibling_child.status == "ACTIVE"
     assert task.answers == {"grade": "A"} and task.draft_answers == {"grade": "B"}
 
 

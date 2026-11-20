@@ -1117,6 +1117,70 @@ it('excludes the calibration recipient and preserves parent authorization when s
   wrapper.unmount(); candidates.mockRestore(); submit.mockRestore()
 })
 
+it('renders real authorization subtrees and revokes only the selected branch', async () => {
+  const { default: Calibration } = await import('./ProjectCalibrationAuthorization.vue')
+  pinia = createPinia(); setActivePinia(pinia)
+  usePerformanceProjectContextStore().setNavigation(navigationOf(1))
+  routeQuery.cycle_id = '1'
+  const base = { project_id: 3, task_ids: [11], calibrator: '同名校准人', status: '已校准', scope: '任务内全部人员', authorized_count: 1, unauthorized_count: 0, allow_authorize: false, can_authorize: false, can_revoke: true, distribution_rule: null, authorized_by: '管理者', authorized_at: null }
+  const loaded = vi.spyOn(projectManagementApi, 'calibrationAuthorization').mockResolvedValue({ cycle_id: 1, cycle_name: '测试周期', items: [
+    { ...base, id: 'child', parent_id: 'root-a', source: 'DELEGATION', notify_original: false, authorizations: [{ id: 21, task_id: 11, recipient: 'R1' }] },
+    { ...base, id: 'root-b', source: 'BACKEND', authorizations: [] },
+    { ...base, id: 'grandchild', parent_id: 'child', source: 'DELEGATION', authorizations: [{ id: 22, task_id: 11, recipient: 'R2' }] },
+    { ...base, id: 'root-a', source: 'BACKEND', authorizations: [] },
+  ] })
+  const revoking = vi.spyOn(projectManagementApi, 'revokeTaskAuthorization').mockResolvedValue(undefined)
+  const wrapper = mount(Calibration, { attachTo: document.body, global: { plugins: [pinia] } })
+  await flushPromises()
+  expect(wrapper.find('.info-banner .prompt-notice__icon svg').exists()).toBe(true)
+  const persons = () => wrapper.findAll('.authorization-person')
+  expect(persons().map(person => person.attributes('style'))).toEqual([0, 0, 1, 2].map(depth => `padding-left: calc(${depth} * var(--performance-authorization-tree-indent));`))
+  await wrapper.findAll('.authorization-expand')[1].trigger('click')
+  expect(persons()).toHaveLength(3)
+  await wrapper.findAll('.authorization-expand')[1].trigger('click')
+  expect(persons()).toHaveLength(4)
+  await wrapper.findAll('.actions')[2].findAll('button')[1].trigger('click')
+  expect(document.querySelector('.performance-confirm-dialog__title')?.textContent).toContain('确定撤销授权吗?')
+  expect(document.querySelectorAll('.performance-confirm-dialog__details li')).toHaveLength(2)
+  expect(document.querySelector('.performance-confirm-dialog__details')?.textContent).toContain('子任务将会回收')
+  expect(document.querySelector('.performance-confirm-dialog__details')?.textContent).toContain('本次撤销也不会通知原校准人')
+  document.querySelector<HTMLButtonElement>('.performance-confirm-dialog__button--danger')!.click()
+  await flushPromises()
+  expect(revoking).toHaveBeenCalledTimes(1)
+  expect(revoking).toHaveBeenCalledWith(3, 11, 21)
+  wrapper.unmount(); loaded.mockRestore(); revoking.mockRestore(); delete routeQuery.cycle_id
+})
+
+it('nests department and people pickers beneath their scope options using the shared shell', async () => {
+  const { default: Dialog } = await import('@/components/performance/PerformanceTaskDelegationDialog.vue')
+  const { default: Select } = await import('@/components/performance/PerformanceSearchSelect.vue')
+  const candidates = vi.spyOn(projectManagementApi, 'delegationCandidatesBatch').mockResolvedValue([11, 12].map(task_id => ({ project_id: 3, task_id, candidates: [{ employee_no: 'R', display_name: '接收人' }] })))
+  const wrapper = mount(Dialog, { attachTo: document.body, props: { modelValue: true, action: 'AUTHORIZE', calibration: true, readOnly: true, tasks: [{ task_id: 11, project_id: 3, employee_no: 'E1', department_path: '研发/产品' }, { task_id: 12, project_id: 3, employee_no: 'E2', department_path: '研发/工程' }] } })
+  await flushPromises()
+  wrapper.getComponent(Select).vm.$emit('update:modelValue', 'R')
+  await flushPromises()
+  expect(document.querySelector('.scope-count')?.parentElement?.className).toBe('performance-form-item__label')
+  expect(document.querySelectorAll('.stage-notice')).toHaveLength(1)
+  document.querySelector<HTMLInputElement>('input[value="DEPARTMENT"]')!.click()
+  await flushPromises()
+  expect(document.querySelector('.scope-picker')?.parentElement?.parentElement?.textContent).toContain('指定部门')
+  document.querySelector<HTMLInputElement>('[aria-label="指定部门"]')!.click()
+  await flushPromises()
+  expect(document.querySelector('.organization-tree__description')?.textContent).toBe('筛选所选部门及其下级部门内的员工')
+  expect(document.querySelectorAll('[role="treeitem"]')).toHaveLength(1)
+  document.querySelector<HTMLButtonElement>('[aria-label="展开研发"]')!.click()
+  await flushPromises()
+  expect(document.querySelectorAll('[role="treeitem"]')).toHaveLength(3)
+  document.querySelector<HTMLInputElement>('.organization-tree__scroll input[type="checkbox"]')!.click()
+  await flushPromises()
+  expect(document.querySelector('.scope-count')?.textContent).toContain('总人数：2 人')
+  document.querySelector<HTMLInputElement>('input[value="PEOPLE"]')!.click()
+  await flushPromises()
+  expect(document.querySelector('.scope-picker .performance-select-shell')).not.toBeNull()
+  expect(document.querySelector('.scope-picker')?.parentElement?.parentElement?.textContent).toContain('指定人员')
+  wrapper.unmount(); candidates.mockRestore()
+})
+
 it('opens the shared delegation dialog from calibration authorization with real task references', async () => {
   const { default: Calibration } = await import('./ProjectCalibrationAuthorization.vue')
   const { default: Dialog } = await import('@/components/performance/PerformanceTaskDelegationDialog.vue')

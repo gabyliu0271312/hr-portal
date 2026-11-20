@@ -1,8 +1,7 @@
 <template>
   <PerformanceDialogShell v-model="open" :title="calibration ? '新建授权' : `${verb}他人处理`" :loading="locked" dialog-class="delegation-dialog">
     <template v-if="!calibration" #description>{{ action === 'TRANSFER' ? '转交后，原评估人将失去任务权限' : '授权后，原评估人在截止时间之前仍有该任务的操作权限。' }}</template>
-    <PerformancePromptNotice v-if="calibration" type="info" multiline class="stage-notice">可以协助校准人将校准范围内的人员授权其他人校准。授权后，会生成一个新校准任务。原校准人仍需完成任务。</PerformancePromptNotice>
-    <p v-if="calibration && readOnly" class="readonly-notice" role="alert">校准任务已完成。授权后，被授权人仅有查看权限，无法修改被评估人的绩效结果。</p>
+    <PerformancePromptNotice v-if="calibration && readOnly" type="warning" multiline class="stage-notice" role="alert">校准任务已完成。授权后，被授权人仅有查看权限，无法修改被评估人的绩效结果。</PerformancePromptNotice>
     <PerformanceFormItem v-if="!calibration && reviewees.length" label="被评估人">
       <div class="reviewee-tags"><PerformanceMemberIdentity v-for="reviewee in reviewees" :key="`${reviewee.project_id}:${reviewee.employee_no}`" :display-name="reviewee.display_name || reviewee.employee_no || ''" size="sm" tag /></div>
     </PerformanceFormItem>
@@ -16,13 +15,18 @@
     </PerformanceFormItem>
     <div v-if="!calibration" class="notification-setting"><span>通知原评估人任务将{{ verb }}他人处理</span><UiSwitch v-model="notifyOriginal" :disabled="locked" :aria-label="`通知原评估人任务将${verb}他人处理`" /></div>
     <template v-if="calibration">
-      <PerformanceFormItem label="授权范围">
-        <p class="scope-count">总人数：{{ filteredTasks.length }} 人</p>
-        <PerformanceRadioGroup v-model="scopeMode" :options="[{ value:'PARTIAL', label:'任务内的部分人员' },{ value:'ALL', label:'任务内的全部人员' }]" direction="vertical" :gap="16" name="authorization-scope" aria-label="授权范围">
+      <PerformanceFormItem label="授权范围" class="scope-field">
+        <template #label-extra><span class="scope-count">总人数：{{ filteredTasks.length }} 人</span></template>
+        <PerformanceRadioGroup v-model="scopeMode" class="scope-options" :options="[{ value:'PARTIAL', label:'任务内的部分人员' },{ value:'ALL', label:'任务内的全部人员' }]" direction="vertical" gap="var(--spacing-2)" name="authorization-scope" aria-label="授权范围">
           <template #after-option="{ option }"><div v-if="option.value === 'PARTIAL' && scopeMode === 'PARTIAL'" class="scope-detail">
-            <PerformanceRadioGroup v-model="scopeKind" :options="[{ value:'DIRECT_SUBORDINATES', label:'被授权人的全部实线下级' },{ value:'DEPARTMENT', label:'指定部门' },{ value:'PEOPLE', label:'指定人员' }]" direction="vertical" :gap="12" name="authorization-scope-kind" aria-label="部分人员范围" />
-            <PerformanceSearchSelect v-if="scopeKind === 'DEPARTMENT'" v-model="departments" :options="departmentOptions" multiple aria-label="指定部门" />
-            <PerformanceSearchSelect v-if="scopeKind === 'PEOPLE'" v-model="employees" :options="personOptions" multiple aria-label="指定人员" />
+            <PerformanceRadioGroup v-model="scopeKind" class="scope-kind-options" :options="[{ value:'DIRECT_SUBORDINATES', label:'被授权人的全部实线下级' },{ value:'DEPARTMENT', label:'指定部门' },{ value:'PEOPLE', label:'指定人员' }]" direction="vertical" gap="var(--spacing-2)" name="authorization-scope-kind" aria-label="部分人员范围">
+              <template #after-option="{ option: kind }">
+                <div v-if="scopeKind === kind.value && kind.value !== 'DIRECT_SUBORDINATES'" class="scope-picker">
+                  <PerformanceOrganizationTreeSelect v-if="kind.value === 'DEPARTMENT'" v-model="departments" :nodes="departmentNodes" placeholder="" aria-label="指定部门" popup-label="指定部门组织架构" description="筛选所选部门及其下级部门内的员工" selection-indicator="checkbox" :default-expanded="false" :disabled="locked" />
+                  <PerformancePersonSelect v-else v-model="employees" :options="personOptions" multiple aria-label="指定人员" placeholder="请选择" :disabled="locked" />
+                </div>
+              </template>
+            </PerformanceRadioGroup>
           </div></template>
         </PerformanceRadioGroup>
       </PerformanceFormItem>
@@ -52,6 +56,9 @@ import PerformanceDelegationNoOriginChoice from './PerformanceDelegationNoOrigin
 import { useTaskDelegationRequests, type DelegationRequest } from './useTaskDelegationRequests'
 import PerformanceFormItem from './PerformanceFormItem.vue'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
+import PerformancePersonSelect from './PerformancePersonSelect.vue'
+import PerformanceOrganizationTreeSelect from './PerformanceOrganizationTreeSelect.vue'
+import type { PerformanceHrbpOrganizationNode } from '@/api/performance'
 import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
 import PerformancePromptNotice from './PerformancePromptNotice.vue'
 import UiButton from '../ui/UiButton.vue'
@@ -68,14 +75,27 @@ const people = ref<Person[]>([])
 const options = computed(() => people.value.map(person => ({ value: person.employee_no, label: person.display_name, subLabel: person.department_path })))
 const scopeMode = ref('PARTIAL'), scopeKind = ref('DIRECT_SUBORDINATES'), distribution = ref('INHERIT')
 const distributionOptions = computed(() => [{ value: 'INHERIT', label: '沿用此任务的分布规则', showInfo: true, info: (props.distributionLines?.length ? props.distributionLines : ['该任务未配置分布规则']) } as const, { value: 'NONE', label: '无需满足分布规则' } as const])
-const departments = ref<string | string[] | null>([]), employees = ref<string | string[] | null>([])
+const departments = ref<string[]>([]), employees = ref<string | string[] | null>([])
 const allowReauthorize = ref(false), notifyOriginal = ref(true), confirmationOpen = ref(false)
 const selectedStages = ref<string[]>([]), selectedTasks = ref<string[]>([]), activeRole = ref(''), noOriginChoice = ref('')
 const error = ref(''), loading = ref(false)
 const { saving, message: requestMessage, pending, isUncertain, submit: sendRequests, retry } = useTaskDelegationRequests((count, notification, id, skipped) => { confirmationOpen.value = false; emit('completed', count, notification, id, skipped); open.value = false }, () => { confirmationOpen.value = false; emit('refresh') })
 const locked = computed(() => saving.value || confirmationOpen.value)
 const roles = computed(() => [...new Map(stageOptions.value.filter(option => option.role_key).map(option => [option.role_key!, { key: option.role_key!, label: option.role_label || option.role_key! }])).values()])
-const departmentOptions = computed(() => [...new Set(props.tasks.map(person => person.department_path).filter((value): value is string => Boolean(value)))].map(value => ({ value, label: value })))
+const departmentNodes = computed(() => {
+  const roots: PerformanceHrbpOrganizationNode[] = []
+  for (const task of props.tasks) {
+    const segments = task.department_path?.split('/').filter(Boolean) || []
+    let nodes = roots
+    segments.forEach((label, index) => {
+      const value = segments.slice(0, index + 1).join('/')
+      let node = nodes.find(item => item.value === value)
+      if (!node) { node = { value, label, level: index + 1, children: [] }; nodes.push(node) }
+      nodes = node.children
+    })
+  }
+  return roots
+})
 const personOptions = computed(() => props.tasks.filter(task => task.employee_no).map(task => ({ value: task.employee_no!, label: task.display_name || task.employee_no! })))
 const reviewees = computed(() => [...new Map(props.tasks.filter(task => task.employee_no).map(task => [`${task.project_id}:${task.employee_no}`, task])).values()])
 const mapped = computed(() => props.tasks.some(task => task.task_map !== undefined))
@@ -174,9 +194,13 @@ async function submit() {
 .retry-details { margin:12px 0; padding-left:20px; color:var(--color-text-secondary); font-size:var(--font-size-md); overflow-wrap:anywhere; }
 .error { color:var(--color-text-danger-strong); font-size:var(--font-size-md); }
 .actions { display:flex; justify-content:flex-end; gap:var(--performance-dialog-footer-button-gap); }
-.scope-count { margin:0 0 16px; color:var(--color-text-secondary); font-size:var(--font-size-md); }
-.scope-detail { margin:12px 0 12px 24px; display:flex; flex-direction:column; gap:12px; }
-.switch-setting { display:flex; justify-content:space-between; align-items:center; gap:16px; min-height:32px; margin:12px 0; }
-.helper { color:var(--color-text-secondary); font-size:var(--font-size-xs); line-height:20px; margin-bottom:16px; }
-.readonly-notice { margin:0 0 20px; padding:12px 16px; border-radius:var(--performance-control-radius); background:#fff3e5; color:var(--color-text-secondary); font-size:var(--font-size-md); line-height:22px; }
+.scope-count { margin-left:auto; color:var(--color-text-secondary); font-size:var(--font-size-md); font-weight:var(--font-weight-normal); }
+.scope-options, .scope-kind-options { display:flex; width:100%; }
+.scope-options :deep(.performance-radio-entry), .scope-kind-options :deep(.performance-radio-entry) { flex-direction:column; align-items:stretch; width:100%; }
+.scope-options :deep(.performance-radio-after), .scope-kind-options :deep(.performance-radio-after) { display:block; margin-left:0; }
+.scope-field :deep(.performance-form-item__label) { margin-bottom:var(--spacing-4); }
+.scope-detail { margin:var(--spacing-1) var(--spacing-6) 0; padding:var(--spacing-4); border-radius:var(--radius-md); background:var(--color-bg-page); }
+.scope-picker { margin:var(--spacing-2) 0 0 var(--spacing-6); }
+.switch-setting { display:flex; align-items:center; gap:var(--spacing-1); margin-top:var(--spacing-4); font-weight:var(--font-weight-medium); line-height:var(--input-line-height); }
+.helper { color:var(--color-text-secondary); font-size:var(--font-size-md); line-height:var(--input-line-height); margin:0 0 var(--spacing-4); }
 </style>

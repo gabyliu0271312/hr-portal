@@ -5,7 +5,7 @@
       <div class="cycle-picker"><PerformanceSearchSelect class="cycle-select" selection-style="plain" :model-value="String(cycleId)" :options="cycleOptions" aria-label="选择绩效周期" placeholder="选择绩效周期" @update:model-value="selectCycle" /></div>
     </div>
     <section class="calibration-surface">
-      <div class="info-banner">以下校准任务均在你的管理范围内，你可协助校准人再将相应任务授权他人校准。{{ stageWindow ? `本阶段起止时间：${stageWindow.start} – ${stageWindow.end}` : '校准任务阶段时间以当前周期流程配置为准。' }}</div>
+      <PerformancePromptNotice type="info" multiline class="info-banner">以下校准任务均在你的管理范围内，你可协助校准人再将相应任务授权他人校准。{{ stageWindow ? `本阶段起止时间：${stageWindow.start} – ${stageWindow.end}` : '校准任务阶段时间以当前周期流程配置为准。' }}</PerformancePromptNotice>
       <PerformanceListToolbar v-model:keyword="keyword" search-placeholder="搜索成员" search-aria-label="搜索成员" search-fill filter-disabled @search="load" @clear="load" />
       <PerformanceManagementTable
         :rows="pageRows"
@@ -17,13 +17,18 @@
         pagination-aria-label="校准授权分页"
         :page="page"
         :page-size="50"
-        :total="rows.length"
+        :total="visibleRows.length"
         scroll-mode="page"
         row-key="id"
         @page-change="page = $event"
       >
         <template #cell="{ row, column }">
-          <span v-if="column.key === 'status'" class="status-cell" :class="{ 'is-pending': row.status !== '已校准' }"><i />{{ row.status }}</span>
+          <span v-if="column.key === 'calibrator'" class="authorization-person" :style="{ paddingLeft: `calc(${row.depth} * var(--performance-authorization-tree-indent))` }">
+            <button v-if="row.hasChildren" class="authorization-expand" type="button" :aria-label="`${collapsed.has(row.id) ? '展开' : '收起'}${row.calibrator}的授权`" :aria-expanded="!collapsed.has(row.id)" @click="toggleAuthorization(row.id)"><svg :class="{ 'is-collapsed': collapsed.has(row.id) }" viewBox="0 0 24 24" aria-hidden="true"><path d="M11.22 18.46a1 1 0 0 0 1.56 0l8.305-10.334a1 1 0 0 0-.78-1.626H3.696a1 1 0 0 0-.78 1.626L11.22 18.46Z" fill="currentColor" /></svg></button>
+            <span v-else class="authorization-expand-placeholder" aria-hidden="true" />
+            <PerformanceMemberIdentity :display-name="row.calibrator" size="sm" />
+          </span>
+          <span v-else-if="column.key === 'status'" class="status-cell" :class="{ 'is-pending': row.status !== '已校准' }"><i />{{ row.status }}</span>
           <template v-else-if="column.key === 'scope'">
             <PerformanceCalibrationRuleSummary v-for="(rule, index) in row.scope_rules || []" v-show="!simpleScope(row)" :key="index" :rule="rule" :people-options="scopePeople(row)" />
             <span v-if="simpleScope(row) || !row.scope_rules?.length">{{ row.scope }}</span>
@@ -43,7 +48,7 @@
     </section>
     <FocusGroupPeopleDialog v-model="peopleOpen" :title="peopleUnauthorized ? '未授权人员' : '可校准人员'" :subtitle="peopleSubtitle" :columns="peopleColumns" :rows="peopleRows" :loading="loading" :error="error" />
     <PerformanceTaskDelegationDialog v-model="dialogOpen" action="AUTHORIZE" calibration :read-only="target?.status === '已校准'" :tasks="delegationTasks" :distribution-lines="distributionLines" :has-distribution-rules="target?.distribution_info?.force_distribution_enabled" @completed="authorized" />
-    <PerformanceConfirmDialog v-model="confirmOpen" :message="`确认撤销${revokeTarget?.calibrator || '该校准人'}的任务授权？`" description="本次将撤销该行全部有效授权，历史内容保留。" confirm-text="撤销授权" confirm-variant="primary" :loading="saving" @confirm="confirmRevoke" />
+    <PerformanceConfirmDialog v-model="confirmOpen" message="确定撤销授权吗?" :details="revokeDetails" cancel-text="保留" confirm-text="撤销" :loading="saving" @confirm="confirmRevoke" />
   </div>
 </template>
 
@@ -54,6 +59,8 @@ import { projectManagementApi, type ProjectCalibrationAuthorization } from '@/ap
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import PerformanceSearchSelect from '@/components/performance/PerformanceSearchSelect.vue'
+import PerformancePromptNotice from '@/components/performance/PerformancePromptNotice.vue'
+import PerformanceMemberIdentity from '@/components/performance/PerformanceMemberIdentity.vue'
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
 import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'
 import PerformanceTaskDelegationDialog from '@/components/performance/PerformanceTaskDelegationDialog.vue'
@@ -74,12 +81,42 @@ const error = ref('')
 const notice = ref('')
 const stageWindow = ref<{ start: string; end: string } | null>(null)
 const page = ref(1)
-const pageRows = computed(() => rows.value.slice((page.value - 1) * 50, page.value * 50))
+const collapsed = ref(new Set<string>())
+const visibleRows = computed(() => {
+  const children = new Map<string | null, typeof rows.value>()
+  const ids = new Set(rows.value.map(row => row.id))
+  for (const row of rows.value) {
+    const parent = row.parent_id && row.parent_id !== row.id && ids.has(row.parent_id) ? row.parent_id : null
+    children.set(parent, [...(children.get(parent) || []), row])
+  }
+  const visible: Array<typeof rows.value[number] & { depth: number; hasChildren: boolean }> = []
+  const visited = new Set<string>()
+  const visit = (row: typeof rows.value[number], depth: number) => {
+    if (visited.has(row.id)) return
+    visited.add(row.id)
+    visible.push({ ...row, depth, hasChildren: Boolean(children.get(row.id)?.length) })
+    if (!collapsed.value.has(row.id)) for (const child of children.get(row.id) || []) visit(child, depth + 1)
+  }
+  for (const row of children.get(null) || []) visit(row, 0)
+  return visible
+})
+const pageRows = computed(() => visibleRows.value.slice((page.value - 1) * 50, page.value * 50))
+function toggleAuthorization(id: string) {
+  const next = new Set(collapsed.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  collapsed.value = next
+  page.value = 1
+}
 let sequence = 0
 const dialogOpen = ref(false)
 const saving = ref(false)
 const confirmOpen = ref(false)
 const revokeTarget = ref<ProjectCalibrationAuthorization | null>(null)
+const revokeDetails = computed(() => [
+  '撤销后，被授权人的校准任务和由该任务授权产生的子任务将会回收。',
+  ...(revokeTarget.value?.notify_original === false ? ['由于授权时选择了不通知原校准人，故本次撤销也不会通知原校准人。'] : []),
+])
 const target = ref<ProjectCalibrationAuthorization | null>(null)
 const peopleOpen = ref(false)
 const peopleTarget = ref<ProjectCalibrationAuthorization | null>(null)
@@ -116,6 +153,7 @@ async function load() {
     const result = await projectManagementApi.calibrationAuthorization(cycleId.value)
     if (current !== sequence) return
     stageWindow.value = result.start_at && result.end_at ? { start: formatDate(result.start_at), end: formatDate(result.end_at) } : null
+    collapsed.value = new Set()
     rows.value = result.items.filter(item => !keyword.value.trim() || item.calibrator.toLowerCase().includes(keyword.value.trim().toLowerCase())).map(item => ({ ...item, allow: item.allow_authorize ? '是' : '否' }))
   } catch { if (current === sequence) error.value = '校准授权加载失败，请稍后重试' } finally { if (current === sequence) loading.value = false }
 }
@@ -163,7 +201,12 @@ onMounted(async () => { try { if (!cycleStore.navigationReady) await cycleStore.
 .cycle-picker { flex:0 0 186px; width:186px; margin-left:auto; }
 .cycle-picker :deep(.performance-select-shell) { width:100%; }
 .calibration-surface { min-width:0; min-height:0; flex:1; margin:0 20px 24px; padding:24px; border-radius:8px; background:#fff; }
-.info-banner { margin-bottom:16px; padding:9px 12px; border-radius:8px; background:#eff3ff; color:#1f2329; font-size:14px; line-height:22px; white-space:normal; overflow-wrap:anywhere; }
+.info-banner { margin-bottom:var(--spacing-4); }
+.authorization-person { display:flex; align-items:center; min-width:0; }
+.authorization-expand, .authorization-expand-placeholder { display:inline-flex; align-items:center; justify-content:center; flex:0 0 var(--spacing-4); width:var(--spacing-4); height:var(--spacing-6); margin-right:var(--spacing-1); padding:0; border:0; background:transparent; color:var(--color-text-secondary); }
+.authorization-expand { cursor:pointer; }
+.authorization-expand svg { width:var(--spacing-2); height:var(--spacing-2); }
+.authorization-expand svg.is-collapsed { transform:rotate(-90deg); }
 .status-cell { display:inline-flex; align-items:center; gap:8px; }
 .status-cell.is-pending i { background: var(--color-text-warning-strong); }
 .status-cell i { width:8px; height:8px; border-radius:50%; background:#34b658; }

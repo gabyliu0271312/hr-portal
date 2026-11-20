@@ -211,6 +211,18 @@
 - `npm --prefix hr-portal/frontend run build` → **exit2**，被未修改的 `PerformanceReview360InvitePanel.spec.ts:318/323` 两处 TS2339 阻塞：`Omit<DOMWrapper<Element>, "exists">` 不存在 exists。未扩展修改360测试，Vite构建未执行；不能宣称完整构建通过。
 - 本次未运行浏览器横向滚动或独立PNG验收、真实API/数据库/生产验收；F04/F05整体仍未勾选。已读Spec012 UI交互与守则，复用既有表格、不引入禁止项，数仓/UCP检查不适用。未提交、推送或部署。
 
+### 2026-11-20 F04 授权层级、范围选择器与撤销确认调整
+
+- 用户本轮先要求组件/接口评估，随后明确授权“继续采集必要信息后完成调整开发”。沿现有授权工作区和弹窗修复，无新页面/完整蓝图、无新模型或迁移，不提交飞书真实授权/撤销、不自动commit/push/deploy。
+- 目标浏览器实采：授权子行紧随真实父行且缩进；授权范围标题与总人数同行，部分人员灰底分组宽504px、指定部门/人员选择框宽448px高32px，选择框紧随各自单选项下方。部门弹层有“筛选所选部门及其下级部门内的员工”说明、展开箭头和复选框。撤销标题“确定撤销授权吗?”，说明回收该任务及其子任务；原授权明确未通知时补充本次不通知提示，按钮“保留/撤销”。本轮仅解析必要DOM/局部样式与截图，超大REA页面/网络结果未全量审阅，不把此前推测的提交字段作为本轮真实抓包结论。
+- 页面提示条改用PerformancePromptNotice；授权弹窗复用PerformanceFormItem的label-extra、RadioGroup、PersonSelect、OrganizationTreeSelect及其共同SelectShell。组织树增加可选说明、checkbox和默认折叠参数，原使用方默认行为保留。开关贴近文案，已完成任务提示复用共享warning提示条。尺寸/缩进使用既有spacing/token，新增组织树最大高度、树缩进及确认列表圆点token，不固化人员姓名或部门数据。
+- 原校准GET每行增量返回parent_id和notify_original；分组含递归真实父来源，不同父行不合并，同父跨任务仍聚合。后端按created_at/id稳定深度优先排序；前端按parent_id展开/折叠并在分页前组织子树，后台根及缺来源的历史直接授权不猜规则。通知值混合或任一缺失返回null，不推断默认。原授权写链、撤销级联、权限检查及历史答案保持，撤销仅发送所选行的真实授权ID集合。
+- 最终前端定向：`npm --prefix hr-portal/frontend run test -- src/views/performance/ProjectManagement.spec.ts src/components/performance/PerformanceConfirmDialog.spec.ts src/components/performance/PerformanceSearchSelect.spec.ts --silent` → **3文件89 passed、exit0**；覆盖乱序父子孙行、同名不同来源、折叠/展开、仅撤销选中分支、通知提示、范围标题插槽、部门树与人员选择壳。此前含PerformanceHrbpScopeDialog的4文件回归90 passed（新增两项前），保留共享范围提交/回显回归证据。
+- 最终后端：`DB_HOST=127.0.0.1 DB_PORT=1 PYTHONPATH=hr-portal/backend hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_user_authorization.py -q --tb=short -k "calibration or delegation or task_authorization or authorization_records"` → **262 passed、2 skipped、864 deselected、16.24秒、exit0**，既有python_multipart弃用警告。覆盖父来源隔离/跨任务聚合/三级子树/通知四态及撤销孙代失效而其他分支ACTIVE；跳过不计通过，未连接业务数据库。
+- 最终构建：`npm --prefix hr-portal/frontend run build` → **vue-tsc+Vite通过、3789模块、1分5秒、exit0**，既有VueUse PURE注释提示。首次构建因新增测试夹具漏cycle_name失败，补齐后通过。`git diff --check`通过，部分文件保留LF/CRLF提示。
+- UI：本地Vite真实路由、独立Chromium上下文、所有/api/v1请求合成隔离，1440×1000/DPR1；根/子行缩进0/24px，范围灰底504×154px、选择框448×32px，树可展开为3节点，撤销两条说明及危险描边按钮可见，pageErrors=[]。独立PNG均已查看：`ui-blueprints/CR-007-F04-implemented-authorization-hierarchy-20261120.png`、`ui-blueprints/CR-007-F04-implemented-authorization-department-tree-20261120.png`、`ui-blueprints/CR-007-F04-implemented-authorization-revoke-20261120.png`。首次自动化定位到禁用子行导致超时，改按启用按钮定位后通过，未绕过应用禁用状态。
+- 边界：已完成本轮局部调整及本地验证；真实JWT/API/业务数据库保存回读、生产部署和整页同数据像素验收未执行，F04/F05保持未整体勾选。Spec012通用UI规则适用，数仓/UCP专属要求不适用。
+
 ### 当前实现和证据
 
 - 主实现：`projects_router.py`、`api/performance.ts`、`ProjectManagement.vue`、`CompletionRatePanel.vue`、`CompletionNodeCard.vue`、`PerformanceManagementTable.vue`、`PerformanceReminderPanel.vue`、`performanceReminder.ts`、现有路由；新增 `ProjectManagementReminder.vue`、`ProjectAuthorizationRecords.vue`、`ProjectCalibrationAuthorization.vue`。

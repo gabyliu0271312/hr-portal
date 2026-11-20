@@ -3,19 +3,20 @@
     v-model="modelValueProxy"
     v-model:query="query"
     :selected-items="selectedItems"
-    placeholder="输入关键词选择部门"
-    aria-label="权限范围"
-    popup-label="权限范围组织架构"
+    :placeholder="placeholder"
+    :aria-label="ariaLabel"
+    :popup-label="popupLabel"
     clear-label="清空已选部门"
-    :popup-height="230"
+    :popup-height="description ? 'auto' : 230"
     class="performance-organization-tree-select__trigger"
     :disabled="disabled"
     @open="$emit('open')"
   >
     <template #default>
+      <p v-if="description" class="organization-tree__description">{{ description }}</p>
       <div class="organization-tree__list">
         <div class="organization-tree__scroll" role="tree">
-          <PerformanceOrganizationTreeNodes :nodes="filteredNodes" :selected="modelValue" :searching="Boolean(query.trim())" @toggle="toggleNode" />
+          <PerformanceOrganizationTreeNodes :nodes="filteredNodes" :selected="modelValue" :searching="Boolean(query.trim())" :selection-indicator="selectionIndicator" :default-expanded="defaultExpanded" :disabled="disabled" @toggle="toggleNode" />
           <div v-if="!filteredNodes.length" class="organization-tree__empty">暂无可选部门</div>
         </div>
       </div>
@@ -29,7 +30,7 @@ import type { PerformanceHrbpOrganizationNode } from '@/api/performance'
 import PerformanceOrganizationTreeNodes from './PerformanceOrganizationTreeNodes.vue'
 import PerformanceSelectShell, { type PerformanceSelectItem } from './PerformanceSelectShell.vue'
 
-const props = withDefaults(defineProps<{ modelValue: string[]; nodes: PerformanceHrbpOrganizationNode[]; disabled?: boolean }>(), { disabled: false })
+const props = withDefaults(defineProps<{ modelValue: string[]; nodes: PerformanceHrbpOrganizationNode[]; disabled?: boolean; placeholder?: string; ariaLabel?: string; popupLabel?: string; description?: string; selectionIndicator?: 'checkmark' | 'checkbox'; defaultExpanded?: boolean }>(), { disabled: false, placeholder: '输入关键词选择部门', ariaLabel: '权限范围', popupLabel: '权限范围组织架构', description: '', selectionIndicator: 'checkmark', defaultExpanded: true })
 const emit = defineEmits<{ 'update:modelValue': [value: string[]]; open: [] }>()
 const query = defineModel<string>('query', { default: '' })
 const modelValueProxy = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
@@ -67,7 +68,8 @@ function toggleNode(value: string) {
 </script>
 
 <style scoped>
-.organization-tree__list { min-width: 0; min-height: 0; flex: 1; padding: 3px 0; box-sizing: border-box; }
-.organization-tree__scroll { max-height: 224px; overflow-x: hidden; overflow-y: auto; }
-.organization-tree__empty { padding: 8px 12px; color: #8f959e; line-height: 22px; }
+.organization-tree__description { margin:0; padding:var(--spacing-2) var(--spacing-3) 0; color:var(--color-text-placeholder); font-size:var(--font-size-md); line-height:var(--input-line-height); }
+.organization-tree__list { min-width:0; min-height:0; flex:1; padding:var(--spacing-1) 0; box-sizing:border-box; }
+.organization-tree__scroll { max-height:var(--performance-organization-tree-max-height); overflow-x:hidden; overflow-y:auto; }
+.organization-tree__empty { padding:var(--spacing-2) var(--spacing-3); color:var(--color-text-placeholder); line-height:var(--input-line-height); }
 </style>

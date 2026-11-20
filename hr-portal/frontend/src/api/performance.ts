@@ -266,6 +266,8 @@ export interface ProjectAuthorizationRecords {
 }
 
 export interface ProjectCalibrationAuthorization {
+  parent_id?: string | null
+  notify_original?: boolean | null
   project_id: number
   task_ids: number[]
   task_people?: Array<PerformanceFocusGroupChangePerson & { task_id: number; direct_supervisor_employee_no?: string; department_path?: string }>

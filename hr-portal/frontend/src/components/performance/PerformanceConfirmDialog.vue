@@ -12,7 +12,7 @@
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="performance-confirm-title"
-        :aria-describedby="subject || description ? 'performance-confirm-description' : undefined"
+        :aria-describedby="subject || description || details.length ? 'performance-confirm-description' : undefined"
         @keydown="onKeydown"
       >
         <header class="performance-confirm-dialog__header">
@@ -22,7 +22,8 @@
             </span>
             <span class="performance-confirm-dialog__title-content">{{ message }}</span>
           </div>
-          <p v-if="subject || description" id="performance-confirm-description" class="performance-confirm-dialog__body">
+          <ul v-if="details.length" id="performance-confirm-description" class="performance-confirm-dialog__body performance-confirm-dialog__details"><li v-for="detail in details" :key="detail">{{ detail }}</li></ul>
+          <p v-else-if="subject || description" id="performance-confirm-description" class="performance-confirm-dialog__body">
             <template v-if="subject">
               删除后，<span class="performance-confirm-dialog__subject">{{ subject }}</span>将失去本周期「被授权」范围的管理权限，但 Ta 仍拥有自己「当前负责」范围的管理权限。
             </template>
@@ -58,6 +59,7 @@ const props = withDefaults(defineProps<{
   message?: string
   subject?: string
   description?: string
+  details?: string[]
   cancelText?: string
   showCancel?: boolean
   dismissible?: boolean
@@ -73,6 +75,7 @@ const props = withDefaults(defineProps<{
   message: '后续配置项目将无法使用该模板，确定删除吗？',
   subject: '',
   description: '',
+  details: () => [],
   cancelText: '保留',
   showCancel: true,
   dismissible: true,
@@ -180,6 +183,9 @@ onBeforeUnmount(() => {
   font-family: var(--font-sans);
 }
 
+.performance-confirm-dialog__details { padding:0; list-style:none; }
+.performance-confirm-dialog__details li { display:flex; align-items:flex-start; gap:var(--spacing-2); margin-bottom:var(--spacing-2); }
+.performance-confirm-dialog__details li::before { content:''; flex:0 0 var(--performance-confirm-bullet-size); width:var(--performance-confirm-bullet-size); height:var(--performance-confirm-bullet-size); margin-top:var(--spacing-2); border-radius:var(--radius-pill); background:var(--color-primary); }
 .performance-confirm-dialog--wide {
   --performance-confirm-width: var(--performance-dialog-wide-width);
 }
