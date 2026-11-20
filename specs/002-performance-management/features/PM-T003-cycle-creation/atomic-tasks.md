@@ -152,6 +152,10 @@
   - UI：真实DOM像素验收 PNG `../../ui-blueprints/PM-T003-I06-F02-prompt-blueprint-v1.png`、`../../ui-blueprints/PM-T003-I06-F03-reason-blueprint-v1.png`，正式实现后另取 implemented PNG；复用现有填写工作区和共享Dialog/Field/Notice/Token。
   - Test contract：Given OR条件/多人正式结果/方向权限/版本冲突，When预检/提交/取消/源变化/删除后回看，Then提示、理由校验、权限裁剪、事务和历史符合契约。
   - Non-scope：新建Review提交链、360独立评估比较。
+  - 2026-11-20 只读提醒及详情修复：`PerformanceComparisonNotice` 保留授权活动提醒，新增 `PerformanceComparisonDetailDialog` 复用共享弹窗/评级/按钮；已有api类型增加双侧可选评级展示。后端 `project_comparison` 在双侧字段可见校验后按各自选项投影 `label/color/foreground` 白名单，不改计算/状态/事务/历史和迁移。删除规则仍只读历史理由，无新增详情请求；当前提示与详情同源，切换上下文关闭详情。
+  - 定向验证：`npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/components/performance/PerformanceTemplateRenderer.spec.ts` 对应两文件116 passed（实际首轮命令还传入不存在的SelfSummaryTask.spec.ts，该文件未执行）；补跑 `npm --prefix hr-portal/frontend test -- src/views/performance/SelfSummaryTask.spec.js` 150 passed，合计266。覆盖五入口无理由提醒、详情开关/多组隔离/上下文失效、删除/禁用规则和缺失文案不显示原始ID。后端 `.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_comparison_runtime.py -q` 45 passed、1项既有python_multipart弃用warning，覆盖双侧评级与白名单、不可见项裁剪/理由脱敏、缺失选项兼容。
+  - UI证据：真实本地Vite组件+合成数据，独立无持久化验证页面；打开详情、Esc关闭并焦点回到查看详情按钮。1280×800桌面及390×844窄屏已查看PNG `../../ui-blueprints/PM-T003-I06-F02-readonly-comparison-detail-20261120.png`、`../../ui-blueprints/PM-T003-I06-F02-readonly-comparison-mobile-20261120.png`；移动弹窗358px，无页面横向溢出，pageerror=0。首轮浏览器驱动因直接引用Vue依赖入口未正常渲染，改用Vite预构建入口后实际通过；未把首轮当通过。
+  - 验收边界：未操作真实业务提交/API→SQL回读/生产或真实外发；原REA详情采集失败后未重试，不宣称详情像素级还原。F02整体保留未勾选，历史数据库闭环等阻塞见下文。全量build首轮被并行360邀请组件TS2554阻断；并行修改补齐其契约后复核 `npm --prefix hr-portal/frontend run build` exit0，vue-tsc通过、3789模块、Vite 56.72秒，仅既有VueUse PURE告警。本轮文件 `git diff --check` 通过。
 
 - [ ] PM-T003-I06-F03 差异通知
   - Goal/Type：事务outbox、统一scheduler、正式评级组合去重、另一侧有效评估人通知。

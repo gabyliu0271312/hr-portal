@@ -2,6 +2,8 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { performanceOkrApi, performanceReviewApi, projectManagementApi, type PerformanceManagementDetail, type PerformanceReferenceTab } from '@/api/performance'
 import { employeeSwitchEpoch } from '@/stores/identitySwitch'
+import PerformanceComparisonNotice from './PerformanceComparisonNotice.vue'
+import type { PerformanceComparisonResult } from '@/api/performance'
 import PerformanceReferenceContent from './PerformanceReferenceContent.vue'
 import PerformanceReminderButton from './PerformanceReminderButton.vue'
 import PerformanceReviewEvaluationDrawer from './PerformanceReviewEvaluationDrawer.vue'
@@ -108,6 +110,59 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     expect(document.body.querySelector('.performance-comparison-notice')?.textContent).not.toContain('不可使用旧汇总理由')
     expect(document.body.querySelector('.performance-comparison-notice .prompt-notice')).toBeNull()
     wrapper.unmount()
+  })
+
+  const activeComparison: PerformanceComparisonResult = {
+    rule_id: 'active', matches: [{ content_id: 'value', item_id: 'rating', label: '年度综合评级', operator: 'gte', threshold: 2, difference: 3, first_task_id: 145, second_task_id: 146, first_version: 1, second_version: 2, first_value: 'a', second_value: 'd', first_node_name: '上级评估', second_node_name: '自评', first_rating: { label: '符合预期', color: '#3370ff' }, second_rating: { label: '超出预期', color: '#34c724' } }],
+    show_notice_in_review: true, fill_in_diff_reason: false, reason_required: false, context: 'active-context', reason: null, active: true,
+  }
+
+  it.each(['task', 'reference', 'locked-reference', 'management', 'locked-management'] as const)('keeps an active notice without a reason and opens authorized rating details in %s', async entry => {
+    const reference: PerformanceReferenceTab = { key: 'reference', node_id: 'reference', node_name: '上级评估', task_id: 146, employee_no: 'E001', status: 'completed', can_remind: false, form_schema: task.form_schema, answers: task.answers, comparison: structuredClone(activeComparison), final_result_locked: entry.startsWith('locked') }
+    const detailLoader = vi.fn().mockResolvedValue({ ...structuredClone(task), ...(entry === 'task' ? { comparison: structuredClone(activeComparison) } : entry.includes('management') ? { management_tabs: [reference], default_active_tab: reference.key } : { reference_tabs: [reference] }) })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, detailLoader, ...(entry.includes('reference') ? { activeTab: reference.key } : {}) } })
+    await flushPromises()
+    expect(document.body.querySelector('.prompt-notice')?.textContent).toContain('年度综合评级')
+    const button = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === '查看详情')!
+    button.click()
+    await flushPromises()
+    const detail = [...document.body.querySelectorAll<HTMLElement>('[role="dialog"]')].find(dialog => dialog.textContent?.includes('实际相差 3 档'))!
+    expect(detail.textContent).toContain('符合预期')
+    expect(detail.textContent).toContain('超出预期')
+    expect(detail.textContent).toContain('档位相差≥2档')
+    expect(detail.querySelector('input, textarea')).toBeNull()
+    detail.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click()
+    await flushPromises()
+    expect(document.body.textContent).not.toContain('实际相差 3 档')
+    expect(detailLoader).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('isolates detail groups and dismisses stale details when the comparison changes', async () => {
+    const comparison = { ...structuredClone(activeComparison), groups: [structuredClone(activeComparison), { ...structuredClone(activeComparison), rule_id: 'other', matches: [{ ...activeComparison.matches[0]!, label: '价值观', difference: 2, first_rating: { label: '第二组评级' } }] }] }
+    const wrapper = mount(PerformanceComparisonNotice, { props: { comparison, readonly: true, taskId: 145 } })
+    await wrapper.findAll('button')[1]!.trigger('click')
+    expect(document.body.textContent).toContain('第二组评级')
+    expect(document.body.textContent).not.toContain('符合预期')
+    await wrapper.setProps({ comparison: { ...structuredClone(activeComparison), groups: [] } })
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+    expect(wrapper.find('button').exists()).toBe(false)
+  })
+
+  it('retains reasons without resurrecting deleted or disabled notices and never displays raw rating IDs', async () => {
+    const wrapper = mount(PerformanceComparisonNotice, { props: { comparison: { ...structuredClone(activeComparison), active: false, reason: '已提交理由' }, readonly: true } })
+    expect(wrapper.text()).toContain('已提交理由')
+    expect(wrapper.find('.prompt-notice').exists()).toBe(false)
+    await wrapper.setProps({ comparison: { ...structuredClone(activeComparison), show_notice_in_review: false } })
+    expect(wrapper.find('button').exists()).toBe(false)
+    await wrapper.setProps({ comparison: { ...structuredClone(activeComparison), matches: [{ ...activeComparison.matches[0]!, first_value: 'private-option-id', first_rating: null, second_rating: undefined }] } })
+    await wrapper.get('button').trigger('click')
+    expect(document.body.textContent).toContain('评级信息不可用')
+    expect(document.body.textContent).not.toContain('private-option-id')
+    await wrapper.setProps({ readonly: false })
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+    expect(wrapper.find('button').exists()).toBe(false)
+    expect(wrapper.text()).toContain('请注意充分进行沟通后评估')
   })
 
   it.each(['evaluation', 'calibration', 'result_communication', 'reviewer_360_confirm'])('forwards the loaded %s source and the specific stage task with the outline button', async taskKind => {

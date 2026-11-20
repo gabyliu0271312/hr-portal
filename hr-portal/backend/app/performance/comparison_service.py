@@ -35,6 +35,13 @@ def _value(value, option_ids):
     return str(value) if value is not None and str(value) in option_ids else None
 
 
+def _rating_projection(field, value):
+    option = next((option for option in field.get("options") or [] if str(option.get("id")) == str(value)), None)
+    if option is None or not isinstance(option.get("label"), str) or not option["label"]:
+        return None
+    return {key: option[key] for key in ("label", "color", "foreground") if isinstance(option.get(key), str)}
+
+
 def ordinary_evaluation(node):
     template = (node.config or {}).get("template") or {}
     return node.node_type == "evaluation" and node_role_code({"node_type": node.node_type, **template}) != ROLE_REVIEWER_360
@@ -138,6 +145,8 @@ def project_comparison(comparison, schemas, current_node_id=None):
             continue
         visible = deepcopy(match)
         visible["label"] = "" if first.get("hide_name") or second.get("hide_name") else first.get("label", "")
+        visible["first_rating"] = _rating_projection(first, match.get("first_value"))
+        visible["second_rating"] = _rating_projection(second, match.get("second_value"))
         source_is_first = current_node_id == second_id
         visible["source_task_id"] = visible["first_task_id" if source_is_first else "second_task_id"]
         visible["source_version"] = visible["first_version" if source_is_first else "second_version"]

@@ -62,6 +62,74 @@ def test_projection_does_not_leak_hidden_label_or_inaccessible_values():
     assert project_comparison(comparison, {"a": [], "b": []}, "a") is None
 
 
+@pytest.mark.parametrize("current_node_id", ["a", "b"])
+def test_projection_resolves_each_sides_authorized_rating_and_whitelists_metadata(current_node_id):
+    comparison = compare_ratings(rule(), {"a": [record(1, "low")], "b": [record(2, "high")]})
+    before = deepcopy(comparison)
+    schemas = {"a": record(1, "low")["schema"], "b": record(2, "high")["schema"]}
+    schemas["a"][0]["fields"][0]["options"] = [
+        {"id": "low", "label": "自评待提升", "color": "#fff3e5", "foreground": "#8f4700", "description": "私有说明"},
+        {"id": "high", "label": "不应使用的另一选项"},
+    ]
+    schemas["b"][0]["fields"][0]["options"] = [
+        {"id": "high", "label": "上级优秀", "color": "#d9f5d6", "foreground": "#237b1b", "required": True},
+        {"id": "low", "label": "不应使用的另一侧选项"},
+    ]
+    match = project_comparison(comparison, schemas, current_node_id)["matches"][0]
+    assert match["first_rating"] == {"label": "自评待提升", "color": "#fff3e5", "foreground": "#8f4700"}
+    assert match["second_rating"] == {"label": "上级优秀", "color": "#d9f5d6", "foreground": "#237b1b"}
+    assert "options" not in match and "schema" not in match
+    assert comparison == before
+
+
+@pytest.mark.parametrize("hidden_side", ["a", "b"])
+def test_projection_prunes_hidden_rating_metadata_and_group_reason(hidden_side):
+    conditions = rule()
+    conditions["indicator_diff_rules"].append({**conditions["indicator_diff_rules"][0], "item_id": "hidden"})
+    records = {"a": [record(1, "low")], "b": [record(2, "high")]}
+    for entries in records.values():
+        entry = entries[0]
+        entry["schema"][0]["fields"].append({**deepcopy(entry["schema"][0]["fields"][0]), "id": "hidden", "label": "不可见评估项"})
+        entry["answers"]["hidden"] = entry["answers"]["i"]
+    comparison = compare_ratings(conditions, records)
+    comparison["reason"] = "含不可见条件的理由"
+    schemas = {node: deepcopy(entries[0]["schema"]) for node, entries in records.items()}
+    for schema in schemas.values():
+        schema[0]["fields"][0]["options"] = [{"id": "low", "label": "可见低评级"}, {"id": "high", "label": "可见高评级"}]
+        schema[0]["fields"][1]["options"] = [{"id": "low", "label": "私有低评级"}, {"id": "high", "label": "私有高评级"}]
+    schemas[hidden_side][0]["fields"].pop()
+    projected = project_comparison(comparison, schemas, "a")
+    assert len(projected["matches"]) == 1
+    assert projected["matches"][0]["first_rating"] == {"label": "可见低评级"}
+    assert projected["matches"][0]["second_rating"] == {"label": "可见高评级"}
+    assert projected["reason"] is None
+    assert "私有" not in str(projected) and "不可见" not in str(projected)
+    schemas[hidden_side][0]["fields"] = []
+    assert project_comparison(comparison, schemas, "a") is None
+
+
+@pytest.mark.parametrize("options, expected", [
+    (None, None),
+    ([], None),
+    ([{"id": "missing", "label": "其他评级"}], None),
+    ([{"id": "low"}], None),
+    ([{"id": "low", "label": ""}], None),
+    ([{"id": "low", "label": "待提升"}], {"label": "待提升"}),
+    ([{"id": "low", "label": "待提升", "color": None, "foreground": 123}], {"label": "待提升"}),
+])
+def test_projection_rating_metadata_handles_missing_options_and_optional_fields(options, expected):
+    comparison = compare_ratings(rule(), {"a": [record(1, "low")], "b": [record(2, "high")]})
+    schemas = {"a": record(1, "low")["schema"], "b": record(2, "high")["schema"]}
+    schemas["a"][0]["fields"][0]["options"] = options
+    schemas["b"][0]["fields"][0].pop("options")
+    schemas["a"][0]["fields"][0]["hide_name"] = True
+    match = project_comparison(comparison, schemas, "a")["matches"][0]
+    assert match["first_rating"] == expected
+    assert match["second_rating"] is None
+    assert match["label"] == ""
+    assert match["first_value"] == "low" and match["second_value"] == "high"
+
+
 def test_option_order_uses_snapshot_despite_current_reordering_or_additions():
     result = compare_ratings(rule(), {"a": [record(1, "low", options=["mid", "low", "high", "new"])],
                                       "b": [record(2, "high")]})
