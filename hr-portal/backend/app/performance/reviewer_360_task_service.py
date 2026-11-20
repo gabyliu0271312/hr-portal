@@ -98,9 +98,10 @@ async def task_context(db, context, project_id, source_task_id=None, *, write=Fa
     ))
     if member is None:
         raise HTTPException(404, "PROJECT_MEMBER_NOT_FOUND")
-    editable, _ = shared._self_summary_state(task, *shared._task_window(task, node, project), False)
+    overdue_allowed = await shared._task_overdue_submission_allowed(task, node, db)
+    editable, _ = shared._self_summary_state(task, *shared._task_window(task, node, project), overdue_allowed)
     editable = editable and await shared._task_edit_allowed(db, task, actor.actor_ref)
-    editable = editable and await previous_ready(db, task, node)
+    editable = editable and await previous_ready(db, task, node) and not await shared._final_result_locked(task, node, db)
     if write and not editable:
         raise HTTPException(409, "SUBMISSION_NOT_ALLOWED")
     target = await evaluation_node(db, project, node)
@@ -228,6 +229,12 @@ async def can_revoke_effective(db, task, node, actor_ref, editable):
 
     if not editable or task.task_kind != "reviewer_360_confirm" or node.node_type != "reviewer_360_confirm" or str(task.handler_ref) != str(actor_ref):
         return False
+    from app.performance import projects_router as shared
+    project = await db.get(PerformanceProject, task.project_id)
+    start, end = shared._task_window(task, node, project)
+    now = datetime.now(UTC)
+    if start is not None and now < start or end is not None and now > end:
+        return False
     if node_role_code((node.config or {}).get("template") or {}) not in MANAGER_ROLE_CODES:
         return False
     snapshot = await db.get(PerformanceProjectMemberSnapshot, task.member_snapshot_id)
@@ -262,8 +269,10 @@ async def roster(db, task, node, project, *, editable=False, snapshot=False, act
     people = {person.employee_no: person for person in await invites._snapshot_people(db, member_snapshot.source_snapshot_id)}
     settings = invite_settings(project, node, target)
     delta = draft_delta(task)
-    editable = editable and shared._self_summary_state(task, *shared._task_window(task, node, project), False)[0]
-    editable = editable and await previous_ready(db, task, node)
+    overdue_allowed = await shared._task_overdue_submission_allowed(task, node, db)
+    editable = editable and shared._self_summary_state(task, *shared._task_window(task, node, project), overdue_allowed)[0]
+    editable = editable and await shared._task_edit_allowed(db, task, actor_ref or task.handler_ref)
+    editable = editable and await previous_ready(db, task, node) and not await shared._final_result_locked(task, node, db)
     revoke_effective = await can_revoke_effective(db, task, node, actor_ref or task.handler_ref, editable)
     entries = {}
     for employee_no, evaluation in active_tasks.items():
@@ -410,8 +419,10 @@ async def save_task(db, task, node, project, actor, payload, submit):
     if payload.version is None:
         raise HTTPException(409, "VERSION_REQUIRED")
     start, end = shared._task_window(task, node, project)
-    editable, _ = shared._self_summary_state(task, start, end, False)
-    if not editable or not await previous_ready(db, task, node):
+    overdue_allowed = await shared._task_overdue_submission_allowed(task, node, db)
+    editable, _ = shared._self_summary_state(task, start, end, overdue_allowed)
+    if (not editable or not await shared._task_edit_allowed(db, task, actor.actor_ref)
+            or not await previous_ready(db, task, node) or await shared._final_result_locked(task, node, db)):
         raise HTTPException(409, "SUBMISSION_NOT_ALLOWED")
     current = await roster(db, task, node, project, editable=True, actor_ref=actor.actor_ref)
     require_version(payload.reviewer_360_version, current["version"])
@@ -447,7 +458,11 @@ async def save_task(db, task, node, project, actor, payload, submit):
                      "reviewer_360_version": current["version"]},
     ))
     await db.commit()
-    editable, submit_allowed = shared._self_summary_state(task, start, end, False)
+    editable, submit_allowed = shared._self_summary_state(task, start, end, await shared._task_overdue_submission_allowed(task, node, db))
+    editable = (editable and await shared._task_edit_allowed(db, task, actor.actor_ref)
+                and await previous_ready(db, task, node) and not await shared._final_result_locked(task, node, db))
+    submit_allowed = submit_allowed and editable
+    current = await roster(db, task, node, project, editable=editable, actor_ref=actor.actor_ref)
     return {"answers": shared.project_self_summary_answers(schema, task.answers or {}),
             "draft_answers": shared.project_self_summary_answers(schema, task.draft_answers or {}),
             "has_draft": task.draft_answers is not None, "version": task.answer_version,

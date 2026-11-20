@@ -58,7 +58,7 @@ describe('PerformanceReview360InvitePanel', () => {
     const wrapper = render({ data: snapshot({ items: [reviewer('A', 'DEFAULT', '直属下级'), reviewer('B', 'SELF', '直属上级'), reviewer('D')] }) })
     expect(wrapper.findComponent(PerformanceReviewer360InviteBody).exists()).toBe(true)
     expect(api.list).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('当前计入邀请额度 1 人，建议至少邀请 3 人（还差 2 人）')
+    expect(wrapper.text()).toContain('除系统默认邀请外，建议至少邀请 3 人，最多邀请 5 人，现已邀请 1 人。')
     expect(wrapper.findAll('tr').map(row => row.find('td').text())).toEqual(['不同上级同事', '相同上级同事', '直属下级', '直属上级', '关系未提供'])
     expect(wrapper.find('thead').exists()).toBe(false)
     expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false)
@@ -71,8 +71,39 @@ describe('PerformanceReview360InvitePanel', () => {
     expect(wrapper.emitted('change')).toBeUndefined()
   })
 
+  it('renders all quota instructions in one flowing paragraph without hard breaks or a separate limit block', () => {
+    const wrapper = render({ data: snapshot({ count: 4 }) })
+    expect(wrapper.get('.reviewer-360-content__description').text()).toBe('除系统默认邀请外，建议至少邀请 3 人，最多邀请 5 人，现已邀请 4 人。上级和 HRBP 也可继续补充邀请 360° 评估人。')
+    expect(wrapper.find('.reviewer-360-content__limit, .reviewer-360-content__intro br').exists()).toBe(false)
+    expect(wrapper.get('.reviewer-360-content__table-wrap').find('table').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('除直属下级外')
+  })
+
+  it.each([{ readonly: true }, { disabled: true }, { data: snapshot({ count: 5 }) }])('keeps disabled search free of tooltips and native title: %j', async overrides => {
+    const wrapper = render({ data: snapshot(), ...overrides })
+    const input = wrapper.get('input[role="combobox"]')
+    expect(input.attributes('disabled')).toBeDefined()
+    expect(input.attributes('aria-label')).toBe('搜索可邀请成员')
+    await wrapper.get('.performance-select-shell__selector').trigger('mouseenter')
+    await input.trigger('focus')
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(wrapper.find('[data-disabled-reason], [data-reason], .performance-info-popover, [role="tooltip"]').exists()).toBe(false)
+    expect(wrapper.get('.performance-select-shell').find('[title]').exists()).toBe(false)
+    expect(document.querySelector('[role="tooltip"], .performance-info-popover__popup')).toBeNull()
+    expect(api.candidates).not.toHaveBeenCalled()
+  })
+
+  it('uses a 12px aria-hidden SVG for authorized removal and retains the shared member identity', () => {
+    const wrapper = render({ data: snapshot({ items: [{ ...reviewer('B'), can_revoke: true, identity_status: { live_employment_status: '已离职', delegations: [], group_tags: [] } }] }) })
+    const button = wrapper.get('button[aria-label="移除成员B"]')
+    expect(button.get('svg[data-icon="CloseBoldOutlined"]').attributes()).toMatchObject({ width: '12', height: '12', 'aria-hidden': 'true', viewBox: '0 0 24 24' })
+    expect(button.text()).toBe('')
+    expect(wrapper.get('.member-identity').text()).toContain('已离职')
+    expect(wrapper.get('.reviewer-360-content__person').classes()).toContain('is-removable')
+  })
+
   it('uses server count rather than manual_count for requirements', () => {
-    expect(render({ data: snapshot({ total: 5, count: 3, manual_count: 1 }) }).text()).toContain('已满足最少邀请建议（3 人）')
+    expect(render({ data: snapshot({ total: 5, count: 3, manual_count: 1 }) }).text()).toContain('现已邀请 3 人。')
   })
 
   it.each([false, true])('only searches on input and adds a single explicit candidate with task/version; keyboard=%s', async keyboard => {
@@ -146,7 +177,7 @@ describe('PerformanceReview360InvitePanel', () => {
     expect(api.list).not.toHaveBeenCalled()
     const legacy = render({ projectId: 10 })
     await flushPromises()
-    expect(api.list).toHaveBeenCalledWith(10, undefined, undefined)
+    expect(api.list).toHaveBeenCalledWith(10, undefined, undefined, 'edit')
     expect(legacy.text()).toContain('成员A')
     expect(legacy.getComponent(PerformanceSearchSelect).props('disabled')).toBe(true)
   })
@@ -156,7 +187,8 @@ describe('PerformanceReview360InvitePanel', () => {
     expect(wrapper.find('button[aria-label^="移除"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('撤销')
     expect(wrapper.findAll('.reviewer-360-content__person').every(person => !person.classes().includes('is-removable'))).toBe(true)
-    expect(wrapper.findAll('.reviewer-360-content__person').map(person => person.attributes('title'))).toContain('未开放周期删除授权')
+    expect(wrapper.findAll('.reviewer-360-content__person').map(person => person.attributes('title'))).toEqual([undefined, undefined])
+    expect(wrapper.find('.invite-panel__remove').exists()).toBe(false)
     expect(api.revoke).not.toHaveBeenCalled()
   })
 
@@ -185,7 +217,7 @@ describe('PerformanceReview360InvitePanel', () => {
     api.list.mockRejectedValueOnce(new Error('offline'))
     await reread(wrapper).trigger('click')
     await flushPromises()
-    expect(api.list).toHaveBeenCalledWith(10, undefined, 101)
+    expect(api.list).toHaveBeenCalledWith(10, undefined, 101, 'edit')
     expect(wrapper.text()).toContain('成员A')
     expect(wrapper.text()).toContain('加载失败，请重试')
     api.list.mockResolvedValueOnce(snapshot({ version: 'latest' }))
@@ -290,7 +322,7 @@ describe('PerformanceReview360InvitePanel', () => {
   it('blocks already reached hard limits including secondary limits but never blocks SUGGESTED quotas', async () => {
     const limited = render({ data: snapshot({ count: 2, maximum_invited_count: 8, second_prompt_enabled: true, second_prompt_count: 2, second_prompt_mode: 'LIMIT' }) })
     expect(limited.getComponent(PerformanceSearchSelect).props('disabled')).toBe(true)
-    expect(limited.text()).toContain('最多可邀请 2 人')
+    expect(limited.text()).toContain('最多邀请 2 人，现已邀请 2 人。已达邀请上限不能再继续添加。')
     expect(limited.find('[role="alertdialog"]').exists()).toBe(false)
     const suggested = render({ data: snapshot({ count: 9, maximum_invited_count: 2, maximum_invite_mode: 'SUGGESTED', second_prompt_enabled: true, second_prompt_count: 3, second_prompt_mode: 'SUGGESTED' }) })
     expect(suggested.getComponent(PerformanceSearchSelect).props('disabled')).toBe(false)

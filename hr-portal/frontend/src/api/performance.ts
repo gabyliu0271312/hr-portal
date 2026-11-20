@@ -437,8 +437,8 @@ export interface PerformanceReview360InviteSubmitResult {
 }
 
 export const performanceReview360InviteApi = {
-  async list(projectId: number | string, keyword?: string, sourceTaskId?: number): Promise<PerformanceReview360InviteList> {
-    const params = { ...(keyword ? { keyword } : {}), ...(sourceTaskId === undefined ? {} : { source_task_id: sourceTaskId }) }
+  async list(projectId: number | string, keyword?: string, sourceTaskId?: number, view?: 'edit'): Promise<PerformanceReview360InviteList> {
+    const params = { ...(keyword ? { keyword } : {}), ...(sourceTaskId === undefined ? {} : { source_task_id: sourceTaskId }), ...(view ? { view } : {}) }
     const { data } = await api.get<PerformanceReview360InviteList>(`/performance/review-360/invites/projects/${projectId}`, {
       params: Object.keys(params).length ? params : undefined,
     })

@@ -1374,12 +1374,12 @@ describe('PerformanceTemplateContentSettings', () => {
     await wrapper.get('.reviewer-360-content__body').trigger('click')
     expect(wrapper.get('.template-section__heading').classes()).not.toContain('is-selected')
     expect(wrapper.get('.reviewer-360-content__body').classes()).toContain('is-selected')
-    expect(preview.get('.reviewer-360-content__intro').text()).toBe('通过「搜索」添加 360° 评估人已邀请 0 人，除系统默认邀请外，仍需邀请至少 5 人。上级和 HRBP 也可以给员工邀请 360° 评估人。')
+    expect(preview.get('.reviewer-360-content__intro').text()).toBe('通过「搜索」添加 360° 评估人除系统默认邀请外，建议至少邀请 5 人。上级和 HRBP 也可继续补充邀请 360° 评估人。')
     expect(preview.get('.reviewer-360-content__search').text()).toBe('搜索成员')
     expect(preview.get('.reviewer-360-content__list-title').text()).toBe('已邀请列表：当前共 0 人')
     expect(preview.findAll('[role="radio"]').map(item => [item.text(), item.attributes('aria-checked')])).toEqual([['按关系', 'true'], ['按邀请人', 'false']])
     expect(preview.findAll('tr').map(row => row.findAll('td').map(cell => cell.text()))).toEqual([
-      ['相同上级同事', ''], ['不同上级同事', ''], ['虚线上级', ''], ['直属下级', ''],
+      ['不同上级同事', '暂无人员'], ['相同上级同事', '暂无人员'],
     ])
     expect(preview.findAll('input, textarea, select')).toHaveLength(0)
     expect(preview.get('[tabindex="0"]').attributes('aria-label')).toBe('选择页面标题')

@@ -40,7 +40,7 @@ def reviewer_360_backend(monkeypatch):
         async def scalar(self, statement):
             if "performance_cycles" in str(statement):
                 return cycle
-            return SimpleNamespace(id=10, employee_no="E1")
+            return SimpleNamespace(id=10, employee_no="E1", display_name="E1", snapshot_id=snapshot.id)
         async def execute(self, statement):
             return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
         def add(self, event):
@@ -59,6 +59,7 @@ def reviewer_360_backend(monkeypatch):
     monkeypatch.setattr(routes, "_lock_task_context", AsyncMock())
     monkeypatch.setattr(routes, "_task_edit_allowed", AsyncMock(return_value=True))
     monkeypatch.setattr(routes, "_final_result_locked", AsyncMock(return_value=False))
+    overdue_policy = routes._overdue_submission_allowed
     monkeypatch.setattr(routes, "_overdue_submission_allowed", AsyncMock(return_value=True))
     monkeypatch.setattr(routes, "_self_summary_template", AsyncMock(return_value={"content": []}))
     monkeypatch.setattr(service, "submissions", AsyncMock(return_value=[{"display_name": "真实提交人", "submitted_at": "2026-01-01"}]))
@@ -70,7 +71,8 @@ def reviewer_360_backend(monkeypatch):
                 actor_ref=event.actor_ref, event_at=datetime.now(UTC), before_state=event.before_state, after_state=event.after_state))
     monkeypatch.setattr(routes.PerformanceAuditService, "append_event", append_event)
     return SimpleNamespace(service=service, routes=routes, invites=invites, task=task, node=node, project=project,
-        target=target, snapshot=snapshot, db=db, evaluations=evaluations, events=events, people=people, audits=audits, cycle=cycle)
+        target=target, snapshot=snapshot, db=db, evaluations=evaluations, events=events, people=people, audits=audits, cycle=cycle,
+        overdue_policy=overdue_policy)
 
 
 @pytest.mark.asyncio
@@ -145,7 +147,9 @@ async def test_reviewer_360_task_mutation_context_denies_unsafe_scope(reviewer_3
     if reason == "other_project": data.task.project_id = 2
     if reason == "readonly": data.routes._task_edit_allowed.return_value = False
     if reason == "not_started": data.task.available_at = datetime(2099, 1, 1, tzinfo=UTC)
-    if reason == "expired": data.task.due_at = datetime(2000, 1, 1, tzinfo=UTC)
+    if reason == "expired":
+        data.task.due_at = datetime(2000, 1, 1, tzinfo=UTC)
+        data.routes._overdue_submission_allowed.return_value = False
     if reason == "snapshot": data.snapshot.cycle_ref = "OTHER"
     with pytest.raises(HTTPException):
         await data.service.task_context(data.db, context(), 1, 601, write=True)
@@ -468,9 +472,12 @@ async def test_reviewer_360_formal_invite_reuses_voluntary_task_and_restores_ori
 
 
 @pytest.mark.asyncio
-async def test_reviewer_360_submit_refuses_new_evaluation_after_evaluation_deadline(reviewer_360_backend):
+@pytest.mark.parametrize("late_source", [False, True])
+async def test_reviewer_360_submit_refuses_new_evaluation_after_evaluation_deadline(reviewer_360_backend, late_source):
     from fastapi import HTTPException
     data = reviewer_360_backend
+    if late_source:
+        data.task.due_at = datetime(2000, 1, 1, tzinfo=UTC)
     data.project.settings["flow_settings"]["node_times"] = {"feedback": {"start_at": "2000-01-01T00:00:00+00:00", "end_at": "2000-01-02T00:00:00+00:00"}}
     current = await data.service.roster(data.db, data.task, data.node, data.project, editable=True)
     result = await data.invites.submit_invites(1, data.invites.InvitePayload(employee_nos=["N1"], reviewer_360_version=current["version"]), context(), data.db, source_task_id=601)
@@ -479,6 +486,162 @@ async def test_reviewer_360_submit_refuses_new_evaluation_after_evaluation_deadl
             reviewer_360_version=result.version), True, context(), data.db, "evaluation")
     assert error.value.detail == "REVIEWER_360_EVALUATION_WINDOW_CLOSED"
     assert len(data.evaluations) == 2 and data.task.status == "pending" and not data.audits
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["reviewer_360_invite", "reviewer_360_confirm"])
+@pytest.mark.parametrize("late", [False, True])
+async def test_reviewer_360_shared_submission_lifecycle_across_all_entries(reviewer_360_backend, monkeypatch, kind, late):
+    from datetime import timedelta
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    data = reviewer_360_backend
+    data.task.task_kind = data.node.node_type = kind
+    data.task.available_at = datetime.now(UTC) - timedelta(days=2)
+    data.task.due_at = datetime.now(UTC) + timedelta(days=-1 if late else 1)
+    monkeypatch.setattr(data.routes, "resolve_subject_visibility_role", AsyncMock(return_value="other"))
+    monkeypatch.setattr(data.routes, "load_subject_visibility_rules", AsyncMock(return_value={"other": []}))
+    monkeypatch.setattr(data.routes, "_reference_tabs", AsyncMock(return_value=[]))
+    monkeypatch.setattr(data.routes.comparison_service, "evaluate_task", AsyncMock(return_value=(None, None)))
+    async def add(no, version):
+        return await data.invites.submit_invites(1, data.invites.InvitePayload(employee_nos=[no], reviewer_360_version=version), context(), data.db, source_task_id=601)
+    async def remove(no, version):
+        return await data.invites.revoke_invite(1, no, context(), data.db, source_task_id=601, reviewer_360_version=version)
+    async def save(version, roster_version, submit):
+        return await data.routes._save_self_summary(601, data.routes.SelfSummaryAnswersPayload(version=version, reviewer_360_version=roster_version), submit, context(), data.db, "evaluation")
+    candidates = await data.invites.list_candidates(1, keyword="N", context=context(), db=data.db, source_task_id=601)
+    assert {item.employee_no for item in candidates.items} == {"N1", "N2"}
+    current = await data.invites.list_invites(1, keyword=None, context=context(), db=data.db, source_task_id=601)
+    added = await add("N1", current.version)
+    reopened = await data.invites.list_invites(1, keyword=None, context=context(), db=data.db, source_task_id=601)
+    own_draft = next(item for item in reopened.items if item.employee_no == "N1")
+    assert own_draft.can_revoke and not next(item for item in reopened.items if item.employee_no == "D1").can_revoke
+    assert reopened.editable and own_draft.is_draft
+    removed = await remove("N1", added.version)
+    added = await add("N2", removed["version"])
+    draft = await save(1, added.version, False)
+    assert draft["editable"] and draft["submit_allowed"] and data.task.submitted_at is None
+    assert len(data.evaluations) == 2
+    submitted = await save(2, draft["reviewer_360"]["version"], True)
+    assert submitted["editable"] is (not late) and submitted["submit_allowed"] is (not late)
+    assert not submitted["reviewer_360"]["editable"]
+    assert len(data.evaluations) == 3 and data.task.answer_version == 3
+    detail = await data.routes._template_task_detail(data.task, data.node, context(), data.db)
+    editing = await data.routes._template_task_detail(data.task, data.node, context(), data.db, view="edit")
+    assert detail["editable"] is (not late) and not detail["reviewer_360"]["editable"]
+    assert editing["reviewer_360"]["editable"] is (not late)
+    data.evaluations.pop()
+    viewing = await data.invites.list_invites(1, keyword=None, context=context(), db=data.db, source_task_id=601)
+    editing = await data.invites.list_invites(1, keyword=None, context=context(), db=data.db, source_task_id=601, view="edit")
+    assert viewing.total == 3 and not viewing.editable
+    assert editing.total == 2 and editing.editable is (not late)
+    if late:
+        before = (data.task.answer_version, len(data.audits), data.db.commit.await_count)
+        actions = [
+            lambda: data.invites.list_candidates(1, keyword=None, context=context(), db=data.db, source_task_id=601),
+            lambda: add("N1", editing.version), lambda: remove("R1", editing.version),
+            lambda: save(3, editing.version, False), lambda: save(3, editing.version, True),
+        ]
+        for action in actions:
+            with pytest.raises(HTTPException) as error:
+                await action()
+            assert error.value.detail == "SUBMISSION_NOT_ALLOWED"
+        assert (data.task.answer_version, len(data.audits), data.db.commit.await_count) == before
+    else:
+        added = await add("N1", editing.version)
+        draft = await save(3, added.version, False)
+        resubmitted = await save(4, draft["reviewer_360"]["version"], True)
+        assert resubmitted["editable"] and data.task.answer_version == 5
+        assert any(item.handler_ref == "N1" for item in data.evaluations)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["reviewer_360_invite", "reviewer_360_confirm"])
+@pytest.mark.parametrize("guard", ["policy", "previous", "readonly", "final", "completed", "submitted"])
+async def test_reviewer_360_live_guards_match_read_search_roster_and_save(reviewer_360_backend, monkeypatch, kind, guard):
+    from datetime import timedelta
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    data = reviewer_360_backend
+    data.task.task_kind = data.node.node_type = kind
+    data.task.due_at = datetime.now(UTC) - timedelta(days=1)
+    if guard == "policy": data.routes._overdue_submission_allowed.return_value = False
+    if guard == "previous": monkeypatch.setattr(data.service, "previous_ready", AsyncMock(return_value=False))
+    if guard == "readonly": data.routes._task_edit_allowed.return_value = False
+    if guard == "final": data.routes._final_result_locked.return_value = True
+    if guard == "completed": data.task.status = "completed"
+    if guard == "submitted": data.task.submitted_at = datetime.now(UTC)
+    current = await data.service.roster(data.db, data.task, data.node, data.project, editable=True)
+    assert not current["editable"] and not current["can_invite"]
+    assert not (await data.service.task_context(data.db, context(), 1, 601))[-1]
+    with pytest.raises(HTTPException):
+        await data.invites.list_candidates(1, keyword=None, context=context(), db=data.db, source_task_id=601)
+    with pytest.raises(HTTPException):
+        await data.invites.submit_invites(1, data.invites.InvitePayload(employee_nos=["N1"], reviewer_360_version=current["version"]), context(), data.db, source_task_id=601)
+    with pytest.raises(HTTPException):
+        await data.invites.revoke_invite(1, "R1", context(), data.db, source_task_id=601, reviewer_360_version=current["version"])
+    for submit in [False, True]:
+        with pytest.raises(HTTPException):
+            await data.routes._save_self_summary(601, data.routes.SelfSummaryAnswersPayload(version=1, reviewer_360_version=current["version"]), submit, context(), data.db, "evaluation")
+    assert not data.audits and len(data.evaluations) == 2
+    data.db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["reviewer_360_invite", "reviewer_360_confirm"])
+@pytest.mark.parametrize("guard", [None, "policy", "previous", "readonly", "final", "submitted"])
+async def test_reviewer_360_overview_uses_current_policy_and_shared_guards(reviewer_360_backend, monkeypatch, kind, guard):
+    from datetime import timedelta
+    from unittest.mock import AsyncMock
+    data = reviewer_360_backend
+    data.task.task_kind = data.node.node_type = kind
+    data.node.node_order = 1
+    data.task.due_at = datetime.now(UTC) - timedelta(days=1)
+    cycle = SimpleNamespace(id=1, cycle_ref="C1", name="周期", start_at=None, end_at=None)
+    access = _frontend_access(cycles=[cycle], review_projects=[(data.project, cycle)], visible={1: {11}}, tasks={1: {601}})
+    monkeypatch.setattr(data.routes, "resolve_frontend_access", AsyncMock(return_value=access))
+    if guard == "policy": data.routes._overdue_submission_allowed.return_value = False
+    if guard == "previous": monkeypatch.setattr(data.service, "previous_ready", AsyncMock(return_value=False))
+    if guard == "readonly": data.routes._task_edit_allowed.return_value = False
+    if guard == "final": data.routes._final_result_locked.return_value = True
+    if guard == "submitted":
+        data.task.status = "completed"
+        data.task.submitted_at = datetime.now(UTC)
+        data.task.answers = {data.service.SNAPSHOT_KEY: await data.service.roster(data.db, data.task, data.node, data.project)}
+    async def execute(query):
+        model = query.column_descriptions[0]["entity"]
+        rows = [data.node] if model is data.routes.PerformanceProjectNodeSnapshot else [data.task]
+        return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
+    monkeypatch.setattr(data.db, "execute", execute)
+    monkeypatch.setattr(data.routes.comparison_service, "evaluate_task", AsyncMock(return_value=(None, None)))
+    result = await data.routes.review_overview(1, context(), data.db)
+    assert result["categories"][0]["nodes"][0]["editable"] is (guard is None)
+    if guard == "policy":
+        data.routes._overdue_submission_allowed.return_value = True
+        result = await data.routes.review_overview(1, context(), data.db)
+        assert result["categories"][0]["nodes"][0]["editable"]
+
+
+@pytest.mark.asyncio
+async def test_reviewer_360_overdue_confirmation_cannot_commit_previously_staged_effective_revoke(reviewer_360_backend):
+    from datetime import timedelta
+    from fastapi import HTTPException
+    data = reviewer_360_backend
+    data.task.task_kind = data.node.node_type = "reviewer_360_confirm"
+    data.task.handler_ref = "M1"
+    data.people[0].direct_supervisor_employee_no = "M1"
+    data.node.config = {"template": {"executor_role_code": "assessment.line_manager"}}
+    data.cycle.allow_delete_360 = True
+    data.routes.resolve_trusted_performance_actor.return_value.actor_ref = "M1"
+    current = await data.service.roster(data.db, data.task, data.node, data.project, editable=True, actor_ref="M1")
+    removed = await data.invites.revoke_invite(1, "R1", context(), data.db, source_task_id=601, reviewer_360_version=current["version"])
+    data.task.due_at = datetime.now(UTC) - timedelta(days=1)
+    current = await data.service.roster(data.db, data.task, data.node, data.project, editable=True, actor_ref="M1")
+    assert current["editable"] and not await data.service.can_revoke_effective(data.db, data.task, data.node, "M1", True)
+    with pytest.raises(HTTPException) as error:
+        await data.routes._save_self_summary(601, data.routes.SelfSummaryAnswersPayload(version=1, reviewer_360_version=removed["version"]), True, context(), data.db, "evaluation")
+    assert error.value.detail == "REVIEWER_360_REVOKE_NOT_ENABLED"
+    assert data.evaluations[1].revoked_at is None and not data.audits
 
 
 @pytest.mark.asyncio
@@ -3307,7 +3470,7 @@ async def test_reference_can_fill_obeys_window_completion_and_final_lock(referen
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["calibration", "result_reconsideration", "reviewer_360_invite", "reviewer_360_confirm"])
+@pytest.mark.parametrize("kind", ["calibration", "result_reconsideration"])
 async def test_reference_special_tasks_never_use_general_late_submission(reference_task_data, kind):
     from datetime import timedelta
     data = reference_task_data
@@ -3316,6 +3479,25 @@ async def test_reference_special_tasks_never_use_general_late_submission(referen
     task.due_at = datetime.now(UTC) - timedelta(days=1)
     assert not await data.routes._reference_task_can_fill(task, data.node, data.project, context(), data.db)
     data.overdue.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["reviewer_360_invite", "reviewer_360_confirm"])
+@pytest.mark.parametrize("ready", [False, True])
+async def test_reference_reviewer_tasks_use_live_late_policy_and_previous_readiness(reference_task_data, monkeypatch, kind, ready):
+    from datetime import timedelta
+    from unittest.mock import AsyncMock
+    from app.performance import reviewer_360_task_service
+    data = reference_task_data
+    task = data.tasks[0]
+    task.task_kind = data.node.node_type = kind
+    task.due_at = datetime.now(UTC) - timedelta(days=1)
+    monkeypatch.setattr(reviewer_360_task_service, "previous_ready", AsyncMock(return_value=ready))
+    assert await data.routes._reference_task_can_fill(task, data.node, data.project, context(), data.db) is ready
+    data.overdue.return_value = False
+    assert not await data.routes._reference_task_can_fill(task, data.node, data.project, context(), data.db)
+    data.overdue.return_value = True
+    assert await data.routes._reference_task_can_fill(task, data.node, data.project, context(), data.db) is ready
 
 
 @pytest.mark.asyncio

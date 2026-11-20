@@ -25,6 +25,10 @@ class Db:
         (False, "EVALUATION", "work_summary", True),
         (False, "ALL", "work_summary", False),
         (True, "ALL", "evaluation", True),
+        (False, "EVALUATION", "reviewer_360_invite", True),
+        (False, "EVALUATION", "reviewer_360_confirm", True),
+        (False, "ALL", "reviewer_360_invite", False),
+        (False, "ALL", "reviewer_360_confirm", False),
     ],
 )
 async def test_overdue_submission_policy_reads_current_cycle_values(enabled, scope, node_type, expected):

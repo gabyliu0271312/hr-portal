@@ -323,6 +323,12 @@ def _self_summary_state(task: PerformanceNodeTask, available_at: datetime | None
     return True, True
 
 
+async def _task_overdue_submission_allowed(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, db: AsyncSession) -> bool:
+    if getattr(task, "task_kind", None) in {"calibration", "result_reconsideration"}:
+        return False
+    return await _overdue_submission_allowed(task, node, db)
+
+
 async def _overdue_submission_allowed(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, db: AsyncSession) -> bool:
     cycle_ref = getattr(task, "cycle_ref", None)
     if not cycle_ref:
@@ -581,10 +587,14 @@ async def _reference_task_can_fill(task, node, project, context, db):
     if (context is None or getattr(task, "revoked_at", None) is not None
             or task.status != "pending" or _task_completed(task) or _calibration_completed(task)):
         return False
-    overdue_allowed = False if task.task_kind in {"calibration", "result_reconsideration", "reviewer_360_invite", "reviewer_360_confirm"} else await _overdue_submission_allowed(task, node, db)
+    overdue_allowed = await _task_overdue_submission_allowed(task, node, db)
     editable, submit_allowed = _self_summary_state(task, *_task_window(task, node, project), overdue_allowed)
     if not editable or not submit_allowed or await _final_result_locked(task, node, db):
         return False
+    if task.task_kind in {"reviewer_360_invite", "reviewer_360_confirm"}:
+        from app.performance.reviewer_360_task_service import previous_ready
+        if not await previous_ready(db, task, node):
+            return False
     try:
         await _self_summary_task(task.id, context, db, task.task_kind)
         actor = await resolve_trusted_performance_actor(db, context,
@@ -1022,7 +1032,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
     reviewer_task = task.task_kind in {"reviewer_360_invite", "reviewer_360_confirm"}
     if reviewer_task and (project is None or project.status != PROJECT_STATUS_STARTED or project.cycle_ref != task.cycle_ref):
         raise HTTPException(404, "PROJECT_NOT_FOUND")
-    overdue_allowed = False if getattr(task, "task_kind", None) in {"calibration", "result_reconsideration", "reviewer_360_invite", "reviewer_360_confirm"} else await _overdue_submission_allowed(task, node, db)
+    overdue_allowed = await _task_overdue_submission_allowed(task, node, db)
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
     final_result_locked = await _final_result_locked(task, node, db)
     if final_result_locked:
@@ -1420,7 +1430,7 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
     if await _final_result_locked(task, node, db):
         raise HTTPException(409, "FINAL_RESULT_CALIBRATED")
     available_at, due_at = _task_window(task, node, project)
-    overdue_allowed = False if getattr(task, "task_kind", None) in {"calibration", "result_reconsideration"} else await _overdue_submission_allowed(task, node, db)
+    overdue_allowed = await _task_overdue_submission_allowed(task, node, db)
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
     if not editable or (submit and not submit_allowed):
         raise HTTPException(status_code=409, detail="SUBMISSION_NOT_ALLOWED")
@@ -1576,8 +1586,12 @@ async def _discard_task_draft(task_id: int, payload: TaskDraftVersionPayload, co
     if await _final_result_locked(task, node, db):
         raise HTTPException(409, "FINAL_RESULT_CALIBRATED")
     available_at, due_at = _task_window(task, node, project)
-    overdue_allowed = False if task.task_kind in {"calibration", "result_reconsideration"} else await _overdue_submission_allowed(task, node, db)
+    overdue_allowed = await _task_overdue_submission_allowed(task, node, db)
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
+    if getattr(task, "task_kind", None) in {"reviewer_360_invite", "reviewer_360_confirm"}:
+        from app.performance.reviewer_360_task_service import previous_ready
+        editable = editable and await previous_ready(db, task, node)
+        submit_allowed = submit_allowed and editable
     if not editable or not submit_allowed:
         raise HTTPException(status_code=409, detail="SUBMISSION_NOT_ALLOWED")
     if payload.version != task.answer_version:
@@ -7222,7 +7236,14 @@ async def review_overview(
         }
         if is_template_task and selected_task is not None:
             available_at, due_at = _task_window(selected_task, node, project)
-            editable, _ = _self_summary_state(selected_task, available_at, due_at, getattr(selected_task, "task_kind", None) not in {"calibration", "reviewer_360_invite", "reviewer_360_confirm"})
+            overdue_allowed = await _task_overdue_submission_allowed(selected_task, node, db)
+            editable, _ = _self_summary_state(selected_task, available_at, due_at, overdue_allowed)
+            if selected_task_kind in {"reviewer_360_invite", "reviewer_360_confirm"}:
+                from app.performance.reviewer_360_task_service import previous_ready
+                actor = await resolve_trusted_performance_actor(db, context, cycle_ref=selected_task.cycle_ref, require_employee_identity=True)
+                editable = (editable and await _task_edit_allowed(db, selected_task, actor.actor_ref)
+                            and await previous_ready(db, selected_task, node)
+                            and not await _final_result_locked(selected_task, node, db))
             node_payload["editable"] = editable
             node_payload["submitted_at"] = selected_task.submitted_at
             if selected_task.submitted_at is not None:

@@ -350,11 +350,13 @@ async def list_invites(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
     source_task_id: int | None = Query(default=None, ge=1),
+    view: str | None = Query(default=None, pattern="^edit$"),
 ):
     from app.performance import reviewer_360_task_service as service
 
     task, node, project, actor, snapshot, _target, editable = await service.task_context(db, context, project_id, source_task_id)
-    data = await service.roster(db, task, node, project, editable=editable, actor_ref=actor.actor_ref)
+    editing = task.submitted_at is None or view == "edit"
+    data = await service.roster(db, task, node, project, editable=editable and editing, snapshot=not editing, actor_ref=actor.actor_ref)
     if keyword:
         lowered = keyword.strip().lower()
         data["items"] = [item for item in data["items"] if lowered in item["display_name"].lower() or lowered in item["employee_no"].lower()]

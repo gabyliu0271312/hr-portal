@@ -1,5 +1,20 @@
 # PM-T004 原子任务
 
+- [ ] PM-T004-T05-F41-V3 360°共享任务生命周期与目标DOM修复（2026-11-20）
+  - Goal/确认：用户明确完成全部修复，复用普通任务逾期首次补交、提交后提示/真实提交记录、截止前再次编辑和配置前端同源，仅对邀请名单UI差异原位修复；禁用搜索无hover提示，只共享not-allowed光标。
+  - Reading/复用：START_HERE/Spec002基线、CR005/F41及UI-V3、Spec012 UI规范N00/N11，复用_self_summary_state/_overdue_submission_allowed/_task_edit_allowed、统一template-task与SelfSummaryTask/CompletionNotice/TemplateRenderer/InviteBody/SearchSelect，不新增状态机。
+  - Allowed/shared：backend projects_router/reviewer_360_task_service/review_360_invites_router（必要）及既有projects/overdue策略测试；frontend InvitePanel/InviteBody/Renderer/SelfSummaryTask/Review/Drawer及对应既有spec、tokens领域变量、必要360 DTO；主线程现有任务/UI/CR005记录与独立实现PNG。同文件唯一写入者，后端/前端分工，主线程不并写业务文件。
+  - Forbidden：新脚本/报告/测试文档、新迁移/数据库结构、生产/通知、commit/push、重算冻结关系或历史任务、放开校准/复议、逾期撤销已生效邀请、评价节点已截止后派发任务。
+  - Contract：原API/DTO/双版本/私有名单草稿/正式提交生效沿V2；统一详情/总览/参考入口、候选/名单增删、表单draft/submit及返回状态的实时策略。未正式提交且策略允许逾期可编辑，正式提交一次后锁；截止前已提交仍可沿真实view=edit继续修改，查看保持正式只读快照。权限/前置/最终锁始终重验。
+  - UI：ui-interaction V3为本轮确认依据；目标独立表格外壳+auto列宽、24px行高/55px单行、分类600、24px人员标签/12pxSVG、正文一段自然换行。模板配置与运行同Body；SearchSelect禁用无tooltip/标题文本，主动上限弹窗保留。独立PNG v3-dom-table及v3-shared-completion，不覆盖V2证据。
+  - Given/When/Then：邀请/确认未开始拒绝；逾期首次进入可搜索/草稿/重开/确认提交，提交后所有写入口锁；窗内提交可继续编辑并重开最新名单；全局/周期策略变更立即生效；目标评价已截止新增拒绝；逾期确认有效撤销拒绝，默认/历史答案保护；按邀请人长文本撑列/同关系行高/正文满宽自然换行/禁用hover无提示，普通任务和配置预览不回退。
+  - Backend evidence：后端代理现有`.venv`、PYTHONPATH=backend、DB_HOST=127.0.0.1/DB_PORT=1执行`pytest tests/test_performance_projects.py tests/test_performance_overdue_submission_policy.py -q --tb=line`，1025 passed/5 skipped/1既有python_multipart弃用警告。详情/overview/参考、名单/候选/增删、draft/submit/discard共享实时策略、窗内再次编辑、逾期首次提交后锁定、默认正式快照与view=edit最新名单、独立撤销时窗均覆盖；fake-session数据流不等同真实PostgreSQL。
+  - UI evidence：本地Vite5181/实际Vue+隔离内存API与合成人员，同宽1321px测量按邀请人列148.5px、4行55px、表高221px、tag24px/close SVG12px，关系列109px/3行55px/表高166px，字号14/分类600/行高24与目标匹配。正文满宽一行；390px自然3行无页面横向溢出，pageerror=0。局部字体沿目标系统栈，仅Body覆盖继承变量，不改变全局成员组件。
+  - Shared route evidence：实际SelfSummaryTask+内存路由验证窗内正式提交后共享CompletionNotice真实提交人/时间、只读搜索、编辑按钮检查后GET view=edit恢复搜索；逾期点击先出现共享确认，取消submit调用0，确认后1次写、search只读且无编辑入口，pageerror=0。禁用搜索hover无tooltip，使用现有not-allowed。截图`../../ui-blueprints/PM-T004-T05-F41-v3-dom-table-20261120.png`与`PM-T004-T05-F41-v3-shared-completion-20261120.png`已查看；文字头像与合成API不代表真实登录/数据库或照片逐像素验收。
+  - Frontend evidence：前端代理最终六文件Vitest560/560 passed（InvitePanel36、SelfSummary156、TemplateContentSettings108、Drawer80、Renderer36、Review144），新增两类任务窗内共享完成/真实编辑/最新名单版本、逾期确认取消与单次提交后锁定、无权拒绝、禁用无tooltip/title、正文单段及12pxSVG覆盖；保留Review既有jsdom XHR AggregateError stderr，不隐藏失败。代理vue-tsc --noEmit exit0，主线程API请求合同performanceManagementContext.spec.ts 7/7 passed。
+  - Validation/DoD：最终主线程`npm --prefix hr-portal/frontend run build`完成vue-tsc+Vite（50.37s，exit0），既有VueUse PURE注释警告保留；git diff --check通过，仅LF/CRLF提示。其他会话comparison等变更不纳入本轮。代码、定向回归、构建、目标DOM同宽测量和受控共享路由验证完成；本机Docker/本地PG不可用，真实数据库新连接持久化/双事务并发not-run，5个skip不计通过。无新增迁移/生产/通知/commit/push，完整验收前不勾选。
+
+
 - [ ] PM-T004-T05-F41-V2 360°邀请草稿、配置消费与运行交互闭环（2026-11-20）
   - Goal/确认：用户要求完成本轮REA评估全部优化，明确选择“草稿可删，生效后受控”。前置F41统一任务入口已落地，承接CR-005-T05生命周期与删除开关子项；不据此勾选匿名/推荐等整卡。
   - Reading：Spec002基线、CR-005最新优化契约、F41原交互及本UI文档V2、Spec012 START/spec相关/UI护栏/N00/N11、execution-contract/acceptance-evidence/migration-coordination。
