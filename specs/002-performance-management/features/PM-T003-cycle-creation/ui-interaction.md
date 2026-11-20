@@ -1,5 +1,12 @@
 # PM-T003 周期创建最小交互说明
 
+## 周期人员组新建页手动维护范围布局修复（2026-11-20）
+
+- 用户明确要求：后台设置→人员组管理→新建→人员范围→设置方式，选择“手动维护人员范围”后，角色设置灰框左缘与选项文字对齐，右缘保留所在白卡的内边距。属于既有页面局部样式修复，无需新蓝图。
+- 仅在 `FocusPeopleGroupCreate.vue` 当前设置方式区域调整单选 entry 换行和 after-option 包装层整行宽度；沿用 `UiOptionDetail` 的24px文字缩进和已有颜色/圆角/padding token，不改共享单选组件、角色、API、权限、快照或数据库。
+- 本地实际Vue页面组件配合隔离只读选项，浏览器1280/390px实测：灰框与选项文字左缘分别同为274/44px，右侧距白卡均20px，等于白卡padding；无页面横向溢出。切换API模式隐藏灰框，切回保留已选角色。截图 `../../../../hr-portal/.tmp/focus-group-manual-alignment-20261120.png` 已查看；该证据为本地组件验证，未执行真实登录/API→SQL或生产验收。
+- 验证：`npm --prefix hr-portal/frontend exec -- vitest run --root hr-portal/frontend src/views/performance/FocusPeopleGroupCreate.spec.ts`，10项通过；`npm --prefix hr-portal/frontend run build` 的vue-tsc与Vite通过，保留既有VueUse PURE注释警告；目标文件diff-check通过。Spec012 UI通用守则已读，无新信息架构、数仓/UCP或破坏性操作；不据本次修复勾选其他业务整卡，未提交/推送/部署。
+
 ## CR-013 项目与周期编辑政策（2026-11-06）
 
 以 [CR-013](../../changes/CR-013-edit-policy-alignment.md) 覆盖本文件相冲突的旧限制。项目启动后已有校准规则/阶段内容禁改，允许显式新增和删除；已截止阶段禁删，可先延期独立保存后删除。分布配置仅所有既有阶段未开始可改，结果开通方式一直可调。删除确认可勾选通知，任务与权限增量调整，已校准结果保留；复用现有禁用原因及确认弹窗。原项目向导展示初始化不算用户变更，未改下一步不提交锁定配置，保存失败保留输入。

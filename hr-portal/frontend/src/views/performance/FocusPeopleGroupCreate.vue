@@ -355,7 +355,9 @@ onBeforeUnmount(() => {
 .focus-group-create-tag-setting { margin-bottom: var(--spacing-5); }
 .focus-group-create-desc { margin: 0; color: var(--performance-text-secondary); font-size: var(--font-size-md); line-height: var(--performance-input-line-height); }
 .focus-group-create-mode-options { width: 100%; }
+.focus-group-create-mode-options :deep(.performance-radio-entry) { flex-wrap: wrap; width: 100%; }
 .focus-group-create-mode-options :deep(.performance-radio-option) { width: 100%; height: auto; align-items: flex-start; }
+.focus-group-create-mode-options :deep(.performance-radio-after) { display: block; width: 100%; margin-left: 0; }
 .focus-group-create-mode-options :deep(.radio-wallpaper) { margin-top: calc((var(--performance-input-line-height) - var(--performance-workbench-editor-radio-size)) / 2); }
 .focus-group-create-mode-options :deep(.radio-label) { flex: 1; min-width: 0; white-space: normal; }
 .focus-group-create-mode-label, .focus-group-create-mode-description { display: block; line-height: var(--performance-input-line-height); }
