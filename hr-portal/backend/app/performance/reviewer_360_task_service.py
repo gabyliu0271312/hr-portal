@@ -388,9 +388,6 @@ async def apply_delta(db, task, node, project, actor, current):
         revocations.append((employee_no, evaluation))
     available_at, due_at = shared._task_window(PerformanceNodeTask(task_kind="evaluation"), target, project)
     now = datetime.now(UTC)
-    effective_start = max(available_at, now) if available_at else now
-    if due_at is not None and effective_start > due_at and any(item["is_draft"] and item["employee_no"] not in existing for item in current["items"]):
-        raise HTTPException(409, "REVIEWER_360_EVALUATION_WINDOW_CLOSED")
     for employee_no, evaluation in revocations:
         if ((active.get(employee_no).after_state or {}) if active.get(employee_no) else {}).get("was_voluntary"):
             evaluation.source_type = "VOLUNTARY"
@@ -414,7 +411,7 @@ async def apply_delta(db, task, node, project, actor, current):
         else:
             db.add(PerformanceNodeTask(project_id=project.id, cycle_ref=task.cycle_ref, member_snapshot_id=task.member_snapshot_id,
                 node_snapshot_id=target.id, target_employee_no=task.target_employee_no, handler_ref=employee_no,
-                task_kind="evaluation", phase_id="", available_at=effective_start,
+                task_kind="evaluation", phase_id="", available_at=available_at,
                 due_at=due_at, status="pending", source_type="DEFAULT" if source == "DEFAULT" else "INVITE"))
         PerformanceAuditService(db).append_event(AuditEventInput(
             event_type="REVIEWER_360_INVITED", cycle_ref=task.cycle_ref, employee_no=task.target_employee_no,

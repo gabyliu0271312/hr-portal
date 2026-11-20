@@ -268,6 +268,7 @@ function errorMessage(error: unknown, fallback: string) {
       DIFF_REASON_REQUIRED: '请填写差异理由',
       SHARED_RESULT_VERSION_CONFLICT: '绩效结果已被其他人更新，当前输入已保留，请刷新核对后再提交',
       FINAL_RESULT_CALIBRATED: FINAL_RESULT_LOCKED_MESSAGE,
+      REVIEWER_360_EVALUATION_WINDOW_CLOSED: '360°评估环节已截止，当前服务暂不支持提交新增邀请，请联系管理员确认服务版本或调整评估时间；名单草稿已保留',
       RECONSIDERATION_CLOSED: '复议已处理完成，无法继续编辑或提交，请刷新查看最新结果',
       RECONSIDERATION_BASELINE_UNAVAILABLE: '复议前绩效结果暂不可用，请联系管理员核对后重试',
       RECONSIDERATION_SOURCE_CONFLICT: '复议结果来源不一致，请联系管理员核对后重试',

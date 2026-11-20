@@ -60,6 +60,7 @@ const props = withDefaults(defineProps<{
   description?: string
   cancelText?: string
   showCancel?: boolean
+  dismissible?: boolean
   confirmText?: string
   loading?: boolean
   requireConfirm?: boolean
@@ -74,6 +75,7 @@ const props = withDefaults(defineProps<{
   description: '',
   cancelText: '保留',
   showCancel: true,
+  dismissible: true,
   confirmText: '删除',
   loading: false,
   requireConfirm: false,
@@ -108,7 +110,7 @@ function restorePage() {
 }
 
 function cancel() {
-  if (props.loading) return
+  if (props.loading || !props.dismissible) return
   emit('update:modelValue', false)
 }
 

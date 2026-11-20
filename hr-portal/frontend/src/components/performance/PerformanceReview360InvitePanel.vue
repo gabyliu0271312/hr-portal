@@ -196,7 +196,9 @@ watch(() => [props.projectId, props.nodeId, props.data, props.readonly, props.di
   roster.value = props.data
   error.value = ''
   conflict.value = false
-  limitDialogOpen.value = false
+  if (!previous || next[0] !== previous[0] || next[1] !== previous[1]
+    || next[2]?.task_id !== previous[2]?.task_id || next[2]?.employee_no !== previous[2]?.employee_no
+    || next[2]?.project_id !== previous[2]?.project_id || next[2]?.node_id !== previous[2]?.node_id) limitDialogOpen.value = false
   if (!props.data && !props.readonly) void load()
 }, { immediate: true, flush: 'sync' })
 onBeforeUnmount(() => {
@@ -223,7 +225,7 @@ onBeforeUnmount(() => {
         <button type="button" class="invite-panel__remove" :disabled="inviting" :aria-label="`移除${row.display_name}`" @click="revokeReviewer(row)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" data-icon="CloseBoldOutlined" aria-hidden="true"><path d="M19.778 19.778a1.5 1.5 0 0 0 0-2.121L14.122 12l5.656-5.657a1.5 1.5 0 1 0-2.12-2.121L12 9.879 6.343 4.222a1.5 1.5 0 1 0-2.12 2.121L9.878 12l-5.657 5.657a1.5 1.5 0 1 0 2.121 2.121L12 14.121l5.657 5.657a1.5 1.5 0 0 0 2.121 0Z" fill="currentColor" /></svg></button>
       </template>
     </PerformanceReviewer360InviteBody>
-    <PerformanceConfirmDialog v-model="limitDialogOpen" appearance="submit" message="已达360°评估人邀请数量上限" :description="limitDescription" :show-cancel="false" confirm-text="我知道了" confirm-variant="primary" @confirm="limitDialogOpen = false" />
+    <PerformanceConfirmDialog v-model="limitDialogOpen" :dismissible="false" appearance="submit" message="已达360°评估人邀请数量上限" :description="limitDescription" :show-cancel="false" confirm-text="我知道了" confirm-variant="primary" @confirm="limitDialogOpen = false" />
   </section>
 </template>
 

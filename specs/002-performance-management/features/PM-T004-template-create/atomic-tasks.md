@@ -1,5 +1,17 @@
 # PM-T004 原子任务
 
+- [ ] PM-T004-T05-F41-V5 上限弹窗主动确认与共享逾期提交（2026-11-20）
+  - Goal/用户确认：上限弹窗不因名单/自动保存消失且必须主动确认；邀请/确认/评价统一普通共享逾期一次提交，覆盖旧版评价截止拒绝新增规则，不另造独立流程。
+  - Reading/复用：Spec002基线/CR005/本UI-V5/Spec012 N00 N11；PerformanceConfirmDialog/InvitePanel watcher、SelfSummaryTask逾期确认/跳转、共享_self_summary_state/_overdue_submission_allowed、原私有delta/正式事务。基线266f00d7，既有工作区原位修复。
+  - Allowed：frontend InvitePanel/ConfirmDialog/SelfSummaryTask及各既有spec，backend reviewer_360_task_service及既有test_performance_projects；本任务/原UI/CR005与独立实现PNG。禁止新脚本/报告/测试文件、迁移、生产、通知、commit/push、修改历史截止和已提交答案。
+  - Contract：同上下文名单更新只同步roster/版本不清理上限modal，真实上下文变化重置；共享dismissible默认true，只有上限ack=false阻止Esc/遮罩。来源提交合法后evaluation任务沿原available_at/due_at创建，目标已过期也不专属拒绝；评价补交继续由全局/周期策略及submitted判定，逾期首次正式提交共用确认且之后不可修改。旧错误码兼容中文显示。
+  - Given/When/Then：达限→自动保存复制回写/版本变化/busy/Esc/遮罩后弹窗仍在→确认才关闭；切任务旧弹窗关闭。评价已截止时合法来源邀请/确认草稿→正式提交创建原时窗任务并完成来源；评价全局/周期允许则补交一次，关闭则拒绝，提交后锁；来源非法/已逾期提交/版本冲突拒绝无副作用，完成页跳转沿共享。
+  - Backend evidence：主线程既有.venv、PYTHONPATH=backend、DB_HOST=127.0.0.1/DB_PORT=1运行`pytest tests/test_performance_projects.py tests/test_performance_overdue_submission_policy.py -q --tb=line`，1056 passed/5 skipped/1既有python_multipart警告。邀请/确认×来源窗内/逾期四组合均在目标已截止时生成原时窗评价任务、来源正式完成；评价普通状态允许/关闭/提交后锁定及来源逾期再次提交拒绝覆盖。旧available_at=max(now,start)与截止后拒绝测试随用户新规则更新，未改历史节点时间。
+  - Frontend evidence：`npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceReview360InvitePanel.spec.ts src/components/performance/PerformanceConfirmDialog.spec.ts src/views/performance/SelfSummaryTask.spec.js --silent --maxWorkers=2 --minWorkers=1`最终221 passed（37+15+169）；覆盖复制名单/自动保存版本/busy变化不关上限框、Esc/遮罩保持、确认关闭、普通对话框原取消保留；共享逾期确认→成功跳转view=1→只读锁定和旧服务错误中文反馈。首次构建2项测试TS2339为get().exists()类型误用，改find().exists()后定向回归通过；最终`npm --prefix hr-portal/frontend run build`vue-tsc+Vite通过（46.08s，exit0），保留既有VueUse PURE注释警告。
+  - UI evidence：Vite5181实际SelfSummaryTask+内存路由/受控API，达限后完成自动保存仍保留弹窗，Esc与遮罩不关，点我知道了再正式提交触发共享逾期确认；确认前submit0，确认后仅1次，最终route为template-task?project_id=1&node=invite&task_id=11&cycle_id=1&view=1，显示真实提交人时间/名单、无搜索框及再编辑入口，pageerror=0。独立图`../../ui-blueprints/PM-T004-T05-F41-v5-limit-ack-20261120.png`与`PM-T004-T05-F41-v5-overdue-completed-20261120.png`已查看；受控API不等同真实SQL/部署验收。
+  - Validation/DoD：git diff --check通过（仅LF/CRLF提示）。无新增迁移/生产/通知/commit/push；真实PG新连接持久化及双事务并发未跑，skip不算通过，完整验收前不勾选。新旧冲突以本卡及用户最新确认优先。
+
+
 - [ ] PM-T004-T05-F41-V4 本人再次编辑删除、确认不限额与只读名单（2026-11-20 用户最新确认）
   - Goal/契约：合法编辑时本人自己的已生效邀请且对方未评价可删，达限只禁止添加，删除恢复搜索；默认/已提交不可删。确认不受主/二次人数上限影响。只读状态只展示名单/分组，隐藏搜索与邀请说明；外层共享完成/编辑提示保留。本规则覆盖V2/V3本人只能删草稿及read禁用搜索仍显示的旧口径。
   - Reading/复用：Spec002启动/基线、CR005新补充、F41 V3与UI-V4，沿任务时间/处理人授权、双版本、私有增量、正式提交复验和审计，复用InviteBody/Panel与SearchSelect，不另建框架。

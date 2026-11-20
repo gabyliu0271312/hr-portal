@@ -112,6 +112,19 @@ describe('PerformanceConfirmDialog', () => {
     wrapper.unmount()
   })
 
+  it('keeps a required acknowledgement open on Escape and overlay clicks', async () => {
+    const wrapper = mountDialog({ dismissible: false, showCancel: false, confirmText: '我知道了' })
+    await flushPromises()
+    document.querySelector('.performance-confirm-dialog')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    document.querySelector('.performance-confirm-overlay')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    await flushPromises()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+    ;(document.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
+    expect(wrapper.emitted('confirm')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   it('emits confirm once and disables both actions while deleting', async () => {
     const wrapper = mountDialog({ loading: true })
     await flushPromises()

@@ -391,10 +391,9 @@ async def test_reviewer_360_default_submit_timing_and_legacy_not_recomputed(revi
     data.project.settings["reviewer_360_default_on_submit"] = True
     current = await data.service.roster(data.db, data.task, data.node, data.project, editable=True)
     assert current["total"] == 1 and current["items"][0]["is_draft"] and not current["items"][0]["can_revoke"]
-    before = datetime.now(UTC)
     await data.routes._save_self_summary(601, data.routes.SelfSummaryAnswersPayload(version=1,
         reviewer_360_version=current["version"]), True, context(), data.db, "evaluation")
-    assert len(data.evaluations) == 1 and data.evaluations[0].available_at >= before
+    assert len(data.evaluations) == 1 and data.evaluations[0].available_at is None
     assert data.evaluations[0].source_type == "DEFAULT"
 
 
@@ -479,7 +478,7 @@ async def test_reviewer_360_formal_invite_reuses_voluntary_task_and_restores_ori
 @pytest.mark.asyncio
 @pytest.mark.parametrize("kind", ["reviewer_360_invite", "reviewer_360_confirm"])
 @pytest.mark.parametrize("late_source", [False, True])
-async def test_reviewer_360_submit_refuses_new_evaluation_after_evaluation_deadline(reviewer_360_backend, kind, late_source):
+async def test_reviewer_360_submit_creates_overdue_evaluation_with_original_window(reviewer_360_backend, kind, late_source):
     from fastapi import HTTPException
     data = reviewer_360_backend
     data.task.task_kind = data.node.node_type = kind
@@ -488,11 +487,24 @@ async def test_reviewer_360_submit_refuses_new_evaluation_after_evaluation_deadl
     data.project.settings["flow_settings"]["node_times"] = {"feedback": {"start_at": "2000-01-01T00:00:00+00:00", "end_at": "2000-01-02T00:00:00+00:00"}}
     current = await data.service.roster(data.db, data.task, data.node, data.project, editable=True)
     result = await data.invites.submit_invites(1, data.invites.InvitePayload(employee_nos=["N1"], reviewer_360_version=current["version"]), context(), data.db, source_task_id=601)
-    with pytest.raises(HTTPException) as error:
-        await data.routes._save_self_summary(601, data.routes.SelfSummaryAnswersPayload(version=1,
-            reviewer_360_version=result.version), True, context(), data.db, "evaluation")
-    assert error.value.detail == "REVIEWER_360_EVALUATION_WINDOW_CLOSED"
-    assert len(data.evaluations) == 2 and data.task.status == "pending" and not data.audits
+    submitted = await data.routes._save_self_summary(601, data.routes.SelfSummaryAnswersPayload(version=1,
+        reviewer_360_version=result.version), True, context(), data.db, "evaluation")
+    evaluation = next(item for item in data.evaluations if item.handler_ref == "N1")
+    assert evaluation.available_at == datetime(2000, 1, 1, tzinfo=UTC)
+    assert evaluation.due_at == datetime(2000, 1, 2, tzinfo=UTC)
+    assert data.routes._self_summary_state(evaluation, evaluation.available_at, evaluation.due_at, True) == (True, True)
+    assert data.routes._self_summary_state(evaluation, evaluation.available_at, evaluation.due_at, False) == (False, False)
+    evaluation.submitted_at = datetime.now(UTC)
+    evaluation.status = "completed"
+    assert data.routes._self_summary_state(evaluation, evaluation.available_at, evaluation.due_at, True) == (False, False)
+    assert len(data.evaluations) == 3 and data.task.status == "completed"
+    assert submitted["editable"] is (not late_source)
+    assert submitted["submit_allowed"] is (not late_source)
+    if late_source:
+        with pytest.raises(HTTPException) as error:
+            await data.routes._save_self_summary(601, data.routes.SelfSummaryAnswersPayload(version=2,
+                reviewer_360_version=submitted["reviewer_360"]["version"]), True, context(), data.db, "evaluation")
+        assert error.value.detail == "SUBMISSION_NOT_ALLOWED"
 
 
 @pytest.mark.asyncio
