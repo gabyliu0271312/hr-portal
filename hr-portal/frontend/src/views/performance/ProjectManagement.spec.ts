@@ -128,6 +128,24 @@ describe('ProjectManagement', () => {
     })
   })
 
+  it('renders dynamic stage codes as shared Chinese statuses and exports the same labels', async () => {
+    const codes = ['pending', 'completed', 'overdue', 'rejected', null, 'unknown']
+    const labels = ['待完成', '已完成', '已逾期', '已拒绝', '--', '--']
+    const keys = codes.map((_, index) => `stage:node-${index}`)
+    const schema = {
+      columns: [{ key: 'name', label: '姓名', locked: true }, ...keys.map((key, index) => ({ key, label: `环节${index}状态` }))],
+      allowed_column_keys: ['name', ...keys], default_column_keys: ['name', ...keys], locked_column_keys: ['name'], sort_keys: ['name'],
+    }
+    const member = { id: 1, employee_no: 'E1', display_name: '测试员工', column_values: Object.fromEntries(keys.map((key, index) => [key, index === 1 ? { status: codes[index] } : codes[index]])) } as any
+    const wrapper = mount(ProjectMemberListPanel, { props: { projectId: 3, provider: vi.fn().mockResolvedValue({ ...schema, items: [member], total: 1 }) }, global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(wrapper.findAll('.performance-task-status').map(item => item.text())).toEqual(labels.slice(0, 4))
+    for (const code of codes.filter(Boolean)) expect(wrapper.text()).not.toContain(code)
+    const loadRows = wrapper.getComponent({ name: 'PerformanceExportButton' }).props('loadRows') as () => Promise<string[][]>
+    expect((await loadRows())[1]).toEqual(['测试员工', ...labels])
+    wrapper.unmount()
+  })
+
   it('saves ordered columns, preserves failed drafts and restores scoped preferences on reopen', async () => {
     const schema = {
       columns: [{ key: 'name', label: '姓名', locked: true }, { key: 'department', label: '部门' }, { key: 'stage:feedback', label: '360状态' }],

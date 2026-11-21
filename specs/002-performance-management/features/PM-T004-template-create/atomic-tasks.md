@@ -1,5 +1,11 @@
 # PM-T004 原子任务
 
+- [x] CR-005-T05-C01 状态列中文展示修复（2026-11-21）
+  - Scope：用户要求状态显示中文；仅ProjectMemberListPanel及既有ProjectManagement.spec、原任务/UI记录、独立实现图。复用PerformanceTaskStatus和performanceTaskStatusLabel，不改API编码、排序、权限、数据或迁移。
+  - Contract：动态stage:*列pending/completed/overdue/rejected分别显示待完成/已完成/已逾期/已拒绝，表格使用共享状态圆点；支持字符串及对象status值，缺失/未知显示--。导出同一中文映射，不把未知值当待完成。
+  - Evidence：ProjectManagement.spec.ts和Review.spec.ts两文件215 passed，新增真实Panel渲染及导出一致性用例；vue-tsc+Vite构建通过（既有VueUse PURE警告）。Vite5173实际Vue组件+Chromium1280×720隔离数据验证三态中文、空值/未知--，pageerror0；独立图../../ui-blueprints/CR-005-T05-C01-implemented-chinese-stage-status-20261121.png已查看。无后端/迁移，不涉及数据库验收；未部署或提交推送。Spec012通用UI规范适用，既有字段展示修复无需新蓝图。
+
+
 - [ ] CR-005-T05-D01/U01/S01/I01/U02/C01/C02/A01 周期360策略与成员列设置（2026-11-21，本地实现完成，隔离库验收待执行）
   - Goal/确认：按当前实现核对2026-11-06交底，保留F39/F40真实只读视图与F41-V2～V5生命周期。用户逐项确认历史保留、新项目启动冻结匿名；正式提交人数去重含自愿，未达限仅自愿正文仍匿名；all无身份豁免，描述按各值人数达限；周期有效邀请跨项目去重实时提示；列偏好账户/员工/场景/周期/项目/角色节点隔离跨设备保存。完整规则见CR-005-360-development-handoff本轮小节。
   - Reading/UI：Spec002基线/CR005/CR010/CR011、执行契约/验收证据/迁移协同、Spec012 START与N00/N11及UI护栏；用户明确确认本轮新建周期截图为配置区v1。仅既有周期表单、反馈列表、公共参考/员工结果、成员表格和共享列抽屉，无新业务页面或UCP。

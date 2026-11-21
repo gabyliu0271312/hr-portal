@@ -269,11 +269,20 @@ const loadMembers = async () => {
 
 const displayValue = (value: string | null) => value || ''
 const ratingClass = (member: MemberRow) => member.rating_tone ? `rating-badge--${member.rating_tone}` : ''
+function stageStatus(member: MemberRow, key: string) {
+  const value = member.column_values?.[key]
+  const status = value && typeof value === 'object' ? (value as { status?: unknown }).status : value
+  return status === 'pending' || status === 'completed' || status === 'overdue' || status === 'rejected' ? status : null
+}
 const cellValue = (member: MemberRow, key: string) => {
   if (key.startsWith('rating:')) return member.ratings?.[key]?.label || ''
   if (key === 'name') return member.display_name
   if (key === 'completion') return member.completion || '0/0'
   if (key === 'status') return performanceTaskStatusLabel(normalizePerformanceTaskStatus(member.status, member.due_at))
+  if (key.startsWith('stage:')) {
+    const status = stageStatus(member, key)
+    return status ? performanceTaskStatusLabel(status) : '--'
+  }
   if (key === 'due_at') return member.due_at ? new Date(member.due_at).toLocaleString('zh-CN', { hour12: false }) : '--'
   if (member.column_values && Object.prototype.hasOwnProperty.call(member.column_values, key)) {
     const value = member.column_values[key]
@@ -439,6 +448,7 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
       <template #cell="{ row, column }">
         <PerformanceMemberIdentity v-if="column.key === 'name'" :display-name="row.display_name" :identity-status="row.identity_status" />
         <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" />
+        <PerformanceTaskStatus v-else-if="column.key.startsWith('stage:') && stageStatus(row, column.key)" :status="stageStatus(row, column.key)" allow-rejected />
         <PerformanceRatingTag v-else-if="column.key.startsWith('rating:') && row.ratings?.[column.key]" :label="row.ratings[column.key].label" :color="row.ratings[column.key].color || undefined" :foreground="row.ratings[column.key].foreground || undefined" />
         <span v-else-if="column.key === 'rating' && row.rating" class="rating-badge" :class="ratingClass(row)">{{ row.rating }}</span>
         <span v-else-if="column.key === 'completion'" class="table-text completion-text">
