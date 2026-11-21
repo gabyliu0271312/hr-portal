@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, shallowRef, watch } from 'vue'
 import { employeeSwitchEpoch, employeeSwitchSession } from './identitySwitch'
-import { performanceNavigationApi, clearPerformanceInFlightRequests, type PerformanceCycleNavigationItem, type PerformanceNavigationContext, type PerformanceReviewOverview, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup, type PerformanceWorkbenchTimelineNode } from '@/api/performance'
+import { getToken } from '@/api/client'
+import { performanceNavigationApi, clearPerformanceInFlightRequests, type ProjectManagementOverview, type ProjectManagementDepartmentCompletion, type PerformanceCycleNavigationItem, type PerformanceNavigationContext, type PerformanceReviewOverview, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup, type PerformanceWorkbenchTimelineNode } from '@/api/performance'
 
 const STORAGE_KEY = 'performance.active-cycle-id'
 
@@ -9,6 +10,20 @@ export interface PerformanceWorkbenchSnapshot {
   timeline: PerformanceWorkbenchTimelineNode[]
   pending: PerformanceWorkbenchTaskGroup[]
   completed: PerformanceWorkbenchTaskGroup[]
+}
+
+export interface PerformanceManagementReturnSnapshot {
+  overview: ProjectManagementOverview
+  viewMode: string
+  scrollTop: number
+  timeline: Array<{ node_id: string; node_name: string; range: string; ended: boolean; current: boolean }>
+  completion: {
+    department: ProjectManagementDepartmentCompletion | null
+    expanded: string[]
+    sortKey: string
+    sortOrder: 'asc' | 'desc' | ''
+    resultView: string
+  }
 }
 
 function storedCycleId() {
@@ -37,7 +52,21 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
   const cacheVersion = ref(0)
   const reports = new Map<string, { value: unknown; expiresAt: number }>()
   const reportRequests = new Map<string, Promise<unknown>>()
+  let managementReturn: { key: string; expiresAt: number; value: PerformanceManagementReturnSnapshot } | null = null
+  function managementReturnKey(cycleId: number, role: string, projectId?: number) {
+    return JSON.stringify([getToken(), employeeSwitchEpoch.value, cycleId, role, projectId ?? null])
+  }
+  function saveManagementReturn(cycleId: number, role: string, projectId: number | undefined, value: PerformanceManagementReturnSnapshot) {
+    managementReturn = { key: managementReturnKey(cycleId, role, projectId), expiresAt: Date.now() + 300_000, value }
+  }
+  function takeManagementReturn(cycleId: number, role: string, projectId?: number) {
+    const cached = managementReturn
+    managementReturn = null
+    return cached && cached.expiresAt > Date.now() && cached.key === managementReturnKey(cycleId, role, projectId) ? cached.value : null
+  }
+  function clearManagementReturn() { managementReturn = null }
   function invalidate() {
+    clearManagementReturn()
     clearPerformanceInFlightRequests()
     cacheVersion.value += 1
     drawerDetails.clear()
@@ -174,6 +203,9 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
     workbenchSnapshots.value = {}
   }
   return {
+    saveManagementReturn,
+    takeManagementReturn,
+    clearManagementReturn,
     resetIdentity,
     loadDrawerDetail,
     invalidateDrawerDetails,

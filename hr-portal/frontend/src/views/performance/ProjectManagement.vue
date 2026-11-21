@@ -13,7 +13,7 @@
       @select-filter="selectCycle"
       @select-node="selectNode"
     />
-    <section class="management-content" aria-live="polite">
+    <section ref="managementContent" class="management-content" aria-live="polite">
       <div v-if="loading" class="state-message">正在加载项目管理…</div>
       <div v-else-if="error" class="state-message error-state">
         <p>{{ error }}</p>
@@ -31,6 +31,7 @@
             </template>
           </PerformancePageTitle>
           <PerformanceLineTabs v-model="activeTab" sticky :tabs="overviewTabs">
+            <p v-if="returnRefreshError" role="alert">{{ returnRefreshError }} <button type="button" @click="loadOverview(activeCycleId, false, true)">重新加载</button></p>
             <div v-if="activeTab === 'overview' && statisticsLoading" class="state-message" role="status">正在加载总览统计…</div>
             <div v-else-if="activeTab === 'overview' && statisticsError" class="state-message error-state" role="alert">
               <p>{{ statisticsError }}</p>
@@ -42,7 +43,7 @@
                 <p v-else-if="timelineError" role="alert">{{ timelineError }} <button type="button" @click="loadTimeline">重新加载</button></p>
                 <PerformanceWorkbenchTimeline v-else :key="scopeKey" :nodes="timelineNodes" />
               </section>
-              <CompletionRatePanel :key="scopeKey" :nodes="completionNodes" :cycle-id="activeCycle.cycle_id" v-model:view-mode="overviewViewMode" :department-provider="projectManagementApi.departmentCompletion" @action="handleCompletionAction" />
+              <CompletionRatePanel ref="completionPanel" :initial-state="returnCompletion" :key="scopeKey" :nodes="completionNodes" :cycle-id="activeCycle.cycle_id" v-model:view-mode="overviewViewMode" :department-provider="projectManagementApi.departmentCompletion" @action="handleCompletionAction" />
               <AuthorizationManagementPanel :authorizations="authorizations" @view="handleAuthorizationView" />
               <AuthorizationManagementPanel title="其他" :authorizations="otherModules" @view="handleOtherView" />
             </template>
@@ -90,7 +91,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import PerformanceManagementMemberScope from '@/components/performance/PerformanceManagementMemberScope.vue'
 import PerformanceWorkbenchTimeline, { type WorkbenchTimelineNode } from '@/components/performance/PerformanceWorkbenchTimeline.vue'
 import type { ProjectReportComparisonProvider, ProjectReportProvider } from '@/components/performance/projectStatisticsReport'
@@ -125,7 +126,7 @@ import type { PerformanceReferenceTab, ProjectMember, ProjectMemberTaskOption } 
 import type { ReminderContext } from '@/components/performance/performanceReminder'
 import type { CompletionNode } from '@/components/performance/CompletionNodeCard.vue'
 import type { AuthorizationItem } from '@/components/performance/AuthorizationManagementPanel.vue'
-import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
+import { usePerformanceProjectContextStore, type PerformanceManagementReturnSnapshot } from '@/stores/performanceProjectContext'
 
 const OVERVIEW_NODE_ID = 'cycle-overview'
 const OVERVIEW_TABS: PerformanceLineTab[] = [
@@ -138,6 +139,12 @@ const OVERVIEW_TABS: PerformanceLineTab[] = [
 const route = useRoute()
 const router = useRouter()
 const projectContext = usePerformanceProjectContextStore()
+const managementContent = ref<HTMLElement | null>(null)
+const completionPanel = ref<InstanceType<typeof CompletionRatePanel> | null>(null)
+const returnCompletion = ref<PerformanceManagementReturnSnapshot['completion']>()
+const returnSnapshot = route.query.from_reminder === '1'
+  ? projectContext.takeManagementReturn(Number(route.query.cycle_id), String(route.query.management_role || ''), route.query.project_id ? Number(route.query.project_id) : undefined)
+  : null
 const emit = defineEmits<{
   'completion-action': [payload: { action: 'remind' | 'enable-result'; nodeKey: string; departmentPath?: string }]
   'authorization-view': [item: AuthorizationItem]
@@ -474,15 +481,17 @@ let normalizingRole = false
 const statisticsLoaded = ref(false)
 const statisticsLoading = ref(false)
 const statisticsError = ref('')
-async function loadOverview(cycleId?: number | null, statisticsOnly = false) {
+const returnRefreshError = ref('')
+async function loadOverview(cycleId?: number | null, statisticsOnly = false, background = false, lightweight = false) {
   const request = ++overviewRequest
   const key = scopeKey.value
   const version = projectContext.cacheVersion
-  const includeStatistics = activeTab.value === 'overview'
-  loading.value = !statisticsOnly
-  statisticsLoading.value = statisticsOnly
-  statisticsLoaded.value = false
+  const includeStatistics = !lightweight && activeTab.value === 'overview'
+  loading.value = !statisticsOnly && !background
+  statisticsLoading.value = statisticsOnly && !background
+  if (!background) statisticsLoaded.value = false
   statisticsError.value = ''
+  returnRefreshError.value = ''
   error.value = ''
   const current = () => !disposed && request === overviewRequest && key === scopeKey.value && version === projectContext.cacheVersion
   try {
@@ -500,7 +509,14 @@ async function loadOverview(cycleId?: number | null, statisticsOnly = false) {
   } catch (failure: any) {
     if (current()) {
       const message = failure?.response?.status === 403 ? '无权访问当前管理范围' : '项目管理加载失败，请稍后重试'
-      if (statisticsOnly) {
+      if (background) {
+        projectContext.clearManagementReturn()
+        if ([401, 403, 404].includes(failure?.response?.status) || failure?.message?.startsWith('INVALID_MANAGEMENT_')) {
+          overview.value = null
+          returnCompletion.value = undefined
+          error.value = message
+        } else returnRefreshError.value = '总览刷新失败，当前显示返回前的数据'
+      } else if (statisticsOnly) {
         overview.value = overview.value ? { ...overview.value, completion_nodes: [] } : null
         statisticsError.value = message
       } else {
@@ -530,7 +546,9 @@ function clearScopeState() {
   statisticsLoaded.value = false
   statisticsLoading.value = false
   statisticsError.value = ''
+  returnRefreshError.value = ''
   timelineRequest++
+  returnCompletion.value = undefined
   timelineNodes.value = []
   timelineError.value = ''
   drawerOpen.value = false
@@ -588,7 +606,7 @@ async function selectNode(node: PerformanceReviewNode) {
 }
 
 watch([() => route.query.cycle_id, () => route.query.management_role, () => route.query.project_id], async () => {
-  if (!contextReady || selectingCycle || normalizingRole) return
+  if (!contextReady || selectingCycle || normalizingRole || route.name === 'PerformanceProjectReminder') return
   clearScopeState()
   loading.value = true
   const cycleId = Number(route.query.cycle_id) || activeCycleId.value
@@ -607,6 +625,14 @@ watch([() => route.query.cycle_id, () => route.query.management_role, () => rout
 const timelineNodes = ref<WorkbenchTimelineNode[]>([])
 const timelineLoading = ref(false)
 const timelineError = ref('')
+if (returnSnapshot) {
+  applyOverview(returnSnapshot.overview)
+  overviewViewMode.value = returnSnapshot.viewMode
+  returnCompletion.value = returnSnapshot.completion
+  timelineNodes.value = returnSnapshot.timeline
+  statisticsLoaded.value = true
+  loading.value = false
+}
 let timelineRequest = 0
 function formatDateTime(value: string | null) {
   if (!value) return null
@@ -653,6 +679,13 @@ async function handleCompletionAction(payload: { action: 'remind' | 'enable-resu
     return
   }
   if (payload.action !== 'remind' || !activeCycle.value) return
+  if (overview.value && statisticsLoaded.value) {
+    projectContext.saveManagementReturn(activeCycle.value.cycle_id, managementRole.value, route.query.project_id ? Number(route.query.project_id) : undefined, {
+      overview: overview.value, viewMode: overviewViewMode.value, scrollTop: managementContent.value?.scrollTop || 0,
+      timeline: timelineNodes.value,
+      completion: completionPanel.value?.returnState() || { department: null, expanded: [], sortKey: '', sortOrder: '', resultView: 'opened' },
+    })
+  }
   const match = payload.description?.match(/完成率：([\d.]+)%[　\s]*\|[　\s]*完成情况：(\d+)\/(\d+)/)
   await router.push({
     name: 'PerformanceProjectReminder',
@@ -694,7 +727,14 @@ onMounted(async () => {
     if (projectContext.navigation && !projectContext.navigation.can_manage) { await router.replace('/performance/workbench'); return }
     const cycleId = projectContext.activeCycleId
     if (String(route.query.cycle_id || '') !== String(cycleId || '')) await router.replace({ query: { ...route.query, cycle_id: cycleId ? String(cycleId) : undefined } })
-    await loadOverview(cycleId)
+    if (returnSnapshot) {
+      await nextTick()
+      if (managementContent.value) managementContent.value.scrollTop = returnSnapshot.scrollTop
+      contextReady = true
+      void loadOverview(cycleId, false, true)
+      return
+    }
+    await loadOverview(cycleId, false, false, route.query.from_reminder === '1')
     if (!error.value) restoreMember()
     contextReady = true
   } catch { error.value = '项目管理加载失败，请稍后重试'; loading.value = false }

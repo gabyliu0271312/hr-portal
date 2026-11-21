@@ -18,6 +18,21 @@ function mountPanel() {
 }
 
 describe('CompletionRatePanel', () => {
+  it('restores department expansion and sorting while refreshing without hiding the table', async () => {
+    let resolve!: (data: any) => void
+    const data = { columns: [{ key: 'work-summary', title: '工作总结' }], rows: [{ id: '部门', department: '部门', metrics: {}, children: [{ id: '部门/小组', department: '小组', metrics: {} }] }] }
+    const wrapper = mount(CompletionRatePanel, { props: { nodes, cycleId: 1, viewMode: 'by-org', departmentProvider: vi.fn(() => new Promise<import('@/api/performance').ProjectManagementDepartmentCompletion>(done => { resolve = done })), initialState: { department: data, expanded: ['部门'], sortKey: 'department', sortOrder: 'asc', resultView: 'reconsidered' } } })
+    await flushPromises()
+    expect(wrapper.find('.department-table').exists()).toBe(true)
+    expect(wrapper.find('.department-state').exists()).toBe(false)
+    expect(wrapper.text()).toContain('小组')
+    expect(wrapper.vm.returnState()).toMatchObject({ expanded: ['部门'], sortKey: 'department', sortOrder: 'asc', resultView: 'reconsidered' })
+    resolve(data)
+    await flushPromises()
+    expect(wrapper.text()).toContain('小组')
+    wrapper.unmount()
+  })
+
   it('renders the captured header bar title, segmented tools and filter button', () => {
     const wrapper = mountPanel()
     expect(wrapper.text()).toContain('完成率')

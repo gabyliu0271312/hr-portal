@@ -17,6 +17,32 @@ describe('performance cycle context', () => {
     vi.restoreAllMocks()
   })
 
+  it('consumes scoped management return state once and invalidates expired or changed identities', async () => {
+    const store = usePerformanceProjectContextStore()
+    const value = { overview: { active_cycle: { cycle_id: 1 } }, viewMode: 'by-org', scrollTop: 320, timeline: [], completion: { department: null, expanded: ['部门'], sortKey: 'department', sortOrder: 'asc', resultView: 'opened' } } as any
+    store.saveManagementReturn(1, 'hrbp', 3, value)
+    expect(store.takeManagementReturn(1, 'project_admin', 3)).toBeNull()
+    store.saveManagementReturn(1, 'hrbp', 3, value)
+    expect(store.takeManagementReturn(1, 'hrbp', 4)).toBeNull()
+    store.saveManagementReturn(1, 'hrbp', 3, value)
+    expect(store.takeManagementReturn(1, 'hrbp', 3)).toEqual(value)
+    expect(store.takeManagementReturn(1, 'hrbp', 3)).toBeNull()
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    store.saveManagementReturn(1, 'hrbp', undefined, value)
+    vi.mocked(Date.now).mockReturnValue(now + 300_001)
+    expect(store.takeManagementReturn(1, 'hrbp')).toBeNull()
+    store.saveManagementReturn(1, 'hrbp', 3, value)
+    store.invalidate()
+    expect(store.takeManagementReturn(1, 'hrbp', 3)).toBeNull()
+    store.saveManagementReturn(1, 'hrbp', 3, value)
+    localStorage.setItem('hr_portal.token', 'different-login')
+    expect(store.takeManagementReturn(1, 'hrbp', 3)).toBeNull()
+    store.saveManagementReturn(1, 'hrbp', 3, value)
+    clearEmployeeSwitch()
+    expect(store.takeManagementReturn(1, 'hrbp', 3)).toBeNull()
+  })
+
   it('persists the shared cycle instead of a page-specific project', () => {
     const store = usePerformanceProjectContextStore()
     store.setNavigation(context(2))

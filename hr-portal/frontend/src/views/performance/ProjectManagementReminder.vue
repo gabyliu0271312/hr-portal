@@ -71,7 +71,7 @@ function goBack() {
     void router.push({ name: 'PerformanceReview', query: { cycle_id: String(cycleId.value), node: '__team-results__' } })
     return
   }
-  void router.push({ name: 'PerformanceProjectManagement', query: { cycle_id: String(cycleId.value), management_role: route.query.management_role, project_id: route.query.project_id, view: String(route.query.view || '') } })
+  void router.push({ name: 'PerformanceProjectManagement', query: { cycle_id: String(cycleId.value), management_role: route.query.management_role, project_id: route.query.project_id, view: String(route.query.view || ''), from_reminder: '1' } })
 }
 </script>
 

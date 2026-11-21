@@ -413,6 +413,77 @@ describe('ProjectManagement', () => {
     expect(mockedApi.overview).toHaveBeenCalledTimes(count)
   })
 
+  it('restores the reminder return before the refreshed overview resolves and preserves scroll', async () => {
+    Object.assign(routeQuery, { cycle_id: '1', management_role: 'project_admin', tab: 'overview' })
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({ completion_nodes: [{ key: 'work-summary', title: '填写工作总结', status: 'active', can_remind: true, completion_rate: 25, completed_count: 1, total_count: 4, deadline_at: null }] }))
+    const first = mountView()
+    await flushPromises()
+    ;(first.get('.management-content').element as HTMLElement).scrollTop = 180
+    first.getComponent({ name: 'CompletionRatePanel' }).vm.$emit('action', { action: 'remind', nodeKey: 'work-summary', title: '填写工作总结' })
+    await flushPromises()
+    first.unmount()
+    Object.assign(routeQuery, { from_reminder: '1' })
+    let resolve!: (value: ProjectManagementOverview) => void
+    vi.mocked(mockedApi.overview).mockImplementationOnce(() => new Promise(done => { resolve = done }))
+    const returned = mountView()
+    await flushPromises()
+    expect(returned.text()).toContain('25.00%')
+    expect(returned.text()).not.toContain('正在加载项目管理')
+    expect(returned.text()).not.toContain('正在加载总览统计')
+    expect((returned.get('.management-content').element as HTMLElement).scrollTop).toBe(180)
+    resolve(overviewOf({ completion_nodes: [{ key: 'work-summary', title: '填写工作总结', status: 'active', completion_rate: 50, completed_count: 2, total_count: 4, deadline_at: null }] }))
+    await flushPromises()
+    expect(returned.text()).toContain('50.00%')
+  })
+
+  it('clears restored overview after a forbidden background refresh', async () => {
+    Object.assign(routeQuery, { cycle_id: '1', management_role: 'project_admin', from_reminder: '1' })
+    usePerformanceProjectContextStore().saveManagementReturn(1, 'project_admin', undefined, {
+      overview: overviewOf({ completion_nodes: [{ key: 'work-summary', title: '旧范围内容', status: 'active', completion_rate: 25, completed_count: 1, total_count: 4, deadline_at: null }] }),
+      viewMode: 'by-person', scrollTop: 0, timeline: [], completion: { department: null, expanded: [], sortKey: '', sortOrder: '', resultView: 'opened' },
+    })
+    let reject!: (error: unknown) => void
+    vi.mocked(mockedApi.overview).mockImplementationOnce(() => new Promise((_done, fail) => { reject = fail }))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).toContain('旧范围内容')
+    reject({ response: { status: 403 } })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('旧范围内容')
+    expect(wrapper.text()).toContain('无权访问当前管理范围')
+  })
+
+  it('keeps restored content on a network failure and retries without blanking the overview', async () => {
+    Object.assign(routeQuery, { cycle_id: '1', management_role: 'project_admin', from_reminder: '1' })
+    usePerformanceProjectContextStore().saveManagementReturn(1, 'project_admin', undefined, {
+      overview: overviewOf({ completion_nodes: [{ key: 'work-summary', title: '保留的总览', status: 'active', completion_rate: 25, completed_count: 1, total_count: 4, deadline_at: null }] }),
+      viewMode: 'by-person', scrollTop: 0, timeline: [], completion: { department: null, expanded: [], sortKey: '', sortOrder: '', resultView: 'opened' },
+    })
+    vi.mocked(mockedApi.overview).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(overviewOf())
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).toContain('保留的总览')
+    expect(wrapper.get('[role="alert"]').text()).toContain('总览刷新失败')
+    await wrapper.get('[role="alert"] button').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(mockedApi.overview).toHaveBeenCalledTimes(2)
+  })
+
+  it('loads the return page shell before statistics when no valid return snapshot exists', async () => {
+    Object.assign(routeQuery, { cycle_id: '1', management_role: 'project_admin', from_reminder: '1' })
+    let resolve!: (value: ProjectManagementOverview) => void
+    vi.mocked(mockedApi.overview).mockResolvedValueOnce(overviewOf({ completion_nodes: [] })).mockImplementationOnce(() => new Promise(done => { resolve = done }))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(vi.mocked(mockedApi.overview).mock.calls.map(call => call[2])).toEqual([false, true])
+    expect(wrapper.findAll('.line-tab')).toHaveLength(4)
+    expect(wrapper.text()).not.toContain('正在加载项目管理')
+    expect(wrapper.text()).toContain('正在加载总览统计')
+    resolve(overviewOf())
+    await flushPromises()
+  })
+
   it('mounts members after the lightweight read and loads statistics only when opening overview', async () => {
     Object.assign(routeQuery, { cycle_id: '1', management_role: 'project_admin', tab: 'members' })
     let resolveStatistics!: (value: ProjectManagementOverview) => void

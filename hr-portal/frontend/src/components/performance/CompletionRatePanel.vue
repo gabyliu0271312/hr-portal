@@ -59,14 +59,15 @@ import CompletionNodeCard, { type CompletionNode } from './CompletionNodeCard.vu
 import ViewVideoOutlinedIcon from './ViewVideoOutlinedIcon.vue'
 import OrganizationOutlinedIcon from './OrganizationOutlinedIcon.vue'
 
-const props = defineProps<{ nodes: CompletionNode[]; cycleId?: number; departmentProvider?: (cycleId: number) => Promise<ProjectManagementDepartmentCompletion>; viewMode?: string }>()
+import type { PerformanceManagementReturnSnapshot } from '@/stores/performanceProjectContext'
+const props = defineProps<{ nodes: CompletionNode[]; cycleId?: number; departmentProvider?: (cycleId: number) => Promise<ProjectManagementDepartmentCompletion>; viewMode?: string; initialState?: PerformanceManagementReturnSnapshot['completion'] }>()
 const emit = defineEmits<{ action: [payload: { action: 'remind' | 'enable-result'; nodeKey: string; title: string; description?: string; departmentPath?: string }]; 'update:viewMode': [value: string] }>()
 const viewMode = computed(() => props.viewMode || 'by-person')
 const viewOptions = [
   { value: 'by-person', label: '全部', icon: ViewVideoOutlinedIcon },
   { value: 'by-org', label: '按部门', icon: OrganizationOutlinedIcon },
 ]
-const resultView = ref('opened')
+const resultView = ref(props.initialState?.resultView || 'opened')
 const resultOptions = [{ value: 'opened', label: '已开通' }, { value: 'reconsidered', label: '已复议' }]
 const displayNodes = computed(() => props.nodes.map(node => {
   if (node.key !== 'view-result') return node
@@ -79,11 +80,12 @@ const displayNodes = computed(() => props.nodes.map(node => {
 }))
 const departmentLoading = ref(false)
 const departmentError = ref('')
-const departmentData = ref<ProjectManagementDepartmentCompletion | null>(null)
+const departmentData = ref<ProjectManagementDepartmentCompletion | null>(props.initialState?.department || null)
 const departmentColumns = computed(() => departmentData.value?.columns || [])
-const expanded = ref(new Set<string>())
-const sortKey = ref('')
-const sortOrder = ref<PerformanceSortOrder>('')
+const expanded = ref(new Set<string>(props.initialState?.expanded || []))
+const sortKey = ref(props.initialState?.sortKey || '')
+const sortOrder = ref<PerformanceSortOrder>(props.initialState?.sortOrder || '')
+defineExpose({ returnState: () => ({ department: departmentData.value, expanded: [...expanded.value], sortKey: sortKey.value, sortOrder: sortOrder.value, resultView: resultView.value }) })
 const departmentRows = computed(() => {
   const flatten = (rows: ProjectManagementDepartmentRow[], depth = 0): Array<ProjectManagementDepartmentRow & { depth: number }> => sortPerformanceRows(rows, sortKey.value, sortOrder.value, (row, key) => key === 'department' ? row.department : row.metrics[key]?.completion_rate).flatMap(row => [
     { ...row, depth }, ...(expanded.value.has(row.id || row.department) ? flatten(row.children || [], depth + 1) : []),
@@ -108,7 +110,7 @@ function reminderMetricsForRate(value: { completionRate: number; completed: numb
 }
 async function loadDepartment() {
   if (!props.cycleId || !props.departmentProvider) return
-  departmentLoading.value = true
+  departmentLoading.value = !departmentData.value
   departmentError.value = ''
   const requestedCycle = props.cycleId
   try { const data = await props.departmentProvider(requestedCycle); if (props.cycleId === requestedCycle) departmentData.value = data } catch { if (props.cycleId === requestedCycle) departmentError.value = '组织完成率加载失败，请稍后重试' } finally { if (props.cycleId === requestedCycle) departmentLoading.value = false }
