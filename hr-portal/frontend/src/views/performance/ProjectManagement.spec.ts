@@ -1071,6 +1071,38 @@ it('opens shared calibration people lists and renders source rules with disabled
   wrapper.unmount(); loaded.mockRestore(); delete routeQuery.cycle_id
 })
 
+it.each([true, false])('reuses the full delegation dialog from the unauthorized people toolbar with permission=%s', async canAuthorize => {
+  const { default: Calibration } = await import('./ProjectCalibrationAuthorization.vue')
+  const { default: Dialog } = await import('@/components/performance/PerformanceTaskDelegationDialog.vue')
+  const { default: People } = await import('@/components/performance/focus-group/FocusGroupPeopleDialog.vue')
+  pinia = createPinia(); setActivePinia(pinia)
+  usePerformanceProjectContextStore().setNavigation(navigationOf(1)); routeQuery.cycle_id = '1'
+  const item = { id: 'delegated-a', project_id: 3, task_ids: [11, 12], source_rule_id: 'a', source_authorization_ids: { '11': 21, '12': 22 }, unauthorized_task_ids: [12], task_people: [{ task_id: 11, employee_no: 'E1', display_name: '甲' }, { task_id: 12, employee_no: 'E2', display_name: '乙' }], people_groups: [{ id: 'M1', parent_id: null, label: '上级', employee_nos: ['E1', 'E2'] }], authorizations: [], calibrator: '校准人', status: '待校准', scope: '项目全员', authorized_count: 2, unauthorized_count: 1, allow_authorize: true, can_authorize: canAuthorize, can_revoke: false, distribution_rule: null, authorized_by: null, authorized_at: null }
+  const loaded = vi.spyOn(projectManagementApi, 'calibrationAuthorization').mockResolvedValue({ cycle_id: 1, cycle_name: '周期', items: [item] })
+  const candidates = vi.spyOn(projectManagementApi, 'delegationCandidatesBatch').mockResolvedValue([])
+  const writing = vi.spyOn(projectManagementApi, 'authorizeTask').mockResolvedValue({ task_id: 12, id: 99 })
+  const wrapper = mount(Calibration, { attachTo: document.body, global: { plugins: [pinia] } }); await flushPromises()
+  await wrapper.findAll('.count-link')[0].trigger('click')
+  expect(wrapper.getComponent(People).props('groups')).toEqual(item.people_groups)
+  expect(document.querySelector('.people-authorize')).toBeNull()
+  wrapper.getComponent(People).vm.$emit('update:modelValue', false); await wrapper.vm.$nextTick()
+  await wrapper.findAll('.count-link')[1].trigger('click')
+  expect(wrapper.getComponent(People).props('rows').map((row: { employee_no: string }) => row.employee_no)).toEqual(['E2'])
+  const button = document.querySelector<HTMLButtonElement>('.people-authorize')!
+  expect(button.disabled).toBe(!canAuthorize)
+  button.click(); await flushPromises()
+  expect(wrapper.getComponent(Dialog).props('modelValue')).toBe(canAuthorize)
+  if (canAuthorize) {
+    expect(wrapper.getComponent(Dialog).props('tasks')).toEqual(item.task_people.map(person => ({ ...person, project_id: 3, source_rule_id: 'a', source_authorization_id: person.task_id === 11 ? 21 : 22 })))
+    wrapper.getComponent(Dialog).vm.$emit('update:modelValue', false); await wrapper.vm.$nextTick()
+    loaded.mockResolvedValue({ cycle_id: 1, cycle_name: '周期', items: [{ ...item, unauthorized_task_ids: [], unauthorized_count: 0 }] })
+    wrapper.getComponent(Dialog).vm.$emit('completed', 1); await flushPromises()
+    expect(wrapper.getComponent(People).props('rows')).toEqual([])
+  } else expect(candidates).not.toHaveBeenCalled()
+  expect(writing).not.toHaveBeenCalled()
+  wrapper.unmount(); loaded.mockRestore(); candidates.mockRestore(); writing.mockRestore(); delete routeQuery.cycle_id
+})
+
 it('keeps the same calibrator separate by source rule and delegates only the clicked row', async () => {
   const { default: Calibration } = await import('./ProjectCalibrationAuthorization.vue')
   const { default: Dialog } = await import('@/components/performance/PerformanceTaskDelegationDialog.vue')

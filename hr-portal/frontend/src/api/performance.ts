@@ -267,7 +267,15 @@ export interface ProjectAuthorizationRecords {
   transfer_records: ProjectAuthorizationRecord[]
 }
 
+export interface PerformancePeopleGroup {
+  id: string
+  parent_id: string | null
+  label: string
+  employee_nos: string[]
+}
+
 export interface ProjectCalibrationAuthorization {
+  people_groups?: PerformancePeopleGroup[]
   parent_id?: string | null
   notify_original?: boolean | null
   project_id: number

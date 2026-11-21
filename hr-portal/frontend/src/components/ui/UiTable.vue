@@ -73,8 +73,10 @@
         </tr>
         <template v-else>
           <template v-for="(row, rowIndex) in rows" :key="rowKeyOf(row, rowIndex)">
+          <slot name="before-row" :row="row" :row-index="rowIndex" :columns="columns" />
           <slot name="row" :row="row" :row-index="rowIndex" :columns="columns">
           <tr
+            v-if="!rowVisible || rowVisible(row)"
             :key="rowKeyOf(row, rowIndex)"
             class="ui-table__row"
             :class="{ 'is-clickable': clickableRows, 'is-selected': selectable && isRowSelected(row), 'is-highlighted': highlightRowKey !== undefined && rowKeyOf(row, rowIndex) === String(highlightRowKey) }"
@@ -149,6 +151,7 @@ const props = withDefaults(defineProps<{
   loadingText?: string
   emptyText?: string
   ariaLabel?: string
+  rowVisible?: (row: any) => boolean
   clickableRows?: boolean
   /** 空值占位符 */
   placeholder?: string
@@ -199,6 +202,7 @@ const emit = defineEmits<{
 }>()
 
 defineSlots<{
+  'before-row'?: (props: { row: any; rowIndex: number; columns: UiTableColumn[] }) => any
   row?: (props: { row: any; rowIndex: number; columns: UiTableColumn[] }) => any
   /** 单元格插槽；未提供时显示 row[column.key]，空值显示 placeholder */
   cell?: (props: { row: any; column: UiTableColumn; value: any }) => any

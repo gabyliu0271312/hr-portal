@@ -244,6 +244,20 @@
 - 前端：`npm --prefix hr-portal/frontend run test -- src/views/performance/Review.spec.ts src/views/performance/ProjectManagement.spec.ts src/components/performance/PerformanceDistributionTips.spec.ts --silent` → **220 passed、exit0**；`npm --prefix hr-portal/frontend run build` → **vue-tsc+Vite通过、3789模块、exit0**，既有VueUse PURE提示。
 - UI：真实Vite路由、独立Chromium、所有API合成隔离；子授权完成确认显示父任务仍需完成，父任务HARD违规显示明确提示且不开确认框，pageErrors=[]。独立PNG已读取：`ui-blueprints/CR-007-F04-implemented-delegated-completion-none-20261120.png`。真实PostgreSQL/生产身份/API/部署未验收，5项跳过不计通过；F04/F05整体不勾选。未修改生产数据、未真实发送、未commit/push/deploy。
 
+### 2026-11-21 F04 名单协助授权入口及共享上级分组
+
+- 用户明确开发：未授权名单搜索工具栏右侧增加蓝色实体「协助授权」；未授权/可校准名单结果行右侧共用「分组」及 hover 浮层，点击「按上级分组」切换，再点取消。既有页面增强，无新页面/完整蓝图/迁移/权限点。
+- REA 实采：DOM `ev_09a9c586236fa56ab032e4ba0fca5df9541b8aa5a9f9891ccbe1d29e7af49b8e`，截图 `ev_990be9fb564b91ad0c048fa1b6b59e785cd6ced925ba2cacb448140c23b9ded7`。大结果只提取目标可见文本与截图，不声称全量审阅。CDP定向读取按钮/浮层/组行：实体按钮约97.33×32、背景#1456F0、加号、圆角6；分组按钮14/22、padding2/4，激活蓝色、hover灰底；浮层复用12/16内边距、8圆角、10间距及原阴影；灰色组行#f0f3f5、高47、层级缩进15。实际打开协助授权表单后取消，未提交飞书授权。
+- 实际接口：`GET /perf/api/review/adjust/unauthorized/reviewee_list` 带semester_id/task_id/role/role_id/group=0或1/filters，group1返回unauth_groups的group、parent_group、user_ids；任务详情沿`/perf/api/review/adjust/task/detail`。切换会消费已加载分组数据及快照人员补全，不能将仅一次切换无新名单请求解释为没有后端分组。
+- 实现复用：`ProjectCalibrationAuthorization.openAuthorization` → 同一`PerformanceTaskDelegationDialog`及`useTaskDelegationRequests`，名单按钮使用`UiButton primary`和`AddOutlinedIcon`；完整候选、范围、分布、通知、幂等与未知结果恢复仍为同一链。任务集合保持原行范围，携带source_rule_id/source_authorization_id；未授权名单只显示差集，搜索不改变授权来源。无权/加载/保存按钮disabled，不请求候选或写接口。成功及refresh回到原load，名单从新rows按ID解析，避免旧行缓存。
+- 原校准GET增量返回people_groups={id,parent_id,label,employee_nos}[]，`_calibration_people_groups`仅消费既有已掩码冻结task_people，不查询实时组织、扩大可见字段或写快照；同名不同工号不合并、无上级单组、缺父组归根，按名称/身份稳定排序。`FocusGroupPeopleDialog`共享`PerformancePeopleGrouping`，复用`PerformancePopover`及全局token；`PerformanceManagementTable`→`UiTable`新增可选before-row/rowVisible桥接渲染组标题，普通调用默认不变。
+- 展示合同：hover只开浮层；选项点击toggle并保持蓝色激活，组标题可折叠含下级组；先搜索后组织树，保留匹配项祖先，不增人数。分组时显示完整匹配树并隐藏平铺分页，取消恢复分页；切换/搜索回第一页，关闭重开重置分组与折叠。两类名单共用实现，可校准名单仍沿原全任务口径，未改成授权差集。
+- 定向前端：`npm --prefix hr-portal/frontend run test -- src/views/performance/ProjectManagement.spec.ts src/components/performance/focus-group/FocusGroupPeopleDialog.spec.ts src/components/ui/UiTable.spec.ts --silent` → **88 passed、3文件、exit0**，覆盖权限允许/拒绝、来源传递、刷新、同名/无上级、父子折叠、搜索及取消/重开。首次新增分组用例因未挂载DOM导致浮层锚点断开及jsdom ElSelect递归失败，改为挂载body并沿既有ElSelect stub后通过，未放宽业务断言。
+- 定向后端：`DB_HOST=127.0.0.1 DB_PORT=1 PYTHONPATH=hr-portal/backend hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_user_authorization.py -q --tb=short -k "calibration or delegation or task_authorization or authorization_records"` → **273 passed、2 skipped、866 deselected、22.88秒、exit0**，既有python_multipart弃用警告。分组身份/父关系/无上级/空集合和授权权限回归通过；未连接业务数据库。
+- 最终构建：`npm --prefix hr-portal/frontend run build` → **vue-tsc+Vite通过、39.78秒、exit0**，仅既有VueUse PURE提示；`git diff --check`通过，保留LF/CRLF提示。工作区其他沟通进度、API类型、360及文档并行差异均保留，不计为本次交付。
+- UI证据：真实Vite路由、独立Chromium、1280×673/DPR1、所有API合成隔离；两类名单hover/toggle/层级折叠通过；蓝色按钮98×32/#1456F0，原弹窗选择接收人及全部3人，3条原`/tasks/{id}/delegations`请求分别携带正确父授权21/22/23和规则r1、原幂等键；模拟成功后未授权3→0，pageErrors=[]。首轮候选夹具形状错误已修正，第二轮定位误用button超时后改用真实combobox完成；失败尝试未计通过。独立PNG均已查看：`ui-blueprints/CR-007-F04-implemented-unauthorized-grouping-20261121.png`、`ui-blueprints/CR-007-F04-implemented-authorized-grouping-20261121.png`、`ui-blueprints/CR-007-F04-implemented-people-assist-authorization-20261121.png`。
+- 局部开发及本地验收完成；真实JWT/PostgreSQL保存回读、生产部署与同数据整页像素一致验收未运行，F04/F05/T11整体仍未勾选。适用Spec012 A01/A02/A0502/A0503/A0505/N0001/N0002/N0004/N0005/N1102–N1104，数仓/UCP专属不适用；授权按钮采用PM001具体规则保留disabled。未commit/push/deploy，无真实授权或外部通知。
+
 ### 当前实现和证据
 
 - 主实现：`projects_router.py`、`api/performance.ts`、`ProjectManagement.vue`、`CompletionRatePanel.vue`、`CompletionNodeCard.vue`、`PerformanceManagementTable.vue`、`PerformanceReminderPanel.vue`、`performanceReminder.ts`、现有路由；新增 `ProjectManagementReminder.vue`、`ProjectAuthorizationRecords.vue`、`ProjectCalibrationAuthorization.vue`。

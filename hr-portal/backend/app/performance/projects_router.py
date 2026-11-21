@@ -6580,6 +6580,23 @@ def _calibration_delegation_groups(records):
     return active, ordered
 
 
+def _calibration_people_groups(people):
+    groups = {}
+    by_employee = {person["employee_no"]: person for person in people}
+    for person in people:
+        supervisor = person.get("direct_supervisor_employee_no")
+        key = supervisor or ""
+        if key not in groups:
+            parent = by_employee.get(supervisor, {}).get("direct_supervisor_employee_no")
+            groups[key] = {"id": key, "parent_id": parent, "label": person.get("direct_supervisor_name") or "未分配上级", "employee_nos": []}
+        if person["employee_no"] not in groups[key]["employee_nos"]:
+            groups[key]["employee_nos"].append(person["employee_no"])
+    for group in groups.values():
+        if group["parent_id"] not in groups or group["parent_id"] == group["id"]:
+            group["parent_id"] = None
+    return sorted(groups.values(), key=lambda group: (not bool(group["id"]), group["label"].casefold(), group["id"]))
+
+
 @router.get("/project-management/calibration-authorization")
 async def project_management_calibration_authorization(
     cycle_id: int = Query(..., ge=1),
@@ -6763,6 +6780,8 @@ async def project_management_calibration_authorization(
                         "task_people": [task_people[task.id] for task in child_tasks],
                         "authorizations": [{"id": record.id, "task_id": record.task_id, "recipient": names.get(record.recipient_employee_no, record.recipient_employee_no)} for record in delegated],
                     })
+    for item in items:
+        item["people_groups"] = _calibration_people_groups(item["task_people"])
     cycle = await _get_cycle(db, cycle_id)
     return {
         "cycle_id": cycle_id,

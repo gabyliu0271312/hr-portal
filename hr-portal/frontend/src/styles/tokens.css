@@ -378,6 +378,13 @@
   --performance-organization-tree-max-height: 224px;
   --performance-organization-tree-indent: var(--spacing-4);
   --performance-authorization-tree-indent: var(--spacing-6);
+  --performance-people-group-background: #f0f3f5;
+  --performance-people-group-height: 47px;
+  --performance-people-group-font-weight: 600;
+  --performance-people-group-indent: 15px;
+  --performance-people-group-icon-size: 10px;
+  --performance-people-group-button-padding-y: 2px;
+  --performance-people-group-hover-delay: 100ms;
   --performance-confirm-bullet-size: 6px;
   --drawer-width: 480px;
   --drawer-wide-width: 680px;

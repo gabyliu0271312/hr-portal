@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { PerformanceFocusGroupChangePerson } from '@/api/performance'
+import type { PerformanceFocusGroupChangePerson, PerformancePeopleGroup } from '@/api/performance'
+import PerformancePeopleGrouping from '../PerformancePeopleGrouping.vue'
+import PerformanceMemberIdentity from '../PerformanceMemberIdentity.vue'
 import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
 import PerformanceManagementTable from '../PerformanceManagementTable.vue'
 import UiSurface from '@/components/ui/UiSurface.vue'
@@ -24,6 +26,7 @@ const props = defineProps<{
   subtitle?: string
   variant?: 'default' | 'calibration'
   columns?: PerformanceTableColumn[]
+  groups?: PerformancePeopleGroup[]
   rows: PerformanceFocusGroupChangePerson[]
   total?: number
   loading: boolean
@@ -36,6 +39,48 @@ const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 const keyword = ref('')
 const page = ref(1)
 const pageSize = ref(10)
+const grouped = ref(false)
+const collapsed = ref(new Set<string>())
+const filteredRows = computed(() => {
+  const query = keyword.value.trim()
+  return props.loadFn || !query ? props.rows : props.rows.filter(row => searchableText(row).includes(query))
+})
+const groupedRows = computed(() => {
+  const people = new Map(filteredRows.value.map(person => [person.employee_no, person]))
+  const groups = props.groups || []
+  const ids = new Set(groups.map(group => group.id))
+  const children = new Map<string | null, PerformancePeopleGroup[]>()
+  for (const group of groups) {
+    const parent = group.parent_id !== group.id && ids.has(group.parent_id!) ? group.parent_id : null
+    children.set(parent, [...(children.get(parent) || []), group])
+  }
+  const visited = new Set<string>()
+  const result: Array<{ key: string; person?: PerformanceFocusGroupChangePerson; group?: PerformancePeopleGroup; depth: number }> = []
+  const visit = (group: PerformancePeopleGroup, depth: number, hidden = false) => {
+    if (visited.has(group.id)) return
+    visited.add(group.id)
+    const start = result.length
+    if (!hidden) result.push({ key: `group:${group.id}`, group, depth })
+    const closed = hidden || collapsed.value.has(group.id)
+    const members = group.employee_nos.filter(id => people.has(id))
+    if (!closed) for (const id of members) result.push({ key: `person:${id}`, person: people.get(id), depth: depth + 1 })
+    let matches = members.length > 0
+    for (const child of children.get(group.id) || []) matches = visit(child, depth + 1, closed) || matches
+    if (!matches) result.splice(start)
+    return matches
+  }
+  for (const group of children.get(null) || []) visit(group, 0)
+  for (const group of groups) if (!visited.has(group.id)) visit(group, 0)
+  return result
+})
+function toggleGroup(id: string) {
+  const next = new Set(collapsed.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  collapsed.value = next
+}
+watch(grouped, () => { page.value = 1; collapsed.value = new Set() })
+watch(keyword, () => { page.value = 1; collapsed.value = new Set() })
 
 const defaultColumns: PerformanceTableColumn[] = [
   { key: 'display_name', label: '姓名', width: 312, fixed: 'left' },
@@ -70,11 +115,10 @@ const resultCount = computed(() => {
   return props.rows.filter(row => searchableText(row).includes(query)).length
 })
 const displayedRows = computed(() => {
+  if (grouped.value) return groupedRows.value.map(entry => ({ ...entry.person, __key: entry.key, __group: entry.group, __depth: entry.depth }))
   if (props.loadFn) return props.rows
-  const query = keyword.value.trim()
-  const filtered = query ? props.rows.filter(row => searchableText(row).includes(query)) : props.rows
   const start = (page.value - 1) * pageSize.value
-  return filtered.slice(start, start + pageSize.value)
+  return filteredRows.value.slice(start, start + pageSize.value)
 })
 
 function searchableText(row: PerformanceFocusGroupChangePerson) {
@@ -112,6 +156,8 @@ watch(() => props.modelValue, open => {
   if (open) {
     keyword.value = ''
     page.value = 1
+    grouped.value = false
+    collapsed.value = new Set()
   }
 })
 
@@ -127,8 +173,8 @@ function close() {
     <div class="focus-group-people-page">
       <UiSurface class="focus-group-people-surface" radius="all" min-width="0" padding="var(--ui-surface-padding-spacious)">
       <p v-if="props.error" class="focus-group-people-error" role="alert">{{ props.error }}</p>
-      <PerformanceListToolbar v-model:keyword="keyword" search-placeholder="搜索成员" search-aria-label="搜索成员" search-fill :filter-disabled="props.loading" @search="onSearch" @clear="onClear" @filter="onFilter" />
-      <div class="focus-group-people-result" aria-live="polite">{{ resultCount }}个结果</div>
+      <PerformanceListToolbar v-model:keyword="keyword" search-placeholder="搜索成员" search-aria-label="搜索成员" search-fill :filter-disabled="props.loading" @search="onSearch" @clear="onClear" @filter="onFilter"><template v-if="$slots.actions" #actions><slot name="actions" /></template></PerformanceListToolbar>
+      <div class="focus-group-people-result" aria-live="polite"><span>{{ resultCount }}个结果</span><PerformancePeopleGrouping v-if="props.groups" v-model="grouped" :disabled="props.loading || Boolean(props.error)" /></div>
       <PerformanceManagementTable
         :rows="displayedRows"
         :columns="columns"
@@ -138,20 +184,26 @@ function close() {
         table-aria-label="人员列表"
         pagination-aria-label="人员列表分页"
         scroll-mode="page"
-        row-key="employee_no"
-        :show-pagination="true"
+        :row-key="grouped ? '__key' : 'employee_no'"
+        :row-visible="row => !row.__group"
+        :show-pagination="!grouped"
         :page="page"
         :page-size="pageSize"
         :total="resultCount"
         @page-change="changePage"
         @page-size-change="changePageSize"
         class="focus-group-people-table"
+        :class="{ 'focus-group-people-table--groupable': props.groups }"
       >
+        <template #before-row="{ row }">
+          <tr v-if="row.__group" class="people-group-row"><td :colspan="columns.length"><button type="button" :style="{ paddingLeft: `calc(var(--ui-table-cell-padding-inline) + ${row.__depth} * var(--performance-people-group-indent))` }" :aria-expanded="!collapsed.has(row.__group.id)" :aria-label="`${collapsed.has(row.__group.id) ? '展开' : '收起'}${row.__group.label}的分组`" @click="toggleGroup(row.__group.id)"><svg :class="{ 'is-collapsed': collapsed.has(row.__group.id) }" viewBox="0 0 24 24" aria-hidden="true"><path d="M11.22 18.46a1 1 0 0 0 1.56 0l8.305-10.334a1 1 0 0 0-.78-1.626H3.696a1 1 0 0 0-.78 1.626L11.22 18.46Z" fill="currentColor" /></svg><span>{{ row.__group.label }}</span></button></td></tr>
+        </template>
         <template #pagination-prefix>
           <span class="focus-group-people-total">共 {{ resultCount }} 条</span>
         </template>
         <template #cell="{ row, column }">
-          <span v-if="column.key === 'leaf_department'">{{ leafDepartment(row as PerformanceFocusGroupChangePerson) || '--' }}</span>
+          <PerformanceMemberIdentity v-if="props.groups && (column.key === 'display_name' || column.key === 'direct_supervisor_name') && row[column.key]" :display-name="row[column.key]" size="sm" :style="column.key === 'display_name' && grouped ? { paddingLeft: `calc(${row.__depth} * var(--performance-people-group-indent))` } : undefined" />
+          <span v-else-if="column.key === 'leaf_department'">{{ leafDepartment(row as PerformanceFocusGroupChangePerson) || '--' }}</span>
           <span v-else>{{ (row as PerformanceFocusGroupChangePerson)[column.key as keyof PerformanceFocusGroupChangePerson] || '--' }}</span>
         </template>
         <template #empty="{ loading: isLoading, text }">
@@ -186,11 +238,20 @@ function close() {
 .focus-group-people-surface { width: 100%; }
 .focus-group-people-error { margin: 0 0 var(--spacing-3); color: var(--performance-field-error-color); font-size: var(--font-size-md); line-height: var(--ui-table-line-height); }
 .focus-group-people-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--performance-button-height);
   margin-bottom: var(--spacing-2);
   color: var(--ui-table-text-color);
   font-size: var(--ui-table-font-size);
   line-height: var(--ui-table-line-height);
 }
+.focus-group-people-table--groupable { --ui-table-row-height: var(--performance-people-group-height); }
+.people-group-row td { padding: 0; border-bottom: var(--performance-popover-border-width) solid var(--ui-table-border-color); background: var(--performance-people-group-background); }
+.people-group-row button { display: flex; align-items: center; gap: var(--spacing-2); width: 100%; height: var(--performance-people-group-height); padding-block: 0; padding-right: var(--ui-table-cell-padding-inline); border: 0; background: transparent; color: var(--color-text-primary); font: var(--performance-people-group-font-weight) var(--font-size-md)/var(--ui-table-line-height) var(--font-sans); text-align: left; cursor: pointer; }
+.people-group-row svg { flex: none; width: var(--performance-people-group-icon-size); height: var(--performance-people-group-icon-size); }
+.people-group-row svg.is-collapsed { transform: rotate(-90deg); }
 .focus-group-people-total { color: var(--ui-pagination-color); font-size: var(--font-size-md); line-height: var(--ui-table-line-height); }
 .focus-group-people-empty { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-2); padding: var(--spacing-5) 0; }
 .focus-group-people-empty__text { color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: var(--ui-table-line-height); }

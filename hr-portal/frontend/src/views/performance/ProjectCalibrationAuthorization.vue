@@ -46,8 +46,10 @@
       </PerformanceManagementTable>
       <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     </section>
-    <FocusGroupPeopleDialog v-model="peopleOpen" :title="peopleUnauthorized ? '未授权人员' : '可校准人员'" :subtitle="peopleSubtitle" :columns="peopleColumns" :rows="peopleRows" :loading="loading" :error="error" />
-    <PerformanceTaskDelegationDialog v-model="dialogOpen" action="AUTHORIZE" calibration :read-only="target?.status === '已校准'" :tasks="delegationTasks" :distribution-lines="distributionLines" :has-distribution-rules="target?.distribution_info?.force_distribution_enabled" @completed="authorized" />
+    <FocusGroupPeopleDialog v-model="peopleOpen" :title="peopleUnauthorized ? '未授权人员' : '可校准人员'" :subtitle="peopleSubtitle" :columns="peopleColumns" :rows="peopleRows" :groups="peopleContext?.people_groups || []" :loading="loading" :error="error">
+      <template v-if="peopleUnauthorized" #actions><UiButton variant="primary" class="people-authorize" :disabled="!peopleContext?.can_authorize || !peopleContext?.allow_authorize || !peopleContext?.task_ids.length || loading || saving" @click="peopleContext && openAuthorization(peopleContext)"><AddOutlinedIcon />协助授权</UiButton></template>
+    </FocusGroupPeopleDialog>
+    <PerformanceTaskDelegationDialog v-model="dialogOpen" action="AUTHORIZE" calibration :read-only="target?.status === '已校准'" :tasks="delegationTasks" :distribution-lines="distributionLines" :has-distribution-rules="target?.distribution_info?.force_distribution_enabled" @completed="authorized" @refresh="load" />
     <PerformanceConfirmDialog v-model="confirmOpen" message="确定撤销授权吗?" :details="revokeDetails" cancel-text="保留" confirm-text="撤销" :loading="saving" @confirm="confirmRevoke" />
   </div>
 </template>
@@ -57,6 +59,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { projectManagementApi, type ProjectCalibrationAuthorization } from '@/api/performance'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
+import UiButton from '@/components/ui/UiButton.vue'
+import AddOutlinedIcon from '@/components/performance/AddOutlinedIcon.vue'
 import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import PerformanceSearchSelect from '@/components/performance/PerformanceSearchSelect.vue'
 import PerformancePromptNotice from '@/components/performance/PerformancePromptNotice.vue'
@@ -121,12 +125,13 @@ const target = ref<ProjectCalibrationAuthorization | null>(null)
 const peopleOpen = ref(false)
 const peopleTarget = ref<ProjectCalibrationAuthorization | null>(null)
 const peopleUnauthorized = ref(false)
+const peopleContext = computed(() => rows.value.find(row => row.id === peopleTarget.value?.id) || null)
 const peopleRows = computed(() => {
-  const row = peopleTarget.value
+  const row = peopleContext.value
   const ids = new Set(row?.unauthorized_task_ids || [])
   return (row?.task_people || []).filter(person => !peopleUnauthorized.value || ids.has(person.task_id))
 })
-const peopleSubtitle = computed(() => peopleTarget.value ? `校准范围：${peopleTarget.value.scope}${peopleTarget.value.end_at ? `　截止时间：${formatDate(peopleTarget.value.end_at)}` : ''}` : '')
+const peopleSubtitle = computed(() => peopleContext.value ? `校准范围：${peopleContext.value.scope}${peopleContext.value.end_at ? `　截止时间：${formatDate(peopleContext.value.end_at)}` : ''}` : '')
 const peopleColumns = [
   { key: 'display_name', label: '被评估人', width: 284, fixed: true }, { key: 'department', label: '一级部门', width: 227 },
   { key: 'leaf_department', label: '末级部门', width: 227 }, { key: 'direct_supervisor_name', label: '直属上级', width: 227 }, { key: 'job_sequence', label: '序列', width: 227 },
@@ -215,6 +220,8 @@ onMounted(async () => { try { if (!cycleStore.navigationReady) await cycleStore.
 .distribution-cell { display:inline-flex; align-items:center; gap:var(--spacing-1); }
 .distribution-info { --performance-info-icon-size:14px; }
 .distribution-info :deep(.performance-info-popover__anchor:hover) { color:var(--color-primary) !important; }
+.people-authorize :deep(.performance-button__content) { gap: var(--spacing-1); }
+.people-authorize svg { width: var(--font-size-md); height: var(--font-size-md); }
 .notice { color:#646a73; }
 </style>
 

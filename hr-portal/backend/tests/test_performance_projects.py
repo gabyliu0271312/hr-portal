@@ -892,6 +892,23 @@ async def test_calibration_first_project_does_not_fall_through_when_no_tasks(mon
     assert len(db.queries) == 1 and "project_id = 9" in db.queries[0]
 
 
+def test_calibration_people_groups_use_masked_snapshot_identity_and_parent_groups():
+    from app.performance.projects_router import _calibration_people_groups
+    people = [
+        {"employee_no": "E1", "direct_supervisor_employee_no": "M1", "direct_supervisor_name": "同名"},
+        {"employee_no": "E2", "direct_supervisor_employee_no": "M2", "direct_supervisor_name": "同名"},
+        {"employee_no": "M2", "direct_supervisor_employee_no": "M1", "direct_supervisor_name": "同名"},
+        {"employee_no": "E3", "direct_supervisor_employee_no": None, "direct_supervisor_name": None},
+    ]
+    assert _calibration_people_groups(people) == [
+        {"id": "M1", "parent_id": None, "label": "同名", "employee_nos": ["E1", "M2"]},
+        {"id": "M2", "parent_id": "M1", "label": "同名", "employee_nos": ["E2"]},
+        {"id": "", "parent_id": None, "label": "未分配上级", "employee_nos": ["E3"]},
+    ]
+    assert _calibration_people_groups([]) == []
+    assert _calibration_people_groups([people[1]])[0]["parent_id"] is None
+
+
 @pytest.mark.asyncio
 async def test_calibration_same_handler_rules_stay_separate_with_overlap(monkeypatch):
     from unittest.mock import AsyncMock

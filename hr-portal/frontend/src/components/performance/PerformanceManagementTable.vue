@@ -23,6 +23,7 @@ const props = withDefaults(defineProps<{
   fitAvailableHeight?: boolean
   showPagination?: boolean
   rowKey?: string
+  rowVisible?: (row: any) => boolean
   clickableRows?: boolean
   sortKey?: string
   sortOrder?: PerformanceSortOrder
@@ -295,6 +296,7 @@ function rowClassName({ row }: { row: any }) {
         :loading-text="loadingText"
         :empty-text="emptyText"
         :aria-label="tableAriaLabel"
+        :row-visible="rowVisible"
         :clickable-rows="clickableRows"
         :selectable="selectable"
         :selection-key="selectionKey"
@@ -310,6 +312,7 @@ function rowClassName({ row }: { row: any }) {
         @sort-change="emit('sort-change', $event)"
         @row-click="emit('row-click', $event)"
       >
+        <template v-if="$slots['before-row']" #before-row="scope"><slot name="before-row" v-bind="scope" /></template>
         <template #cell="{ row, column, value }">
           <slot name="cell" :row="row" :column="column" :value="value" />
         </template>

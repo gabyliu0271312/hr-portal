@@ -195,6 +195,35 @@ describe('FocusGroupPeopleDialog', () => {
     wrapper.unmount()
   })
 
+  it('shares supervisor grouping, preserves same-name identities, filters and restores flat pagination', async () => {
+    const rows = [person({ employee_no: 'E1', display_name: '甲' }), person({ employee_no: 'E2', display_name: '乙' }), person({ employee_no: 'E3', display_name: '丙' })]
+    const groups = [{ id: 'M1', parent_id: null, label: '同名上级', employee_nos: ['E1'] }, { id: 'M2', parent_id: 'M1', label: '同名上级', employee_nos: ['E2'] }, { id: '', parent_id: null, label: '未分配上级', employee_nos: ['E3'] }]
+    const wrapper = mount(FocusGroupPeopleDialog, { attachTo: document.body, props: { modelValue: true, title: '未授权人员', rows, groups, loading: false, error: '' }, global: { stubs: { teleport: true, ElSelect: { props: ['modelValue'], template: '<select :value="modelValue"><slot /></select>' }, ElOption: { props: ['value', 'label'], template: '<option :value="value">{{ label }}</option>' } } } })
+    const { default: Grouping } = await import('../PerformancePeopleGrouping.vue')
+    const grouping = wrapper.getComponent(Grouping)
+    await grouping.trigger('mouseenter'); await flushPromises()
+    expect(wrapper.findAll('.people-group-row')).toHaveLength(0)
+    expect(wrapper.find('.people-grouping-menu').text()).toBe('按上级分组')
+    await wrapper.get('.people-grouping-menu button').trigger('click')
+    expect(wrapper.findAll('.people-group-row')).toHaveLength(3)
+    expect(wrapper.getComponent(PerformanceManagementTable).props('showPagination')).toBe(false)
+    expect(wrapper.findAll('tbody tr')).toHaveLength(6)
+    await wrapper.findAll('[aria-label="收起同名上级的分组"]')[0].trigger('click')
+    expect(wrapper.findAll('tbody tr')).toHaveLength(3)
+    expect(wrapper.text()).toContain('3个结果')
+    await wrapper.get('.search-input input').setValue('乙')
+    expect(wrapper.text()).toContain('1个结果')
+    expect(wrapper.findAll('.people-group-row')).toHaveLength(2)
+    expect(wrapper.findAll('tbody tr')).toHaveLength(3)
+    await grouping.vm.$emit('update:modelValue', false); await flushPromises()
+    expect(wrapper.findAll('.people-group-row')).toHaveLength(0)
+    expect(wrapper.getComponent(PerformanceManagementTable).props('showPagination')).toBe(true)
+    await wrapper.setProps({ modelValue: false }); await wrapper.setProps({ modelValue: true })
+    expect(wrapper.text()).toContain('3个结果')
+    expect(wrapper.getComponent(Grouping).props('modelValue')).toBe(false)
+    wrapper.unmount()
+  })
+
   it('calls loadFn on search and page change when provided', async () => {
     const loadFn = vi.fn().mockResolvedValue({ total: 2, items: [person()] })
     const wrapper = mount(FocusGroupPeopleDialog, {
