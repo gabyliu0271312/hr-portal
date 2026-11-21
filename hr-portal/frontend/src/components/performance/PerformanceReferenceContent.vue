@@ -10,6 +10,8 @@
         :key="reference.key"
         :reviewers="reference.reviewers || []"
         :expected-count="reference.expected_count"
+        :visibility="reference.visibility"
+        :detail-mode="reference.detail_mode"
         :evaluate-ratio="reference.evaluate_ratio"
         :can-remind="reference.can_remind && !reference.final_result_locked"
         @remind="emit('remind', reference)"

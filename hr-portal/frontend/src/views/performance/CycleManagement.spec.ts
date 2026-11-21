@@ -11,6 +11,7 @@ import PerformanceDateTimeField from '@/components/performance/PerformanceDateTi
 import PerformanceDepartmentListPanel from '@/components/performance/PerformanceDepartmentListPanel.vue'
 import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'
 import PerformanceSearchInput from '@/components/performance/PerformanceSearchInput.vue'
+import PerformanceCycle360Settings from '@/components/performance/PerformanceCycle360Settings.vue'
 import PerformanceComparisonRuleSettings from '@/components/performance/PerformanceComparisonRuleSettings.vue'
 import PerformanceComparisonRuleDrawer from '@/components/performance/PerformanceComparisonRuleDrawer.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
@@ -35,6 +36,7 @@ const mocks = vi.hoisted(() => ({
   projectCopy: vi.fn(),
   listEvaluatorOptions: vi.fn(),
   templateList: vi.fn(),
+  templateWorkflow: vi.fn(),
   otherSettingsGet: vi.fn(),
   comparisonOptions: vi.fn(),
 }))
@@ -63,6 +65,7 @@ vi.mock('@/api/performance', () => ({
   },
   performanceTemplateApi: {
     list: mocks.templateList,
+    getWorkflow: mocks.templateWorkflow,
   },
 }))
 
@@ -369,6 +372,7 @@ describe('CycleManagement', () => {
     mocks.list.mockResolvedValue({ items: [cycle], total: 1, page: 1, page_size: 20 })
     mocks.get.mockResolvedValue(cycle)
     mocks.listPeople.mockResolvedValue([])
+    mocks.templateWorkflow.mockResolvedValue({ nodes: [{ node_type: 'evaluation', executor_role_code: 'assessment.reviewer_360', executor_types: ['REVIEWER_360'] }] })
     mocks.templateList.mockResolvedValue([{ template_id: 101, name: '已启用模板', description: '模板说明', status: 'active' }])
     mocks.otherSettingsGet.mockResolvedValue({ overdue_single_submission_enabled: true, cycle_overdue_submission_override_enabled: true })
     mocks.comparisonOptions.mockResolvedValue({ templates: [{ template_id: 101, name: '年度模板', stages: [{ node_id: 'self', name: '员工自评' }, { node_id: 'manager', name: '上级评价' }] }], items: [{ content_id: 'content', item_id: 'rating', label: '绩效等级', option_ids: ['a', 'b'] }], warnings: [] })
@@ -976,7 +980,7 @@ describe('CycleManagement', () => {
     await wrapper.get('#cycle-start').setValue('2026-01-01T09:00')
     await wrapper.get('#cycle-end').setValue('2026-12-31T18:00')
     await selectEnabledTemplate(wrapper)
-    await wrapper.get('#allow-delete-360').setValue(true)
+    await wrapper.get('.cycle-360-delete input[type="checkbox"]').setValue(true)
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(wrapper.find('[role="alert"]').exists() ? wrapper.get('[role="alert"]').text() : '').toBe('')
@@ -984,15 +988,105 @@ describe('CycleManagement', () => {
   })
 
   it('reads the 360 delete policy as disabled when legacy cycle data omits it', async () => {
-    mocks.get.mockResolvedValueOnce({ ...cycle, allow_delete_360: undefined })
+    mocks.get.mockResolvedValueOnce({ ...cycle, template_ids: [101], allow_delete_360: undefined })
     const wrapper = await mountView('/performance/settings/cycles/1/edit')
     await flushPromises()
-    expect((wrapper.get('#allow-delete-360').element as HTMLInputElement).checked).toBe(false)
+    expect((wrapper.get('.cycle-360-delete input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false)
   })
 
   it('keeps the 360 delete policy disabled by default', async () => {
     const wrapper = await mountView('/performance/settings/cycles/new')
-    expect((wrapper.get('#allow-delete-360').element as HTMLInputElement).checked).toBe(false)
+    expect(wrapper.findComponent(PerformanceCycle360Settings).exists()).toBe(false)
+    await selectEnabledTemplate(wrapper)
+    expect((wrapper.get('.cycle-360-delete input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false)
+  })
+
+  it('shows any selected evaluation 360 template and preserves settings when the last one is removed', async () => {
+    mocks.templateList.mockResolvedValue([101, 102].map(template_id => ({ template_id, name: `模板${template_id}`, status: 'active' })))
+    mocks.templateWorkflow.mockImplementation(async (id: number) => ({ nodes: [{ node_type: id === 101 ? 'reviewer_360_invite' : 'evaluation', node_role_code: 'assessment.reviewer_360', executor_types: [] }] }))
+    mocks.get.mockResolvedValue({ ...cycle, template_ids: [101, 102], anonymous_360_config: { enable: true, anonymous_object: 'all', anonymous_low_limit: 5, reviewer_tag_visibility_mode: 'notVisible' }, invitation_out_of_range_tips_config: { enable: true, range_count: 9, tips: { 'zh-CN': ' 中文说明 ', 'en-US': 'draft' } } })
+    mocks.update.mockResolvedValue(cycle)
+    const wrapper = await mountView('/performance/settings/cycles/1/edit')
+    const shell = wrapper.getComponent(PerformanceSelectShell)
+    expect(wrapper.findComponent(PerformanceCycle360Settings).exists()).toBe(true)
+    expect(wrapper.text()).toContain('不影响已启动项目')
+    shell.vm.$emit('update:modelValue', ['101'])
+    await flushPromises()
+    expect(wrapper.findComponent(PerformanceCycle360Settings).exists()).toBe(false)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(1, expect.objectContaining({ anonymous_360_config: { enable: true, anonymous_object: 'all', anonymous_low_limit: 5, reviewer_tag_visibility_mode: 'notVisible' }, invitation_out_of_range_tips_config: { enable: true, range_count: 9, tips: { 'zh-CN': '中文说明', 'en-US': 'draft' } } }))
+    expect(mocks.update.mock.calls[0][1]).not.toHaveProperty('languages')
+    wrapper.unmount()
+  })
+
+  it('validates anonymous scope, preserves the last positive lower limit and trims the Chinese tip', async () => {
+    mocks.get.mockResolvedValue({ ...cycle, template_ids: [101] })
+    mocks.update.mockResolvedValue(cycle)
+    const wrapper = await mountView('/performance/settings/cycles/1/edit')
+    await wrapper.get('.cycle-360-anonymous input[type="checkbox"]').setValue(true)
+    await wrapper.get('form').trigger('submit')
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('请选择 360° 评估内容的匿名范围')
+    await wrapper.get('input[value="reviewee"]').setValue(true)
+    await wrapper.get('[aria-label="启用匿名下限"]').trigger('click')
+    const settings = wrapper.getComponent(PerformanceCycle360Settings)
+    expect(settings.props('anonymous').anonymous_low_limit).toBe(3)
+    settings.props('anonymous').anonymous_low_limit = 7
+    await flushPromises()
+    await wrapper.get('[aria-label="启用匿名下限"]').trigger('click')
+    expect(settings.props('anonymous').anonymous_low_limit).toBe(0)
+    await wrapper.get('[aria-label="启用匿名下限"]').trigger('click')
+    expect(settings.props('anonymous').anonymous_low_limit).toBe(7)
+    await wrapper.get('.cycle-360-invitation input[type="checkbox"]').setValue(true)
+    await wrapper.get('textarea').setValue('   ')
+    await wrapper.get('form').trigger('submit')
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('中文提示内容须为 1–5000 字')
+    await wrapper.get('textarea').setValue(' 合理安排评估时间 ')
+    settings.props('invitation').range_count = 100
+    expect(settings.vm.validate()).toBe('邀请提示数量须为 0–99 的整数')
+    settings.props('invitation').range_count = 0
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(1, expect.objectContaining({ anonymous_360_config: expect.objectContaining({ enable: true, anonymous_object: 'reviewee', anonymous_low_limit: 7 }), invitation_out_of_range_tips_config: { enable: true, range_count: 0, tips: { 'zh-CN': '合理安排评估时间', 'en-US': '' } } }))
+    wrapper.unmount()
+  })
+
+  it('blocks saving on workflow failure and retries without discarding the stored configuration', async () => {
+    mocks.get.mockResolvedValue({ ...cycle, template_ids: [101] })
+    mocks.templateWorkflow.mockRejectedValueOnce(new Error('offline'))
+    const wrapper = await mountView('/performance/settings/cycles/1/edit')
+    expect(wrapper.get('.cycle-save-button').attributes('disabled')).toBeDefined()
+    await wrapper.get('form').trigger('submit')
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('所选模板的评估流程加载失败')
+    await wrapper.get('#evaluation-settings button.outline-button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.cycle-save-button').attributes('disabled')).toBeUndefined()
+    expect(wrapper.findComponent(PerformanceCycle360Settings).exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('ignores stale template workflows and recognizes legacy executor types only for evaluation nodes', async () => {
+    let resolveFirst!: (value: unknown) => void
+    mocks.templateWorkflow.mockImplementation((id: number) => id === 101 ? new Promise(resolve => { resolveFirst = resolve }) : Promise.resolve({ nodes: [{ node_type: 'evaluation', executor_types: ['REVIEWER_360'] }] }))
+    mocks.templateList.mockResolvedValue([101, 102].map(template_id => ({ template_id, name: `模板${template_id}`, status: 'active' })))
+    const wrapper = await mountView('/performance/settings/cycles/new')
+    const shell = wrapper.getComponent(PerformanceSelectShell)
+    shell.vm.$emit('update:modelValue', ['101'])
+    await flushPromises()
+    expect(wrapper.get('.cycle-save-button').attributes('disabled')).toBeDefined()
+    shell.vm.$emit('update:modelValue', ['102'])
+    await flushPromises()
+    expect(wrapper.findComponent(PerformanceCycle360Settings).exists()).toBe(true)
+    resolveFirst({ nodes: [] })
+    await flushPromises()
+    expect(wrapper.findComponent(PerformanceCycle360Settings).exists()).toBe(true)
+    shell.vm.$emit('update:modelValue', [])
+    await flushPromises()
+    expect(wrapper.findComponent(PerformanceCycle360Settings).exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('shows a save success status after creating a cycle', async () => {

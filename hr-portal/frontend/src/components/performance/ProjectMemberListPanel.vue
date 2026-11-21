@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { projectManagementApi, performanceWorkbenchApi, type ProjectMember, type PerformanceWorkbenchTaskPerson } from '@/api/performance'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { projectManagementApi, performanceWorkbenchApi, fetchPerformanceColumnPreference, savePerformanceColumnPreference, type PerformanceMemberColumnSchema, type PerformanceColumnPreferenceScope, type ProjectMember, type PerformanceWorkbenchTaskPerson } from '@/api/performance'
+import { employeeSwitchEpoch } from '@/stores/identitySwitch'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import UiButton from '../ui/UiButton.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
@@ -29,7 +30,9 @@ const props = withDefaults(defineProps<{
   reviewContext?: { nodeId: string; state: 'pending' | 'completed' | 'all'; phaseId?: string | null }
   showExport?: boolean
   readonly?: boolean
-  provider?: (query: { keyword?: string; page: number; pageSize: number; sortBy?: string; sortOrder?: 'asc' | 'desc' }) => Promise<{ items: ProjectMember[]; total: number; rating_columns?: Array<{ key: string; label: string }> }>
+  columnSchema?: Partial<PerformanceMemberColumnSchema>
+  preferenceScope?: PerformanceColumnPreferenceScope
+  provider?: (query: { keyword?: string; page: number; pageSize: number; sortBy?: string; sortOrder?: 'asc' | 'desc' }) => Promise<Partial<PerformanceMemberColumnSchema> & { items: ProjectMember[]; total: number; rating_columns?: Array<{ key: string; label: string }> }>
 }>(), {
   reviewContext: undefined,
   showExport: true,
@@ -90,14 +93,13 @@ const reviewColumns: MemberColumnOption[] = [
   { key: 'department', label: '所属部门' },
 ]
 const ratingColumns = ref<MemberColumnOption[] | null>(null)
+const responseSchema = ref<Partial<PerformanceMemberColumnSchema> | null>(null)
+const preferenceSchema = ref<Partial<PerformanceMemberColumnSchema> | null>(null)
+const schema = computed(() => props.columnSchema?.columns ? props.columnSchema : responseSchema.value || preferenceSchema.value)
 const baseColumns = computed(() => props.reviewContext ? reviewColumns : projectColumns)
 const columns = computed(() => baseColumns.value.flatMap(column => column.key === 'rating' && ratingColumns.value !== null ? ratingColumns.value : [column]))
-function updateRatingColumns(next: MemberColumnOption[] | null) {
-  const previousKeys = columns.value.map(column => column.key)
-  const selected = new Set(selectedColumnKeys.value)
-  ratingColumns.value = next
-  selectedColumnKeys.value = columns.value.filter(column => selected.has(column.key) || !previousKeys.includes(column.key)).map(column => column.key)
-}
+function updateRatingColumns(next: MemberColumnOption[] | null) { ratingColumns.value = next }
+function updateSchema(value: Partial<PerformanceMemberColumnSchema>) { if (Array.isArray(value.columns)) responseSchema.value = value }
 const profileColumnKeys: Record<string, string> = {
   department: 'department',
   direct_supervisor: 'direct_supervisor',
@@ -106,30 +108,64 @@ const profileColumnKeys: Record<string, string> = {
   hire_date: 'hire_date',
   employee_type: 'employee_type',
 }
-const visibleProfileColumnKeys = computed(() => {
-  const configuredRows = members.value.filter(member => Array.isArray(member.visible_profile_fields))
-  if (!configuredRows.length) return null
-  return new Set(configuredRows.flatMap(member => (member.visible_profile_fields || []).map(field => profileColumnKeys[field])).filter(Boolean))
+const fallbackProfileKeys = ref<Set<string> | null>(null)
+watch(members, rows => {
+  const configuredRows = rows.filter(member => Array.isArray(member.visible_profile_fields))
+  if (configuredRows.length) fallbackProfileKeys.value = new Set(configuredRows.flatMap(member => (member.visible_profile_fields || []).map(field => profileColumnKeys[field])).filter(Boolean))
 })
-const availableColumns = computed(() => {
-  const allowed = visibleProfileColumnKeys.value
-  return allowed
-    ? columns.value.filter(column => !Object.values(profileColumnKeys).includes(column.key) || allowed.has(column.key))
-    : columns.value
+const availableColumns = computed<MemberColumnOption[]>(() => {
+  const source = schema.value
+  const allowed = source?.allowed_column_keys ? new Set(source.allowed_column_keys) : null
+  const locked = new Set(source?.locked_column_keys || [])
+  const seen = new Set<string>()
+  return (source?.columns || columns.value).filter(column => {
+    if (seen.has(column.key) || (allowed && !allowed.has(column.key))) return false
+    if (!source && fallbackProfileKeys.value && Object.values(profileColumnKeys).includes(column.key) && !fallbackProfileKeys.value.has(column.key)) return false
+    seen.add(column.key)
+    return true
+  }).map(column => ({ ...column, locked: column.locked || locked.has(column.key) }))
 })
 const columnDrawerOpen = ref(false)
 const selectedColumnKeys = ref<string[]>([])
-watch([availableColumns, () => Boolean(props.reviewContext)], ([available]) => {
-  const base = available.map(column => column.key)
-  const allowed = new Set(available.map(column => column.key))
-  selectedColumnKeys.value = selectedColumnKeys.value.filter(key => allowed.has(key))
-  if (!selectedColumnKeys.value.length) selectedColumnKeys.value = base.filter(key => allowed.has(key))
-})
-watch(() => Boolean(props.reviewContext), isReview => {
-  selectedColumnKeys.value = (isReview ? reviewColumns : projectColumns).map(column => column.key)
+const defaultColumnKeys = computed(() => schema.value?.default_column_keys || availableColumns.value.filter(column => column.visible_by_default !== false).map(column => column.key))
+let usesDefaultColumns = true
+function normalizeColumnKeys(keys: string[]) {
+  const allowed = new Set(availableColumns.value.map(column => column.key))
+  return [...new Set([...availableColumns.value.filter(column => column.locked).map(column => column.key), ...keys.filter(key => allowed.has(key) && !availableColumns.value.find(column => column.key === key)?.locked)])]
+}
+watch([availableColumns, defaultColumnKeys], () => {
+  selectedColumnKeys.value = normalizeColumnKeys(usesDefaultColumns ? defaultColumnKeys.value : selectedColumnKeys.value)
+  if (sortBy.value && !sortableColumnKeys.value.has(sortBy.value)) { sortBy.value = ''; sortOrder.value = '' }
 }, { immediate: true })
+const sortableColumnKeys = computed(() => new Set(schema.value?.sort_keys || availableColumns.value.filter(column => schema.value ? column.sortable === true : column.sortable !== false).map(column => column.key)))
 const visibleColumns = computed(() => selectedColumnKeys.value.map(key => availableColumns.value.find(column => column.key === key)).filter((column): column is MemberColumnOption => Boolean(column)))
-const hiddenColumnCount = computed(() => Math.max(0, availableColumns.value.length - selectedColumnKeys.value.length))
+const hiddenColumnCount = computed(() => Math.max(0, availableColumns.value.length - visibleColumns.value.length))
+const columnSaving = ref(false)
+const preferenceLoading = ref(false)
+const preferenceError = ref('')
+const columnSaveError = ref('')
+const preferenceScopeKey = computed(() => JSON.stringify([employeeSwitchEpoch.value, props.preferenceScope?.cycle_ref, props.preferenceScope?.scene, props.preferenceScope?.project_id, props.preferenceScope?.node_id, props.preferenceScope?.role_key]))
+let preferenceRequest = 0
+let saveRequest = 0
+async function loadPreference() {
+  const sequence = ++preferenceRequest
+  const scopeKey = preferenceScopeKey.value
+  const scope = props.preferenceScope && { ...props.preferenceScope }
+  preferenceError.value = ''
+  preferenceLoading.value = Boolean(scope)
+  if (!scope) return
+  try {
+    const result = await fetchPerformanceColumnPreference(scope)
+    if (sequence !== preferenceRequest || scopeKey !== preferenceScopeKey.value) return
+    if (Array.isArray(result.columns)) preferenceSchema.value = result
+    usesDefaultColumns = result.column_keys === null
+    selectedColumnKeys.value = normalizeColumnKeys(result.column_keys ?? defaultColumnKeys.value)
+  } catch {
+    if (sequence === preferenceRequest && scopeKey === preferenceScopeKey.value) preferenceError.value = '列设置加载失败，请重试'
+  } finally {
+    if (sequence === preferenceRequest && scopeKey === preferenceScopeKey.value) preferenceLoading.value = false
+  }
+}
 
 const memberSortValue = (member: MemberRow, key: string) => {
   if (key.startsWith('rating:')) return member.ratings?.[key]?.label ?? null
@@ -141,7 +177,7 @@ const memberSortValue = (member: MemberRow, key: string) => {
       const [completed, total] = (member.completion || '0/0').split('/').map(Number)
       return total ? completed / total : 0
     }
-    default: return (member[key as keyof MemberRow] ?? null) as unknown
+    default: return member.column_values?.[key] ?? (member[key as keyof MemberRow] ?? null)
   }
 }
 const remoteReviewPaging = ref(true)
@@ -161,6 +197,7 @@ const loadMembers = async () => {
     if (props.provider) {
       const result = await props.provider({ keyword: keyword.value.trim() || undefined, page: page.value, pageSize: pageSize.value, sortBy: sortBy.value || undefined, sortOrder: sortOrder.value || undefined })
       if (sequence !== requestSequence) return
+      updateSchema(result)
       members.value = result.items
       total.value = result.total
       if (result.rating_columns) updateRatingColumns(result.rating_columns)
@@ -168,6 +205,7 @@ const loadMembers = async () => {
       const result = await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.reviewContext.nodeId, props.reviewContext.state, keyword.value.trim() || undefined, props.reviewContext.phaseId, page.value, pageSize.value, sortBy.value || undefined, sortOrder.value || undefined)
       if (sequence !== requestSequence) return
       remoteReviewPaging.value = !Array.isArray(result)
+      if (!Array.isArray(result)) updateSchema(result)
       const rows = Array.isArray(result) ? result : result.items
       if (!Array.isArray(result) && result.rating_columns) updateRatingColumns(result.rating_columns)
       else if (rows.some(item => Array.isArray(item.rating_columns))) {
@@ -181,6 +219,7 @@ const loadMembers = async () => {
         rating: item.rating ?? null,
         rating_tone: item.rating_tone ?? null,
         ratings: item.ratings,
+        column_values: item.column_values,
         completion: item.completion || '0/0',
         can_remind: item.can_remind,
         evaluate_ratio: item.evaluate_ratio,
@@ -207,6 +246,7 @@ const loadMembers = async () => {
         ? await projectManagementApi.cycleMembers(props.cycleId, keyword.value.trim() || undefined, page.value, pageSize.value, sortBy.value || undefined, sortOrder.value || undefined)
         : await projectManagementApi.members(props.projectId, keyword.value.trim() || undefined, page.value, pageSize.value, sortBy.value || undefined, sortOrder.value || undefined)
       if (sequence !== requestSequence) return
+      updateSchema(result)
       members.value = result.items
       total.value = result.total
       if (result.rating_columns) updateRatingColumns(result.rating_columns)
@@ -235,14 +275,40 @@ const cellValue = (member: MemberRow, key: string) => {
   if (key === 'completion') return member.completion || '0/0'
   if (key === 'status') return performanceTaskStatusLabel(normalizePerformanceTaskStatus(member.status, member.due_at))
   if (key === 'due_at') return member.due_at ? new Date(member.due_at).toLocaleString('zh-CN', { hour12: false }) : '--'
+  if (member.column_values && Object.prototype.hasOwnProperty.call(member.column_values, key)) {
+    const value = member.column_values[key]
+    return String(value && typeof value === 'object' ? (value as { label?: unknown; status?: unknown }).label ?? (value as { status?: unknown }).status ?? '' : value ?? '')
+  }
   return displayValue(member[key as keyof MemberRow] as string | null)
 }
-function applyColumns(keys: string[]) { selectedColumnKeys.value = keys; emit('columns-change', keys) }
+async function applyColumns(keys: string[]) {
+  if (columnSaving.value || preferenceLoading.value || preferenceError.value) return
+  const normalized = normalizeColumnKeys(keys)
+  const scope = props.preferenceScope && { ...props.preferenceScope }
+  const scopeKey = preferenceScopeKey.value
+  const sequence = ++saveRequest
+  columnSaveError.value = ''
+  columnSaving.value = true
+  try {
+    const result = scope ? await savePerformanceColumnPreference(scope, normalized) : { column_keys: normalized }
+    if (sequence !== saveRequest || scopeKey !== preferenceScopeKey.value) return
+    usesDefaultColumns = false
+    selectedColumnKeys.value = normalizeColumnKeys(result.column_keys)
+    emit('columns-change', [...selectedColumnKeys.value])
+    columnDrawerOpen.value = false
+  } catch {
+    if (sequence === saveRequest && scopeKey === preferenceScopeKey.value) columnSaveError.value = '列设置保存失败，请重试'
+  } finally {
+    if (sequence === saveRequest && scopeKey === preferenceScopeKey.value) columnSaving.value = false
+  }
+}
+function openColumnDrawer() { columnSaveError.value = ''; columnDrawerOpen.value = true }
 
 const tableColumns = computed<PerformanceTableColumn[]>(() => visibleColumns.value.map(column => ({
   key: column.key,
   label: column.label,
-  sortable: true,
+  width: column.width != null && Number.isFinite(Number(column.width)) ? Number(column.width) : undefined,
+  sortable: sortableColumnKeys.value.has(column.key),
   fixed: column.key === 'name',
 })))
 
@@ -267,6 +333,7 @@ async function exportRows() {
 }
 
 function onSortChange({ key, order }: { key: string; order: PerformanceSortOrder }) {
+  if (order && !sortableColumnKeys.value.has(key)) return
   sortBy.value = order ? key : ''
   sortOrder.value = order
   page.value = 1
@@ -293,7 +360,23 @@ function onEvaluateRemind(member: MemberRow, pendingCount: number) {
   emit('remind-evaluate', { member, pendingCount })
 }
 
-watch([() => props.projectId, () => props.cycleId, () => props.reviewContext?.nodeId, () => props.reviewContext?.state, () => props.reviewContext?.phaseId], () => {
+watch([() => props.projectId, () => props.cycleId, () => props.reviewContext?.nodeId, () => Boolean(props.reviewContext), preferenceScopeKey], () => {
+  ++preferenceRequest
+  ++saveRequest
+  columnDrawerOpen.value = false
+  columnSaving.value = false
+  columnSaveError.value = ''
+  preferenceSchema.value = null
+  responseSchema.value = null
+  ratingColumns.value = null
+  fallbackProfileKeys.value = null
+  usesDefaultColumns = true
+  selectedColumnKeys.value = normalizeColumnKeys(defaultColumnKeys.value)
+  sortBy.value = ''
+  sortOrder.value = ''
+  void loadPreference()
+}, { immediate: true })
+watch([() => props.projectId, () => props.cycleId, () => props.reviewContext?.nodeId, () => props.reviewContext?.state, () => props.reviewContext?.phaseId, preferenceScopeKey], () => {
   page.value = 1
   selectedKeys.value = []
   selectedRows.value = {}
@@ -303,6 +386,7 @@ watch([() => props.projectId, () => props.cycleId, () => props.reviewContext?.no
 })
 
 onMounted(() => void loadMembers())
+onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
 </script>
 
 <template>
@@ -322,7 +406,9 @@ onMounted(() => void loadMembers())
         <PerformanceExportButton :load-rows="exportRows" :filename="`成员列表_${props.cycleId || props.projectId}`" :disabled="loading || Boolean(error) || !total" @success="exportNotice = '导出成功'" @error="exportNotice = '导出失败，请稍后重试'" />
       </template>
     </PerformanceListToolbar>
-    <PerformanceTableSummary :total="total" :hidden-column-count="hiddenColumnCount" @columns="columnDrawerOpen = true" />
+    <PerformanceTableSummary :total="total" :hidden-column-count="hiddenColumnCount" @columns="openColumnDrawer" />
+    <p v-if="preferenceLoading" role="status">正在加载列设置…</p>
+    <p v-else-if="preferenceError" role="alert">{{ preferenceError }} <UiButton variant="text" @click="loadPreference">重试</UiButton></p>
     <PerformanceManagementTable
       v-model:selected-keys="selectedKeys"
       :rows="displayRows"
@@ -372,7 +458,7 @@ onMounted(() => void loadMembers())
       </template>
     </PerformanceManagementTable>
     <p v-if="exportNotice" role="status">{{ exportNotice }}</p>
-    <ProjectMemberColumnDrawer v-model="columnDrawerOpen" :columns="availableColumns" :selected-keys="selectedColumnKeys" @confirm="applyColumns" />
+    <ProjectMemberColumnDrawer v-model="columnDrawerOpen" :columns="availableColumns" :selected-keys="selectedColumnKeys" :saving="columnSaving" :confirm-disabled="preferenceLoading || Boolean(preferenceError)" :error-message="columnSaveError || preferenceError" @confirm="applyColumns" />
   </section>
 </template>
 

@@ -42,6 +42,27 @@ afterEach(() => {
 })
 
 describe('PerformanceReviewer360Preview', () => {
+  it('keeps anonymous entries independent without real task IDs or identity popovers', async () => {
+    const reviewers = runtimeReviewers.map(({ task_id, reviewer, ...entry }, index) => ({ ...entry, display_key: `anonymous-${index}`, reviewer: { display_name: '匿名评估人' } }))
+    const wrapper = mountPreview({ reviewers, visibility: 'anonymous', detailMode: 'voluntary_only' })
+    expect(wrapper.text()).toContain('当前仅展示自愿评价内容')
+    expect(wrapper.findComponent(PerformanceEvaluateRatioPopover).exists()).toBe(false)
+    expect(wrapper.text()).not.toMatch(/评估人甲|评估人乙|E001|E002/)
+    const cards = wrapper.findAll('.r360-runtime-card')
+    await cards[0].get('.r360-card__toggle').trigger('click')
+    expect(cards[0].get('.r360-runtime-card__details').isVisible()).toBe(false)
+    expect(cards[1].get('.r360-runtime-card__details').isVisible()).toBe(true)
+    await wrapper.get('.r360-tools__btn--view').trigger('click')
+    await wrapper.findAll('.r360-view-menu__item')[1].trigger('click')
+    await wrapper.findAll('.r360-table__expand-btn')[1].trigger('click')
+    expect(wrapper.findAll('.r360-table__details')[1].text()).toContain('反馈乙')
+  })
+
+  it('distinguishes an anonymity threshold restriction from an ordinary empty result', () => {
+    const wrapper = mountPreview({ reviewers: [], visibility: 'hidden', detailMode: 'hidden' })
+    expect(wrapper.text()).toContain('已提交评价人数未达到匿名下限')
+    expect(wrapper.findComponent(PerformanceEvaluateRatioPopover).exists()).toBe(false)
+  })
   it('renders real relationship, leaf department and source under each name and in table view', async () => {
     const reviewers = runtimeReviewers.map((entry, index) => ({ ...entry, reviewer: { ...entry.reviewer, relationship: index ? '相同上级同事' : '直属上级', department: index ? '产品组' : '研发末级组', source_label: index ? '自己邀请' : '自愿评估' } }))
     const wrapper = mountPreview({ reviewers, evaluateRatio: { completion: '2/2', evaluated: reviewers.map(entry => ({ name: entry.reviewer.display_name, dimission: false })), pending: [], dimission_count: 0, invite_stage: 'ended' } })

@@ -1504,7 +1504,9 @@ class PerformanceProjectService:
         before = self.serialize(project)
         from app.performance.comparison_config_service import PerformanceComparisonConfigService
         comparison_snapshot = await PerformanceComparisonConfigService(self.db).snapshot(cycle, template_id)
+        from app.performance.reviewer_360_policy_service import anonymous_360_snapshot
         project.settings = {**(project.settings or {}), "comparison_rules_snapshot": comparison_snapshot,
+                            "anonymous_360_snapshot": anonymous_360_snapshot(cycle),
                             "reviewer_360_default_on_submit": any(node.get("node_type") in {"reviewer_360_invite", "reviewer_360_confirm"} for node in nodes)}
         member_snapshot = PerformanceProjectMemberSnapshot(
             project_id=project.id,
@@ -1762,6 +1764,7 @@ class PerformanceProjectService:
         cycle_ref = target_cycle_ref if target_cycle_ref is not None else project.cycle_ref
         source_settings = deepcopy(project.settings or {})
         source_settings.pop("comparison_rules_snapshot", None)
+        source_settings.pop("anonymous_360_snapshot", None)
         values = {
             **source_settings,
             "name": f"{project.name}（副本）"[:128],

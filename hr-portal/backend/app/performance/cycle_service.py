@@ -42,6 +42,7 @@ from app.performance.models import (
     PerformanceTemplateWorkflow,
     PROJECT_STATUS_STARTED,
 )
+from app.performance.reviewer_360_policy_service import Anonymous360Config, InvitationOutOfRangeTipsConfig, validate_cycle_360_configs
 from app.performance.snapshot_service import PerformanceAuthorizationSnapshotService, RosterAuthorizationInput
 from app.performance.comparison_config_service import PerformanceComparisonConfigService, started_project_condition
 
@@ -385,6 +386,8 @@ class PerformanceCycleService:
             leaver_end_date=payload.get("leaver_end_date"),
             leaver_participation_mode=payload["leaver_participation_mode"],
             allow_delete_360=payload.get("allow_delete_360", False),
+            anonymous_360_config=payload.get("anonymous_360_config", Anonymous360Config().model_dump()),
+            invitation_out_of_range_tips_config=payload.get("invitation_out_of_range_tips_config", InvitationOutOfRangeTipsConfig().model_dump()),
             overdue_submission_enabled=payload.get("overdue_submission_enabled", True),
             overdue_submission_scope=payload.get("overdue_submission_scope", "EVALUATION"),
             status=CYCLE_STATUS_DRAFT,
@@ -409,6 +412,10 @@ class PerformanceCycleService:
         if forbidden:
             raise CycleValidationError("周期创建后不支持修改锁定规则")
         cycle = (await self.db.execute(select(PerformanceCycle).where(PerformanceCycle.id == cycle.id).with_for_update().execution_options(populate_existing=True))).scalar_one()
+        try:
+            validate_cycle_360_configs(payload, payload.get("language") or getattr(cycle, "language", "zh-CN"))
+        except ValueError as exc:
+            raise CycleValidationError(str(exc)) from exc
         overdue_changed = any(field in payload and payload[field] != getattr(cycle, field) for field in ("overdue_submission_enabled", "overdue_submission_scope"))
         if overdue_changed:
             setting = await self.db.get(PerformanceOtherSetting, 1)
@@ -420,7 +427,7 @@ class PerformanceCycleService:
         changed_leaver_fields = any(field in payload and payload[field] != getattr(cycle, field) for field in ("leaver_enabled", "leaver_start_date", "leaver_end_date"))
         if changed_leaver_fields and datetime.now(UTC) >= normalize_cycle_datetime(cycle.start_at):
             raise CycleValidationError("绩效环节已开始，不能修改离职人员参评范围")
-        for field in ("name", "language", "period_year", "period_type", "period_subtype", "template_id", "template_ids", "start_at", "end_at", "leaver_enabled", "leaver_start_date", "leaver_end_date", "leaver_participation_mode", "allow_delete_360", "overdue_submission_enabled", "overdue_submission_scope"):
+        for field in ("name", "language", "period_year", "period_type", "period_subtype", "template_id", "template_ids", "start_at", "end_at", "leaver_enabled", "leaver_start_date", "leaver_end_date", "leaver_participation_mode", "allow_delete_360", "anonymous_360_config", "invitation_out_of_range_tips_config", "overdue_submission_enabled", "overdue_submission_scope"):
             if field in payload:
                 setattr(cycle, field, payload[field].strip() if field == "name" else payload[field])
         self._validate_cycle(cycle)
@@ -838,7 +845,7 @@ class PerformanceCycleService:
 
     @staticmethod
     def serialize(cycle: PerformanceCycle) -> dict[str, Any]:
-        return {"semester_diff_rules": getattr(cycle, "semester_diff_rules", None) or [], "comparison_rules_revision": getattr(cycle, "comparison_rules_revision", 0) or 0, "comparison_rules_editable": getattr(cycle, "_comparison_rules_editable", True), "comparison_rules_editable_reason": None if getattr(cycle, "_comparison_rules_editable", True) else "已有启动项目，暂不支持修改", "id": cycle.id, "cycle_ref": cycle.cycle_ref, "name": cycle.name, "language": cycle.language, "period_year": cycle.period_year, "period_type": cycle.period_type, "period_subtype": getattr(cycle, "period_subtype", None), "template_id": getattr(cycle, "template_id", None), "template_ids": PerformanceCycleService.template_ids(cycle), "start_at": cycle.start_at.isoformat(), "end_at": cycle.end_at.isoformat(), "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at.isoformat() if cycle.lock_at else None, "pre_lock_sync_mode": cycle.pre_lock_sync_mode, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date.isoformat() if cycle.leaver_start_date else None, "leaver_end_date": cycle.leaver_end_date.isoformat() if cycle.leaver_end_date else None, "leaver_participation_mode": cycle.leaver_participation_mode, "allow_delete_360": bool(getattr(cycle, "allow_delete_360", False)), "overdue_submission_enabled": getattr(cycle, "overdue_submission_enabled", True), "overdue_submission_scope": getattr(cycle, "overdue_submission_scope", "EVALUATION"), "status": cycle.status}
+        return {"semester_diff_rules": getattr(cycle, "semester_diff_rules", None) or [], "comparison_rules_revision": getattr(cycle, "comparison_rules_revision", 0) or 0, "comparison_rules_editable": getattr(cycle, "_comparison_rules_editable", True), "comparison_rules_editable_reason": None if getattr(cycle, "_comparison_rules_editable", True) else "已有启动项目，暂不支持修改", "id": cycle.id, "cycle_ref": cycle.cycle_ref, "name": cycle.name, "language": cycle.language, "period_year": cycle.period_year, "period_type": cycle.period_type, "period_subtype": getattr(cycle, "period_subtype", None), "template_id": getattr(cycle, "template_id", None), "template_ids": PerformanceCycleService.template_ids(cycle), "start_at": cycle.start_at.isoformat(), "end_at": cycle.end_at.isoformat(), "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at.isoformat() if cycle.lock_at else None, "pre_lock_sync_mode": cycle.pre_lock_sync_mode, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date.isoformat() if cycle.leaver_start_date else None, "leaver_end_date": cycle.leaver_end_date.isoformat() if cycle.leaver_end_date else None, "leaver_participation_mode": cycle.leaver_participation_mode, "allow_delete_360": bool(getattr(cycle, "allow_delete_360", False)), "anonymous_360_config": getattr(cycle, "anonymous_360_config", None) or Anonymous360Config().model_dump(), "invitation_out_of_range_tips_config": getattr(cycle, "invitation_out_of_range_tips_config", None) or InvitationOutOfRangeTipsConfig().model_dump(), "overdue_submission_enabled": getattr(cycle, "overdue_submission_enabled", True), "overdue_submission_scope": getattr(cycle, "overdue_submission_scope", "EVALUATION"), "status": cycle.status}
 
     @staticmethod
     def _validate_payload(payload: dict[str, Any], *, validate_lock_lead_time=True) -> None:
@@ -858,6 +865,10 @@ class PerformanceCycleService:
     @staticmethod
     def _normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
         normalized = dict(payload)
+        try:
+            validate_cycle_360_configs(normalized, normalized.get("language") or "zh-CN")
+        except ValueError as exc:
+            raise CycleValidationError(str(exc)) from exc
         if normalized.get("template_ids") is not None:
             ids = list(dict.fromkeys(normalized["template_ids"]))
             if normalized.get("template_id") is not None and normalized["template_id"] != (ids[0] if ids else None):

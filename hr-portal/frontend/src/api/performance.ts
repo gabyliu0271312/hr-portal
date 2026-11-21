@@ -167,6 +167,7 @@ export interface PerformanceTaskRatingValue {
 }
 
 export interface PerformanceWorkbenchTaskPerson extends PerformanceMemberProfile {
+  column_values?: Record<string, unknown>
   can_remind?: boolean
   rating_columns?: Array<{ key: string; label: string }>
   ratings?: Record<string, PerformanceTaskRatingValue | null>
@@ -188,7 +189,7 @@ export interface PerformanceWorkbenchTaskPerson extends PerformanceMemberProfile
   visible_profile_fields?: string[]
 }
 
-export interface PerformanceWorkbenchTaskPeoplePage {
+export interface PerformanceWorkbenchTaskPeoplePage extends Partial<PerformanceMemberColumnSchema> {
   items: PerformanceWorkbenchTaskPerson[]
   total: number
   rating_columns: Array<{ key: string; label: string }>
@@ -491,6 +492,7 @@ export interface PerformanceReview360FeedbackItem {
 }
 
 export interface PerformanceReview360FeedbackList {
+  invitation_tip?: { count: number; threshold: number; text: string } | null
   items: PerformanceReview360FeedbackItem[]
   total: number
   node_id: string | null
@@ -1089,6 +1091,7 @@ export interface PerformanceEvaluateRatio {
 }
 
 export interface ProjectMember extends PerformanceMemberProfile {
+  column_values?: Record<string, unknown>
   can_remind?: boolean
   root_review_id?: number
   project_id?: number
@@ -1108,7 +1111,33 @@ export interface ProjectMember extends PerformanceMemberProfile {
   evaluate_ratio?: PerformanceEvaluateRatio | null
 }
 
-export interface ProjectMemberPage {
+export interface PerformanceMemberColumnSchema {
+  columns: Array<{ key: string; label: string; width?: number | string; locked?: boolean; visible_by_default?: boolean; sortable?: boolean }>
+  allowed_column_keys: string[]
+  default_column_keys: string[]
+  locked_column_keys: string[]
+  sort_keys: string[]
+}
+
+export interface PerformanceColumnPreferenceScope {
+  cycle_ref: number | string
+  scene: 'management' | 'evaluation'
+  project_id?: number
+  node_id?: string
+  role_key?: string
+}
+
+export async function fetchPerformanceColumnPreference(query: PerformanceColumnPreferenceScope): Promise<PerformanceMemberColumnSchema & { column_keys: string[] | null }> {
+  const { data } = await api.get('/performance/column-preferences', { params: query })
+  return data
+}
+
+export async function savePerformanceColumnPreference(query: PerformanceColumnPreferenceScope, keys: string[]): Promise<PerformanceMemberColumnSchema & { column_keys: string[] }> {
+  const { data } = await api.put('/performance/column-preferences', { column_keys: keys }, { params: query })
+  return data
+}
+
+export interface ProjectMemberPage extends Partial<PerformanceMemberColumnSchema> {
   rating_columns?: Array<{ key: string; label: string }>
   items: ProjectMember[]
   total: number
@@ -1587,19 +1616,23 @@ export type PerformanceReferenceTab = {
   answers: Record<string, unknown>
   can_remind: boolean
   reconsideration?: PerformanceReconsiderationDetail | null
-  reviewers?: Array<{ task_id: number; reviewer: { employee_no: string; display_name: string; relationship?: string; department?: string; source_label?: string }; form_schema: PerformanceTemplateSection[]; answers: Record<string, unknown> }>
+  visibility?: 'named' | 'anonymous' | 'hidden'
+  detail_mode?: 'all' | 'voluntary_only' | 'hidden'
+  reviewers?: Array<{ task_id?: number; display_key?: string; reviewer: { employee_no?: string; display_name: string; relationship?: string; department?: string; source_label?: string }; form_schema: PerformanceTemplateSection[]; answers: Record<string, unknown> }>
   expected_count?: number
   evaluate_ratio?: PerformanceEvaluateRatio | null
   /** kind='okr' 时下发的被评估人 OKR（无数据/未启用数据源为 null） */
   okr?: PerformanceOkrView | null
   okrs?: PerformanceOkrView[]
 }
-export type PerformanceResultContent = { task_id: number; form_schema: SelfSummarySection[]; answers: Record<string, unknown>; reviewer?: { employee_no: string; display_name: string } }
+export type PerformanceResultContent = { task_id?: number; display_key?: string; form_schema: SelfSummarySection[]; answers: Record<string, unknown>; reviewer?: { employee_no?: string; display_name: string } }
 export type PerformanceResultRegion = {
   key: string
   kind: 'result' | 'reference'
   title: string
   contents: PerformanceResultContent[]
+  visibility?: 'named' | 'anonymous' | 'hidden'
+  detail_mode?: 'all' | 'voluntary_only' | 'hidden'
   reference_kind?: 'node' | 'okr' | 'reviewer_360'
   status?: string
   okr?: PerformanceOkrView | null
@@ -2191,6 +2224,7 @@ export interface PerformanceWorkflowNode {
   executor_types: string[]
   executor_label: string
   executor_role_code?: string | null
+  node_role_code?: string | null
   evaluation_type: 'SINGLE' | 'MULTI' | null
   include_final_result: boolean
   system: boolean
@@ -2687,7 +2721,22 @@ export interface PerformanceComparisonSubmission {
   comparison_reasons?: PerformanceComparisonReason[]
 }
 
+export interface PerformanceAnonymous360Config {
+  enable: boolean
+  anonymous_object: '' | 'all' | 'reviewee'
+  anonymous_low_limit: number
+  reviewer_tag_visibility_mode: 'visibleOverLowLimit' | 'notVisible'
+}
+
+export interface PerformanceInvitationOutOfRangeTipsConfig {
+  enable: boolean
+  range_count: number
+  tips: Partial<Record<'zh-CN' | 'en-US', string>>
+}
+
 export interface PerformanceCycle {
+  anonymous_360_config?: PerformanceAnonymous360Config | null
+  invitation_out_of_range_tips_config?: PerformanceInvitationOutOfRangeTipsConfig | null
   semester_diff_rules?: PerformanceComparisonRule[]
   comparison_rules_revision?: number
   comparison_rules_editable?: boolean

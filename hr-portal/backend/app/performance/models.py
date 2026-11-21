@@ -740,6 +740,8 @@ class PerformanceCycle(Base):
     leaver_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     leaver_participation_mode: Mapped[str] = mapped_column(String(16), nullable=False, default=CYCLE_LEAVER_MODE_CREATE_TASK)
     allow_delete_360: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    anonymous_360_config: Mapped[dict] = mapped_column(JSONB, nullable=False, default=lambda: {"enable": False, "anonymous_object": "", "anonymous_low_limit": 0, "reviewer_tag_visibility_mode": "visibleOverLowLimit"}, server_default='{"enable": false, "anonymous_object": "", "anonymous_low_limit": 0, "reviewer_tag_visibility_mode": "visibleOverLowLimit"}')
+    invitation_out_of_range_tips_config: Mapped[dict] = mapped_column(JSONB, nullable=False, default=lambda: {"enable": False, "range_count": 0, "tips": {"zh-CN": "", "en-US": ""}}, server_default='{"enable": false, "range_count": 0, "tips": {"zh-CN": "", "en-US": ""}}')
     overdue_submission_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     overdue_submission_scope: Mapped[str] = mapped_column(String(16), nullable=False, default="EVALUATION", server_default="EVALUATION")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=CYCLE_STATUS_DRAFT)

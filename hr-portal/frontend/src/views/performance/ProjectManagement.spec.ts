@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 enableAutoUnmount(afterEach)
 import { defineComponent, reactive } from 'vue'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
-import { performanceApi, performanceNavigationApi, projectManagementApi, type PerformanceNavigationContext, type ProjectManagementOverview } from '@/api/performance'
+import { performanceApi, performanceNavigationApi, projectManagementApi, fetchPerformanceColumnPreference, savePerformanceColumnPreference, type PerformanceNavigationContext, type ProjectManagementOverview } from '@/api/performance'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 
 const { routeQuery } = vi.hoisted(() => ({ routeQuery: {} as Record<string, string> }))
@@ -17,7 +17,7 @@ vi.mock('vue-router', () => ({
 
 vi.mock('@/api/performance', async () => {
   const actual = await vi.importActual<typeof import('@/api/performance')>('@/api/performance')
-  return { ...actual, projectManagementApi: { ...actual.projectManagementApi, overview: vi.fn(), timeline: vi.fn(), managementMatrix: vi.fn(), members: vi.fn(), exportMembers: vi.fn(), matrix: vi.fn(), memberDetail: vi.fn(), cycleMembers: vi.fn(), cycleExportMembers: vi.fn() } }
+  return { ...actual, fetchPerformanceColumnPreference: vi.fn().mockResolvedValue({ column_keys: null }), savePerformanceColumnPreference: vi.fn().mockImplementation(async (_scope, column_keys) => ({ column_keys })), projectManagementApi: { ...actual.projectManagementApi, overview: vi.fn(), timeline: vi.fn(), managementMatrix: vi.fn(), members: vi.fn(), exportMembers: vi.fn(), matrix: vi.fn(), memberDetail: vi.fn(), cycleMembers: vi.fn(), cycleExportMembers: vi.fn() } }
 })
 
 import ProjectManagement from './ProjectManagement.vue'
@@ -126,6 +126,37 @@ describe('ProjectManagement', () => {
       if (typeof target !== 'object' || !target.query) return
       route.query = reactive(Object.fromEntries(Object.entries(target.query).filter(([, value]) => value != null)) as Record<string, string>)
     })
+  })
+
+  it('saves ordered columns, preserves failed drafts and restores scoped preferences on reopen', async () => {
+    const schema = {
+      columns: [{ key: 'name', label: '姓名', locked: true }, { key: 'department', label: '部门' }, { key: 'stage:feedback', label: '360状态' }],
+      allowed_column_keys: ['name', 'department', 'stage:feedback'], default_column_keys: ['name', 'department'], locked_column_keys: ['name'], sort_keys: ['name'],
+    }
+    vi.mocked(fetchPerformanceColumnPreference).mockResolvedValueOnce({ ...schema, column_keys: ['name', 'stage:feedback', 'department'] })
+    vi.mocked(savePerformanceColumnPreference).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ ...schema, column_keys: ['name', 'department'] })
+    const props = { projectId: 3, preferenceScope: { cycle_ref: 1, scene: 'management' as const, project_id: 3 }, provider: vi.fn().mockResolvedValue({ ...schema, items: [], total: 0 }) }
+    const wrapper = mount(ProjectMemberListPanel, { props, global: { plugins: [pinia] } })
+    await flushPromises()
+    const headers = () => wrapper.getComponent({ name: 'PerformanceManagementTable' }).props('columns').map((column: { key: string }) => column.key)
+    expect(headers()).toEqual(['name', 'stage:feedback', 'department'])
+    await wrapper.get('.performance-table-summary__columns').trigger('click')
+    wrapper.getComponent({ name: 'ProjectMemberColumnDrawer' }).vm.$emit('confirm', ['name', 'department'])
+    await flushPromises()
+    expect(headers()).toEqual(['name', 'stage:feedback', 'department'])
+    expect(wrapper.getComponent({ name: 'ProjectMemberColumnDrawer' }).props('modelValue')).toBe(true)
+    expect(wrapper.getComponent({ name: 'ProjectMemberColumnDrawer' }).props('errorMessage')).toContain('保存失败')
+    wrapper.getComponent({ name: 'ProjectMemberColumnDrawer' }).vm.$emit('confirm', ['name', 'department'])
+    await flushPromises()
+    expect(headers()).toEqual(['name', 'department'])
+    expect(wrapper.getComponent({ name: 'ProjectMemberColumnDrawer' }).props('modelValue')).toBe(false)
+    expect(savePerformanceColumnPreference).toHaveBeenLastCalledWith(props.preferenceScope, ['name', 'department'])
+    wrapper.unmount()
+    vi.mocked(fetchPerformanceColumnPreference).mockResolvedValueOnce({ ...schema, column_keys: ['name', 'department'] })
+    const reopened = mount(ProjectMemberListPanel, { props, global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(reopened.getComponent({ name: 'PerformanceManagementTable' }).props('columns').map((column: { key: string }) => column.key)).toEqual(['name', 'department'])
+    reopened.unmount()
   })
 
   it('keeps member 360 reminders separate from the result-opening overlay and scopes detail reminders', async () => {

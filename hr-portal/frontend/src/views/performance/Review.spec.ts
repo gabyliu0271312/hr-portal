@@ -596,6 +596,41 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it('renders the server invitation_tip with the shared notice and removes it when the next context has no tip', async () => {
+    vi.spyOn(performanceReview360FeedbackApi, 'list').mockResolvedValueOnce({ items: [], total: 0, node_id: 'feedback', allow_voluntary_evaluation: false, invitation_tip: { count: 6, threshold: 5, text: '<b>请合理安排评估时间</b>' } })
+    const wrapper = mount(PerformanceReview360FeedbackPanel, { props: { projectId: 1, nodeId: 'feedback' }, global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(wrapper.get('.feedback-invitation-tip.prompt-notice').text()).toBe('<b>请合理安排评估时间</b>')
+    expect(wrapper.find('.feedback-invitation-tip b').exists()).toBe(false)
+    vi.mocked(performanceReview360FeedbackApi.list).mockResolvedValueOnce({ items: [], total: 0, node_id: 'next', allow_voluntary_evaluation: false, invitation_tip: null })
+    await wrapper.setProps({ nodeId: 'next' })
+    await flushPromises()
+    expect(wrapper.find('.feedback-invitation-tip').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('deduplicates invitation_tip text across aggregated feedback sources', async () => {
+    vi.spyOn(performanceReview360FeedbackApi, 'list').mockResolvedValue({ items: [], total: 0, node_id: 'feedback', allow_voluntary_evaluation: false, invitation_tip: { count: 6, threshold: 5, text: '收到较多邀请' } })
+    const sources = [{ project_id: 1, node_id: 'first', project_name: '甲', node_name: '360' }, { project_id: 2, node_id: 'second', project_name: '乙', node_name: '360' }]
+    const wrapper = mount(PerformanceReview360FeedbackPanel, { props: { projectId: 1, nodeId: 'first', sources }, global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(wrapper.findAll('.feedback-invitation-tip').map(item => item.text())).toEqual(['收到较多邀请'])
+    wrapper.unmount()
+  })
+
+  it('ignores invitation_tip from a stale feedback request', async () => {
+    let resolveFirst!: (value: any) => void
+    vi.spyOn(performanceReview360FeedbackApi, 'list').mockReturnValueOnce(new Promise(resolve => { resolveFirst = resolve }))
+    const wrapper = mount(PerformanceReview360FeedbackPanel, { props: { projectId: 1, nodeId: 'first' }, global: { plugins: [pinia] } })
+    vi.mocked(performanceReview360FeedbackApi.list).mockResolvedValueOnce({ items: [], total: 0, node_id: 'second', allow_voluntary_evaluation: false, invitation_tip: null })
+    await wrapper.setProps({ nodeId: 'second' })
+    await flushPromises()
+    resolveFirst({ items: [], total: 0, allow_voluntary_evaluation: false, invitation_tip: { count: 9, threshold: 5, text: '旧环节提示' } })
+    await flushPromises()
+    expect(wrapper.find('.feedback-invitation-tip').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('does not reload a member list when its parent recreates identical context props', async () => {
     const wrapper = mount(ProjectMemberListPanel, { props: { projectId: 29, reviewContext: { nodeId: 'manager', state: 'all' } } })
     await flushPromises()

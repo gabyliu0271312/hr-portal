@@ -22,6 +22,7 @@
       :node="selectedNode"
       :feedback-sources="selectedNode && isReviewer360Node(selectedNode) ? reviewer360Sources : undefined"
       :project-id="activeProjectId"
+      :member-preference-scope="activeProjectId && projectContext.activeCycleId && selectedNodeId ? { cycle_ref: projectContext.activeCycleId, scene: 'evaluation', project_id: activeProjectId, node_id: selectedNodeId } : undefined"
       :result-unavailable="resultUnavailable"
       :content-title="selectedNode?.node_type === 'result_view' ? resultPageTitle : undefined"
       @retry="loadOverview(activeProjectId)"
@@ -38,7 +39,7 @@
           <div v-if="!hasResultContent">暂无可查看的绩效结果</div>
           <section v-for="region in visibleResultRegions" :key="region.key" class="result-region" :data-region-id="region.key" :aria-label="region.title">
             <h3 v-if="region.kind === 'reference' && region.reference_kind !== 'reviewer_360'">{{ region.title }}</h3>
-            <PerformanceResultReviewer360Block v-if="region.reference_kind === 'reviewer_360'" :title="region.title" :contents="region.contents" />
+            <PerformanceResultReviewer360Block v-if="region.reference_kind === 'reviewer_360'" :title="region.title" :contents="region.contents" :visibility="region.visibility" :detail-mode="region.detail_mode" />
             <PerformanceOkrPanel v-else-if="region.reference_kind === 'okr'" :okr="region.okr || null" :okrs="region.okrs || []" />
             <template v-else>
               <PerformanceTemplateRenderer v-for="content in region.contents" :key="content.task_id" mode="readonly" :sections="content.form_schema" :answers="content.answers" />
@@ -115,8 +116,8 @@ const loading = ref(true)
 const error = ref('')
 const resultRegions = ref<PerformanceResultRegion[]>([])
 const resultPageTitle = ref('')
-const visibleResultRegions = computed(() => resultRegions.value.filter(region => region.reference_kind !== 'reviewer_360' || region.contents.some(hasVisibleReviewer360Content)))
-const hasResultContent = computed(() => visibleResultRegions.value.some(region => region.reference_kind === 'okr' || region.contents.some(content => content.form_schema.length > 0)))
+const visibleResultRegions = computed(() => resultRegions.value.filter(region => region.reference_kind !== 'reviewer_360' || region.visibility === 'hidden' || region.contents.some(hasVisibleReviewer360Content)))
+const hasResultContent = computed(() => visibleResultRegions.value.some(region => region.reference_kind === 'okr' || region.visibility === 'hidden' || region.contents.some(content => content.form_schema.length > 0)))
 const resultLoading = ref(false)
 const resultError = ref('')
 const resultUnavailable = ref(false)

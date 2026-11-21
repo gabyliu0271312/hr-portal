@@ -1,20 +1,21 @@
 <template>
-  <section v-if="visibleContents.length" class="pr360-block" :aria-label="title">
+  <section v-if="visibleContents.length || visibility === 'hidden'" class="pr360-block" :aria-label="title">
     <div class="pr360-head">
       <h3 class="pr360-title">{{ title }}</h3>
       <UiButton v-if="visibleContents.length" variant="text" size="small" class="pr360-toggle" :aria-expanded="allExpanded" @click="toggleAll">
         {{ allExpanded ? '收起详情' : '展开详情' }}
       </UiButton>
     </div>
-    <div v-for="content in visibleContents" :key="content.task_id" class="pr360-reviewer">
+    <PerformancePromptNotice v-if="visibility === 'hidden' || detailMode === 'voluntary_only'" type="warning" multiline>{{ visibility === 'hidden' ? '已提交评价人数未达到匿名下限，暂不可查看评价详情。' : '已提交评价人数未达到匿名下限，当前仅展示自愿评价内容。' }}</PerformancePromptNotice>
+    <div v-for="content in visibleContents" :key="contentKey(content)" class="pr360-reviewer">
       <div class="pr360-comment">
-        <button type="button" class="pr360-comment__toggle" :aria-expanded="isExpanded(content.task_id)" :aria-label="`${isExpanded(content.task_id) ? '收起' : '展开'}${reviewerName(content)}的反馈`" @click="toggleReviewer(content.task_id)">
-          <svg v-if="isExpanded(content.task_id)" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M11.22 18.46a1 1 0 0 0 1.56 0l8.305-10.334a1 1 0 0 0-.78-1.626H3.696a1 1 0 0 0-.78 1.626L11.22 18.46Z" fill="currentColor"/></svg>
+        <button type="button" class="pr360-comment__toggle" :aria-expanded="isExpanded(contentKey(content))" :aria-label="`${isExpanded(contentKey(content)) ? '收起' : '展开'}${reviewerName(content)}的反馈`" @click="toggleReviewer(contentKey(content))">
+          <svg v-if="isExpanded(contentKey(content))" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M11.22 18.46a1 1 0 0 0 1.56 0l8.305-10.334a1 1 0 0 0-.78-1.626H3.696a1 1 0 0 0-.78 1.626L11.22 18.46Z" fill="currentColor"/></svg>
           <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M18.627 11.22a1 1 0 0 1 0 1.56L8.291 21.084a1 1 0 0 1-1.626-.78V3.696a1 1 0 0 1 1.626-.78l10.335 8.305Z" fill="currentColor"/></svg>
         </button>
         <PerformanceMemberIdentity :display-name="reviewerName(content)" size="sm" />
       </div>
-      <div v-if="isExpanded(content.task_id)" class="pr360-items">
+      <div v-if="isExpanded(contentKey(content))" class="pr360-items">
         <div v-for="section in content.form_schema" :key="section.id" class="pr360-section">
           <div v-if="(!section.hide_name && section.name) || section.description" class="pr360-section__header">
             <div v-if="!section.hide_name && section.name" class="pr360-section__title">{{ section.name }}</div>
@@ -63,19 +64,23 @@ import { computed, ref, watch } from 'vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
+import PerformancePromptNotice from './PerformancePromptNotice.vue'
 
 const props = withDefaults(defineProps<{
   title?: string
   contents?: PerformanceResultContent[]
+  visibility?: 'named' | 'anonymous' | 'hidden'
+  detailMode?: 'all' | 'voluntary_only' | 'hidden'
 }>(), { title: '360°反馈（自愿评估）', contents: () => [] })
 
-const expandedIds = ref<number[]>([])
+const expandedIds = ref<string[]>([])
 const visibleContents = computed(() => props.contents.filter(hasVisibleReviewer360Content))
-const allExpanded = computed(() => visibleContents.value.length > 0 && visibleContents.value.every(content => isExpanded(content.task_id)))
+const allExpanded = computed(() => visibleContents.value.length > 0 && visibleContents.value.every(content => isExpanded(contentKey(content))))
+function contentKey(content: PerformanceResultContent) { return content.display_key || String(content.task_id) }
 function reviewerName(content: PerformanceResultContent) { return content.reviewer?.display_name || content.reviewer?.employee_no || '评估人' }
-function isExpanded(id: number) { return expandedIds.value.includes(id) }
-function toggleReviewer(id: number) { expandedIds.value = isExpanded(id) ? expandedIds.value.filter(value => value !== id) : [...expandedIds.value, id] }
-function toggleAll() { expandedIds.value = allExpanded.value ? [] : visibleContents.value.map(content => content.task_id) }
+function isExpanded(id: string) { return expandedIds.value.includes(id) }
+function toggleReviewer(id: string) { expandedIds.value = isExpanded(id) ? expandedIds.value.filter(value => value !== id) : [...expandedIds.value, id] }
+function toggleAll() { expandedIds.value = allExpanded.value ? [] : visibleContents.value.map(content => contentKey(content)) }
 watch(() => props.contents, () => { expandedIds.value = [] })
 </script>
 

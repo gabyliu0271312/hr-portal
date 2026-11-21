@@ -8,6 +8,14 @@ const contents = [
 ]
 
 describe('PerformanceResultReviewer360Block', () => {
+  it('explains a threshold restriction without rendering any reviewer or answer', () => {
+    const wrapper = mount(PerformanceResultReviewer360Block, { props: { contents: [], visibility: 'hidden', detailMode: 'hidden' } })
+    expect(wrapper.text()).toContain('已提交评价人数未达到匿名下限')
+    expect(wrapper.find('.pr360-reviewer').exists()).toBe(false)
+    expect(wrapper.find('.pr360-toggle').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('renders each reviewer collapsed with shared identity and no placeholder', () => {
     const wrapper = mount(PerformanceResultReviewer360Block, { props: { contents } })
     expect(wrapper.findAll('.pr360-reviewer')).toHaveLength(2)

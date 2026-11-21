@@ -26,6 +26,7 @@ from app.performance.auth_context import (
     resolve_trusted_performance_actor,
 )
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
+from app.performance.reviewer_360_policy_service import reviewer_360_invitation_tip
 from app.performance.member_identity_service import hydrate_member_identities
 from app.performance.models import (
     DYNAMIC_ASSIGNMENT_ACTOR_TYPE_EMPLOYEE,
@@ -70,7 +71,14 @@ class FeedbackItemOut(BaseModel):
     identity_status: dict | None = None
 
 
+class InvitationTipOut(BaseModel):
+    count: int
+    threshold: int
+    text: str
+
+
 class FeedbackListOut(BaseModel):
+    invitation_tip: InvitationTipOut | None = None
     items: list[FeedbackItemOut]
     total: int
     node_id: str | None = None
@@ -301,6 +309,7 @@ async def list_feedback(
     await hydrate_member_identities(db, [(item, project.id, member_snapshot_id) for item in items], context=context,
                                     verified_view_keys={(project.id, member_snapshot_id, item.employee_no) for item in items})
     return FeedbackListOut(
+        invitation_tip=await reviewer_360_invitation_tip(db, project, actor_ref),
         items=items,
         total=len(items),
         node_id=node.node_id if node else None,
@@ -457,6 +466,10 @@ async def giveup_voluntary_evaluation(
         raise HTTPException(status_code=409, detail="REVIEWER_360_NODE_MISMATCH")
     node_id = payload.node_id if payload.node_id is not None else node_id
     project = await _get_project(db, project_id)
+    if isinstance(project, PerformanceProject):
+        from app.performance.models import PerformanceCycle
+        await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref).with_for_update().execution_options(populate_existing=True))
+        await db.refresh(project, with_for_update=True)
     await _locked_snapshot(db, project)
     actor_ref = await _resolve_cycle_member_employee(db, context, project)
     nodes = await _project_nodes(db, project.id)
@@ -471,7 +484,7 @@ async def giveup_voluntary_evaluation(
             PerformanceNodeTask.task_kind == "evaluation",
             PerformanceNodeTask.handler_ref == actor_ref,
             PerformanceNodeTask.revoked_at.is_(None),
-        )
+        ).with_for_update().execution_options(populate_existing=True)
     )
     if task is None:
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")

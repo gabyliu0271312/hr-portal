@@ -22,6 +22,7 @@ from app.performance.cycles_router import router as performance_cycles_router
 from app.performance.focus_groups_router import router as performance_focus_groups_router
 from app.performance.focus_group_members_router import router as performance_focus_group_members_router
 from app.performance.projects_router import router as performance_projects_router
+from app.performance.column_preferences_router import router as performance_column_preferences_router
 from app.performance.okr_router import router as performance_okr_router
 from app.performance.review_360_invites_router import router as review_360_invites_router
 from app.performance.review_360_feedback_router import router as review_360_feedback_router
@@ -238,6 +239,7 @@ app.include_router(performance_cycles_router, prefix=settings.API_PREFIX)
 app.include_router(performance_focus_groups_router, prefix=settings.API_PREFIX)
 app.include_router(performance_focus_group_members_router, prefix=settings.API_PREFIX)
 app.include_router(performance_projects_router, prefix=settings.API_PREFIX)
+app.include_router(performance_column_preferences_router, prefix=settings.API_PREFIX)
 app.include_router(performance_okr_router, prefix=settings.API_PREFIX)
 app.include_router(review_360_invites_router, prefix=settings.API_PREFIX)
 app.include_router(review_360_feedback_router, prefix=settings.API_PREFIX)

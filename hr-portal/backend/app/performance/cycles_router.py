@@ -18,6 +18,7 @@ from app.performance.cycle_service import (
     PerformanceCycleService,
     normalize_cycle_datetime,
 )
+from app.performance.reviewer_360_policy_service import Anonymous360Config, InvitationOutOfRangeTipsConfig, validate_cycle_360_configs
 from app.performance.scope_options import build_organization_tree
 from app.performance.comparison_schema import ComparisonCandidatesPayload, ComparisonRule
 from app.performance.comparison_config_service import PerformanceComparisonConfigService
@@ -70,11 +71,14 @@ class CyclePayload(BaseModel):
     leaver_end_date: date | None = None
     leaver_participation_mode: Literal["CREATE_TASK", "REPORT_ONLY"] = "CREATE_TASK"
     allow_delete_360: bool = False
+    anonymous_360_config: Anonymous360Config = Field(default_factory=Anonymous360Config)
+    invitation_out_of_range_tips_config: InvitationOutOfRangeTipsConfig = Field(default_factory=InvitationOutOfRangeTipsConfig)
     overdue_submission_enabled: bool = True
     overdue_submission_scope: Literal["EVALUATION", "ALL"] = "EVALUATION"
 
     @model_validator(mode="after")
     def validate_dates(self):
+        validate_cycle_360_configs(self.model_dump(), self.language)
         start_at = normalize_cycle_datetime(self.start_at)
         end_at = normalize_cycle_datetime(self.end_at)
         if end_at <= start_at:
@@ -106,8 +110,15 @@ class CyclePatch(BaseModel):
     leaver_end_date: date | None = None
     leaver_participation_mode: Literal["CREATE_TASK", "REPORT_ONLY"] | None = None
     allow_delete_360: bool | None = None
+    anonymous_360_config: Anonymous360Config = Field(default_factory=Anonymous360Config)
+    invitation_out_of_range_tips_config: InvitationOutOfRangeTipsConfig = Field(default_factory=InvitationOutOfRangeTipsConfig)
     overdue_submission_enabled: bool | None = None
     overdue_submission_scope: Literal["EVALUATION", "ALL"] | None = None
+
+    @model_validator(mode="after")
+    def validate_360_configs(self):
+        validate_cycle_360_configs(self.model_dump(exclude_unset=True), self.language or "zh-CN")
+        return self
 
 
 class CyclePerson(BaseModel):
@@ -389,6 +400,8 @@ class CycleSummary(BaseModel):
     leaver_end_date: date | None
     leaver_participation_mode: str
     allow_delete_360: bool = False
+    anonymous_360_config: Anonymous360Config = Field(default_factory=Anonymous360Config)
+    invitation_out_of_range_tips_config: InvitationOutOfRangeTipsConfig = Field(default_factory=InvitationOutOfRangeTipsConfig)
     overdue_submission_enabled: bool
     overdue_submission_scope: str
     status: str

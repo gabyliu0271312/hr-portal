@@ -1,5 +1,18 @@
 # PM-T004 原子任务
 
+- [ ] CR-005-T05-D01/U01/S01/I01/U02/C01/C02/A01 周期360策略与成员列设置（2026-11-21，本地实现完成，隔离库验收待执行）
+  - Goal/确认：按当前实现核对2026-11-06交底，保留F39/F40真实只读视图与F41-V2～V5生命周期。用户逐项确认历史保留、新项目启动冻结匿名；正式提交人数去重含自愿，未达限仅自愿正文仍匿名；all无身份豁免，描述按各值人数达限；周期有效邀请跨项目去重实时提示；列偏好账户/员工/场景/周期/项目/角色节点隔离跨设备保存。完整规则见CR-005-360-development-handoff本轮小节。
+  - Reading/UI：Spec002基线/CR005/CR010/CR011、执行契约/验收证据/迁移协同、Spec012 START与N00/N11及UI护栏；用户明确确认本轮新建周期截图为配置区v1。仅既有周期表单、反馈列表、公共参考/员工结果、成员表格和共享列抽屉，无新业务页面或UCP。
+  - Allowed/shared：周期models/cycles_router/cycle_service/project_service、reviewer_360_policy_service/review_360_feedback_router、projects_router、独立member_columns_service/column_preferences_model/router、main挂载、Alembic env注册与新0319/0320；前端performance API、CycleManagement/PerformanceCycle360Settings、共享360参考与结果组件、FeedbackPanel、MemberListPanel/两层列drawer、ProjectManagement/Review/ReviewContent透传、既有同名测试；原交底/CR005/本UI及本任务。共享文件单写者串行整合，保护同期focus-group/校准授权/全局表格及token改动，不归本任务交付。
+  - Contracts：周期两个严格JSONB对象，PATCH省略保留，提示中文语言合同不扩展；项目settings.anonymous_360_snapshot版本1，copy清理、历史不回填；删除仍实时。匿名响应白名单正文、display_key及允许描述，删除真实task_id/员工号/姓名/时间及统计名单。统计排除revoked与旧成员快照、重复评估人完成OR聚合。列DTO含columns/allowed/default/locked/sort及column_values，evaluation保留status/due_at。GET/PUT /api/v1/performance/column-preferences仅可信owner与经列表鉴权schema，周期ID规范化真实ref，Postgres原子upsert/rollback，非法keys422、越权403。
+  - Given/When/Then：多模板any-match/失败重试/迟到隔离、匿名范围/0及1～99/提示0～99与非空5000字；门槛上下界/自愿转换/撤销/草稿与模板deny、身份旁路白名单；列允许默认锁定排序/空搜索分页/去重未知key/完整导出、保存失败保持草稿/成功应用/重开、可信身份隔离/无权拒绝；giveup按周期→项目→任务锁后复验。项目复制清理匿名派生快照，源配置不改。
+  - Backend evidence：backend现有.venv，`python -m pytest tests/test_performance_projects.py tests/test_performance_cycles.py tests/test_performance_subject_visibility.py -q --tb=short`主线程1219 passed/6 skipped，保留python_multipart弃用警告；SQLite真实SQL覆盖撤销/旧快照/重复提交顺序和提示跨周期/节点/项目/最新快照，偏好路由覆盖可信分键、归一化/回读和deny。测试替身与SQLite不等同PostgreSQL持久化或双事务并发。
+  - Frontend evidence：六现有spec CycleManagement/ProjectManagement/Review/PerformanceReviewer360Preview/PerformanceResultReviewer360Block/PerformanceReviewEvaluationDrawer，主线程最终379 passed，包含新增员工门槛限制提示。vue-tsc+Vite生产构建通过（3795模块，既有VueUse PURE警告）；只读运行数据不注入preview值，匿名用display_key独立展开，列偏好失败不应用/不关闭、重试及重开恢复。
+  - UI evidence：本地Vite5173实际Vue组件+隔离合成数据，Chromium1920×953设置数字框150×32px、下限关闭再开恢复3，390px无页面横溢；1280×800匿名两条独立展开、身份浮层0，列抽屉两个锁定项/取消零应用/确定有序回传。pageerror均0。三张独立已查看PNG：`../../ui-blueprints/CR-005-T05-U01-implemented-cycle-360-20261121.png`、`CR-005-T05-U02-implemented-anonymous-feedback-20261121.png`、`CR-005-T05-C02-implemented-column-settings-20261121.png`；是实际组件受控证据，不是完整认证业务页或所有目标状态逐像素验收。初次设置验证漏EP CSS的异常图已重采替换，不计通过。
+  - Migration：唯一head0320，0318→0319_pm_cycle_360_privacy_policy→0320_pm_column_preferences；两项upgrade/downgrade --sql生成通过。真实PG升级/降级/重升、新连接偏好持久化、双事务并发、认证UI→实际API→PG→重开未执行：Docker daemon不可用、业务库不可连接。无生产迁移/通知/commit/push/deploy，不据本地测试勾整卡。
+  - Boundaries/known gaps：无可信HRBP姓名与独立实时雇佣状态列源，不加入allowed、不用快照倒填实时值；列数随模板与权限变化不硬编码25。现有人员类型筛选无可信360字段仅全部，已返回关系/内容维度可筛选，实名姓名可排序、匿名禁身份排序。未新增智能推荐或改变结果算法/周期语言/历史关系。停止新配置使用不应删除历史评价或审计；部署另行授权。
+
+
 - [ ] PM-T004-T05-F41-V5 上限弹窗主动确认与共享逾期提交（2026-11-20）
   - Goal/用户确认：上限弹窗不因名单/自动保存消失且必须主动确认；邀请/确认/评价统一普通共享逾期一次提交，覆盖旧版评价截止拒绝新增规则，不另造独立流程。
   - Reading/复用：Spec002基线/CR005/本UI-V5/Spec012 N00 N11；PerformanceConfirmDialog/InvitePanel watcher、SelfSummaryTask逾期确认/跳转、共享_self_summary_state/_overdue_submission_allowed、原私有delta/正式事务。基线266f00d7，既有工作区原位修复。

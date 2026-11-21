@@ -9,6 +9,7 @@ import {
   type PerformanceReview360Source,
   type PerformanceWorkbenchTaskPerson,
 } from '@/api/performance'
+import PerformancePromptNotice from './PerformancePromptNotice.vue'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import UiButton from '../ui/UiButton.vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
@@ -44,6 +45,7 @@ const voluntarySources = ref<PerformanceReview360Source[]>([])
 const projectContext = usePerformanceProjectContextStore()
 const loading = ref(false)
 const error = ref('')
+const invitationTips = ref<string[]>([])
 const keyword = ref('')
 type FeedbackRow = Omit<PerformanceReview360FeedbackItem, 'status'> & Partial<Omit<PerformanceWorkbenchTaskPerson, 'employee_no' | 'task_id'>> & { status: string; project_id?: number; node_id?: string }
 const items = ref<FeedbackRow[]>([])
@@ -110,6 +112,7 @@ async function load() {
   const sequence = ++requestSequence
   loading.value = true
   error.value = ''
+  invitationTips.value = []
   allowVoluntary.value = false
   voluntaryEnabled.value = false
   voluntaryDisabledReason.value = ''
@@ -131,6 +134,7 @@ async function load() {
       const results = await Promise.all(sources.map(source => performanceReview360FeedbackApi.list(source.project_id, keyword.value.trim() || undefined, source.node_id)))
       if (sequence !== requestSequence) return
       remotePaging.value = false
+      invitationTips.value = [...new Set(results.flatMap(result => result.invitation_tip ? [result.invitation_tip.text] : []))]
       items.value = results.flatMap((result, index) => result.items.map(item => ({ ...item, project_id: sources[index].project_id, node_id: sources[index].node_id })))
       total.value = items.value.length
       voluntarySources.value = sources.filter((_source, index) => results[index].allow_voluntary_evaluation)
@@ -141,6 +145,7 @@ async function load() {
       const result = await performanceReview360FeedbackApi.list(props.projectId, keyword.value.trim() || undefined, props.nodeId, page.value, pageSize.value, sortKey.value || undefined, sortOrder.value || undefined)
       if (sequence !== requestSequence) return
       remotePaging.value = true
+      invitationTips.value = result.invitation_tip ? [result.invitation_tip.text] : []
       items.value = result.items
       total.value = result.total
       allowVoluntary.value = result.allow_voluntary_evaluation
@@ -328,6 +333,7 @@ defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVo
 <template>
   <section class="feedback-panel" :aria-label="taskPeopleMode ? tableTitle : '360° 反馈'">
     <div class="card-sticky-mask" aria-hidden="true"></div>
+    <PerformancePromptNotice v-for="tip in invitationTips" :key="tip" class="feedback-invitation-tip" type="info" multiline role="status">{{ tip }}</PerformancePromptNotice>
     <PerformanceListToolbar
       v-model:keyword="keyword"
       search-placeholder="搜索成员"
@@ -408,6 +414,8 @@ defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVo
 <style scoped>
 .feedback-panel { min-width: 0; padding: 0 var(--spacing-5) var(--spacing-5); box-sizing: border-box; border-radius: var(--radius-lg); background: var(--color-bg-card); color: var(--color-text-primary); box-shadow: var(--shadow-dialog); --performance-table-container-padding: var(--performance-review-surface-inset); }
 .card-sticky-mask { position: sticky; top: calc(-1 * var(--performance-table-container-padding, 0px)); z-index: 19; flex: none; height: 20px; margin: 0 calc(-1 * var(--spacing-5)); border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--color-bg-card, #fff); }
+.feedback-invitation-tip { margin-bottom: var(--spacing-3); white-space: pre-wrap; }
+.feedback-invitation-tip :deep(.prompt-notice__text) { white-space: pre-wrap; }
 .feedback-member { min-width: 0; }
 .feedback-member small { display: block; margin-top: 4px; overflow: hidden; color: var(--color-text-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .feedback-panel__completion { color: var(--color-primary); }

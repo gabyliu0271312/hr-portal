@@ -163,6 +163,226 @@ async def test_cycle_360_delete_policy_roundtrip_audit_and_omitted_patch(monkeyp
     assert service.serialize(cycle)["allow_delete_360"] is False
 
 
+def test_cycle_360_configs_strict_validation_and_defaults():
+    from app.performance.reviewer_360_policy_service import Anonymous360Config, InvitationOutOfRangeTipsConfig
+    assert CyclePayload(**_payload()).anonymous_360_config.model_dump() == Anonymous360Config().model_dump()
+    assert CyclePatch(name="新名称").model_dump(exclude_unset=True) == {"name": "新名称"}
+    for config in ({"enable": "true"}, {"enable": 1}, {"enable": True}, {"anonymous_low_limit": True}, {"anonymous_low_limit": "3"}, {"anonymous_low_limit": -1}, {"anonymous_low_limit": 100}, {"anonymous_object": "admin"}, {"extra": 1}, {"reviewer_tag_visibility_mode": "visible"}):
+        with pytest.raises(ValidationError):
+            CyclePatch(anonymous_360_config=config)
+    for config in ({"range_count": True}, {"range_count": "3"}, {"range_count": 100}, {"range_count": -1}, {"enable": 1}, {"tips": {"zh-CN": 1}}, {"tips": {"xx": "x"}}, {"unknown": 1}, {"enable": True, "tips": {"zh-CN": "  "}}, {"tips": {"zh-CN": "x" * 5001}}):
+        with pytest.raises(ValidationError):
+            CyclePatch(invitation_out_of_range_tips_config=config)
+    for field in ("anonymous_360_config", "invitation_out_of_range_tips_config"):
+        with pytest.raises(ValidationError):
+            CyclePatch(**{field: None})
+    config = InvitationOutOfRangeTipsConfig(tips={"zh-CN": " " + "字" * 5000 + " "})
+    assert len(config.tips["zh-CN"]) == 5000
+    assert CyclePatch(invitation_out_of_range_tips_config={"enable": True, "tips": {"zh-CN": " 提示 ", "en-US": " draft "}}).invitation_out_of_range_tips_config.tips == {"zh-CN": "提示", "en-US": "draft"}
+    assert Anonymous360Config(enable=True, anonymous_object="all", anonymous_low_limit=0).enable
+
+
+@pytest.mark.asyncio
+async def test_cycle_360_config_roundtrip_omission_and_snapshot_freeze(monkeypatch):
+    from app.performance import cycle_service
+    from app.performance.reviewer_360_policy_service import Anonymous360Config, InvitationOutOfRangeTipsConfig, anonymous_360_snapshot
+    cycle = SimpleNamespace(**PerformanceCycleService._normalize_payload(_payload()), id=1, cycle_ref="cycle:test", language="zh-CN", status="LOCKED", lock_at=None, leaver_start_date=None, leaver_end_date=None,
+        anonymous_360_config=Anonymous360Config().model_dump(), invitation_out_of_range_tips_config=InvitationOutOfRangeTipsConfig().model_dump())
+    class Db:
+        async def execute(self, statement): return SimpleNamespace(scalar_one=lambda: cycle)
+        async def commit(self): pass
+        async def refresh(self, value): pass
+    events = []
+    monkeypatch.setattr(cycle_service.PerformanceAuditService, "append_event", lambda self, event: events.append(event))
+    service = PerformanceCycleService(Db())
+    config = {"enable": True, "anonymous_object": "all", "anonymous_low_limit": 3, "reviewer_tag_visibility_mode": "notVisible"}
+    tips = {"enable": True, "range_count": 2, "tips": {"zh-CN": "  提示  "}}
+    await service.update_cycle(cycle, {"anonymous_360_config": config, "invitation_out_of_range_tips_config": tips}, actor_type="PORTAL_USER", actor_id=1)
+    assert service.serialize(cycle)["anonymous_360_config"] == config
+    assert service.serialize(cycle)["invitation_out_of_range_tips_config"]["tips"]["zh-CN"] == "提示"
+    assert events[-1].before_state["anonymous_360_config"]["enable"] is False
+    frozen = anonymous_360_snapshot(cycle)
+    await service.update_cycle(cycle, {"name": "重命名"}, actor_type="PORTAL_USER", actor_id=1)
+    assert cycle.anonymous_360_config == config
+    await service.update_cycle(cycle, {"anonymous_360_config": {"enable": False}}, actor_type="PORTAL_USER", actor_id=1)
+    assert frozen == {"version": 1, "config": config}
+    assert frozen["config"] is not cycle.anonymous_360_config
+
+
+def _privacy_task(task_id, handler, source="SELF", **overrides):
+    values = dict(id=task_id, handler_ref=handler, status="completed", submitted_at=datetime.now(timezone.utc), revoked_at=None, source_type=source)
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def test_360_anonymous_low_limit_voluntary_scope_and_description_groups():
+    from app.performance.reviewer_360_policy_service import reviewer_360_visibility
+    node = {"executor_role_code": "assessment.reviewer_360"}
+    config = {"enable": True, "anonymous_object": "all", "anonymous_low_limit": 3, "reviewer_tag_visibility_mode": "visibleOverLowLimit"}
+    project = SimpleNamespace(settings={"anonymous_360_snapshot": {"version": 1, "config": config}})
+    people = {no: SimpleNamespace(employee_no=no, department=dept, direct_supervisor_employee_no="M1") for no, dept in (("E1", "A"), ("R1", "A"), ("R2", "A"), ("R3", "B"))}
+    tasks = [_privacy_task(1, "R1"), _privacy_task(2, "R2", "VOLUNTARY")]
+    result = reviewer_360_visibility(project, "E1", node, tasks, "admin", tasks, people)
+    assert result["visibility"] == "anonymous"
+    assert result["tasks"] == tasks[1:]
+    assert result["description_allowed"][2] == {"relationship": False, "department": False, "source_label": False}
+    tasks.append(_privacy_task(3, "R3"))
+    result = reviewer_360_visibility(project, "E1", node, tasks, "R1", tasks, people)
+    assert len(result["tasks"]) == 3
+    assert result["description_allowed"][1] == {"relationship": True, "department": False, "source_label": False}
+    config["reviewer_tag_visibility_mode"] = "notVisible"
+    assert not any(reviewer_360_visibility(project, "E1", node, tasks, "admin", tasks, people)["description_allowed"][1].values())
+    config["anonymous_object"] = "reviewee"
+    assert reviewer_360_visibility(project, "E1", node, tasks, "manager", tasks, people)["visibility"] == "named"
+    assert reviewer_360_visibility(project, "E1", node, tasks, "E1", tasks, people)["visibility"] == "anonymous"
+    assert reviewer_360_visibility(SimpleNamespace(settings={}), "E1", node, tasks, "E1", tasks, people)["visibility"] == "named"
+
+
+def test_360_anonymous_count_deduplicates_and_excludes_draft_revoked_and_converted_voluntary():
+    from app.performance.reviewer_360_policy_service import reviewer_360_visibility
+    config = {"enable": True, "anonymous_object": "all", "anonymous_low_limit": 3, "reviewer_tag_visibility_mode": "visibleOverLowLimit"}
+    project = SimpleNamespace(settings={"anonymous_360_snapshot": {"version": 1, "config": config}})
+    node = {"executor_role_code": "assessment.reviewer_360"}
+    tasks = [_privacy_task(1, "R1"), _privacy_task(2, "R1"), _privacy_task(3, "R2", status="pending"), _privacy_task(4, "R3", revoked_at=datetime.now(timezone.utc)), _privacy_task(5, "R4", submitted_at=None)]
+    assert reviewer_360_visibility(project, "E1", node, tasks, "admin", tasks, {})["visibility"] == "hidden"
+    tasks[0].source_type = "VOLUNTARY"
+    assert reviewer_360_visibility(project, "E1", node, tasks, "admin", tasks, {})["tasks"] == tasks[:1]
+    tasks[0].source_type = "SELF"
+    assert reviewer_360_visibility(project, "E1", node, tasks, "admin", tasks, {})["visibility"] == "hidden"
+    config["anonymous_low_limit"] = 0
+    assert reviewer_360_visibility(project, "E1", node, tasks, "admin", tasks, {})["tasks"] == tasks[:2]
+
+
+@pytest.mark.asyncio
+async def test_360_invitation_tip_real_sql_latest_snapshot_cycle_role_and_distinct_scope():
+    from sqlalchemy import JSON, create_engine, text
+    from sqlalchemy.dialects.postgresql import JSONB
+    from sqlalchemy.orm import Session
+    from sqlalchemy.schema import CreateTable
+    from app.performance.models import PerformanceCycle, PerformanceProject, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceNodeTask
+    from app.performance.reviewer_360_policy_service import reviewer_360_invitation_tip
+    metadata = MetaData()
+    for model in (PerformanceProject, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceNodeTask):
+        table = model.__table__.to_metadata(metadata)
+        table.constraints = {constraint for constraint in table.constraints if constraint.__class__.__name__ != "CheckConstraint"}
+        for column in table.columns:
+            if isinstance(column.type, JSONB): column.type = JSON()
+            if not column.primary_key: column.nullable = True
+    engine = create_engine("sqlite://")
+    try:
+        with engine.begin() as connection:
+            for table in metadata.tables.values():
+                connection.execute(CreateTable(table, include_foreign_key_constraints=[]))
+            projects = metadata.tables["performance_projects"]
+            connection.execute(projects.insert(), [{"id": pid, "cycle_ref": cycle} for pid, cycle in ((1, "C1"), (2, "C1"), (3, "C2"))])
+            snapshots = metadata.tables["performance_project_member_snapshots"]
+            connection.execute(snapshots.insert(), [{"id": sid, "project_id": pid, "snapshot_version": version} for sid, pid, version in ((10, 1, 1), (11, 1, 2), (20, 2, 1), (30, 3, 1))])
+            nodes = metadata.tables["performance_project_node_snapshots"]
+            connection.execute(nodes.insert(), [{"id": nid, "project_id": pid, "node_type": "evaluation", "config": {"template": {"executor_role_code": role}}} for nid, pid, role in ((100, 1, "assessment.reviewer_360"), (101, 1, "assessment.line_manager"), (200, 2, "assessment.reviewer_360"), (300, 3, "assessment.reviewer_360"))])
+            tasks = metadata.tables["performance_node_tasks"]
+            def task(key, project=1, snapshot=11, node=100, target="E1", source="SELF", revoked=False, handler="R1", kind="evaluation"):
+                return dict(id=key, project_id=project, member_snapshot_id=snapshot, node_snapshot_id=node, target_employee_no=target, handler_ref=handler, task_kind=kind, source_type=source, status="completed", revoked_at=datetime.now(timezone.utc) if revoked else None)
+            connection.execute(tasks.insert(), [task(1), task(2), task(3, target="E2", source="DEFAULT"), task(4, target="OLD", snapshot=10), task(5, source="VOLUNTARY", target="VOL"), task(6, revoked=True, target="REV"), task(7, node=101, target="LINE"), task(8, project=2, snapshot=20, node=200), task(9, project=3, snapshot=30, node=300), task(10, handler="R2", target="OTHER"), task(11, kind="work_summary", target="WORK")])
+            cycle = SimpleNamespace(language="zh-CN", invitation_out_of_range_tips_config={"enable": True, "range_count": 3, "tips": {"zh-CN": "提示", "en-US": "tip"}})
+            with Session(bind=connection) as session:
+                class Db:
+                    async def scalar(self, statement):
+                        assert statement.column_descriptions[0]["entity"] is PerformanceCycle
+                        assert statement.compile().params["cycle_ref_1"] == "C1"
+                        return cycle
+                    async def execute(self, statement): return session.execute(statement)
+                project = SimpleNamespace(id=1, cycle_ref="C1")
+                assert await reviewer_360_invitation_tip(Db(), project, "R1") is None
+                cycle.invitation_out_of_range_tips_config["range_count"] = 2
+                assert await reviewer_360_invitation_tip(Db(), project, "R1") == {"count": 3, "threshold": 2, "text": "提示"}
+                connection.execute(text("UPDATE performance_node_tasks SET source_type='SELF' WHERE id=5"))
+                assert (await reviewer_360_invitation_tip(Db(), project, "R1"))["count"] == 4
+                connection.execute(text("UPDATE performance_node_tasks SET source_type='VOLUNTARY' WHERE id=5"))
+                assert (await reviewer_360_invitation_tip(Db(), project, "R1"))["count"] == 3
+                cycle.invitation_out_of_range_tips_config["enable"] = False
+                assert await reviewer_360_invitation_tip(Db(), project, "R1") is None
+    finally:
+        engine.dispose()
+
+
+def test_360_description_reuses_real_relationship_and_requires_source_audit():
+    from app.performance.reviewer_360_policy_service import _descriptions
+    people = {no: SimpleNamespace(employee_no=no, direct_supervisor_employee_no=manager, department="研发") for no, manager in (("E1", "M1"), ("M1", "M2"), ("M2", None), ("R1", "M1"), ("R2", "M3"))}
+    task = _privacy_task(1, "M2")
+    assert _descriptions(task, people, "E1")["relationship"] == "隔级上级"
+    assert _descriptions(task, people, "E1")["source_label"] is None
+    task.handler_ref = "R1"
+    assert _descriptions(task, people, "E1")["relationship"] == "相同上级同事"
+    task.handler_ref = "R2"
+    assert _descriptions(task, people, "E1")["relationship"] == "不同上级同事"
+    event = SimpleNamespace(event_type="REVIEWER_360_INVITED", after_state={"source_type": "SELF", "assigned_by_type": "EMPLOYEE", "assigned_by_ref": "M2"})
+    assert _descriptions(task, people, "E1", event)["source_label"] == "上级邀请"
+    task.source_type = "VOLUNTARY"
+    assert _descriptions(task, people, "E1")["source_label"] == "自愿评估"
+
+
+@pytest.mark.asyncio
+async def test_360_policy_queries_scope_and_rejects_foreign_source_metadata():
+    from app.performance.models import PerformanceNodeTask, PerformanceProjectNodeSnapshot
+    from app.performance.reviewer_360_policy_service import project_reviewer_360_visibility
+    project = SimpleNamespace(id=7, cycle_ref="C1", settings={"anonymous_360_snapshot": {"version": 1, "config": {"enable": True, "anonymous_object": "all", "anonymous_low_limit": 0}}})
+    node = PerformanceProjectNodeSnapshot(id=11, project_id=7, node_id="360", node_type="evaluation", config={"template": {"executor_role_code": "assessment.reviewer_360"}})
+    task = _privacy_task(8, "R1")
+    people = [SimpleNamespace(employee_no=no, direct_supervisor_employee_no="M1", department="研发") for no in ("E1", "R1")]
+    def event(**overrides):
+        after = {"project_id": 7, "node_id": "360", "task_id": 8, "member_snapshot_id": 5, "assigned_by_type": "EMPLOYEE", "assigned_by_ref": "E1"}
+        after.update(overrides)
+        return SimpleNamespace(subject_ref="R1", event_type="REVIEWER_360_INVITED", after_state=after)
+    statements = []
+    class Db:
+        async def execute(self, statement):
+            statements.append(statement)
+            values = [task] if len(statements) == 1 else people if len(statements) == 2 else [event(project_id=99), event(task_id=99), event(member_snapshot_id=99)]
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values))
+    result = await project_reviewer_360_visibility(project, 5, "E1", node, [task], "admin", Db())
+    assert result["visibility"] == "anonymous"
+    assert result["description_values"][8]["source_label"] is None
+    assert result["description_allowed"][8]["source_label"] is False
+    params = statements[0].compile().params
+    assert {"project_id_1": 7, "cycle_ref_1": "C1", "member_snapshot_id_1": 5, "node_snapshot_id_1": 11, "target_employee_no_1": "E1"}.items() <= params.items()
+    sql = str(statements[0])
+    assert "submitted_at IS NOT NULL" in sql and "revoked_at IS NULL" in sql
+    source_sql = str(statements[1])
+    assert "performance_project_member_snapshots.project_id" in source_sql and "performance_project_member_snapshots.cycle_ref" in source_sql
+    project.settings = {}
+    assert (await project_reviewer_360_visibility(project, 5, "E1", node, [task], "admin", object()))["visibility"] == "named"
+
+
+@pytest.mark.asyncio
+async def test_360_giveup_locks_cycle_project_task_and_rechecks_submitted(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import review_360_feedback_router as feedback
+    from app.performance.models import PerformanceCycle, PerformanceNodeTask, PerformanceProject
+    project = PerformanceProject(id=7, cycle_ref="C1", settings={})
+    node = SimpleNamespace(id=11)
+    task = PerformanceNodeTask(id=8, project_id=7, node_snapshot_id=11, task_kind="evaluation", handler_ref="R1", status="completed", submitted_at=datetime.now(timezone.utc), source_type="VOLUNTARY")
+    monkeypatch.setattr(feedback, "_get_project", AsyncMock(return_value=project))
+    monkeypatch.setattr(feedback, "_locked_snapshot", AsyncMock())
+    monkeypatch.setattr(feedback, "_resolve_cycle_member_employee", AsyncMock(return_value="R1"))
+    monkeypatch.setattr(feedback, "_project_nodes", AsyncMock(return_value=[node]))
+    monkeypatch.setattr(feedback, "_evaluation_node", AsyncMock(return_value=node))
+    calls = []
+    class Db:
+        async def scalar(self, statement):
+            calls.append(statement)
+            return SimpleNamespace() if statement.column_descriptions[0]["entity"] is PerformanceCycle else task
+        async def refresh(self, record, **kwargs):
+            calls.append((record, kwargs))
+    with pytest.raises(HTTPException) as error:
+        await feedback.giveup_voluntary_evaluation(7, feedback.GiveUpPayload(task_id=8), context=object(), db=Db())
+    assert error.value.status_code == 409 and error.value.detail == "TASK_ALREADY_SUBMITTED"
+    assert calls[0].column_descriptions[0]["entity"] is PerformanceCycle
+    assert calls[0]._for_update_arg is not None
+    assert calls[1] == (project, {"with_for_update": True})
+    assert calls[2]._for_update_arg is not None
+    assert calls[2].get_execution_options()["populate_existing"] is True
+
+
 def test_cycle_payload_rejects_end_before_start():
     with pytest.raises(ValidationError, match="晚于开始时间"):
         CyclePayload(**_payload(end_at=datetime(2026, 1, 1, 9, 0)))

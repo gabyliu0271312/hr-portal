@@ -52,6 +52,7 @@
               :project-id="props.projectId"
               :key="`${props.projectId}-${node.node_id}`"
               :review-context="{ nodeId: node.node_id, state: 'all', phaseId: node.phase_id }"
+              :preference-scope="props.memberPreferenceScope"
               :show-export="false"
               @select-member="emit('open-member', { node, member: $event })"
               @remind-evaluate="emit('remind-evaluate', { node, ...$event })"
@@ -62,6 +63,7 @@
                 :project-id="props.projectId"
                 :key="`${props.projectId}-${node.node_id}-${node.phase_id || ''}`"
                 :review-context="{ nodeId: node.node_id, state: 'all', phaseId: node.phase_id }"
+              :preference-scope="props.memberPreferenceScope"
                 :show-export="false"
                 @select-member="emit('open-member', { node, member: $event })"
               @remind-evaluate="emit('remind-evaluate', { node, ...$event })"
@@ -94,7 +96,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { PerformanceDistributionTips, PerformanceReviewMemberContext, PerformanceReviewNode, PerformanceReview360Source } from '@/api/performance'
+import type { PerformanceColumnPreferenceScope, PerformanceDistributionTips, PerformanceReviewMemberContext, PerformanceReviewNode, PerformanceReview360Source } from '@/api/performance'
 import { performanceWorkbenchApi } from '@/api/performance'
 import PerformanceComparisonNotice from './PerformanceComparisonNotice.vue'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
@@ -115,6 +117,7 @@ const props = defineProps<{
   node: PerformanceReviewNode | null
   feedbackSources?: PerformanceReview360Source[]
   projectId?: number | null
+  memberPreferenceScope?: PerformanceColumnPreferenceScope
   contentTitle?: string
   resultUnavailable?: boolean
 }>()

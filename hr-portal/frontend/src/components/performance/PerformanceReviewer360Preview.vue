@@ -3,7 +3,7 @@
     <!-- ud__card 白卡容器（REA：x=341 宽 631、bg #fff、radius 8、pd 16/20、无 border 无 shadow） -->
     <div class="r360-card-wrap">
       <!-- 信息条：已评估 1/1：直属上级 1 -->
-      <div class="r360-info">
+      <div v-if="visibility !== 'anonymous' && visibility !== 'hidden'" class="r360-info">
         <span class="r360-info__label">已评估</span>
         <PerformanceEvaluateRatioPopover v-if="hasRuntimeReviewers" :completion="evaluatedProgress" :ratio="evaluateRatio" :can-remind="canRemind" @remind="emit('remind')" />
         <span v-else ref="evaluatedAnchor" class="r360-info__num" tabindex="0" @mouseenter="evaluatedTooltipOpen = true" @mouseleave="evaluatedTooltipOpen = false" @focusin="evaluatedTooltipOpen = true" @focusout="evaluatedTooltipOpen = false">{{ evaluatedProgress }}</span>
@@ -19,6 +19,8 @@
         <div class="r360-tooltip__people" aria-label="关系人员"><span v-for="(row, index) in visibleReviewers" :key="`relation-${index}`" class="r360-tooltip__person"><ReviewerAvatar :row="row" /><span>{{ row.name }}</span></span></div>
       </PerformancePopover>
 
+      <PerformancePromptNotice v-if="visibility === 'hidden' || detailMode === 'voluntary_only'" type="warning" multiline>{{ visibility === 'hidden' ? '已提交评价人数未达到匿名下限，暂不可查看评价详情。' : '已提交评价人数未达到匿名下限，当前仅展示自愿评价内容。' }}</PerformancePromptNotice>
+
       <!-- 表头：默认灰底黑字，打开后浅蓝底蓝字；同一时刻只打开一个 -->
       <div ref="filterRoot" class="r360-head">
         <div v-for="filter in filters" :key="filter.key" class="r360-head__filter-wrap">
@@ -27,9 +29,9 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m3.414 7.086-.707.707a1 1 0 0 0 0 1.414l7.778 7.778a2 2 0 0 0 2.829 0l7.778-7.778a1 1 0 0 0 0-1.414l-.707-.707a1 1 0 0 0-1.415 0l-7.07 7.07-7.072-7.07a1 1 0 0 0-1.414 0Z" fill="currentColor"/></svg>
           </button>
           <div v-if="openFilter === filter.key" :id="`r360-filter-${filter.key}`" class="r360-head__menu" role="listbox" :aria-label="filter.label">
-            <button type="button" class="r360-head__option" role="option" aria-selected="true" @click="selectAllFilter">
-              <span>全部</span>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 11.293a1 1 0 0 1 1.414 0l4.072 4.07 9.07-9.07a1 1 0 0 1 1.415 0l.706.707a1 1 0 0 1 0 1.414L10.193 18.9a1 1 0 0 1-1.415 0l-5.485-5.485a1 1 0 0 1 0-1.414L4 11.293Z" fill="currentColor"/></svg>
+            <button v-for="option in filterOptions(filter.key)" :key="option.value" type="button" class="r360-head__option" role="option" :aria-selected="selectedFilters[filter.key] === option.value" @click="selectFilter(filter.key, option.value)">
+              <span>{{ option.label }}</span>
+              <svg v-if="selectedFilters[filter.key] === option.value" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 11.293a1 1 0 0 1 1.414 0l4.072 4.07 9.07-9.07a1 1 0 0 1 1.415 0l.706.707a1 1 0 0 1 0 1.414L10.193 18.9a1 1 0 0 1-1.415 0l-5.485-5.485a1 1 0 0 1 0-1.414L4 11.293Z" fill="currentColor"/></svg>
             </button>
           </div>
         </div>
@@ -58,7 +60,7 @@
           </div>
         </div>
         <span class="r360-tools__spacer"></span>
-        <button type="button" class="r360-tools__btn r360-tools__btn--sort" tabindex="-1">
+        <button type="button" class="r360-tools__btn r360-tools__btn--sort" :disabled="visibility === 'anonymous' || visibility === 'hidden'" :aria-label="nameDescending ? '按姓名升序' : '按姓名降序'" @click="nameDescending = !nameDescending">
           <span class="r360-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M17 1.333h-1.803s-.419.137-.498.343l-3.664 9.598a.533.533 0 0 0 .498.724h.978a.533.533 0 0 0 .5-.347l.664-1.785h4.841l.663 1.786c.078.21.277.348.5.348h.987a.533.533 0 0 0 .498-.724l-3.666-9.6A.533.533 0 0 0 17 1.333Zm.725 6.4h-3.264l1.605-4.316h.05l1.61 4.316Zm-6.175 6.4c0-.294.238-.533.533-.533h8.522c.295 0 .534.239.534.534v.703c0 .154-.067.3-.183.402l-6.068 5.298h5.717c.295 0 .534.24.534.534v1.063a.533.533 0 0 1-.534.533h-8.522a.533.533 0 0 1-.534-.534v-.973c0-.154.067-.3.183-.402l5.763-5.027h-5.412a.533.533 0 0 1-.534-.534v-1.063Zm-8.923 2.534h2.705V3.2c0-.294.238-.533.533-.533h.933c.295 0 .534.239.534.533v19.16a.533.533 0 0 1-.965.314l-4-5.499a.32.32 0 0 1 .26-.508Z" fill="currentColor"/></svg></span>
           排序
         </button>
@@ -71,16 +73,16 @@
 
       <!-- 卡片视图：模板预览保留单卡；运行态按评估人独立展开并渲染真实答案 -->
       <div v-if="viewMode === 'card' && hasRuntimeReviewers" class="r360-runtime-cards">
-        <article v-for="reviewer in runtimeReviewers" :key="reviewer.task_id" class="r360-runtime-card">
-          <button type="button" class="r360-card__toggle" :aria-expanded="isReviewerExpanded(reviewer.task_id)" :aria-label="isReviewerExpanded(reviewer.task_id) ? '收起详情' : '展开详情'" @click="toggleReviewer(reviewer.task_id)">
-            <svg v-if="isReviewerExpanded(reviewer.task_id)" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M11.22 18.46a1 1 0 0 0 1.56 0l8.305-10.334a1 1 0 0 0-.78-1.626H3.696a1 1 0 0 0-.78 1.626L11.22 18.46Z" fill="currentColor"/></svg>
+        <article v-for="reviewer in runtimeReviewers" :key="reviewerKey(reviewer)" class="r360-runtime-card">
+          <button type="button" class="r360-card__toggle" :aria-expanded="isReviewerExpanded(reviewerKey(reviewer))" :aria-label="isReviewerExpanded(reviewerKey(reviewer)) ? '收起详情' : '展开详情'" @click="toggleReviewer(reviewerKey(reviewer))">
+            <svg v-if="isReviewerExpanded(reviewerKey(reviewer))" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M11.22 18.46a1 1 0 0 0 1.56 0l8.305-10.334a1 1 0 0 0-.78-1.626H3.696a1 1 0 0 0-.78 1.626L11.22 18.46Z" fill="currentColor"/></svg>
             <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M18.627 11.22a1 1 0 0 1 0 1.56L8.291 21.084a1 1 0 0 1-1.626-.78V3.696a1 1 0 0 1 1.626-.78l10.335 8.305Z" fill="currentColor"/></svg>
           </button>
           <div class="r360-runtime-card__main">
             <div class="r360-card__first"><ReviewerAvatar :row="runtimeRow(reviewer)" /><span class="r360-runtime-card__name">{{ reviewer.reviewer.display_name }}</span></div>
             <div v-if="runtimeRow(reviewer).sub" class="r360-card__desc">{{ runtimeRow(reviewer).sub }}</div>
-            <div v-show="isReviewerExpanded(reviewer.task_id)" class="r360-runtime-card__details">
-              <PerformanceTemplateRenderer v-if="isReviewerExpanded(reviewer.task_id)" mode="readonly" :sections="reviewer.form_schema" :answers="reviewer.answers" />
+            <div v-show="isReviewerExpanded(reviewerKey(reviewer))" class="r360-runtime-card__details">
+              <PerformanceTemplateRenderer v-if="isReviewerExpanded(reviewerKey(reviewer))" mode="readonly" :sections="reviewer.form_schema" :answers="reviewer.answers" />
             </div>
           </div>
         </article>
@@ -105,7 +107,7 @@
           <colgroup><col class="r360-table__expand-col"><col></colgroup>
           <thead><tr><th class="r360-table__expand-cell"></th><th class="r360-table__head-cell">姓名</th></tr></thead>
           <tbody>
-            <template v-for="(row, index) in visibleReviewers" :key="row.review?.task_id ?? index">
+            <template v-for="(row, index) in visibleReviewers" :key="row.review ? reviewerKey(row.review) : index">
               <tr class="r360-table__row" role="button" tabindex="0" :aria-expanded="rowExpanded(row)" @click="toggleRow(row)" @keydown.enter.prevent="toggleRow(row)" @keydown.space.prevent="toggleRow(row)">
                 <td class="r360-table__expand-cell">
                   <button type="button" class="r360-table__expand-btn" :aria-expanded="rowExpanded(row)" :aria-label="rowExpanded(row) ? '收起详情' : '展开详情'" @click.stop="toggleRow(row)">
@@ -163,6 +165,8 @@ import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref, watch, t
 import type { PerformanceEvaluateRatio, PerformanceReferenceTab, PerformanceTemplateContent, PerformanceTemplateSection } from '@/api/performance'
 import PerformanceEvaluateRatioPopover from './PerformanceEvaluateRatioPopover.vue'
 import PerformancePopover from './PerformancePopover.vue'
+import PerformancePromptNotice from './PerformancePromptNotice.vue'
+
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 
 type RuntimeReviewer = NonNullable<PerformanceReferenceTab['reviewers']>[number]
@@ -191,6 +195,8 @@ const props = withDefaults(defineProps<{
   reviewers?: PerformanceReferenceTab['reviewers']
   evaluateRatio?: PerformanceEvaluateRatio | null
   canRemind?: boolean
+  visibility?: PerformanceReferenceTab['visibility']
+  detailMode?: PerformanceReferenceTab['detail_mode']
 }>(), {
   relationLabel: '直属上级',
   evaluatedCount: 1,
@@ -217,37 +223,57 @@ const evaluatedAnchor = ref<HTMLElement | null>(null)
 const relationAnchor = ref<HTMLElement | null>(null)
 const evaluatedTooltipOpen = ref(false)
 const relationTooltipOpen = ref(false)
+const selectedFilters = ref<Record<FilterKey, string>>({ dimension: '', relation: '', personType: '' })
+const nameDescending = ref(false)
 const hasRuntimeReviewers = computed(() => props.reviewers !== undefined)
-const runtimeReviewers = computed(() => (props.reviewers || []).map(reviewer => ({
+const sourceReviewers = computed(() => (props.reviewers || []).map(reviewer => ({
   ...reviewer,
   form_schema: reviewer.form_schema.map(section => ({
     ...section,
     fields: section.fields.map(({ previewValue: _previewValue, ...field }) => field),
   })),
 })))
+function filterOptions(key: FilterKey) {
+  const values = key === 'dimension'
+    ? sourceReviewers.value.flatMap(reviewer => reviewer.form_schema.map(section => ({ value: section.id, label: section.name || '评价内容' })))
+    : sourceReviewers.value.flatMap(reviewer => {
+      const value = key === 'relation' ? reviewer.reviewer.relationship : undefined
+      return value ? [{ value, label: value }] : []
+    })
+  return [{ value: '', label: '全部' }, ...Array.from(new Map(values.map(option => [option.value, option])).values())]
+}
+const runtimeReviewers = computed(() => {
+  const values = sourceReviewers.value.filter(reviewer => (!selectedFilters.value.relation || reviewer.reviewer.relationship === selectedFilters.value.relation)
+    && (!selectedFilters.value.personType || reviewer.reviewer.source_label === selectedFilters.value.personType))
+    .map(reviewer => ({ ...reviewer, form_schema: reviewer.form_schema.filter(section => !selectedFilters.value.dimension || section.id === selectedFilters.value.dimension) }))
+    .filter(reviewer => reviewer.form_schema.length)
+  return nameDescending.value && props.visibility !== 'anonymous' && props.visibility !== 'hidden'
+    ? values.slice().sort((a, b) => b.reviewer.display_name.localeCompare(a.reviewer.display_name, 'zh-CN')) : values
+})
 function runtimeRow(reviewer: RuntimeReviewer): ReviewerRow {
   return { name: reviewer.reviewer.display_name, sub: [reviewer.reviewer.relationship, reviewer.reviewer.department, reviewer.reviewer.source_label].filter(Boolean).join(' | '), review: reviewer }
 }
+function reviewerKey(reviewer: RuntimeReviewer) { return reviewer.display_key || String(reviewer.task_id) }
 const effectiveEvaluatedCount = computed(() => hasRuntimeReviewers.value ? runtimeReviewers.value.length : props.evaluatedCount)
 const evaluatedProgress = computed(() => props.evaluateRatio?.completion ?? (hasRuntimeReviewers.value && props.expectedCount === undefined ? String(effectiveEvaluatedCount.value) : `${effectiveEvaluatedCount.value}/${props.expectedCount ?? 1}`))
 const visibleReviewers = computed<ReviewerRow[]>(() => hasRuntimeReviewers.value ? runtimeReviewers.value.map(runtimeRow) : props.tableRows.length ? props.tableRows : [{ name: '评估人', sub: `${props.relationLabel}  |  所属部门  |  系统默认邀请`, avatarUrl: props.avatarUrl }])
 const visibleEvaluatedReviewers = computed<ReviewerRow[]>(() => hasRuntimeReviewers.value ? visibleReviewers.value : props.evaluatedReviewers.length ? props.evaluatedReviewers : visibleReviewers.value.slice(0, props.evaluatedCount))
-const collapsedReviewers = ref<number[]>([])
-function isReviewerExpanded(taskId: number) { return !collapsedReviewers.value.includes(taskId) }
-function toggleReviewer(taskId: number) { collapsedReviewers.value = isReviewerExpanded(taskId) ? [...collapsedReviewers.value, taskId] : collapsedReviewers.value.filter(id => id !== taskId) }
-function rowExpanded(row: ReviewerRow) { return row.review ? isReviewerExpanded(row.review.task_id) : expanded.value }
-function toggleRow(row: ReviewerRow) { if (row.review) toggleReviewer(row.review.task_id); else toggleExpanded() }
-const allExpanded = computed(() => hasRuntimeReviewers.value ? runtimeReviewers.value.length > 0 && runtimeReviewers.value.every(reviewer => isReviewerExpanded(reviewer.task_id)) : expanded.value)
-watch(() => props.reviewers, () => { collapsedReviewers.value = [] })
+const collapsedReviewers = ref<string[]>([])
+function isReviewerExpanded(taskId: string) { return !collapsedReviewers.value.includes(taskId) }
+function toggleReviewer(taskId: string) { collapsedReviewers.value = isReviewerExpanded(taskId) ? [...collapsedReviewers.value, taskId] : collapsedReviewers.value.filter(id => id !== taskId) }
+function rowExpanded(row: ReviewerRow) { return row.review ? isReviewerExpanded(reviewerKey(row.review)) : expanded.value }
+function toggleRow(row: ReviewerRow) { if (row.review) toggleReviewer(reviewerKey(row.review)); else toggleExpanded() }
+const allExpanded = computed(() => hasRuntimeReviewers.value ? runtimeReviewers.value.length > 0 && runtimeReviewers.value.every(reviewer => isReviewerExpanded(reviewerKey(reviewer))) : expanded.value)
+watch(() => props.reviewers, () => { collapsedReviewers.value = []; selectedFilters.value = { dimension: '', relation: '', personType: '' }; nameDescending.value = false })
 /** 视图模式：card（详情视图）/ table（表格视图），REA 默认详情视图 */
 const viewMode = ref<'card' | 'table'>('card')
 const viewMenuOpen = ref(false)
 function toggleExpanded() {
-  if (hasRuntimeReviewers.value) collapsedReviewers.value = allExpanded.value ? runtimeReviewers.value.map(reviewer => reviewer.task_id) : []
+  if (hasRuntimeReviewers.value) collapsedReviewers.value = allExpanded.value ? runtimeReviewers.value.map(reviewer => reviewerKey(reviewer)) : []
   else expanded.value = !expanded.value
 }
 function toggleFilter(key: FilterKey) { openFilter.value = openFilter.value === key ? null : key }
-function selectAllFilter() { openFilter.value = null }
+function selectFilter(key: FilterKey, value: string) { selectedFilters.value[key] = value; openFilter.value = null }
 function closeFilter(event: MouseEvent) {
   if (filterRoot.value && !filterRoot.value.contains(event.target as Node)) openFilter.value = null
 }
@@ -256,7 +282,7 @@ onBeforeUnmount(() => document.removeEventListener('click', closeFilter))
 function switchView(mode: 'card' | 'table') {
   viewMode.value = mode
   expanded.value = mode === 'card'
-  if (hasRuntimeReviewers.value) collapsedReviewers.value = mode === 'card' ? [] : runtimeReviewers.value.map(reviewer => reviewer.task_id)
+  if (hasRuntimeReviewers.value) collapsedReviewers.value = mode === 'card' ? [] : runtimeReviewers.value.map(reviewer => reviewerKey(reviewer))
   viewMenuOpen.value = false
 }
 function contentKey(content: PerformanceTemplateContent) {

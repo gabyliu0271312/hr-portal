@@ -2605,6 +2605,7 @@ async def test_copy_project_preserves_configuration_and_resets_history_in_one_co
         "evaluator_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["E1"]}]}]},
         "flow_settings": {"node_settings": {"summary": {"work_summary": {"review_enabled": True}}}, "node_times": {"summary": {"start_at": "2026-01-01T00:00:00Z", "end_at": "2026-01-02T00:00:00Z"}}},
         "extra_configuration": {"values": ["keep"]},
+        "anonymous_360_snapshot": {"version": 1, "config": {"enable": True, "anonymous_object": "all"}},
     })
     before = deepcopy(source.settings)
     db = SimpleNamespace(add=Mock(side_effect=lambda row: setattr(row, "id", 2)), flush=AsyncMock(), commit=AsyncMock(), refresh=AsyncMock(), get=AsyncMock(return_value=None))
@@ -2625,6 +2626,7 @@ async def test_copy_project_preserves_configuration_and_resets_history_in_one_co
     assert copied.project_ref != source.project_ref
     assert copied.status == "DRAFT" and copied.evaluated_count == 0
     assert copied.settings["template_id"] == 7
+    assert "anonymous_360_snapshot" not in copied.settings
     assert copied.settings["evaluator_rules"] == before["evaluator_rules"]
     assert copied.settings["flow_settings"]["node_times"]["summary"]["end_at"] == "2026-01-02T00:00:00Z"
     service.validate_template.assert_awaited_once_with(copied.cycle_ref, 7)
@@ -4653,7 +4655,7 @@ async def test_task_people_returns_dynamic_ratings_from_the_current_task(monkeyp
     async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="M1")
     async def rules(*args): return {"leader": []}
     async def role(*args): return "leader"
-    async def progress(*args): return {}
+    async def progress(*args, **kwargs): return {}
     monkeypatch.setattr(routes, "resolve_trusted_performance_actor", actor)
     monkeypatch.setattr(routes, "load_subject_visibility_rules", rules)
     monkeypatch.setattr(routes, "resolve_subject_visibility_role", role)
@@ -4714,7 +4716,7 @@ async def test_calibration_people_returns_inherited_rating_before_calibration_su
     async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="M1")
     async def rules(*args): return {"leader": []}
     async def role(*args): return "leader"
-    async def progress(*args): return {}
+    async def progress(*args, **kwargs): return {}
     async def inherited(*args): return {"grade": "good"}
     monkeypatch.setattr(routes, "resolve_trusted_performance_actor", actor)
     monkeypatch.setattr(routes, "load_subject_visibility_rules", rules)
@@ -4814,7 +4816,7 @@ async def test_task_people_preserves_project_node_and_target_scope(monkeypatch, 
         assert "performance_node_tasks.project_id = 7" in where
         assert "performance_project_node_snapshots.project_id = 7" in where
         assert "performance_project_node_snapshots.node_id = 'manager-review'" in where
-        assert "performance_node_tasks.status = 'pending'" in where
+        assert "performance_node_tasks.status = 'pending'" not in where
         assert "performance_node_tasks.handler_ref = 'MANAGER-1'" in where
     member_sql = str(db.queries[0])
     assert "performance_project_members.snapshot_id = performance_node_tasks.member_snapshot_id" in member_sql
@@ -7634,7 +7636,7 @@ async def test_employee_result_regions_reference_scope_and_configured_order(monk
     monkeypatch.setattr(routes, "_task_visible_content", visible)
     monkeypatch.setattr(routes, "_self_summary_template", AsyncMock(return_value=source_template))
     original = deepcopy(source_template)
-    regions = await routes._employee_result_regions(SimpleNamespace(id=1, cycle_ref="cycle"), view, [SimpleNamespace(member_snapshot_id=8)], [], "E1", context(), Db())
+    regions = await routes._employee_result_regions(SimpleNamespace(id=1, cycle_ref="cycle", settings={}), view, [SimpleNamespace(member_snapshot_id=8)], [], "E1", context(), Db())
     assert [region["key"] for region in regions] == ["reference:unknown", "reference:ref", "result"]
     assert regions[0]["status"] == "unavailable" and regions[0]["contents"] == []
     reference = regions[1]
@@ -7757,7 +7759,7 @@ async def test_employee_result_regions_360_returns_each_reviewer_with_scoped_sna
     visible = AsyncMock(side_effect=AssertionError("360必须逐人读取，不走共享最终结果"))
     monkeypatch.setattr(routes, "_task_visible_content", visible)
     before = deepcopy((template, relation))
-    region = (await routes._employee_result_regions(SimpleNamespace(id=1, cycle_ref="cycle"), view, [SimpleNamespace(member_snapshot_id=8)], [], "E1", context(), Db()))[1]
+    region = (await routes._employee_result_regions(SimpleNamespace(id=1, cycle_ref="cycle", settings={}), view, [SimpleNamespace(member_snapshot_id=8)], [], "E1", context(), Db()))[1]
     assert region["reference_kind"] == "reviewer_360" and region["status"] == "completed"
     assert [item["reviewer"] for item in region["contents"]] == [{"employee_no": "E2", "display_name": "评估甲"}, {"employee_no": "E3", "display_name": "评估乙"}]
     assert [item["answers"] for item in region["contents"]] == [{"answer": "<p>E2</p>"}, {"answer": "<p>E3</p>"}]
@@ -7769,7 +7771,7 @@ async def test_employee_result_regions_360_returns_each_reviewer_with_scoped_sna
     assert all(name in people_query for name in ("source_snapshot_id", "project_id", "cycle_ref", "employee_no"))
     relation["settings"] = {"allowView": False}
     queries.clear()
-    regions = await routes._employee_result_regions(SimpleNamespace(id=1, cycle_ref="cycle"), view, [SimpleNamespace(member_snapshot_id=8)], [], "E1", context(), Db())
+    regions = await routes._employee_result_regions(SimpleNamespace(id=1, cycle_ref="cycle", settings={}), view, [SimpleNamespace(member_snapshot_id=8)], [], "E1", context(), Db())
     assert [region["key"] for region in regions] == ["result"]
     assert queries == []
 
@@ -10281,6 +10283,74 @@ def test_timeline_node_state_is_time_driven():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("completed_first", [False, True])
+async def test_communication_progress_excludes_revoked_and_old_snapshot_tasks(completed_first):
+    from sqlalchemy import JSON, MetaData, create_engine
+    from sqlalchemy.dialects.postgresql import JSONB
+    from sqlalchemy.orm import Session
+    from sqlalchemy.schema import CreateTable
+    from app.performance import projects_router
+    from app.performance.models import (
+        PerformanceAuthorizationSnapshotPerson, PerformanceNodeTask,
+        PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot,
+    )
+
+    metadata = MetaData()
+    for model in (PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot,
+                  PerformanceNodeTask, PerformanceAuthorizationSnapshotPerson):
+        table = model.__table__.to_metadata(metadata)
+        for column in table.columns:
+            if isinstance(column.type, JSONB):
+                column.type = JSON()
+            if not column.primary_key:
+                column.nullable = True
+    engine = create_engine("sqlite://")
+    try:
+        with engine.begin() as connection:
+            for table in metadata.tables.values():
+                connection.execute(CreateTable(table, include_foreign_key_constraints=[]))
+            snapshots = metadata.tables["performance_project_member_snapshots"]
+            connection.execute(snapshots.insert(), [
+                {"id": 4, "project_id": 7, "source_snapshot_id": 100},
+                {"id": 5, "project_id": 7, "source_snapshot_id": 101},
+                {"id": 6, "project_id": 8, "source_snapshot_id": 102},
+            ])
+            nodes = metadata.tables["performance_project_node_snapshots"]
+            connection.execute(nodes.insert(), [{"id": node_id, "project_id": 7,
+                "node_type": "evaluation", "config": {"template": {
+                    "executor_role_code": "assessment.reviewer_360"}}} for node_id in (11, 12)])
+            tasks = metadata.tables["performance_node_tasks"]
+            now = datetime(2026, 11, 21, tzinfo=UTC)
+            def task(key, handler, *, snapshot=5, node=11, completed=False, revoked=False):
+                return {"id": key, "project_id": 7, "cycle_ref": "C1",
+                    "member_snapshot_id": snapshot, "node_snapshot_id": node,
+                    "target_employee_no": "E1", "handler_ref": handler,
+                    "task_kind": "evaluation", "status": "completed" if completed else "pending",
+                    "submitted_at": now if completed else None, "revoked_at": now if revoked else None}
+            connection.execute(tasks.insert(), [
+                task(1, "H1", completed=completed_first),
+                task(2, "H1", node=12, completed=not completed_first),
+                task(3, "H2"), task(4, "REVOKED", revoked=True),
+                task(5, "OLD", snapshot=4, completed=True),
+            ])
+            with Session(bind=connection) as session:
+                class Db:
+                    async def execute(self, query):
+                        return session.execute(query)
+                project = SimpleNamespace(id=7, cycle_ref="C1")
+                assert await projects_router._communication_progress(Db(), project, {"E1", "E2"}) == {"E1": "1/2", "E2": "0/0"}
+                detail = await projects_router._communication_progress_detail(Db(), project, {"E1", "E2"})
+                assert detail["E1"] == {
+                    "completion": "1/2", "evaluated": [{"name": "H1", "dimission": False}],
+                    "pending": [{"name": "H2", "dimission": False}], "dimission_count": 0,
+                    "invite_stage": "in_progress",
+                }
+                assert detail["E2"]["completion"] == "0/0"
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_communication_progress_counts_invited_and_voluntary_people_once():
     from app.performance import projects_router
 
@@ -10609,6 +10679,7 @@ async def test_matrix_drilldown_members_intersects_data_scope(monkeypatch):
         routes.ProjectMemberResponse(id=2, root_review_id=2, project_id=7, employee_no="E2", display_name="员工二")
     ], [], 1))
     monkeypatch.setattr(routes, "_matrix_drilldown_scope", drilldown)
+    monkeypatch.setattr(routes, "_management_member_schema", AsyncMock(return_value={}))
     monkeypatch.setattr(routes, "_project_member_rows", loader)
 
     class Db:
@@ -10645,6 +10716,7 @@ async def test_member_export_returns_all_rows_and_intersects_view_export_scopes(
     scopes = AsyncMock(side_effect=[{"E1", "E2"}, {"E2", "E3"}])
     monkeypatch.setattr(routes, "_project_data_scope", scopes)
     loader = AsyncMock(return_value=(rows, []))
+    monkeypatch.setattr(routes, "_management_member_schema", AsyncMock(return_value={}))
     monkeypatch.setattr(routes, "_project_member_rows", loader)
     class Db:
         async def execute(self, _statement):
@@ -10683,7 +10755,8 @@ async def test_member_task_map_skips_non_delegatable_stage_without_key_error(mon
     self_node = SimpleNamespace(id=11, project_id=1, node_type="evaluation", node_id="self", config={"template": {"executor_role_code": ROLE_REVIEWEE}})
     manager_node = SimpleNamespace(id=12, project_id=1, node_type="evaluation", node_id="manager", config={"template": {"executor_role_code": ROLE_LINE_MANAGER, "include_final_result": True, "content": []}})
     self_task = SimpleNamespace(id=101, project_id=1, cycle_ref="C1", task_kind="evaluation", status="pending", submitted_at=None, node_snapshot_id=11, member_snapshot_id=7, target_employee_no="E1", handler_ref="E1")
-    manager_task = SimpleNamespace(id=102, project_id=1, cycle_ref="C1", task_kind="evaluation", status="pending", submitted_at=None, node_snapshot_id=12, member_snapshot_id=7, target_employee_no="E1", handler_ref="M1")
+    manager_task = SimpleNamespace(id=102, project_id=1, cycle_ref="C1", task_kind="evaluation", status="pending", submitted_at=None, node_snapshot_id=12, member_snapshot_id=7, target_employee_no="E1", handler_ref="M1", available_at=None, due_at=None)
+    self_task.available_at = self_task.due_at = None
     async def get_project(*args): return target
     async def scope(*args): return None
     async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="VIEWER")
@@ -10741,6 +10814,8 @@ async def test_reviewer_tasks_excludes_revoked(monkeypatch):
 async def test_360_feedback_list_preserves_rejected_and_completed_states(monkeypatch, status, submitted, expected):
     from datetime import UTC, datetime
     from app.performance import review_360_feedback_router as feedback
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr(feedback, "reviewer_360_invitation_tip", AsyncMock(return_value=None))
     target = SimpleNamespace(id=1, settings={})
     node = SimpleNamespace(id=10, node_id="feedback", node_type="evaluation", config={"template": {"executor_role_code": "assessment.reviewer_360"}}, node_order=1)
     task = SimpleNamespace(id=3, member_snapshot_id=7, target_employee_no="E1", status=status, source_type="VOLUNTARY", submitted_at=datetime(2026, 1, 1, tzinfo=UTC) if submitted else None, due_at=datetime(2020, 1, 1, tzinfo=UTC))
@@ -11469,7 +11544,7 @@ async def test_cycle_reminder_hides_delegation_for_self_and_360_and_calibration_
     async def actor(*args): return SimpleNamespace(actor_ref="ADMIN")
     async def rules(*args): return {"activity_manager": ["department"]}
     async def role(*args): return "activity_manager"
-    async def progress(*args): return {}
+    async def progress(*args, **kwargs): return {}
     async def previous(*args): return {}
     async def ratings(*args, **kwargs): return [], {}, []
     async def scope(*args): return None
@@ -11535,7 +11610,7 @@ async def test_cycle_reminder_department_filter_matches_path_prefix_and_unassign
     async def actor(*args): return SimpleNamespace(actor_ref="ADMIN")
     async def rules(*args): return {"activity_manager": ["department"]}
     async def role(*args): return "activity_manager"
-    async def progress(*args): return {}
+    async def progress(*args, **kwargs): return {}
     async def previous(*args): return {}
     async def ratings(*args, **kwargs): return [], {}, []
     async def scope(*args): return None
@@ -12754,6 +12829,40 @@ async def test_management_detail_okr_loaded_only_when_configured_without_handler
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("limit,voluntary,expected", [(2, False, "anonymous"), (3, False, "hidden"), (3, True, "anonymous")])
+async def test_anonymous_reference_whitelists_contents_without_identity_side_channels(management_member_data, monkeypatch, limit, voluntary, expected):
+    from unittest.mock import AsyncMock
+    from app.performance import reviewer_360_policy_service as policy
+    data = management_member_data
+    node = data.nodes[1]
+    node.config["template"]["executor_role_code"] = "assessment.reviewer_360"
+    data.project.settings["anonymous_360_snapshot"] = {"version": 1, "config": {
+        "enable": True, "anonymous_object": "all", "anonymous_low_limit": limit,
+        "reviewer_tag_visibility_mode": "notVisible"}}
+    tasks = [task for task in data.tasks if task.node_snapshot_id == node.id]
+    submitted = [task for task in tasks if task.submitted_at is not None]
+    submitted[0].source_type = "VOLUNTARY" if voluntary else "SELF"
+    real_policy = policy.reviewer_360_visibility
+    async def project_policy(project, snapshot_id, employee_no, source, supplied, viewer, db):
+        return real_policy(project, employee_no, source, supplied, viewer, submitted, {})
+    monkeypatch.setattr(policy, "project_reviewer_360_visibility", project_policy)
+    relation = {"content_slot": "reference", "reference_kind": "node", "reference_value": node.node_id}
+    payload = await data.routes._reviewer_360_reference(data.project, 7, "E1", node, tasks, relation, data.db, viewer_ref="ADMIN")
+    assert payload["visibility"] == expected
+    assert "expected_count" not in payload and "evaluate_ratio" not in payload
+    assert len(payload["reviewers"]) == (1 if voluntary else 2 if limit == 2 else 0)
+    for entry in payload["reviewers"]:
+        assert set(entry) == {"display_key", "reviewer", "form_schema", "answers"}
+        assert entry["reviewer"] == {"display_name": "匿名评估人"}
+        assert set(entry["answers"]) == {"text"}
+    assert "冻结处理人" not in str(payload) and "M2" not in str(payload)
+    assert "草稿秘密" not in str(payload) and "未知字段" not in str(payload)
+    monkeypatch.setattr(policy, "project_reviewer_360_visibility", AsyncMock(side_effect=AssertionError("denied template must not load policy")))
+    denied = await data.routes._reviewer_360_reference(data.project, 7, "E1", node, tasks, {"settings": {"allowView": False}}, data.db)
+    assert denied["reviewers"] == []
+
+
+@pytest.mark.asyncio
 async def test_management_detail_360_without_configured_reference_stays_hidden(management_member_data):
     data = management_member_data
     data.nodes[1].config["template"]["executor_role_code"] = "assessment.reviewer_360"
@@ -12982,8 +13091,8 @@ async def test_management_list_dynamic_final_ratings_empty_page_and_sort_validat
     page = await data.routes.list_project_members(1, None, 1, 1, "rating:grade-0", "asc", context(), data.db)
     assert page.total == 2 and len(page.items) == 1
     assert len(page.rating_columns) == column_count
-    schema_loader.assert_awaited_once()
-    assert len([query for query in data.db.queries if query.column_descriptions[0]["entity"] is data.routes.PerformanceProjectNodeSnapshot]) == 1
+    assert schema_loader.await_count == 2
+    assert len([query for query in data.db.queries if query.column_descriptions[0]["entity"] is data.routes.PerformanceProjectNodeSnapshot]) == 2
     first = page.items[0]
     assert first.root_review_id == first.id and first.project_id == 1 and first.can_view_detail
     assert first.ratings["rating:grade-0"].model_dump() == {"label": "优秀", "color": "#123456", "foreground": "#ffffff"}
@@ -13057,6 +13166,8 @@ async def test_cycle_member_endpoints_union_projects_and_keep_view_export_inters
         enriched.extend(row.employee_no for row in selected)
         return (selected, [{"key": "rating:a", "label": "项目评级"}] if project.id == 11 else [{"key": "rating:b", "label": "阶段评级"}])
     monkeypatch.setattr(routes, "_project_member_rows", rows)
+    from app.performance.member_columns_service import column_schema
+    monkeypatch.setattr(routes, "_management_member_schema", AsyncMock(return_value=column_schema([{"key": "rating:a", "label": "项目评级"}, {"key": "rating:b", "label": "阶段评级"}], [])))
     class Db:
         async def execute(self, statement):
             if statement.column_descriptions[0]["entity"] is routes.PerformanceProjectMemberSnapshot:
@@ -13086,6 +13197,8 @@ async def test_cycle_member_endpoints_reject_unknown_full_cycle_sort_key(monkeyp
     monkeypatch.setattr(routes, "resolve_frontend_access", AsyncMock(return_value=SimpleNamespace(cycles=[cycle], manage_projects=[(project, cycle)])))
     monkeypatch.setattr(routes, "_project_data_scope", AsyncMock(return_value=None))
     monkeypatch.setattr(routes, "_project_member_rows", AsyncMock(return_value=([], [])))
+    from app.performance.member_columns_service import column_schema
+    monkeypatch.setattr(routes, "_management_member_schema", AsyncMock(return_value=column_schema([], [])))
     with pytest.raises(HTTPException) as error:
         await routes.cycle_project_members(77, None, 1, 50, "rating:missing", "asc", context(), object())
     assert error.value.status_code == 422
