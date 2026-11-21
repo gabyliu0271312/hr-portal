@@ -1415,6 +1415,10 @@ class PerformanceProjectService:
             for assignment in phase["assignments"]:
                 self.db.add(PerformanceNodeTask(project_id=project.id, cycle_ref=project.cycle_ref, member_snapshot_id=member_snapshot.id, node_snapshot_id=node_snapshot.id, target_employee_no=assignment["employee_no"], handler_ref=assignment["handler_ref"], task_kind="calibration", phase_id=phase["phase_id"], available_at=_parse_time(window["start_at"]), due_at=_parse_time(window["end_at"]), status="pending"))
 
+    @staticmethod
+    def allows_draft_snapshot(cycle):
+        return getattr(cycle, "lock_policy_version", 1) == 2 and cycle.lock_rule == "SCHEDULED" and cycle.status == "DRAFT"
+
     async def start_project(self, project: PerformanceProject, *, actor_type: str, actor_id: int) -> PerformanceProject:
         if project.status == PROJECT_STATUS_STARTED:
             return project
@@ -1423,6 +1427,8 @@ class PerformanceProjectService:
         cycle = await self.db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref).with_for_update().execution_options(populate_existing=True))
         if cycle is None:
             raise ProjectValidationError("绩效周期不存在")
+        if getattr(cycle, "lock_policy_version", 1) == 2 and cycle.pre_lock_sync_mode == "AUTO_DAILY" and getattr(cycle, "pre_lock_adjust_until", None) is not None and datetime.now(UTC) < cycle.pre_lock_adjust_until:
+            cycle.pre_lock_adjusted_on = None
         if isinstance(project, PerformanceProject):
             from app.performance.models import PerformanceTemplate
             template_id = (project.settings or {}).get("template_id")
@@ -1436,7 +1442,7 @@ class PerformanceProjectService:
             if project.status != PROJECT_STATUS_DRAFT:
                 raise ProjectValidationError("当前项目状态不允许启动")
         authorization_snapshot, people = await self._cycle_snapshot_people(cycle)
-        if authorization_snapshot.status != AUTHORIZATION_SNAPSHOT_STATUS_LOCKED:
+        if authorization_snapshot.status != AUTHORIZATION_SNAPSHOT_STATUS_LOCKED and not self.allows_draft_snapshot(cycle):
             raise ProjectValidationError("周期人员快照尚未锁定")
         rules = (project.settings or {}).get("evaluator_rules") or {}
         groups = rules.get("groups") or []

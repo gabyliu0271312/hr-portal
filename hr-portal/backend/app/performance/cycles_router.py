@@ -66,6 +66,7 @@ class CyclePayload(BaseModel):
     lock_rule: Literal["IMMEDIATE", "SCHEDULED"]
     lock_at: datetime | None = None
     pre_lock_sync_mode: Literal["MANUAL", "AUTO_DAILY"] = "MANUAL"
+    pre_lock_adjust_until: datetime | None = None
     leaver_enabled: bool = False
     leaver_start_date: date | None = None
     leaver_end_date: date | None = None
@@ -85,6 +86,11 @@ class CyclePayload(BaseModel):
             raise ValueError("\u622a\u6b62\u65f6\u95f4\u5fc5\u987b\u665a\u4e8e\u5f00\u59cb\u65f6\u95f4")
         if self.lock_rule == CYCLE_LOCK_RULE_SCHEDULED and self.lock_at is None:
             raise ValueError("\u5b9a\u65f6\u9501\u5b9a\u5fc5\u987b\u8bbe\u7f6e\u9501\u5b9a\u65f6\u95f4")
+        automatic = self.lock_rule == CYCLE_LOCK_RULE_SCHEDULED and self.pre_lock_sync_mode == CYCLE_PRE_LOCK_SYNC_AUTO_DAILY
+        if automatic and (self.pre_lock_adjust_until is None or not datetime.now(timezone.utc) < normalize_cycle_datetime(self.pre_lock_adjust_until) <= normalize_cycle_datetime(self.lock_at)):
+            raise ValueError("\u81ea\u52a8\u8c03\u6574\u622a\u6b62\u65f6\u95f4\u5fc5\u987b\u665a\u4e8e\u5f53\u524d\u65f6\u95f4\u4e14\u4e0d\u665a\u4e8e\u9501\u5b9a\u65f6\u95f4")
+        if not automatic and self.pre_lock_adjust_until is not None:
+            raise ValueError("\u624b\u52a8\u8c03\u6574\u6216\u7acb\u5373\u9501\u5b9a\u65f6\u81ea\u52a8\u8c03\u6574\u622a\u6b62\u65f6\u95f4\u5fc5\u987b\u4e3a\u7a7a")
         if self.leaver_enabled and (self.leaver_start_date is None or self.leaver_end_date is None):
             raise ValueError("\u5f00\u542f\u79bb\u804c\u4eba\u5458\u53c2\u8bc4\u540e\u5fc5\u987b\u8bbe\u7f6e\u65e5\u671f\u8303\u56f4")
         if self.leaver_start_date and self.leaver_end_date and self.leaver_end_date < self.leaver_start_date:

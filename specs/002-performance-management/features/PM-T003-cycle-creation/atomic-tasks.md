@@ -6,6 +6,23 @@
 
 ## 任务清单
 
+- [ ] PM-T003-I03-F01 锁定UI及项目名单每日调整闭环（2026-11-21）
+  - Goal/authority：用户明确按本轮REA评估开发UI和业务，自动移出清除当前项目本周期评估数据并保留审计，覆盖旧I03仅周期名单及锁后启动限制。
+  - Reading：Spec002基线、PM-T003、CR-013、执行/迁移/验收契约；Spec012通用UI门禁。既有页面局部修订无新完整蓝图，目标以已采集DOM为准。
+  - Allowed files：后端performance周期/项目/快照/模型/路由、必要共用成员服务、唯一0321迁移接0320、既有cycles/projects/snapshot测试；前端CycleManagement、必要锁定设置组合组件、api/performance.ts及受跟踪JS镜像、tokens.css、对应既有测试；本功能规格/交互/任务、独立PNG。
+  - Shared files：后端代理独占backend，主线程独占frontend及规格，禁止并行覆盖同文件；不创建脚本/调研报告/测试文档，不操作生产、旧迁移、权限配置或无关功能，不commit/push/deploy。
+  - Frozen contract：spec同日期修订；pre_lock_adjust_until，服务设内部版本2、旧版1；新AUTO必填now<until<=lock_at；创建后不可修改，GET回填。MANUAL只禁项目名单自动调整，DRAFT周期人员每日刷新；v2定时周期允许DRAFT快照启动。
+  - Executor/transaction：统一lifecycle五分钟检查、北京时间自然日幂等；AUTO窗口内STARTED集合增删、系统不污染筛选条件；所有项目先删再加、冲突回滚该周期，其他周期隔离；不重建留存任务/答案、不额外外发，截止后不补增删。
+  - UI：两个纵向单选8px、共享灰框24缩进/16padding/6圆角/N100；独立datetime截止、字段错误/禁用/草稿保留/UTC提交/旧空值回显。PNG ../../ui-blueprints/PM-T003-I03-lock-settings-dom-20261121.png。
+  - Given/When/Then：创建/编辑/切换/缺截止/边界日期/长时间停留，正确阻断或单次保存回读；新旧启动门禁、MANUAL/AUTO差异、离职及限定范围、跨项目冲突/转移、重复执行、自动删除及已有提交、仅报表/校准/360增量、未变任务及历史、权限拒绝、事务失败与隔离。
+  - Commands/evidence：定向Vitest/pytest、vue-tsc+Vite、alembic heads/离线SQL及获准隔离库升降级/API→SQL→新连接回读、真实浏览器截图分别记录，skipped/blocked不记通过。
+  - Frontend evidence：2026-11-21最终周期页面及共享日期控件2文件67 passed（Vitest2.1.9，25.20s），覆盖布局组件接线、独立截止显隐/草稿/日期浮层、缺失/当前时间/晚于锁定边界、保存实时复验、UTC载荷、隐藏时null及编辑PATCH省略。首次命令受工作目录变化拼出错误路径而退出38，未运行测试；改绝对prefix后两轮64/67项均通过。
+  - Build/UI evidence：vue-tsc+Vite生产构建exit0，3798模块、46.39s，仅既有VueUse PURE注释警告；Windows cr-at-eol差异检查通过。真实5173周期路由+CDP隔离全部API，验证纵向8px、N100/24px缩进/16px padding/6px圆角、日期时分浮层、422保留输入→重试→UTC截止/锁定载荷→成功列表→编辑disabled回显，pageerror0。390px视口页面宽390，组件clientWidth/scrollWidth均308。已查看独立PNG ../../ui-blueprints/PM-T003-I03-lock-settings-dom-20261121.png（实际编辑只读态）；此前新建态截图曾有模板下拉，现以干净重开态覆盖本卡同路径，不冒充真实数据库。
+  - Backend/migration：后端代理最终实跑周期/项目/快照联合1244 passed、7 skipped、1项既有python_multipart弃用warning；此前迁移+周期98 passed、1 skipped；compileall及差异检查通过。唯一head为0321_pm_pre_lock_adjustment，接0320_pm_column_preferences；0320:0321 upgrade --sql与0321:0320 downgrade --sql均exit0。新增截止时间、内部版本、运行日期与冻结标记；旧v1 MANUAL不每日/到期同步，v2两模式每日同步，首次冻结标记避免截止后再次覆盖；逐周期失败rollback后继续、末尾汇总raise。
+  - Backend专项：既有projects测试新增2项真实SQLite ORM集合调整用例，覆盖双向跨项目转移全部3次DELETE早于4次INSERT、新增/移出/限定范围/仅报表、冲突409零SQL写入/零成员mutation/零审计、留存成员及任务所有字段/答案/草稿/版本回读不变、重复执行零成员/任务写入、保存条件不变；既有cycles测试新增sync/adjust/flush/commit四阶段失败隔离，调用真实lifecycle handler验证rollback、下一周期提交、失败标记不保存及最终raise，事务为受控替身。新增6项专项通过；主线程已核对对应测试定义，不将SQLite或替身当作PostgreSQL验收。
+  - Blocked：本地无5432服务，Docker daemon不可用，alembic check连接拒绝；真实PostgreSQL升级/降级/触发器/并发、真实API→SQL→新连接回读未执行。未操作公共/生产数据库。后续隔离库须完成upgrade/downgrade/upgrade；存在v2数据时downgrade明确拒绝丢弃策略；7项opt-in skipped不计通过。
+  - Status：本地UI及业务代码开发、自动化、构建和隔离浏览器验证已完成；真实数据库验收阻塞，保持本卡及I03整卡未勾选。未commit/push/deploy。
+
 - [ ] PM-T003-I16 项目设置保存、离开保护及起止时间校验统一
   - Goal/Type：已确认既有功能优化；2026-11-11用户授权全部开发，保留弹窗/抽屉即时保存，规则可删空但下一步阻断。无新页面/信息架构，沿用已确认界面与共享组件，小调整不新增完整HTML蓝图。
   - Prerequisites/reading：Spec002基线、PM-T003 spec/ui-interaction、CR-013、执行合同/任务模板/验收证据、根及hr-portal规则、Spec012通用UI门禁。

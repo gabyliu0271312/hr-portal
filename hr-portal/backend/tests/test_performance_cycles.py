@@ -28,6 +28,80 @@ def _payload(**overrides):
     return value
 
 
+@pytest.mark.parametrize("mode,rule,offset,valid", [
+    ("AUTO_DAILY", "SCHEDULED", 1, True),
+    ("AUTO_DAILY", "SCHEDULED", 8, False),
+    ("AUTO_DAILY", "SCHEDULED", -1, False),
+    ("AUTO_DAILY", "SCHEDULED", None, False),
+    ("MANUAL", "SCHEDULED", 1, False),
+    ("AUTO_DAILY", "IMMEDIATE", 1, False),
+    ("MANUAL", "SCHEDULED", None, True),
+])
+def test_pre_lock_adjust_until_contract(mode, rule, offset, valid):
+    now = datetime.now(timezone.utc)
+    values = _payload(lock_rule=rule, pre_lock_sync_mode=mode, lock_at=now + timedelta(hours=7),
+                      pre_lock_adjust_until=now + timedelta(hours=offset) if offset is not None else None)
+    if valid:
+        parsed = CyclePayload(**values)
+        PerformanceCycleService._validate_payload(PerformanceCycleService._normalize_payload(parsed.model_dump()))
+    else:
+        with pytest.raises(ValidationError):
+            CyclePayload(**values)
+        with pytest.raises(CycleValidationError):
+            PerformanceCycleService._validate_payload(PerformanceCycleService._normalize_payload(values))
+    with pytest.raises(ValidationError):
+        CyclePayload(**{**_payload(), "lock_policy_version": 2})
+    with pytest.raises(ValidationError):
+        CyclePatch(pre_lock_adjust_until=None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode,version,expired,due", [
+    ("MANUAL", 2, False, False), ("AUTO_DAILY", 1, False, False),
+    ("AUTO_DAILY", 2, False, False), ("AUTO_DAILY", 2, True, False),
+    ("AUTO_DAILY", 2, True, True),
+])
+async def test_lifecycle_adjustment_window_and_daily_idempotence(monkeypatch, mode, version, expired, due):
+    from unittest.mock import AsyncMock
+    from app.performance import cycle_service, member_service
+    from zoneinfo import ZoneInfo
+    now = datetime(2026, 11, 20, 16, 1, tzinfo=timezone.utc)
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None): return now.astimezone(tz)
+    monkeypatch.setattr(cycle_service, "datetime", Clock)
+    cycle = SimpleNamespace(cycle_ref="window", status="DRAFT", lock_rule="SCHEDULED", pre_lock_sync_mode=mode,
+                            lock_policy_version=version, lock_at=now + timedelta(hours=-1 if due else 10),
+                            pre_lock_adjust_until=now + timedelta(hours=-2 if expired else 2),
+                            pre_lock_adjusted_on=None, member_info_frozen_at=None)
+    snapshot = SimpleNamespace(last_synced_at=now - timedelta(minutes=2))
+    class Db(_DueLockDb):
+        async def execute(self, statement):
+            if "performance_authorization_snapshots" in str(statement): return _SnapshotResult(snapshot)
+            if len(statement.column_descriptions) and statement.column_descriptions[0]["name"] == "cycle_ref": return _RefsResult([cycle.cycle_ref])
+            return _SnapshotResult(cycle)
+    db = Db(cycle)
+    service = PerformanceCycleService(db)
+    sync = AsyncMock()
+    adjust = AsyncMock()
+    freeze = AsyncMock()
+    monkeypatch.setattr(service, "_sync_snapshot", sync)
+    monkeypatch.setattr(service, "_prune_excluded_leavers", AsyncMock())
+    monkeypatch.setattr(service.snapshots, "lock_snapshot", AsyncMock())
+    monkeypatch.setattr(member_service, "adjust_cycle_members", adjust)
+    monkeypatch.setattr(member_service, "freeze_cycle_members", freeze)
+    await service.process_due_locks()
+    assert sync.await_count == 1  # 北京时间已跨自然日，UTC仍同日
+    assert adjust.await_count == int(mode == "AUTO_DAILY" and version == 2 and not expired and not due)
+    assert freeze.await_count == int(version == 2 and (due or mode == "AUTO_DAILY" and expired))
+    snapshot.last_synced_at = now
+    if not due:
+        await service.process_due_locks()
+        assert sync.await_count == 1
+        assert adjust.await_count <= 1
+        assert freeze.await_count <= 1
+
+
 def test_project_manager_import_payload_rejects_missing_identifiers_and_unknown_fields():
     from app.performance.cycles_router import ProjectManagerImportIn
 
@@ -713,14 +787,107 @@ class _DueLockDb:
         self.calls = []
         self.committed = False
 
+    async def rollback(self):
+        pass
+
+    def begin_nested(self):
+        from contextlib import asynccontextmanager
+        @asynccontextmanager
+        async def transaction():
+            yield
+        return transaction()
+
+    async def flush(self):
+        pass
+
     async def execute(self, _statement):
         self.calls.append(_statement)
         if len(self.calls) == 1:
             return _RefsResult([self.cycle.cycle_ref])
+        if "performance_authorization_snapshots" in str(_statement):
+            return _SnapshotResult(None)
         return _SnapshotResult(self.cycle)
 
     async def commit(self):
         self.committed = True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_stage", ["sync", "adjust", "flush", "commit"])
+async def test_lifecycle_failure_rolls_back_and_continues_next_cycle(monkeypatch, caplog, failure_stage):
+    from contextlib import asynccontextmanager
+    from copy import deepcopy
+    from unittest.mock import AsyncMock
+    from app.performance import member_service
+    from app.scheduler.handlers import _handler_performance_cycle_lifecycle
+    from zoneinfo import ZoneInfo
+
+    now = datetime.now(timezone.utc)
+    cycles = {ref: SimpleNamespace(cycle_ref=ref, status="DRAFT", lock_rule="SCHEDULED",
+              lock_at=now + timedelta(days=3), lock_policy_version=2, pre_lock_sync_mode="AUTO_DAILY",
+              pre_lock_adjust_until=now + timedelta(days=2), pre_lock_adjusted_on=None,
+              member_info_frozen_at=None) for ref in ("failed-cycle", "next-cycle")}
+    class Db:
+        def __init__(self):
+            self.pending = []
+            self.saved = []
+            self.rollbacks = 0
+            self.current = None
+        @asynccontextmanager
+        async def begin_nested(self):
+            self.previous = {ref: deepcopy(vars(cycle)) for ref, cycle in cycles.items()}
+            try:
+                yield
+            except Exception:
+                self.restore()
+                raise
+        def restore(self):
+            self.pending.clear()
+            for ref, values in self.previous.items():
+                vars(cycles[ref]).clear()
+                vars(cycles[ref]).update(deepcopy(values))
+        async def execute(self, statement):
+            if statement.column_descriptions[0]["name"] == "cycle_ref":
+                return _RefsResult(list(cycles))
+            if "performance_authorization_snapshots" in str(statement):
+                return _SnapshotResult(None)
+            self.current = statement.compile().params["cycle_ref_1"]
+            return _SnapshotResult(cycles[self.current])
+        async def flush(self):
+            if failure_stage == "flush" and self.current == "failed-cycle":
+                raise RuntimeError("injected flush failure")
+        async def commit(self):
+            if failure_stage == "commit" and self.current == "failed-cycle":
+                raise RuntimeError("injected commit failure")
+            self.saved.extend(self.pending)
+            self.pending.clear()
+        async def rollback(self):
+            self.rollbacks += 1
+            self.restore()
+    db = Db()
+    calls = []
+    async def sync(_self, cycle, **_kwargs):
+        calls.append(("sync", cycle.cycle_ref))
+        db.pending.append(("snapshot", cycle.cycle_ref))
+        if failure_stage == "sync" and cycle.cycle_ref == "failed-cycle":
+            raise RuntimeError("injected sync failure")
+    async def adjust(_db, cycle):
+        calls.append(("adjust", cycle.cycle_ref))
+        db.pending.extend([("member", cycle.cycle_ref), ("audit", cycle.cycle_ref)])
+        if failure_stage == "adjust" and cycle.cycle_ref == "failed-cycle":
+            raise RuntimeError("injected adjustment failure")
+    monkeypatch.setattr(PerformanceCycleService, "_sync_snapshot", sync)
+    monkeypatch.setattr(PerformanceCycleService, "_prune_excluded_leavers", AsyncMock())
+    monkeypatch.setattr(member_service, "adjust_cycle_members", adjust)
+    with pytest.raises(RuntimeError, match="failed-cycle"):
+        await _handler_performance_cycle_lifecycle(None, db, "scheduler")
+    assert ("sync", "next-cycle") in calls and ("adjust", "next-cycle") in calls
+    assert db.rollbacks == 1
+    assert db.saved == [("snapshot", "next-cycle"), ("member", "next-cycle"), ("audit", "next-cycle")]
+    assert db.pending == []
+    assert cycles["failed-cycle"].pre_lock_adjusted_on is None
+    assert cycles["next-cycle"].pre_lock_adjusted_on == now.astimezone(ZoneInfo("Asia/Shanghai")).date()
+    assert "Performance cycle lifecycle failed: failed-cycle" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -742,11 +909,12 @@ async def test_overdue_scheduled_cycle_locks_snapshot_and_audits_once(monkeypatc
         lock_at=datetime(2026, 11, 3, 10, 0, tzinfo=timezone.utc), pre_lock_sync_mode="MANUAL",
     )
     snapshot = SimpleNamespace(status="DRAFT", locked_at=None)
-    db = SimpleNamespace(
-        execute=AsyncMock(side_effect=[_RefsResult([cycle.cycle_ref]), _SnapshotResult(cycle), _RefsResult([])]),
-        commit=AsyncMock(),
-    )
+    db = _DueLockDb(cycle)
+    db.commit = AsyncMock()
+    db.execute = AsyncMock(side_effect=[_RefsResult([cycle.cycle_ref]), _SnapshotResult(cycle), _SnapshotResult(None), _RefsResult([])])
     service = PerformanceCycleService(db)
+    monkeypatch.setattr(service, "_sync_snapshot", AsyncMock())
+    monkeypatch.setattr(service, "_prune_excluded_leavers", AsyncMock())
     monkeypatch.setattr(service.snapshots, "_get_snapshot", AsyncMock(return_value=snapshot))
     audit = Mock()
     monkeypatch.setattr(service.snapshots, "_append_audit_event", audit)
@@ -757,7 +925,7 @@ async def test_overdue_scheduled_cycle_locks_snapshot_and_audits_once(monkeypatc
     assert snapshot.locked_at == now
     assert audit.call_args.kwargs["event_type"] == "AUTHORIZATION_SNAPSHOT_LOCKED"
     assert await service.process_due_locks() == 0
-    db.commit.assert_awaited_once()
+    assert db.commit.await_count == 1
     audit.assert_called_once()
 
 
@@ -796,13 +964,14 @@ async def test_due_scheduled_auto_daily_lock_syncs_before_lock(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_due_scheduled_manual_lock_does_not_auto_sync(monkeypatch):
+async def test_due_scheduled_manual_lock_finally_syncs_people(monkeypatch):
     cycle = SimpleNamespace(
         cycle_ref="cycle:scheduled",
         status="DRAFT",
         lock_rule="SCHEDULED",
         lock_at=datetime.now(timezone.utc) - timedelta(minutes=1),
         pre_lock_sync_mode="MANUAL",
+        lock_policy_version=2,
     )
     db = _DueLockDb(cycle)
     service = PerformanceCycleService(db)
@@ -815,12 +984,14 @@ async def test_due_scheduled_manual_lock_does_not_auto_sync(monkeypatch):
         calls.append("lock")
 
     monkeypatch.setattr(service, "_sync_snapshot", sync_snapshot)
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr(service, "_prune_excluded_leavers", AsyncMock())
     monkeypatch.setattr(service.snapshots, "lock_snapshot", lock_snapshot)
-
+    import app.performance.member_service as member_service
+    monkeypatch.setattr(member_service, "freeze_cycle_members", AsyncMock())
     assert await service.process_due_locks() == 1
-    assert calls == ["lock"]
-
-
+    assert calls == ["sync", "lock"]
+    member_service.freeze_cycle_members.assert_awaited_once_with(db, cycle)
 
     from app.scheduler.handlers import JOB_HANDLERS
 
@@ -1270,7 +1441,10 @@ async def test_cycle_manual_organization_edit_recomputes_path(monkeypatch):
     )
 
     class Db:
-        async def execute(self, stmt):
+        async def flush(self): pass
+        async def execute(self, stmt, params=None):
+            if params is not None:
+                return None
             entity = stmt.column_descriptions[0]["entity"]
             if entity is PerformanceAuthorizationSnapshot:
                 return SimpleNamespace(scalar_one_or_none=lambda: snapshot)

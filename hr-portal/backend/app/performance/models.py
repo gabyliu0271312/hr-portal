@@ -711,6 +711,8 @@ class PerformanceCycle(Base):
         CheckConstraint("lock_rule = 'IMMEDIATE' OR lock_at IS NOT NULL", name="ck_performance_cycle_scheduled_lock_at"),
         CheckConstraint("jsonb_typeof(semester_diff_rules) = 'array'", name="ck_pm_cycle_comparison_rules"),
         CheckConstraint("comparison_rules_revision >= 0", name="ck_pm_cycle_comparison_revision"),
+        CheckConstraint("lock_policy_version IN (1,2)", name="ck_pm_cycle_lock_policy"),
+        CheckConstraint("lock_policy_version = 1 OR (CASE WHEN lock_rule = 'SCHEDULED' AND pre_lock_sync_mode = 'AUTO_DAILY' THEN pre_lock_adjust_until IS NOT NULL AND pre_lock_adjust_until <= lock_at ELSE pre_lock_adjust_until IS NULL END)", name="ck_pm_cycle_adjust_until"),
         Index("ix_performance_cycles_start_at", "start_at"),
         Index("ix_performance_cycles_lock_at", "lock_at"),
     )
@@ -735,6 +737,10 @@ class PerformanceCycle(Base):
     lock_rule: Mapped[str] = mapped_column(String(16), nullable=False)
     lock_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     pre_lock_sync_mode: Mapped[str] = mapped_column(String(16), nullable=False, default=CYCLE_PRE_LOCK_SYNC_MANUAL)
+    pre_lock_adjust_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lock_policy_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    pre_lock_adjusted_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    member_info_frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     leaver_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     leaver_start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     leaver_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)

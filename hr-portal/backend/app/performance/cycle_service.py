@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta, timezone
 import json
+import logging
 from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -381,6 +382,8 @@ class PerformanceCycleService:
             lock_rule=payload["lock_rule"],
             lock_at=payload.get("lock_at"),
             pre_lock_sync_mode=payload["pre_lock_sync_mode"],
+            pre_lock_adjust_until=payload.get("pre_lock_adjust_until"),
+            lock_policy_version=2,
             leaver_enabled=payload["leaver_enabled"],
             leaver_start_date=payload.get("leaver_start_date"),
             leaver_end_date=payload.get("leaver_end_date"),
@@ -408,7 +411,7 @@ class PerformanceCycleService:
 
     async def update_cycle(self, cycle: PerformanceCycle, payload: dict[str, Any], *, actor_type: str, actor_id: int) -> PerformanceCycle:
         payload = self._normalize_payload(payload)
-        forbidden = {"lock_rule", "lock_at", "pre_lock_sync_mode"}.intersection(payload)
+        forbidden = {"lock_rule", "lock_at", "pre_lock_sync_mode", "pre_lock_adjust_until", "lock_policy_version"}.intersection(payload)
         if forbidden:
             raise CycleValidationError("周期创建后不支持修改锁定规则")
         cycle = (await self.db.execute(select(PerformanceCycle).where(PerformanceCycle.id == cycle.id).with_for_update().execution_options(populate_existing=True))).scalar_one()
@@ -517,7 +520,14 @@ class PerformanceCycleService:
             person.is_manually_maintained = True
             changed.append({"employee_no": employee_no, "before": before, "after": {field: getattr(person, field) for field in before}})
         self.audit.append_event(AuditEventInput(event_type="PERFORMANCE_CYCLE_PEOPLE_MANUALLY_UPDATED", cycle_ref=cycle.cycle_ref, actor_type=actor_type, actor_ref=_actor_ref(actor_id), after_state={"reason": reason.strip(), "changes": changed}))
-        await self.db.commit()
+        await self._set_bulk_update_guard(cycle, True)
+        try:
+            await self.db.flush()
+            await self._set_bulk_update_guard(cycle, False)
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
         await self.db.refresh(cycle)
         return cycle
 
@@ -759,35 +769,69 @@ class PerformanceCycleService:
         await self.db.commit()
 
     async def process_due_locks(self) -> int:
-        now = datetime.now(UTC)
-        cycle_refs = list((await self.db.execute(select(PerformanceCycle.cycle_ref).where(PerformanceCycle.status == CYCLE_STATUS_DRAFT))).scalars())
+        cycle_refs = list((await self.db.execute(select(PerformanceCycle.cycle_ref).where(PerformanceCycle.status == CYCLE_STATUS_DRAFT).order_by(PerformanceCycle.id))).scalars())
         locked = 0
-        changed = False
+        failures = []
         for cycle_ref in cycle_refs:
-            cycle = (await self.db.execute(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == cycle_ref, PerformanceCycle.status == CYCLE_STATUS_DRAFT).with_for_update())).scalar_one_or_none()
-            if cycle is None:
-                continue
-            if cycle.pre_lock_sync_mode == CYCLE_PRE_LOCK_SYNC_AUTO_DAILY and cycle.lock_at and cycle.lock_at > now:
-                snapshot = (await self.db.execute(select(PerformanceAuthorizationSnapshot).where(PerformanceAuthorizationSnapshot.cycle_ref == cycle.cycle_ref))).scalar_one_or_none()
-                if snapshot is None or snapshot.last_synced_at is None or snapshot.last_synced_at.date() < now.date():
-                    await self._sync_snapshot(cycle, actor_type="SYSTEM", actor_id=0)
-                    await self._prune_excluded_leavers(cycle)
-                    changed = True
-            if cycle.lock_rule == CYCLE_LOCK_RULE_SCHEDULED and cycle.lock_at and cycle.lock_at <= now:
-                if cycle.pre_lock_sync_mode == CYCLE_PRE_LOCK_SYNC_AUTO_DAILY:
-                    await self._sync_snapshot(cycle, actor_type="SYSTEM", actor_id=0)
-                    await self._prune_excluded_leavers(cycle)
-                    changed = True
-                await self.snapshots.lock_snapshot(cycle.cycle_ref, actor_type="SYSTEM", actor_ref="0", commit=False)
-                cycle.status = CYCLE_STATUS_LOCKED
-                locked += 1
-        if changed or locked:
-            await self.db.commit()
+            try:
+                async with self.db.begin_nested():
+                    cycle = (await self.db.execute(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == cycle_ref, PerformanceCycle.status == CYCLE_STATUS_DRAFT).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+                    if cycle is None:
+                        continue
+                    now = datetime.now(UTC)
+                    if cycle.lock_rule != CYCLE_LOCK_RULE_SCHEDULED or not cycle.lock_at:
+                        continue
+                    snapshot = (await self.db.execute(select(PerformanceAuthorizationSnapshot).where(PerformanceAuthorizationSnapshot.cycle_ref == cycle_ref))).scalar_one_or_none()
+                    today = now.astimezone(ZoneInfo("Asia/Shanghai")).date()
+                    due = normalize_cycle_datetime(cycle.lock_at) <= now
+                    version = getattr(cycle, "lock_policy_version", 1)
+                    sync_enabled = version == 2 or cycle.pre_lock_sync_mode == CYCLE_PRE_LOCK_SYNC_AUTO_DAILY
+                    if sync_enabled and (due or snapshot is None or snapshot.last_synced_at is None or normalize_cycle_datetime(snapshot.last_synced_at).astimezone(ZoneInfo("Asia/Shanghai")).date() < today):
+                        await self._sync_snapshot(cycle, actor_type="SYSTEM", actor_id=0)
+                        await self._prune_excluded_leavers(cycle)
+                        await self.db.flush()
+                    if getattr(cycle, "lock_policy_version", 1) == 2:
+                        from app.performance.member_service import adjust_cycle_members, freeze_cycle_members
+                        until = getattr(cycle, "pre_lock_adjust_until", None)
+                        automatic = cycle.pre_lock_sync_mode == CYCLE_PRE_LOCK_SYNC_AUTO_DAILY and until is not None
+                        if automatic and now < normalize_cycle_datetime(until) and not due and getattr(cycle, "pre_lock_adjusted_on", None) != today:
+                            await adjust_cycle_members(self.db, cycle)
+                            cycle.pre_lock_adjusted_on = today
+                        if getattr(cycle, "member_info_frozen_at", None) is None and (due or automatic and now >= normalize_cycle_datetime(until)):
+                            await freeze_cycle_members(self.db, cycle)
+                            cycle.member_info_frozen_at = now
+                    if due:
+                        await self.snapshots.lock_snapshot(cycle.cycle_ref, actor_type="SYSTEM", actor_ref="0", commit=False)
+                        cycle.status = CYCLE_STATUS_LOCKED
+                    await self.db.flush()
+                await self.db.commit()
+                locked += int(due)
+            except Exception:
+                await self.db.rollback()
+                logging.getLogger(__name__).exception("Performance cycle lifecycle failed: %s", cycle_ref)
+                failures.append(cycle_ref)
+        if failures:
+            raise RuntimeError(f"绩效周期处理失败（其他周期已独立保存）：{', '.join(failures)}")
         return locked
+
+    async def _set_bulk_update_guard(self, cycle, enabled):
+        await self.db.execute(text("SELECT set_config('performance.cycle_people_update', :guard, true)"),
+                              {"guard": json.dumps({"cycle_ref": cycle.cycle_ref}) if enabled else ""})
 
     async def _sync_snapshot(self, cycle: PerformanceCycle, *, actor_type: str, actor_id: int, allow_locked_update: bool = False) -> None:
         people = await self._load_roster_inputs(cycle)
-        await self.snapshots.sync_roster(cycle.cycle_ref, people, actor_type=actor_type, actor_ref=_actor_ref(actor_id), allow_locked_update=allow_locked_update, commit=False)
+        if allow_locked_update:
+            await self._set_bulk_update_guard(cycle, True)
+        try:
+            await self.snapshots.sync_roster(cycle.cycle_ref, people, actor_type=actor_type, actor_ref=_actor_ref(actor_id), allow_locked_update=allow_locked_update, commit=False)
+            if allow_locked_update:
+                await self._prune_excluded_leavers(cycle)
+                await self.db.flush()
+                await self._set_bulk_update_guard(cycle, False)
+        except Exception:
+            if allow_locked_update:
+                await self.db.rollback()
+            raise
 
     async def _load_roster_inputs(self, cycle: PerformanceCycle, *, include_excluded_leavers: bool = False) -> list[RosterAuthorizationInput]:
         try:
@@ -845,7 +889,7 @@ class PerformanceCycleService:
 
     @staticmethod
     def serialize(cycle: PerformanceCycle) -> dict[str, Any]:
-        return {"semester_diff_rules": getattr(cycle, "semester_diff_rules", None) or [], "comparison_rules_revision": getattr(cycle, "comparison_rules_revision", 0) or 0, "comparison_rules_editable": getattr(cycle, "_comparison_rules_editable", True), "comparison_rules_editable_reason": None if getattr(cycle, "_comparison_rules_editable", True) else "已有启动项目，暂不支持修改", "id": cycle.id, "cycle_ref": cycle.cycle_ref, "name": cycle.name, "language": cycle.language, "period_year": cycle.period_year, "period_type": cycle.period_type, "period_subtype": getattr(cycle, "period_subtype", None), "template_id": getattr(cycle, "template_id", None), "template_ids": PerformanceCycleService.template_ids(cycle), "start_at": cycle.start_at.isoformat(), "end_at": cycle.end_at.isoformat(), "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at.isoformat() if cycle.lock_at else None, "pre_lock_sync_mode": cycle.pre_lock_sync_mode, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date.isoformat() if cycle.leaver_start_date else None, "leaver_end_date": cycle.leaver_end_date.isoformat() if cycle.leaver_end_date else None, "leaver_participation_mode": cycle.leaver_participation_mode, "allow_delete_360": bool(getattr(cycle, "allow_delete_360", False)), "anonymous_360_config": getattr(cycle, "anonymous_360_config", None) or Anonymous360Config().model_dump(), "invitation_out_of_range_tips_config": getattr(cycle, "invitation_out_of_range_tips_config", None) or InvitationOutOfRangeTipsConfig().model_dump(), "overdue_submission_enabled": getattr(cycle, "overdue_submission_enabled", True), "overdue_submission_scope": getattr(cycle, "overdue_submission_scope", "EVALUATION"), "status": cycle.status}
+        return {"semester_diff_rules": getattr(cycle, "semester_diff_rules", None) or [], "comparison_rules_revision": getattr(cycle, "comparison_rules_revision", 0) or 0, "comparison_rules_editable": getattr(cycle, "_comparison_rules_editable", True), "comparison_rules_editable_reason": None if getattr(cycle, "_comparison_rules_editable", True) else "已有启动项目，暂不支持修改", "id": cycle.id, "cycle_ref": cycle.cycle_ref, "name": cycle.name, "language": cycle.language, "period_year": cycle.period_year, "period_type": cycle.period_type, "period_subtype": getattr(cycle, "period_subtype", None), "template_id": getattr(cycle, "template_id", None), "template_ids": PerformanceCycleService.template_ids(cycle), "start_at": cycle.start_at.isoformat(), "end_at": cycle.end_at.isoformat(), "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at.isoformat() if cycle.lock_at else None, "pre_lock_sync_mode": cycle.pre_lock_sync_mode, "pre_lock_adjust_until": cycle.pre_lock_adjust_until.isoformat() if getattr(cycle, "pre_lock_adjust_until", None) else None, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date.isoformat() if cycle.leaver_start_date else None, "leaver_end_date": cycle.leaver_end_date.isoformat() if cycle.leaver_end_date else None, "leaver_participation_mode": cycle.leaver_participation_mode, "allow_delete_360": bool(getattr(cycle, "allow_delete_360", False)), "anonymous_360_config": getattr(cycle, "anonymous_360_config", None) or Anonymous360Config().model_dump(), "invitation_out_of_range_tips_config": getattr(cycle, "invitation_out_of_range_tips_config", None) or InvitationOutOfRangeTipsConfig().model_dump(), "overdue_submission_enabled": getattr(cycle, "overdue_submission_enabled", True), "overdue_submission_scope": getattr(cycle, "overdue_submission_scope", "EVALUATION"), "status": cycle.status}
 
     @staticmethod
     def _validate_payload(payload: dict[str, Any], *, validate_lock_lead_time=True) -> None:
@@ -856,12 +900,19 @@ class PerformanceCycleService:
         if validate_lock_lead_time and payload["lock_rule"] == CYCLE_LOCK_RULE_SCHEDULED:
             if payload.get("lock_at") is None or payload["lock_at"] < datetime.now(UTC) + timedelta(hours=6):
                 raise CycleValidationError("锁定时间必须比当前时间晚至少 6 小时")
+        if validate_lock_lead_time:
+            until = payload.get("pre_lock_adjust_until")
+            automatic = payload["lock_rule"] == CYCLE_LOCK_RULE_SCHEDULED and payload.get("pre_lock_sync_mode") == CYCLE_PRE_LOCK_SYNC_AUTO_DAILY
+            if automatic and (until is None or not datetime.now(UTC) < until <= payload["lock_at"]):
+                raise CycleValidationError("自动调整截止时间必须晚于当前时间且不晚于锁定时间")
+            if not automatic and until is not None:
+                raise CycleValidationError("手动调整或立即锁定时自动调整截止时间必须为空")
         if payload["leaver_enabled"] and (payload.get("leaver_start_date") is None or payload.get("leaver_end_date") is None or payload["leaver_end_date"] < payload["leaver_start_date"]):
             raise CycleValidationError("离职人员参评日期范围不合法")
 
     @classmethod
     def _validate_cycle(cls, cycle: PerformanceCycle) -> None:
-        cls._validate_payload({"name": cycle.name, "start_at": cycle.start_at, "end_at": cycle.end_at, "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date, "leaver_end_date": cycle.leaver_end_date}, validate_lock_lead_time=False)
+        cls._validate_payload({"name": cycle.name, "start_at": cycle.start_at, "end_at": cycle.end_at, "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at, "pre_lock_sync_mode": getattr(cycle, "pre_lock_sync_mode", CYCLE_PRE_LOCK_SYNC_MANUAL), "pre_lock_adjust_until": getattr(cycle, "pre_lock_adjust_until", None), "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date, "leaver_end_date": cycle.leaver_end_date}, validate_lock_lead_time=False)
     @staticmethod
     def _normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
         normalized = dict(payload)
@@ -879,7 +930,7 @@ class PerformanceCycleService:
             normalized["template_ids"] = [normalized["template_id"]] if normalized["template_id"] else []
         else:
             normalized.pop("template_ids", None)
-        for field in ("start_at", "end_at", "lock_at"):
+        for field in ("start_at", "end_at", "lock_at", "pre_lock_adjust_until"):
             value = normalized.get(field)
             if value is not None:
                 normalized[field] = normalize_cycle_datetime(value)

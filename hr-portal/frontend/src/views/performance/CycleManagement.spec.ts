@@ -700,8 +700,105 @@ describe('CycleManagement', () => {
 
     expect(wrapper.find('.lock-settings-card').exists()).toBe(true)
     expect(wrapper.find('.lock-settings-card').text()).toContain('锁定时间')
-    expect(wrapper.find('.lock-settings-card').text()).toContain('锁定前名单同步')
+    expect(wrapper.find('.lock-settings-card').text()).toContain('锁定时间前，已启动项目的「被评估人名单」是否跟随人员和部门信息变化')
     expect(wrapper.find('.lock-settings-card .sync-field').exists()).toBe(true)
+  })
+
+  it('keeps a separate adjustment deadline draft and opens the shared date-time panel', async () => {
+    const wrapper = await mountView('/performance/settings/cycles/new')
+    await wrapper.get('input[value="SCHEDULED"]').setValue(true)
+    const group = wrapper.get('[aria-label="被评估人名单自动调整方式"]')
+    expect(group.classes()).toContain('performance-radio-group--vertical')
+    expect(group.findAll('label').map(option => option.text())).toEqual(['不自动变化，由项目管理员手动调整', '指定时间前，系统每天定时自动调整'])
+    expect(wrapper.find('#adjust-until').exists()).toBe(false)
+    await wrapper.get('input[value="AUTO_DAILY"]').setValue(true)
+    await wrapper.get('#adjust-until').setValue('2099-11-21T12:30')
+    await wrapper.get('#adjust-until').trigger('click')
+    await flushPromises()
+    expect(document.body.querySelector('[role="dialog"][aria-label="自动调整截止时间选择器"]')?.textContent).toContain('取消确定')
+    const cancel = Array.from(document.body.querySelectorAll<HTMLButtonElement>('.performance-datetime-panel button')).find(button => button.textContent === '取消')!
+    cancel.click()
+    await flushPromises()
+    await wrapper.get('input[value="MANUAL"]').setValue(true)
+    expect(wrapper.find('#adjust-until').exists()).toBe(false)
+    await wrapper.get('input[value="AUTO_DAILY"]').setValue(true)
+    expect((wrapper.get('#adjust-until').element as HTMLInputElement).value).toBe('2099-11-21 12:30')
+    wrapper.unmount()
+  })
+
+  it('validates the independent deadline and submits it in UTC only for automatic mode', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-11-21T00:00:00Z').getTime())
+    try {
+      const wrapper = await mountView('/performance/settings/cycles/new')
+      await wrapper.get('#cycle-name').setValue('锁定规则验收')
+      const state = (wrapper.vm as any).$?.setupState
+      Object.assign(state.form, { period_year: 2026, period_type: 'CUSTOM', period_subtype: 'CUSTOM', start_at: '2026-01-01T00:00', end_at: '2026-12-31T23:59', evaluation_templates: ['101'] })
+      await wrapper.get('input[value="SCHEDULED"]').setValue(true)
+      await wrapper.get('#lock-at').setValue('2026-11-22T18:00')
+      await wrapper.get('input[value="AUTO_DAILY"]').setValue(true)
+      await wrapper.get('form').trigger('submit')
+      expect(wrapper.get('#adjust-until-error').text()).toBe('截止时间为必填')
+      expect(mocks.create).not.toHaveBeenCalled()
+      await wrapper.get('#adjust-until').setValue('2026-11-23T12:00')
+      await wrapper.get('form').trigger('submit')
+      expect(wrapper.get('#adjust-until-error').text()).toBe('截止时间不能晚于锁定时间')
+      expect(mocks.create).not.toHaveBeenCalled()
+      await wrapper.get('#adjust-until').setValue('2026-11-21T08:00')
+      await wrapper.get('form').trigger('submit')
+      expect(wrapper.get('#adjust-until-error').text()).toBe('截止时间必须晚于当前时间')
+      await wrapper.get('#adjust-until').setValue('2026-11-22T18:00')
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ pre_lock_sync_mode: 'AUTO_DAILY', pre_lock_adjust_until: '2026-11-22T10:00:00.000Z', lock_at: '2026-11-22T10:00:00.000Z' }))
+      wrapper.unmount()
+    } finally { now.mockRestore() }
+  })
+
+  it.each(['MANUAL', 'IMMEDIATE'])('omits a hidden deadline from %s creation while keeping the local draft', async mode => {
+    const wrapper = await mountView('/performance/settings/cycles/new')
+    const state = (wrapper.vm as any).$?.setupState
+    Object.assign(state.form, { name: '隐藏截止验收', period_year: 2026, period_type: 'CUSTOM', period_subtype: 'CUSTOM', start_at: '2026-01-01T00:00', end_at: '2099-12-31T23:59', evaluation_templates: ['101'] })
+    await wrapper.get('input[value="SCHEDULED"]').setValue(true)
+    await wrapper.get('#lock-at').setValue('2099-11-22T18:00')
+    await wrapper.get('input[value="AUTO_DAILY"]').setValue(true)
+    await wrapper.get('#adjust-until').setValue('2099-11-21T12:30')
+    await wrapper.get(`input[value="${mode}"]`).setValue(true)
+    expect(wrapper.find('#adjust-until').exists()).toBe(false)
+    expect(state.form.pre_lock_adjust_until).toBe('2099-11-21T12:30')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ pre_lock_sync_mode: 'MANUAL', pre_lock_adjust_until: null, lock_rule: mode === 'IMMEDIATE' ? 'IMMEDIATE' : 'SCHEDULED' }))
+    wrapper.unmount()
+  })
+
+  it('revalidates a deadline against the current clock at save even if the input has not changed', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-11-21T00:00:00Z').getTime())
+    try {
+      const wrapper = await mountView('/performance/settings/cycles/new')
+      Object.assign((wrapper.vm as any).$?.setupState.form, { name: '跨时刻验收', period_year: 2026, period_type: 'CUSTOM', period_subtype: 'CUSTOM', start_at: '2026-01-01T00:00', end_at: '2026-12-31T23:59', evaluation_templates: ['101'] })
+      await wrapper.get('input[value="SCHEDULED"]').setValue(true)
+      await wrapper.get('#lock-at').setValue('2026-11-22T18:00')
+      await wrapper.get('input[value="AUTO_DAILY"]').setValue(true)
+      await wrapper.get('#adjust-until').setValue('2026-11-21T08:01')
+      expect(wrapper.find('#adjust-until-error').exists()).toBe(false)
+      now.mockReturnValue(new Date('2026-11-21T00:02:00Z').getTime())
+      await wrapper.get('form').trigger('submit')
+      expect(mocks.create).not.toHaveBeenCalled()
+      expect(wrapper.get('#adjust-until-error').text()).toBe('截止时间必须晚于当前时间')
+      wrapper.unmount()
+    } finally { now.mockRestore() }
+  })
+
+  it('reopens the adjustment deadline read-only and omits every immutable lock field from PATCH', async () => {
+    mocks.get.mockResolvedValue({ ...cycle, lock_rule: 'SCHEDULED', lock_at: '2026-11-22T10:00:00Z', pre_lock_sync_mode: 'AUTO_DAILY', pre_lock_adjust_until: '2026-11-21T04:30:00Z', template_ids: [101] })
+    const wrapper = await mountView('/performance/settings/cycles/1/edit')
+    expect((wrapper.get('#adjust-until').element as HTMLInputElement).value).toBe('2026-11-21 12:30')
+    expect((wrapper.get('#adjust-until').element as HTMLInputElement).disabled).toBe(true)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    const payload = mocks.update.mock.calls.at(-1)![1]
+    for (const key of ['lock_rule', 'lock_at', 'pre_lock_sync_mode', 'pre_lock_adjust_until']) expect(payload).not.toHaveProperty(key)
+    wrapper.unmount()
   })
 
   it('does not show the six-hour rule when reopening a historical scheduled cycle', async () => {

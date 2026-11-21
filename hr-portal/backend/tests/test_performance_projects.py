@@ -13872,6 +13872,152 @@ async def test_task_delegation_idempotency_key_returns_existing_without_new_reco
     assert other["idempotent"] is not True and other["id"] == 2 and len(data.db.records) == 2 and len(data.db.events) == 2 and data.db.commits == 2
 
 
+@pytest.fixture
+def cycle_adjustment_sqlite():
+    from sqlalchemy import CheckConstraint, Integer, JSON, MetaData, create_engine, event
+    from sqlalchemy.dialects.postgresql import JSONB
+    from sqlalchemy.orm import Session
+    from sqlalchemy.schema import CreateTable
+    from app.performance import models as pm
+
+    metadata = MetaData()
+    models = (pm.PerformanceAuthorizationSnapshot, pm.PerformanceAuthorizationSnapshotPerson,
+              pm.PerformanceProject, pm.PerformanceProjectMemberSnapshot, pm.PerformanceProjectMember,
+              pm.PerformanceProjectNodeSnapshot, pm.PerformanceNodeTask, pm.PerformanceCycleProjectManager,
+              pm.PerformanceResultOpening, pm.PerformanceResultReconsideration, pm.PerformanceAuditEvent)
+    for model in models:
+        table = model.__table__.to_metadata(metadata)
+        for constraint in list(table.constraints):
+            if isinstance(constraint, CheckConstraint):
+                table.constraints.remove(constraint)
+        for column in table.columns:
+            if isinstance(column.type, JSONB):
+                column.type = JSON()
+            if column.primary_key:
+                column.type = Integer()
+            else:
+                column.nullable = True
+    engine = create_engine("sqlite://")
+    with engine.begin() as connection:
+        for table in metadata.tables.values():
+            connection.execute(CreateTable(table, include_foreign_key_constraints=[]))
+        with Session(bind=connection, autoflush=False) as session:
+            writes = []
+            orm_mutations = []
+            @event.listens_for(connection, "before_cursor_execute")
+            def track_sql(_connection, _cursor, statement, parameters, _context, _many):
+                if statement.split()[0].upper() in {"INSERT", "UPDATE", "DELETE"}:
+                    writes.append((statement, parameters))
+            @event.listens_for(session, "before_flush")
+            def track_members(_session, _context, _instances):
+                for row in session.new | session.dirty | session.deleted:
+                    if isinstance(row, (pm.PerformanceProjectMember, pm.PerformanceNodeTask)):
+                        orm_mutations.append(getattr(row, "employee_no", None) or row.target_employee_no)
+            class Db:
+                async def scalar(self, statement): return session.scalar(statement)
+                async def execute(self, statement): return session.execute(statement)
+                async def delete(self, row): session.delete(row)
+                def add(self, row): session.add(row)
+                async def flush(self): session.flush()
+            cycle = SimpleNamespace(cycle_ref="C-adjust", leaver_enabled=True,
+                                    leaver_start_date=date(2026, 1, 1), leaver_end_date=date(2026, 12, 31),
+                                    leaver_participation_mode="REPORT_ONLY")
+            def rules(values):
+                return {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": values}]}]}
+            session.add(pm.PerformanceAuthorizationSnapshot(id=100, cycle_ref=cycle.cycle_ref, status="DRAFT"))
+            for no in ("A", "B", "KEEP1", "KEEP2", "DROP", "NEW", "REPORT", "OUT"):
+                session.add(pm.PerformanceAuthorizationSnapshotPerson(
+                    snapshot_id=100, employee_no=no, display_name=no, department="latest",
+                    employment_status="离职" if no == "REPORT" else "在职",
+                    departure_date=date(2026, 6, 1) if no == "REPORT" else None))
+            projects = [pm.PerformanceProject(id=i, cycle_ref=cycle.cycle_ref, project_ref=f"P{i}", name=f"P{i}",
+                        status="STARTED", evaluated_count=3 if i == 1 else 2, settings={
+                            "evaluator_rules": rules(["B", "KEEP1", "NEW", "REPORT", "OUT"] if i == 1 else ["A", "KEEP2"]),
+                            "scope_rules": rules(["A", "B", "KEEP1", "KEEP2", "NEW", "REPORT"]),
+                        }) for i in (1, 2)]
+            session.add_all(projects)
+            for project in projects:
+                current = ["A", "KEEP1", "DROP"] if project.id == 1 else ["B", "KEEP2"]
+                session.add(pm.PerformanceProjectMemberSnapshot(id=project.id, project_id=project.id,
+                            cycle_ref=cycle.cycle_ref, snapshot_version=1, source_snapshot_id=100,
+                            source_filter={"task_generation_employee_nos": current}))
+                session.add(pm.PerformanceProjectNodeSnapshot(id=project.id, project_id=project.id,
+                            node_id="self", node_type="evaluation", name="评价", node_order=1,
+                            config={"template": {"executor_role_code": "assessment.reviewee"}}))
+                for no in current:
+                    session.add(pm.PerformanceProjectMember(snapshot_id=project.id, employee_no=no,
+                                display_name=no, department="frozen", shared_result_state={"saved": no}))
+                    session.add(pm.PerformanceNodeTask(project_id=project.id, cycle_ref=cycle.cycle_ref,
+                                member_snapshot_id=project.id, node_snapshot_id=project.id,
+                                target_employee_no=no, handler_ref=no, task_kind="evaluation", phase_id="",
+                                status="completed", answers={"rating": "A"}, draft_answers={"draft": no},
+                                answer_version=7, submitted_at=datetime(2026, 1, 1)))
+            session.flush()
+            writes.clear()
+            orm_mutations.clear()
+            yield SimpleNamespace(db=Db(), cycle=cycle, projects=projects, session=session, pm=pm,
+                                  writes=writes, orm_mutations=orm_mutations)
+    engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("conflict", [False, True])
+async def test_adjust_cycle_members_real_plan_transfer_retention_and_conflict(cycle_adjustment_sqlite, conflict):
+    from copy import deepcopy
+    from fastapi import HTTPException
+    from sqlalchemy import select
+    from app.performance.member_service import adjust_cycle_members
+
+    data = cycle_adjustment_sqlite
+    pm, session = data.pm, data.session
+    if conflict:
+        data.projects[1].settings = {**data.projects[1].settings, "evaluator_rules": deepcopy(data.projects[0].settings["evaluator_rules"])}
+        session.flush()
+        data.writes.clear()
+    settings = [deepcopy(project.settings) for project in data.projects]
+    retained = list(session.scalars(select(pm.PerformanceProjectMember).where(pm.PerformanceProjectMember.employee_no.in_(["KEEP1", "KEEP2"]))))
+    retained_tasks = list(session.scalars(select(pm.PerformanceNodeTask).where(pm.PerformanceNodeTask.target_employee_no.in_(["KEEP1", "KEEP2"]))))
+    def state(rows):
+        return [{column.key: deepcopy(getattr(row, column.key)) for column in row.__table__.columns} for row in rows]
+    before = state(retained), state(retained_tasks)
+    if conflict:
+        with pytest.raises(HTTPException) as rejected:
+            await adjust_cycle_members(data.db, data.cycle)
+        assert rejected.value.status_code == 409
+        assert data.writes == [] and data.orm_mutations == []
+        assert session.scalar(select(pm.PerformanceAuditEvent.id)) is None
+        assert (state(retained), state(retained_tasks)) == before
+        return
+
+    await adjust_cycle_members(data.db, data.cycle)
+    await data.db.flush()
+    members = {(row.snapshot_id, row.employee_no) for row in session.scalars(select(pm.PerformanceProjectMember))}
+    assert members == {(1, "B"), (1, "KEEP1"), (1, "NEW"), (1, "REPORT"), (2, "A"), (2, "KEEP2")}
+    assert [project.evaluated_count for project in data.projects] == [3, 2]
+    assert [project.settings for project in data.projects] == settings
+    snapshots = list(session.scalars(select(pm.PerformanceProjectMemberSnapshot).order_by(pm.PerformanceProjectMemberSnapshot.id)))
+    assert [row.source_filter["task_generation_employee_nos"] for row in snapshots] == [["B", "KEEP1", "NEW"], ["A", "KEEP2"]]
+    task_members = {(row.project_id, row.target_employee_no) for row in session.scalars(select(pm.PerformanceNodeTask))}
+    assert task_members == {(1, "B"), (1, "KEEP1"), (1, "NEW"), (2, "A"), (2, "KEEP2")}
+    member_writes = [sql for sql, _params in data.writes if "performance_project_members" in sql]
+    assert [sql.split()[0] for sql in member_writes] == ["DELETE", "DELETE", "DELETE", "INSERT", "INSERT", "INSERT", "INSERT"]
+    assert not {"KEEP1", "KEEP2"}.intersection(data.orm_mutations)
+    session.expire_all()
+    assert (state(retained), state(retained_tasks)) == before
+    event = session.scalar(select(pm.PerformanceAuditEvent).where(pm.PerformanceAuditEvent.event_type == "PERFORMANCE_CYCLE_MEMBERS_ADJUSTED"))
+    assert event.after_state == {"projects": [
+        {"project_id": 1, "removed": ["A", "DROP"], "added": ["B", "NEW", "REPORT"]},
+        {"project_id": 2, "removed": ["B"], "added": ["A"]},
+    ]}
+    assert {row.actor_type for row in session.scalars(select(pm.PerformanceAuditEvent))} == {"SYSTEM"}
+    data.writes.clear()
+    data.orm_mutations.clear()
+    await adjust_cycle_members(data.db, data.cycle)
+    await data.db.flush()
+    assert data.orm_mutations == []
+    assert all("performance_project_members" not in sql and "performance_node_tasks" not in sql for sql, _ in data.writes)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("scenario", ["active", "report_only", "last_member", "denied", "archived", "repeated", "revoked_after_lock", "outside_scope_after_lock"])
 async def test_remove_project_member_deletes_member_tasks_and_maintains_snapshot(monkeypatch, scenario):
@@ -13944,6 +14090,8 @@ async def test_remove_project_member_deletes_member_tasks_and_maintains_snapshot
     monkeypatch.setattr(routes, "_project_data_scope", scope)
     audit = SimpleNamespace(append_event=lambda _input: None)
     monkeypatch.setattr(routes, "PerformanceAuditService", lambda _db: audit)
+    from app.performance import member_service
+    monkeypatch.setattr(member_service, "PerformanceAuditService", lambda _db: audit)
     monkeypatch.setattr(PerformanceProjectService, "project_audience", AsyncMock(return_value=([member], [SimpleNamespace(employee_no=no) for no in generation], [])))
     if scenario in {"denied", "archived", "revoked_after_lock", "outside_scope_after_lock"}:
         with pytest.raises(HTTPException) as rejected:

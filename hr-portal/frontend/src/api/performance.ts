@@ -2758,6 +2758,7 @@ export interface PerformanceCycle {
   lock_rule: PerformanceCycleLockRule
   lock_at: string | null
   pre_lock_sync_mode: PerformanceCycleSyncMode
+  pre_lock_adjust_until?: string | null
   leaver_enabled: boolean
   leaver_start_date: string | null
   leaver_end_date: string | null
