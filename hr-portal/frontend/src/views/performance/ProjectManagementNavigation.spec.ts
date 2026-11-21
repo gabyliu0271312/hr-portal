@@ -34,6 +34,16 @@ async function setup(component: any) {
 }
 
 describe('management child page context', () => {
+  it('uses the overview entry metadata without repeating the overview request', async () => {
+    const { wrapper, router } = await setup(ProjectManagementReminder)
+    vi.mocked(projectManagementApi.overview).mockClear()
+    await router.replace({ query: { ...router.currentRoute.value.query, node_key: 'work-summary', reminder_title: '填写工作总结', reminder_description: '完成率：0.00%　|　完成情况：0/601　|　截止时间：--' } })
+    await flushPromises()
+    expect(projectManagementApi.overview).not.toHaveBeenCalled()
+    expect(wrapper.getComponent({ name: 'PerformanceTaskHeader' }).props('title')).toBe('填写工作总结')
+    expect(wrapper.getComponent({ name: 'PerformanceReminderPanel' }).props('description')).toContain('0/601')
+    wrapper.unmount()
+  })
   it.each([
     [ProjectAuthorizationRecords, 'UiPageHeader'],
     [ProjectCalibrationAuthorization, 'UiPageHeader'],

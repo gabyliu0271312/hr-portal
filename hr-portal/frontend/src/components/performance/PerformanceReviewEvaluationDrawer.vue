@@ -158,7 +158,7 @@ const managementCompletionMessages = computed(() => {
   if (currentManagementTab.value && task.value?.submitted_at) return completionMessages.value
   return tab.submitted_at ? [`以下内容由 评估人 在 ${formatDate(tab.submitted_at)} 提交`] : []
 })
-const displayPerson = computed<DrawerPerson>(() => task.value ? task.value.person : { employee_no: props.employeeNo, display_name: '' })
+const displayPerson = computed<DrawerPerson>(() => task.value ? task.value.person : { employee_no: props.employeeNo, display_name: error.value ? '' : props.member?.display_name || props.person.display_name || '' })
 const taskEditable = computed(() => Boolean(!props.readonly && !task.value?.final_result_locked && task.value?.editable && task.value?.submit_allowed && (task.value.task_kind !== 'calibration' || !task.value.deadline_at || Date.parse(task.value.deadline_at) >= Date.now())))
 const completionMessages = computed(() => {
   const current = task.value

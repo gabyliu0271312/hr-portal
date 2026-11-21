@@ -358,6 +358,137 @@ async def test_preloaded_reminder_checks_batch_queries_and_sending_revalidates(e
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reuse_grants", [False, True])
+async def test_preload_reuses_read_context_without_duplicate_task_actor_or_snapshot_queries(environment, reuse_grants):
+    db, context, sender = environment
+    db.info = {}
+    db.get = AsyncMock(wraps=db.get)
+    db.scalar = AsyncMock(wraps=db.scalar)
+    actor = TrustedPerformanceActor("EMPLOYEE", "M1")
+    kwargs = dict(tasks=list(reversed(db.tasks.values())), nodes=list(db.nodes.values()), actor=actor)
+    if reuse_grants:
+        kwargs["active_by_task"] = {1: [delegation(1, "A1")]}
+    await adapter.preload_member_reminders(db.project, [db.member], context, db, **kwargs)
+    preloaded = next(iter(db.info["performance_member_reminder_preload"].values()))
+    assert [item.id for item, _ in preloaded["rows"][(10, "E1")]] == [1, 2, 3]
+    assert preloaded["actor"] is actor
+    assert preloaded["grants"].get(1, []) == (kwargs["active_by_task"][1] if reuse_grants else [])
+    assert await adapter.can_remind_member(db.project, "E1", context, db)
+    await adapter.preload_member_reminders(db.project, [db.member], context, db, **kwargs)
+    entities = [query.column_descriptions[0]["entity"] for query in db.queries]
+    assert entities.count(PerformanceNodeTask) == 0
+    assert entities.count(PerformanceNodeTaskAuthorization) == (0 if reuse_grants else 2)
+    shared.resolve_trusted_performance_actor.assert_not_awaited()
+    assert db.get.await_args_list.count(((PerformanceProjectMemberSnapshot, 10), {})) == 1
+    assert db.get.await_args_list.count(((PerformanceAuthorizationSnapshot, 100), {})) == 1
+    assert db.scalar.await_count == 2
+    db.info.clear()
+    await adapter.preload_member_reminders(db.project, [db.member], context, db, **kwargs)
+    assert db.get.await_args_list.count(((PerformanceProjectMemberSnapshot, 10), {})) == 2
+    assert db.get.await_args_list.count(((PerformanceAuthorizationSnapshot, 100), {})) == 2
+    sender.assert_not_awaited()
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field,value", [("project_id", 2), ("cycle_ref", "cycle:2"),
+    ("member_snapshot_id", 99), ("target_employee_no", "OTHER"),
+    ("revoked_at", datetime.now(UTC)), ("node_snapshot_id", 99), ("node_project", 2)])
+async def test_supplied_reminder_context_filters_untrusted_tasks_and_nodes(environment, field, value):
+    db, context, sender = environment
+    db.info = {}
+    if field == "node_project":
+        db.nodes[11].project_id = value
+    else:
+        setattr(db.tasks[1], field, value)
+    await adapter.preload_member_reminders(db.project, [db.member], context, db,
+        tasks=list(db.tasks.values()), nodes=list(db.nodes.values()), active_by_task={},
+        actor=TrustedPerformanceActor("EMPLOYEE", "M1"))
+    preloaded = next(iter(db.info["performance_member_reminder_preload"].values()))
+    assert 1 not in preloaded["tasks"]
+    assert not await adapter.can_remind_member(db.project, "E1", context, db, task_id=1)
+    assert await adapter.can_remind_member(db.project, "E1", context, db, task_id=2)
+    sender.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_supplied_context_keeps_snapshot_employee_pairs_and_authorizations_isolated(environment):
+    db, context, _sender = environment
+    db.info = {}
+    other_member = PerformanceProjectMember(id=8, snapshot_id=9, employee_no="E2")
+    tasks = [db.tasks[1], task(4, target_employee_no="E2"), task(5, member_snapshot_id=9)]
+    valid = delegation(1, "A1")
+    grants = {1: [valid, delegation(1, "T1", project_id=2), delegation(1, "T1", cycle_ref="cycle:2"),
+        delegation(1, "T1", status="REVOKED"), delegation(2, "T1")], 2: [delegation(1, "T1")]}
+    await adapter.preload_member_reminders(db.project, [db.member, other_member], context, db,
+        tasks=tasks, nodes=list(db.nodes.values()), active_by_task=grants,
+        actor=TrustedPerformanceActor("EMPLOYEE", "M1"))
+    preloaded = next(iter(db.info["performance_member_reminder_preload"].values()))
+    assert set(preloaded["tasks"]) == {1}
+    assert preloaded["rows"][(9, "E2")] == []
+    assert preloaded["grants"] == {1: [valid]}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["snapshot_project", "snapshot_cycle", "source_missing", "source_cycle", "latest_changed"])
+async def test_supplied_context_preserves_snapshot_source_and_latest_checks(environment, reason):
+    db, context, _sender = environment
+    db.info = {}
+    if reason == "snapshot_project":
+        db.snapshot.project_id = 2
+    elif reason == "snapshot_cycle":
+        db.snapshot.cycle_ref = "cycle:2"
+    elif reason in {"source_missing", "source_cycle"}:
+        get = db.get
+        async def get_snapshot(model, key):
+            if model is PerformanceAuthorizationSnapshot:
+                return None if reason == "source_missing" else SimpleNamespace(cycle_ref="cycle:2")
+            return await get(model, key)
+        db.get = get_snapshot
+    else:
+        db.scalar = AsyncMock(return_value=99)
+    await adapter.preload_member_reminders(db.project, [db.member], context, db,
+        tasks=list(db.tasks.values()), nodes=list(db.nodes.values()), active_by_task={},
+        actor=TrustedPerformanceActor("EMPLOYEE", "M1"))
+    assert not await adapter.can_remind_member(db.project, "E1", context, db)
+    if reason == "latest_changed":
+        assert await adapter.can_remind_member(db.project, "E1", context, db, source_task_id=3)
+    else:
+        assert not await adapter.can_remind_member(db.project, "E1", context, db, source_task_id=3)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["management", "actor", "grant", "handler", "setting"])
+async def test_sending_rechecks_permissions_and_delivery_after_supplied_context_preload(environment, monkeypatch, reason):
+    db, context, sender = environment
+    db.info = {}
+    await adapter.preload_member_reminders(db.project, [db.member], context, db,
+        tasks=list(db.tasks.values()), nodes=list(db.nodes.values()), active_by_task={},
+        actor=TrustedPerformanceActor("EMPLOYEE", "M1"))
+    source_task_id = 3 if reason == "setting" else None
+    assert await adapter.can_remind_member(db.project, "E1", context, db, source_task_id=source_task_id)
+    if reason == "management":
+        shared._can_manage_project_like_overview.return_value = False
+        shared._project_data_scope.return_value = set()
+        monkeypatch.setattr(shared, "_member_manager_task_for_actor", AsyncMock(return_value=None))
+    elif reason == "actor":
+        shared.resolve_trusted_performance_actor.return_value = TrustedPerformanceActor("EMPLOYEE", "E1")
+    elif reason == "grant":
+        db.delegations = [delegation(1, "UNKNOWN", "TRANSFER")]
+    elif reason == "handler":
+        db.mapped.remove("E1")
+    else:
+        db.permission_setting = SimpleNamespace(manager_reminder_enabled=False, manager_reminder_node_types=[])
+    try:
+        response = await sending(db, context, [1], **({"source_task_id": source_task_id} if source_task_id else {}))
+        assert response["accepted_task_ids"] == []
+    except HTTPException as exc:
+        assert reason == "management" and exc.status_code == 403
+    sender.assert_not_awaited()
+    shared.resolve_trusted_performance_actor.assert_awaited()
+
+
+@pytest.mark.asyncio
 async def test_all_member_task_types_are_listed_and_sent_without_self_or_profile_leaks(environment):
     db, context, sender = environment
     response = await listing(db, context)
@@ -830,3 +961,281 @@ async def test_old_single_endpoint_uses_source_and_shared_six_hour_dedup(environ
     payload.skip_recently_reminded = False
     response = await shared.project_member_remind(1, "E1", payload, context, db)
     assert response["accepted_task_ids"] == [1]
+
+
+def batch_request(**updates):
+    from app.performance.batch_reminders import ReminderRequest
+    values = dict(cycle_id=1, node_key="work-summary", skip_recently_reminded=True,
+        request_id="cad32846-e56f-40ab-8ad0-dbb690b59f02",
+        selection={"is_select_all": True, "selected_task_ids": [], "deselected_task_ids": []})
+    values.update(updates)
+    return ReminderRequest(**values)
+
+
+@pytest.mark.parametrize("updates", [
+    {"selection": {"is_select_all": True, "selected_task_ids": [1], "deselected_task_ids": []}},
+    {"selection": {"is_select_all": False, "selected_task_ids": [], "deselected_task_ids": []}},
+    {"selection": {"is_select_all": False, "selected_task_ids": [1], "deselected_task_ids": [2]}},
+    {"selection": {"is_select_all": False, "selected_task_ids": [0], "deselected_task_ids": []}},
+    {"selection": {"is_select_all": False, "selected_task_ids": [True], "deselected_task_ids": []}},
+    {"selection": {"is_select_all": True, "selected_task_ids": [], "deselected_task_ids": [], "extra": 1}},
+    {"extra": 1}, {"request_id": "not-uuid"},
+])
+def test_batch_request_rejects_invalid_and_unknown(updates):
+    with pytest.raises(ValidationError):
+        batch_request(**updates)
+
+
+def test_batch_request_normalizes_selection():
+    request = batch_request(selection={"is_select_all": False, "selected_task_ids": [3, 1, 3], "deselected_task_ids": [], "keyword": "  测试  "})
+    assert request.selection.selected_task_ids == [1, 3]
+    assert request.selection.keyword == "测试"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("switched", [False, True])
+async def test_batch_accept_persists_scope_without_list_or_send(environment, monkeypatch, switched):
+    from app.performance import batch_reminders as batch
+    from app.identity_switch.service import current_switch
+    db, context, sender = environment
+    db.scalar = AsyncMock(side_effect=[None, 10])
+    db.execute = AsyncMock(return_value=result([37]))
+    monkeypatch.setattr(batch, "reminder_projects", AsyncMock(return_value=[(db.project, {"E1"})]))
+    listing_mock = AsyncMock(side_effect=AssertionError("accept must not build list"))
+    monkeypatch.setattr(shared, "_completion_reminder_rows", listing_mock)
+    token = current_switch.set(object() if switched else None)
+    try:
+        assert await batch.accept_request(batch_request(), context, db) == 37
+    finally:
+        current_switch.reset(token)
+    params = db.execute.await_args.args[0].compile().params
+    assert params["payload"]["projects"] == [{"project_id": 1, "snapshot_id": 10, "employee_nos": ["E1"]}]
+    assert params["payload"]["state"] == ("skipped" if switched else "queued")
+    assert params["enabled"] is not switched
+    assert "ON CONFLICT" in str(db.execute.await_args.args[0].compile(dialect=postgresql.dialect()))
+    db.commit.assert_awaited_once()
+    listing_mock.assert_not_awaited()
+    sender.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["permission", "commit"])
+async def test_batch_accept_failure_never_sends(environment, monkeypatch, failure):
+    from app.performance import batch_reminders as batch
+    db, context, sender = environment
+    db.scalar = AsyncMock(side_effect=[None, 10])
+    db.execute = AsyncMock(return_value=result([37]))
+    monkeypatch.setattr(batch, "reminder_projects", AsyncMock(return_value=[(db.project, None)],
+        side_effect=HTTPException(403, "forbidden") if failure == "permission" else None))
+    if failure == "commit":
+        db.commit.side_effect = RuntimeError("commit failed")
+    with pytest.raises((HTTPException, RuntimeError)):
+        await batch.accept_request(batch_request(), context, db)
+    sender.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("conflict", [False, True])
+async def test_batch_idempotency_existing_owner_request(environment, monkeypatch, conflict):
+    from app.performance import batch_reminders as batch
+    db, context, sender = environment
+    db.scalar = AsyncMock(side_effect=[None, 10])
+    db.execute = AsyncMock(return_value=result([37]))
+    monkeypatch.setattr(batch, "reminder_projects", AsyncMock(return_value=[(db.project, None)]))
+    await batch.accept_request(batch_request(), context, db)
+    payload = db.execute.await_args.args[0].compile().params["payload"]
+    db.scalar = AsyncMock(return_value=SimpleNamespace(id=37, payload=payload))
+    if conflict:
+        with pytest.raises(HTTPException) as error:
+            await batch.accept_request(batch_request(department="其它"), context, db)
+        assert error.value.status_code == 409
+    else:
+        assert await batch.accept_request(batch_request(), context, db) == 37
+    sender.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_batch_page_hydrates_only_current_page(environment, monkeypatch):
+    db, context, _ = environment
+    calls = []
+    async def rows(*args, display_task_ids=None, **kwargs):
+        calls.append(display_task_ids)
+        return [{"task_id": index, "selectable": index % 2 == 0} for index in range(1, 602)]
+    monkeypatch.setattr(shared, "_completion_reminder_rows", rows)
+    hydrate = AsyncMock()
+    monkeypatch.setattr(shared, "hydrate_task_people_rows", hydrate)
+    response = await shared.project_management_reminder_people(1, "work-summary", None, None, 2, 50, context, db, None)
+    assert calls == [set(), set(range(51, 101))]
+    assert len(response["items"]) == 50 and response["total"] == 601 and response["selectable_count"] == 300
+    assert len(hydrate.await_args.args[1]) == 50
+
+
+@pytest.mark.asyncio
+async def test_batch_worker_intersects_frozen_scope_and_snapshot(environment, monkeypatch):
+    from app.performance import batch_reminders as batch
+    db, context, _ = environment
+    job = SimpleNamespace(payload={"owner": {}, "projects": [
+        {"project_id": 1, "snapshot_id": 10, "employee_nos": ["E1", "E2"]},
+        {"project_id": 2, "snapshot_id": 20, "employee_nos": None}], "request": batch_request().model_dump(mode="json")})
+    monkeypatch.setattr(batch, "load_owner", AsyncMock(return_value=context))
+    monkeypatch.setattr(batch, "reminder_projects", AsyncMock(return_value=[(db.project, {"E2", "E3"}), (SimpleNamespace(id=2), None)]))
+    db.scalar = AsyncMock(side_effect=[10, 21])
+    rows = AsyncMock(return_value=[])
+    monkeypatch.setattr(shared, "_completion_reminder_rows", rows)
+    await batch.eligible_rows(job, db)
+    assert rows.await_args.kwargs["permitted_projects"] == [(db.project, {"E2"})]
+    assert rows.await_args.kwargs["display_task_ids"] == set()
+
+
+@pytest.mark.asyncio
+async def test_batch_recovery_marks_dispatch_unknown_and_keeps_queue(environment, monkeypatch):
+    from app.performance import batch_reminders as batch
+    db, context, _ = environment
+    db.info = {}
+    job = SimpleNamespace(id=37, enabled=True, payload={"state": "dispatching", "dispatch": [{"task_id": 1}],
+        "pending_task_ids": [1, 2], "request": {"skip_recently_reminded": False}})
+    monkeypatch.setattr(batch, "eligible_rows", AsyncMock(return_value=(context, [{"task_id": 2, "selectable": True, "eligible_handlers": ["E1"]}])))
+    db.execute = AsyncMock(return_value=result([(db.tasks[2], db.nodes[12], db.project)]))
+    await batch.prepare_next(job, db, 5)
+    assert job.payload["outcomes"] == [{"task_id": 1, "status": "unknown"}]
+    assert job.payload["dispatch"] == [{"task_id": 2}]
+    assert db.info[batch.CLAIM_KEY]["task_ids"] == [2]
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_batch_handler_requires_engine_claim(environment):
+    from app.performance import batch_reminders as batch
+    db, _, sender = environment
+    db.info = {}
+    with pytest.raises(RuntimeError, match="engine-owned"):
+        await batch.dispatch(SimpleNamespace(id=37), db)
+    sender.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("recent", [False, True])
+async def test_batch_dispatch_merges_logs_and_rechecks_recent(environment, monkeypatch, recent):
+    from app.performance import batch_reminders as batch
+    db, context, sender = environment
+    db.info = {batch.CLAIM_KEY: {"job_id": 37, "run_id": 5, "task_ids": [1, 4]}}
+    job = SimpleNamespace(id=37, payload={"dispatch_run_id": 5, "dispatch": [{"task_id": 1}, {"task_id": 4}],
+        "request": {"skip_recently_reminded": True}})
+    second = task(4)
+    db.execute = AsyncMock(side_effect=[result([(db.tasks[1], db.nodes[11], db.project), (second, db.nodes[11], db.project)]), result(["1", "4"] if recent else [])])
+    source = FeishuNotificationLog(id=19, biz_type="performance_task_reminder", biz_id="1", is_test=False,
+        status="success", success_count=1, failed_count=0, message_format="markdown")
+    db.scalar = AsyncMock(return_value=source)
+    monkeypatch.setattr(batch, "eligible_rows", AsyncMock(return_value=(context,
+        [{"task_id": value, "selectable": True, "eligible_handlers": ["E1"]} for value in [1, 4]])))
+    rows, _ = await batch.dispatch(job, db)
+    if recent:
+        assert rows == 0
+        sender.assert_not_awaited()
+    else:
+        assert rows == 2
+        sender.assert_awaited_once()
+        assert [entry.biz_id for entry in db.events if isinstance(entry, FeishuNotificationLog)] == ["4"]
+    assert job.payload["outcomes"] == [{"task_id": value, "status": "skipped" if recent else "success"} for value in [1, 4]]
+    db.commit.assert_not_awaited()
+    sql = str(db.execute.await_args_list[1].args[0].compile(dialect=postgresql.dialect()))
+    assert "is_test IS false" in sql and "created_at >=" in sql
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["disabled", "entry", "switch", "system"])
+async def test_batch_owner_loader_rejects_revoked_accounts_and_entry(environment, monkeypatch, reason):
+    from app.performance import batch_reminders as batch
+    from app.core import deps
+    db, context, sender = environment
+    owner = {"subject_type": "SYSTEM_ACCOUNT" if reason == "system" else "PORTAL_USER", "subject_id": 8,
+        "switch_session_id": "switched" if reason == "switch" else None}
+    db.get = AsyncMock(return_value=SimpleNamespace(is_active=reason != "disabled", display_name="操作者"))
+    monkeypatch.setattr(deps, "user_has_op", AsyncMock(return_value=False))
+    with pytest.raises(HTTPException) as error:
+        await batch.load_owner(db, owner)
+    assert error.value.status_code == 403
+    sender.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_batch_owner_loader_uses_current_account_permissions_mapping(environment, monkeypatch):
+    from app.performance import batch_reminders as batch
+    from app.core import deps
+    db, _, _ = environment
+    db.get = AsyncMock(return_value=SimpleNamespace(is_active=True, display_name="当前姓名"))
+    monkeypatch.setattr(deps, "user_has_op", AsyncMock(side_effect=[True, False]))
+    monkeypatch.setattr(batch, "load_active_authorization", AsyncMock(return_value=((), ("fresh.permission",))))
+    mapping = AsyncMock(return_value="CURRENT")
+    monkeypatch.setattr(batch, "resolve_performance_employee_no", mapping)
+    current = await batch.load_owner(db, {"subject_type": "PORTAL_USER", "subject_id": 8, "management_role": "hrbp", "management_cycle_id": 1})
+    assert current.permission_codes == ("fresh.permission",)
+    assert current.display_name == "当前姓名" and current.management_role == "hrbp"
+    assert current.effective_employee_no is None
+    mapping.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_batch_engine_claim_commits_dispatch_before_send_and_recovers_lost_claim(monkeypatch):
+    from contextlib import asynccontextmanager
+    from app.performance import batch_reminders as batch
+    from app.scheduler import engine as engine_module
+    from app.scheduler.models import JobRun
+    order = []
+    job = SimpleNamespace(id=37, kind=batch.KIND, business_id=91, enabled=True, payload={"state": "queued"})
+    class Session:
+        def __init__(self):
+            self.info = {}
+            self.run = None
+        async def connection(self): return self
+        async def scalar(self, query):
+            if "pg_try_advisory_xact_lock" in str(query):
+                order.append("claim")
+                return True
+            return job
+        def add(self, value):
+            if isinstance(value, JobRun):
+                value.id = 5
+                self.run = value
+        async def flush(self): pass
+        async def commit(self): order.append("commit")
+        async def rollback(self): order.append("release")
+        async def refresh(self, value): pass
+    @asynccontextmanager
+    async def factory(): yield Session()
+    async def prepare(current, db, run_id):
+        order.append("prepare")
+        current.payload = {"state": "dispatching", "dispatch": [{"task_id": 1}]}
+        return True
+    async def handler(current, db, triggered_by):
+        assert order[-1] == "commit"
+        order.append("send")
+        current.enabled = False
+        return 1, "sent"
+    monkeypatch.setattr(batch, "prepare_next", prepare)
+    monkeypatch.setattr(engine_module, "get_handler", lambda kind: handler)
+    engine = engine_module.SchedulerEngine(factory)
+    run = await engine._run_reminder_batch(37, "cron")
+    assert run.status == "success"
+    assert order == ["claim", "prepare", "commit", "send", "commit", "release"]
+    async def held(self, query): return False
+    monkeypatch.setattr(Session, "scalar", held)
+    order.clear()
+    assert await engine._run_reminder_batch(37, "cron") is None
+    assert order == []
+
+
+@pytest.mark.asyncio
+async def test_batch_status_only_owner_and_no_task_ids(environment):
+    from app.performance import batch_reminders as batch
+    db, context, _ = environment
+    payload = {"owner": {"subject_type": context.subject_type, "subject_id": context.subject_id},
+        "state": "completed", "outcomes": [{"task_id": 1, "status": "success"}, {"task_id": 2, "status": "unknown"}]}
+    db.get = AsyncMock(return_value=SimpleNamespace(id=37, kind=batch.KIND, payload=payload))
+    response = await shared.project_management_reminder_request_status(37, context, db)
+    assert response["counts"]["success"] == 1 and response["counts"]["unknown"] == 1
+    assert "task_id" not in str(response)
+    payload["owner"]["subject_id"] += 1
+    with pytest.raises(HTTPException) as error:
+        await shared.project_management_reminder_request_status(37, context, db)
+    assert error.value.status_code == 404

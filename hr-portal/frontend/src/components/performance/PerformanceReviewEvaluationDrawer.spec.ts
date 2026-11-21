@@ -842,6 +842,35 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     wrapper.unmount()
   })
 
+  it.each(['member', 'person'] as const)('shows the existing %s name while detail loads without prefilling profile fields', async source => {
+    let resolveDetail!: (value: PerformanceManagementDetail) => void
+    const detailLoader = vi.fn(() => new Promise<PerformanceManagementDetail>(resolve => { resolveDetail = resolve }))
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: {
+      modelValue: true, employeeNo: 'E001', detailLoader,
+      person: { display_name: '已有人员姓名', department: '不可预填部门', direct_supervisor_name: '不可预填上级' },
+      ...(source === 'member' ? { member: { project_id: 1, employee_no: 'E001', display_name: '已有成员姓名' } } : {}),
+    } })
+    await flushPromises()
+    const header = wrapper.getComponent({ name: 'PerformanceReviewPersonHeader' })
+    expect(header.props('person')).toEqual({ employee_no: 'E001', display_name: source === 'member' ? '已有成员姓名' : '已有人员姓名' })
+    expect(document.body.textContent).not.toContain('不可预填部门')
+    resolveDetail({ ...structuredClone(task), person: { employee_no: 'E001', display_name: '服务端裁剪姓名' } })
+    await flushPromises()
+    expect(header.props('person')).toEqual({ employee_no: 'E001', display_name: '服务端裁剪姓名' })
+    expect(detailLoader).toHaveBeenCalledTimes(1)
+  })
+
+  it('clears loaded profile fields on identity changes while the next detail request is pending', async () => {
+    const detailLoader = vi.fn().mockResolvedValueOnce(structuredClone(task)).mockImplementationOnce(() => new Promise(() => {}))
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, employeeNo: 'E001', detailLoader, member: { project_id: 1, employee_no: 'E001', display_name: '名单已有姓名' } } })
+    await flushPromises()
+    expect(wrapper.getComponent({ name: 'PerformanceReviewPersonHeader' }).props('person')).toMatchObject({ department: task.person.department })
+    employeeSwitchEpoch.value++
+    await flushPromises()
+    expect(wrapper.getComponent({ name: 'PerformanceReviewPersonHeader' }).props('person')).toEqual({ employee_no: 'E001', display_name: '名单已有姓名' })
+    expect(detailLoader).toHaveBeenCalledTimes(2)
+  })
+
   it('displays a denied task as an error without leaking list profile data', async () => {
     vi.mocked(performanceReviewApi.templateTask).mockRejectedValueOnce(new Error('TASK_NOT_FOUND'))
     const wrapper = mount(PerformanceReviewEvaluationDrawer, {

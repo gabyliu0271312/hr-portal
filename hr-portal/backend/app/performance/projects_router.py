@@ -35,6 +35,7 @@ from app.performance.task_authorization_service import effective_handlers, task_
 from app.performance.member_identity_service import hydrate_member_identities, hydrate_project_member_rows, hydrate_task_people_rows
 from app.performance import shared_result_service as shared_results
 from app.performance import comparison_service
+from app.performance.batch_reminders import ReminderRequest
 from app.performance.comparison_schema import ComparisonPreviewPayload
 
 router = APIRouter(prefix="/performance", tags=["performance-projects"])
@@ -364,13 +365,19 @@ async def _self_summary_template(task: PerformanceNodeTask, node: PerformancePro
 async def _reference_template(task: PerformanceNodeTask | None, node: PerformanceProjectNodeSnapshot, project: PerformanceProject, db: AsyncSession) -> dict:
     if task is not None:
         return await _self_summary_template(task, node, db)
+    template = await _reference_template_metadata(task, node, project, db)
+    return await hydrate_self_summary_template(template, db)
+
+
+async def _reference_template_metadata(task, node, project, db):
     template = (node.config or {}).get("template") or {}
-    if not template.get("content"):
+    if (task is not None and "template" not in (node.config or {}) and node.node_type != "calibration"
+            or task is None and not template.get("content")):
         template_id = (project.settings or {}).get("template_id")
         workflow = await db.get(PerformanceTemplateWorkflow, int(template_id)) if template_id else None
         current_node = next((item for item in (workflow.nodes if workflow else []) if item.get("node_id") == node.node_id), None)
         template = resolve_self_summary_content(current_node or template, list((workflow.content_library if workflow else []) or []))
-    return await hydrate_self_summary_template(template, db)
+    return template
 
 
 _DEFAULT_REMINDER_NODE_TYPES = {"work_summary", "evaluation", "result_communication", "result_view"}
@@ -3346,6 +3353,7 @@ async def export_project_members(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
+    _enable_member_read_reuse(db)
     project = await _get_project(db, project_id)
     view_scope = await _project_data_scope(context, project, db, "performance.frontend.data-view")
     try:
@@ -3374,6 +3382,7 @@ async def list_project_members(
     matrix_level: str | None = None,
     matrix_rating: str | None = None,
 ):
+    _enable_member_read_reuse(db)
     project = await _get_project(db, project_id)
     if bool(matrix_level) != bool(matrix_rating):
         raise HTTPException(status_code=422, detail="MATRIX_DRILLDOWN_FILTERS_REQUIRED")
@@ -3434,13 +3443,20 @@ def _member_stage_values(tasks, nodes, project):
 
 async def _project_member_column_schema(project, scope, context, db, *, nodes=None, rating_columns=None, members=None, actor_ref=None, rules=None):
     from app.performance.member_columns_service import column_schema, SNAPSHOT_PROFILE_FIELDS
+    info = getattr(db, "info", None)
+    cache = info.get("performance_member_read_columns") if isinstance(info, dict) else None
+    key = (context, project.id, None if scope is None else frozenset(scope))
+    if isinstance(cache, dict) and key in cache:
+        return cache[key]["schema"]
     if nodes is None:
         nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
             PerformanceProjectNodeSnapshot.project_id == project.id,
         ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
+    rating_metadata = None
     if rating_columns is None:
         final = _final_result_snapshot(nodes)
-        rating_columns = _task_rating_metadata(await _matrix_node_schema(final, project, db)) if final else []
+        rating_metadata = _task_rating_metadata(await _matrix_node_schema(final, project, db)) if final else []
+        rating_columns = rating_metadata
     rules = rules or await load_subject_visibility_rules(db)
     if not _is_cycle_manager(context):
         fields = set(rules["hrbp" if scope is not None else "activity_manager"])
@@ -3459,7 +3475,10 @@ async def _project_member_column_schema(project, scope, context, db, *, nodes=No
         if not members:
             role = await _member_visibility_role(context, project, None, scope, actor_ref, db)
             fields.update(rules[role])
-    return column_schema(rating_columns, fields, nodes, "management", available_profile_fields=SNAPSHOT_PROFILE_FIELDS | {"previous_position_level", "project_name"})
+    schema = column_schema(rating_columns, fields, nodes, "management", available_profile_fields=SNAPSHOT_PROFILE_FIELDS | {"previous_position_level", "project_name"})
+    if isinstance(cache, dict):
+        cache[key] = {"schema": schema, "nodes": nodes, "rating_columns": rating_columns, "metadata": rating_metadata, "rules": rules}
+    return schema
 
 
 async def _management_member_schema(context, db, *, project=None, scope=None, cycle_id=None, authorized=None):
@@ -3528,7 +3547,8 @@ def _sort_member_rows(items, sort_by, sort_order, rating_columns, schema=None):
 
 
 
-async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, *, export=False, page=None, page_size=50):
+async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, *, export=False, page=None, page_size=50, schema_out=None):
+    _enable_member_read_reuse(db)
     if context.management_role:
         from app.performance.management_scope import management_projects
         permitted = await management_projects(cycle_id, context, db, ("performance.frontend.data-view",))
@@ -3555,42 +3575,44 @@ async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db
     if not authorized:
         raise HTTPException(status_code=403, detail="PERFORMANCE_MEMBER_EXPORT_FORBIDDEN" if export else "PROJECT_DATA_FORBIDDEN")
     merged_schema = await _management_member_schema(context, db, authorized=authorized)
+    if schema_out is not None:
+        schema_out.update(merged_schema)
     _sort_member_rows([], sort_by, sort_order, [], merged_schema)
-    items, columns = [], {}
+    columns = {column["key"]: {"key": column["key"], "label": column["label"]}
+               for column in merged_schema.get("columns", []) if column["key"].startswith("rating:")}
+    items = []
     total = 0
     if page is not None and not export and sort_by in {None, "name"}:
-        candidates = []
-        for project, scope in authorized:
-            statement = select(PerformanceProjectMember).where(
-                PerformanceProjectMember.snapshot_id == _latest_member_snapshot_statement(project.id),
-            )
-            if scope is not None:
-                statement = statement.where(PerformanceProjectMember.employee_no.in_(scope))
-            if isinstance(keyword, str) and keyword.strip():
-                pattern = f"%{keyword.strip()}%"
-                statement = statement.where(or_(
-                    PerformanceProjectMember.display_name.ilike(pattern),
-                    PerformanceProjectMember.employee_no.ilike(pattern),
-                    PerformanceProjectMember.organization_ref.ilike(pattern),
-                ))
-            rows = list((await db.execute(statement)).scalars().all())
-            total += len(rows)
-            candidates.extend((project, scope, member) for member in rows)
-        candidates.sort(key=lambda row: (row[2].display_name, row[2].employee_no, row[0].id, row[2].id))
-        if sort_by == "name" and sort_order == "desc":
-            candidates.sort(key=lambda row: row[2].display_name, reverse=True)
-        selected = candidates[(page - 1) * page_size:page * page_size]
+        latest = select(PerformanceProjectMemberSnapshot.project_id,
+            func.max(PerformanceProjectMemberSnapshot.id).label("snapshot_id")).where(
+                PerformanceProjectMemberSnapshot.project_id.in_([project.id for project, _scope in authorized]),
+            ).group_by(PerformanceProjectMemberSnapshot.project_id).subquery()
+        statement = select(PerformanceProjectMember, latest.c.project_id).join(
+            latest, latest.c.snapshot_id == PerformanceProjectMember.snapshot_id,
+        ).where(or_(*(and_(latest.c.project_id == project.id,
+            PerformanceProjectMember.employee_no.in_(scope)) if scope is not None else latest.c.project_id == project.id
+            for project, scope in authorized)))
+        if isinstance(keyword, str) and keyword.strip():
+            pattern = f"%{keyword.strip()}%"
+            statement = statement.where(or_(PerformanceProjectMember.display_name.ilike(pattern),
+                PerformanceProjectMember.employee_no.ilike(pattern), PerformanceProjectMember.organization_ref.ilike(pattern)))
+        total = await db.scalar(select(func.count()).select_from(statement.subquery()))
+        name = PerformanceProjectMember.display_name.collate("C")
+        statement = statement.order_by(name.desc() if sort_by == "name" and sort_order == "desc" else name.asc(),
+            PerformanceProjectMember.employee_no.collate("C"), latest.c.project_id, PerformanceProjectMember.id)
+        selected = list((await db.execute(statement.offset((page - 1) * page_size).limit(page_size))).all())
         selected_by_project = {}
-        for project, scope, member in selected:
-            entry = selected_by_project.setdefault(project.id, (project, scope, set()))
-            entry[2].add(member.employee_no)
+        for member, project_id in selected:
+            selected_by_project.setdefault(project_id, set()).add(member.employee_no)
         for project, scope in authorized:
-            employee_nos = selected_by_project.get(project.id, (None, None, set()))[2]
+            employee_nos = selected_by_project.get(project.id)
+            if not employee_nos:
+                continue
             project_items, project_columns = await _project_member_rows(project, scope, keyword, None, None, context, db, employee_nos=employee_nos)
             items.extend(project_items)
             for column in project_columns:
                 columns.setdefault(column["key"], column)
-        order = {(member.employee_no, project.id): index for index, (project, _scope, member) in enumerate(selected)}
+        order = {(member.employee_no, project_id): index for index, (member, project_id) in enumerate(selected)}
         items.sort(key=lambda item: order.get((item.employee_no, item.project_id), len(order)))
     else:
         for project, scope in authorized:
@@ -3814,8 +3836,8 @@ async def cycle_project_members(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    schema = await _management_member_schema(context, db, cycle_id=cycle_id)
-    items, columns, total = await _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, page=page, page_size=page_size)
+    schema = {}
+    items, columns, total = await _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, page=page, page_size=page_size, schema_out=schema)
     if sort_by not in {None, "name"}:
         items = items[(page - 1) * page_size:page * page_size]
     await hydrate_project_member_rows(db, items, context=context, verified_view=True)
@@ -3831,8 +3853,8 @@ async def export_cycle_project_members(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    schema = await _management_member_schema(context, db, cycle_id=cycle_id)
-    items, columns, _total = await _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, export=True)
+    schema = {}
+    items, columns, _total = await _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, export=True, schema_out=schema)
     await hydrate_project_member_rows(db, items, context=context, verified_view=True)
     return ProjectMemberPage(items=items, total=len(items), page=1, page_size=len(items), rating_columns=columns, **schema)
 
@@ -3865,23 +3887,27 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
     if page is not None:
         member_total = await db.scalar(select(func.count()).select_from(statement.subquery()))
         statement = statement.offset((page - 1) * page_size).limit(page_size)
-    members = list((await db.execute(statement.order_by(PerformanceProjectMember.display_name.asc(), PerformanceProjectMember.id.asc()))).scalars().all())
+    name_order = PerformanceProjectMember.display_name.desc() if page is not None and sort_by == "name" and sort_order == "desc" else PerformanceProjectMember.display_name.asc()
+    members = list((await db.execute(statement.order_by(name_order, PerformanceProjectMember.id.asc()))).scalars().all())
     if page is None:
         member_total = len(members)
     supervisor_names = await _snapshot_supervisor_names(db, members)
-    progress = await _communication_progress(db, project, {member.employee_no for member in members}) if members else {}
-    progress_detail = await _communication_progress_detail(db, project, {member.employee_no for member in members}, viewer_ref=actor_ref) if members else {}
-    visibility_rules = await load_subject_visibility_rules(db)
+    info = getattr(db, "info", None)
+    column_cache = info.get("performance_member_read_columns", {}) if isinstance(info, dict) else {}
+    cached = column_cache.get((context, project.id, None if scope is None else frozenset(scope)))
+    visibility_rules = cached["rules"] if cached else await load_subject_visibility_rules(db)
     visible_fields_by_member: dict[int, list[str]] = {}
     for member in members:
         role = await _member_visibility_role(context, project, member, scope, actor_ref, db)
         visible_fields_by_member[member.id] = visibility_rules[role]
 
-    nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+    nodes = cached["nodes"] if cached else list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
         PerformanceProjectNodeSnapshot.project_id == project.id,
     ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
     final_node = _final_result_snapshot(nodes)
-    metadata = _task_rating_metadata(await _matrix_node_schema(final_node, project, db)) if final_node is not None else []
+    metadata = cached.get("metadata") if cached else None
+    if metadata is None:
+        metadata = _task_rating_metadata(await _matrix_node_schema(final_node, project, db)) if final_node is not None else []
     rating_columns = [{"key": item["key"], "label": item["label"]} for item in metadata]
     column_schema = await _project_member_column_schema(project, scope, context, db, nodes=nodes, rating_columns=rating_columns, actor_ref=actor_ref, rules=visibility_rules)
     if sort_by is not None and sort_by not in column_schema["sort_keys"]:
@@ -3894,22 +3920,28 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
         PerformanceNodeTask.target_employee_no.in_({member.employee_no for member in members}),
         PerformanceNodeTask.revoked_at.is_(None),
     ))).scalars().all()) if members and nodes else []
+    node_by_id = {node.id: node for node in nodes}
+    progress_rows = [(task, node_by_id[task.node_snapshot_id]) for task in tasks
+        if task.node_snapshot_id in node_by_id and task.project_id == project.id and task.cycle_ref == project.cycle_ref
+        and task.task_kind == "evaluation" and node_by_id[task.node_snapshot_id].node_type == "evaluation"
+        and task.status in {"pending", "completed"}]
+    progress_detail = await _communication_progress_detail(db, project, {member.employee_no for member in members}, viewer_ref=actor_ref, rows=progress_rows) if members else {}
+    progress = {employee: value["completion"] for employee, value in progress_detail.items()}
     if readonly:
         active_by_task = {}
         progress_scope = set()
-    elif stages:
+    else:
         task_ids = [task.id for task in tasks]
         active_by_task: dict[int, list[PerformanceNodeTaskAuthorization]] = {}
         if task_ids:
             for record in list((await db.execute(select(PerformanceNodeTaskAuthorization).where(
                 PerformanceNodeTaskAuthorization.task_id.in_(task_ids),
+                PerformanceNodeTaskAuthorization.project_id == project.id,
+                PerformanceNodeTaskAuthorization.cycle_ref == project.cycle_ref,
                 PerformanceNodeTaskAuthorization.status == "ACTIVE",
             ))).scalars().all()):
                 active_by_task.setdefault(record.task_id, []).append(record)
-        progress_scope = await _task_management_scope_or_empty(context, project, db, TASK_EVALUATION_AUTHORIZATION_KEY)
-    else:
-        active_by_task = {}
-        progress_scope = None
+        progress_scope = await _task_management_scope_or_empty(context, project, db, TASK_EVALUATION_AUTHORIZATION_KEY) if stages else set()
     by_employee: dict[str, list[PerformanceNodeTask]] = {}
     for task in tasks:
         by_employee.setdefault(task.target_employee_no, []).append(task)
@@ -3919,7 +3951,7 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
     people_cache = {}
     from app.performance.member_reminders import preload_member_reminders
     if not readonly:
-        await preload_member_reminders(project, members, context, db)
+        await preload_member_reminders(project, members, context, db, tasks=tasks, nodes=nodes, active_by_task=active_by_task, actor=actor)
     for member in members:
         item = _serialize_project_member(member, project.id).model_dump()
         item["can_view_detail"] = True
@@ -4151,6 +4183,7 @@ async def _project_member_detail(
     source_task_id: int | None = None,
     view: str | None = None,
     tab: str | None = None,
+    read_context: dict | None = None,
 ):
     """被评估人管理详情（management_tabs + stage_views）。
 
@@ -4159,6 +4192,7 @@ async def _project_member_detail(
     visibility_role 由调用方传入（评估人视角用 resolve_subject_visibility_role 的结果），
     None 时按管理视角计算（_member_visibility_role）。
     """
+    _enable_member_read_reuse(db)
     if context.management_role:
         visibility_role = "hrbp" if context.management_role == "hrbp" else "activity_manager"
     if not skip_scope or context.management_role:
@@ -4190,6 +4224,22 @@ async def _project_member_detail(
         PerformanceNodeTask.revoked_at.is_(None),
     ).order_by(PerformanceNodeTask.id))).scalars().all())
     all_nodes, all_tasks = nodes, tasks
+    active_by_task = None
+    if read_context is not None:
+        task_ids = [task.id for task in tasks]
+        active_by_task = {}
+        grants = (await db.execute(select(PerformanceNodeTaskAuthorization).where(
+            PerformanceNodeTaskAuthorization.task_id.in_(task_ids),
+            PerformanceNodeTaskAuthorization.project_id == project.id,
+            PerformanceNodeTaskAuthorization.cycle_ref == project.cycle_ref,
+            PerformanceNodeTaskAuthorization.status == "ACTIVE",
+        ))).scalars().all() if task_ids else []
+        for grant in grants:
+            active_by_task.setdefault(grant.task_id, []).append(grant)
+        read_context.update(member=member, nodes=nodes, tasks=tasks, actor=actor, active_by_task=active_by_task)
+    from app.performance.member_reminders import preload_member_reminders
+    if getattr(project, "status", None) == PROJECT_STATUS_STARTED:
+        await preload_member_reminders(project, [member], context, db, tasks=tasks, nodes=nodes, active_by_task=active_by_task, actor=actor)
     frozen_result = None
     reconsideration_task = next((task for task in tasks if task.task_kind == "result_reconsideration"), None)
     if reconsideration_task is not None:
@@ -4211,10 +4261,18 @@ async def _project_member_detail(
         raise HTTPException(status_code=404, detail="PROJECT_MEMBER_DETAIL_NOT_FOUND")
     selected_tasks = by_node[selected_node.id]
     selected_task = max(selected_tasks, key=lambda task: (task.submitted_at is not None, task.submitted_at.isoformat() if task.submitted_at else "", task.id), default=None)
-    templates = {node.id: await _reference_template(next(iter(by_node[node.id]), None), node, project, db) for node in nodes}
+    active_tab = tab if isinstance(tab, str) and tab else f"management-{selected_node.node_id}"
+    templates, raw_templates = {}, {}
+    for node in nodes:
+        source = next(iter(by_node[node.id]), None)
+        if view != "drawer" or active_tab == f"management-{node.node_id}":
+            templates[node.id] = await _reference_template(source, node, project, db)
+        else:
+            raw_templates[node.id] = await _reference_template_metadata(source, node, project, db)
+    template_metadata = {**raw_templates, **templates}
     reference_node = next((node for node in nodes if node.node_id == reference_node_id), selected_node)
-    selected_template = templates[selected_node.id]
-    reference_template = templates[reference_node.id]
+    selected_template = template_metadata[selected_node.id]
+    reference_template = template_metadata[reference_node.id]
     relations = {str(content.get("reference_value")): content for content in reference_template.get("content") or [] if content.get("content_slot") == "reference" and content.get("reference_kind") == "node"}
     handler_refs = {str(task.handler_ref) for node in nodes for task in by_node[node.id] if task.handler_ref is not None}
     handler_names = {}
@@ -4231,6 +4289,18 @@ async def _project_member_detail(
         content_loaded = view != "drawer" or active_tab == f"management-{node.node_id}"
         related = by_node[node.id]
         if node.node_type == "result_reconsideration":
+            if not related:
+                continue
+            if not content_loaded:
+                representative = max(related, key=lambda task: (task.submitted_at is not None, task.submitted_at.isoformat() if task.submitted_at else "", task.id))
+                deadline = _task_window(representative, node, project)[1]
+                tabs.append({"key": f"management-{node.node_id}", "kind": "node", "node_id": node.node_id,
+                    "node_name": node.name, "task_id": representative.id, "task_kind": node.node_type,
+                    "employee_no": employee_no, "status": _reference_status(representative, node, project),
+                    "deadline_at": deadline, "submitted_at": representative.submitted_at,
+                    "submitted_by": None, "answer_submissions": [], "form_schema": [], "answers": {},
+                    "editable": False, "submit_allowed": False, "can_remind": False, "content_loaded": False})
+                continue
             detail, _appeal = await _reconsideration_detail(project, member, node, all_tasks, context, actor, db, source_task_id=source_task_id)
             if detail is None:
                 continue
@@ -4251,9 +4321,9 @@ async def _project_member_detail(
         if node is final_node and completed and getattr(member, "shared_result_state", None) is not None:
             completed = completed[:1]
         schema, answers = [], {}
-        anonymous = node_role_code(templates[node.id]) == ROLE_REVIEWER_360 or templates[node.id].get("executor_label") == "360°评估人"
+        anonymous = node_role_code(template_metadata[node.id]) == ROLE_REVIEWER_360 or template_metadata[node.id].get("executor_label") == "360°评估人"
         if anonymous:
-            feedback = await _reviewer_360_reference(project, snapshot_id, employee_no, node, related, relations.get(node.node_id), db, content_loaded=content_loaded, template=templates[node.id], names=handler_names, viewer_ref=str(actor.actor_ref))
+            feedback = await _reviewer_360_reference(project, snapshot_id, employee_no, node, related, relations.get(node.node_id), db, content_loaded=content_loaded, template=template_metadata[node.id], names=handler_names, viewer_ref=str(actor.actor_ref))
             if not feedback.get("expected_count", len(related)) and node is not selected_node:
                 continue
         else:
@@ -4302,10 +4372,19 @@ async def _project_member_detail(
             history = await _final_result_history(project, member, all_nodes, all_tasks, history_schema, db)
         comparison = None
         if content_loaded and representative is not None and not anonymous:
-            comparison_schemas = {candidate.node_id: project_reference_content(templates[candidate.id], relations.get(candidate.node_id, {}), {})[0] for candidate in nodes}
+            comparison_rules = ((project.settings or {}).get("comparison_rules_snapshot") or {}).get("rules", [])
+            comparison_node_ids = {rule[key] for rule in comparison_rules
+                if node.node_id in (rule.get("first_node_id"), rule.get("second_node_id"))
+                for key in ("first_node_id", "second_node_id")}
+            for candidate in nodes:
+                if candidate.node_id in comparison_node_ids and candidate.id not in templates:
+                    templates[candidate.id] = await _reference_template(next(iter(by_node[candidate.id]), None), candidate, project, db)
+                    template_metadata[candidate.id] = templates[candidate.id]
+            comparison_schemas = {candidate.node_id: project_reference_content(template_metadata[candidate.id], relations.get(candidate.node_id, {}), {})[0] for candidate in nodes}
             if skip_scope:
                 comparison_schemas[reference_node.node_id] = build_self_summary_schema(reference_template)
-            _, comparison = await comparison_service.evaluate_task(db, representative, node, project, viewer_schemas=comparison_schemas, include_history=True)
+            _, comparison = await comparison_service.evaluate_task(db, representative, node, project, viewer_schemas=comparison_schemas, include_history=True,
+                result_context=(all_nodes, all_tasks, member), templates=templates)
         tabs.append({
             "comparison": comparison,
             "key": f"management-{node.node_id}", "kind": "node", "node_id": node.node_id,
@@ -4319,7 +4398,7 @@ async def _project_member_detail(
             "form_schema": schema, "answers": answers, "can_remind": False, "content_loaded": content_loaded,
             **feedback,
         })
-    okr_relation = next((content for template in templates.values() for content in template.get("content") or [] if content.get("content_slot") == "reference" and content.get("reference_kind") == "more" and content.get("reference_value") == "okr"), None)
+    okr_relation = next((content for template in template_metadata.values() for content in template.get("content") or [] if content.get("content_slot") == "reference" and content.get("reference_kind") == "more" and content.get("reference_value") == "okr"), None)
     if okr_relation is not None:
         okr_loaded = view != "drawer" or active_tab == "management-okr"
         okr = None
@@ -4342,9 +4421,7 @@ async def _project_member_detail(
     opening_detail = await _result_opening_detail(project, member, db)
     cycle_row = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
     stage_views = []
-    from app.performance.member_reminders import can_remind_member, preload_member_reminders
-    if getattr(project, "status", None) == PROJECT_STATUS_STARTED:
-        await preload_member_reminders(project, [member], context, db)
+    from app.performance.member_reminders import can_remind_member
     now = datetime.now(UTC)
     for node in reversed(nodes):
         related = by_node[node.id]
@@ -4356,10 +4433,10 @@ async def _project_member_detail(
                     "task_kind": node.node_type, "deadline_at": reference["deadline_at"],
                     "submitted_at": reference["submitted_at"], "empty": False,
                     "can_fill": reference["editable"], "can_remind": reference["can_remind"],
-                    "final_result_locked": False, "reminder_target": "、".join(dict.fromkeys(handler["display_name"] for handler in reference["reconsideration"]["handlers"])),
+                    "final_result_locked": False, "reminder_target": "、".join(dict.fromkeys(handler["display_name"] for handler in (reference.get("reconsideration") or {}).get("handlers", []))),
                     "anonymous": False})
             continue
-        role_code = node_role_code(templates[node.id])
+        role_code = node_role_code(template_metadata[node.id])
         anonymous = role_code == ROLE_REVIEWER_360
         task = max(related, key=lambda item: (item.submitted_at is not None, item.submitted_at.isoformat() if item.submitted_at else "", item.id), default=None)
         visibility_config = ((project.settings or {}).get("anonymous_360_snapshot") or {}).get("config") or {}
@@ -4436,9 +4513,11 @@ async def project_member_detail(
     view: Literal["drawer"] | None = None,
     tab: str | None = Query(default=None, max_length=128),
 ):
+    _enable_member_read_reuse(db)
     project = await _get_project(db, project_id)
+    read_context = {}
     try:
-        detail = await _project_member_detail(project, employee_no, context, db, root_review_id, **({"view": view, "tab": tab if isinstance(tab, str) else None} if view == "drawer" else {}))
+        detail = await _project_member_detail(project, employee_no, context, db, root_review_id, read_context=read_context, **({"view": view, "tab": tab if isinstance(tab, str) else None} if view == "drawer" else {}))
     except HTTPException as exc:
         if exc.status_code != 404 or exc.detail != "PROJECT_MEMBER_DETAIL_NOT_FOUND":
             raise
@@ -4467,11 +4546,15 @@ async def project_member_detail(
                 "visibility_role": role, "profile_fields": subject_profile_items(member, visible, direct_supervisor_name=supervisor_name)},
         }
     detail["member_actions"] = {"can_remove": False, "task_map": []}
-    member = await db.scalar(select(PerformanceProjectMember).where(
-        PerformanceProjectMember.snapshot_id == _latest_member_snapshot_statement(project.id),
-        PerformanceProjectMember.employee_no == employee_no,
-    ))
-    if project.status != PROJECT_STATUS_STARTED or member is None or member.id != detail["root_review_id"]:
+    latest_snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id))) if read_context else None
+    member = read_context.get("member")
+    if member is None:
+        member = await db.scalar(select(PerformanceProjectMember).where(
+            PerformanceProjectMember.snapshot_id == _latest_member_snapshot_statement(project.id),
+            PerformanceProjectMember.employee_no == employee_no,
+        ))
+    if (project.status != PROJECT_STATUS_STARTED or member is None or member.id != detail["root_review_id"]
+            or read_context and member.snapshot_id != latest_snapshot_id):
         return detail
     try:
         remove_scope = await _project_data_scope(context, project, db, "performance.frontend.manage-evaluatees")
@@ -4483,14 +4566,14 @@ async def project_member_detail(
     delegation_scope = await _task_management_scope_or_empty(context, project, db, TASK_EVALUATION_AUTHORIZATION_KEY)
     if delegation_scope is not None and employee_no not in delegation_scope:
         return detail
-    stages = await _delegatable_stages(db, project)
+    stages = await _delegatable_stages(db, project, read_context["nodes"]) if read_context else await _delegatable_stages(db, project)
     if stages:
-        tasks = list((await db.execute(select(PerformanceNodeTask).where(
+        tasks = read_context["tasks"] if read_context else list((await db.execute(select(PerformanceNodeTask).where(
             PerformanceNodeTask.project_id == project.id, PerformanceNodeTask.member_snapshot_id == member.snapshot_id,
             PerformanceNodeTask.target_employee_no == employee_no, PerformanceNodeTask.revoked_at.is_(None),
         ).order_by(PerformanceNodeTask.id))).scalars().all())
-        actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
-        options = await _member_task_options(member, tasks, stages, None, delegation_scope, project, context, str(actor.actor_ref), db, management_only=True)
+        actor = read_context["actor"] if read_context else await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
+        options = await _member_task_options(member, tasks, stages, read_context.get("active_by_task"), delegation_scope, project, context, str(actor.actor_ref), db, management_only=True)
         detail["member_actions"]["task_map"] = [option.model_dump() for option in options if option.can_authorize]
     return detail
 
@@ -4624,7 +4707,27 @@ async def _can_manage_project_like_overview(context: PerformanceAccessContext, p
     return any(item.id == project.id for item, _cycle in access.manage_projects)
 
 
+def _enable_member_read_reuse(db):
+    info = getattr(db, "info", None)
+    if isinstance(info, dict):
+        info.setdefault("performance_member_read_scopes", {})
+        info.setdefault("performance_member_read_columns", {})
+
+
 async def _project_data_scope(context: PerformanceAccessContext, project: PerformanceProject, db: AsyncSession, function_key: str) -> set[str] | None:
+    info = getattr(db, "info", None)
+    cache = info.get("performance_member_read_scopes") if isinstance(info, dict) else None
+    key = (context, project.id, project.cycle_ref, function_key)
+    if isinstance(cache, dict) and key in cache:
+        value = cache[key]
+        return None if value is None else set(value)
+    scope = await _resolve_project_data_scope(context, project, db, function_key)
+    if isinstance(cache, dict):
+        cache[key] = None if scope is None else frozenset(scope)
+    return scope
+
+
+async def _resolve_project_data_scope(context: PerformanceAccessContext, project: PerformanceProject, db: AsyncSession, function_key: str) -> set[str] | None:
     if context.management_role:
         from app.performance.management_scope import named_project_scope
         return await named_project_scope(context, project, db, function_key)
@@ -5535,10 +5638,12 @@ async def _completion_reconsideration_valid(db, task, *, lock=False):
     return appeal.withdrawn_at is None and appeal.closed_at is None
 
 
-async def _completion_reminder_rows(cycle_id: int, node_key: str, context: PerformanceAccessContext, db: AsyncSession, keyword: str | None = None, department: str | None = None, result_kind: str | None = None) -> list[dict]:
+async def _completion_reminder_rows(cycle_id: int, node_key: str, context: PerformanceAccessContext, db: AsyncSession, keyword: str | None = None, department: str | None = None, result_kind: str | None = None, *, display_task_ids: set[int] | None = None, permitted_projects=None, candidate_task_ids: set[int] | None = None, expected_snapshot_ids=None) -> list[dict]:
     if node_key not in {key for key, _title in _COMPLETION_NODE_DEFINITIONS} or node_key == "view-result":
         raise HTTPException(status_code=422, detail="REMINDER_NODE_NOT_SUPPORTED")
-    if result_kind == "team" and not context.management_role:
+    if permitted_projects is not None:
+        projects = permitted_projects
+    elif result_kind == "team" and not context.management_role:
         from app.performance.result_view_scope import TEAM_RESULT_KIND, resolve_result_view_scope
         result_scope = await resolve_result_view_scope(db, context, cycle_id=cycle_id, kind=TEAM_RESULT_KIND)
         if not result_scope.employee_nos:
@@ -5546,14 +5651,14 @@ async def _completion_reminder_rows(cycle_id: int, node_key: str, context: Perfo
         projects = [(project, result_scope.scopes[project.id]) for project in result_scope.projects]
     else:
         projects = await _managed_completion_projects(cycle_id, context, db)
-    visibility_rules = await load_subject_visibility_rules(db)
+    visibility_rules = await load_subject_visibility_rules(db) if display_task_ids is None or display_task_ids else {}
     actor = await resolve_trusted_performance_actor(db, context)
     search = (keyword or '').strip().lower()
     department_filter = _department_path_filter(department)
     rows: list[dict] = []
     for project, scope in projects:
         snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
-        if snapshot_id is None:
+        if snapshot_id is None or (expected_snapshot_ids is not None and expected_snapshot_ids.get(project.id) != snapshot_id):
             continue
         members = list((await db.execute(select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == snapshot_id))).scalars().all())
         if scope is not None:
@@ -5567,14 +5672,21 @@ async def _completion_reminder_rows(cycle_id: int, node_key: str, context: Perfo
         ))).scalars().all())
         people_by_no = {person.employee_no: person for person in people}
         handler_names = {person.employee_no: person.display_name for person in people}
-        progress = await _communication_progress(db, project, set(member_by_employee))
-        previous_levels = await _previous_published_position_levels(db, project, set(member_by_employee))
-        _ratings, final_values, _scales = await _project_final_ratings(project, set(member_by_employee), db, member_snapshot_id=snapshot_id)
-        stages = await _delegatable_stages(db, project)
+        display_employees = set(member_by_employee)
+        if display_task_ids is not None:
+            display_employees = set((await db.execute(select(PerformanceNodeTask.target_employee_no).where(
+                PerformanceNodeTask.id.in_(display_task_ids), PerformanceNodeTask.project_id == project.id,
+                PerformanceNodeTask.member_snapshot_id == snapshot_id,
+            ))).scalars().all()) if display_task_ids else set()
+        progress = await _communication_progress(db, project, display_employees) if display_employees else {}
+        previous_levels = await _previous_published_position_levels(db, project, display_employees) if display_employees else {}
+        _ratings, final_values, _scales = await _project_final_ratings(project, display_employees, db, member_snapshot_id=snapshot_id) if display_employees else ({}, {}, {})
+        stages = await _delegatable_stages(db, project) if display_employees else []
         if stages:
             delegation_tasks = list((await db.execute(select(PerformanceNodeTask).where(
                 PerformanceNodeTask.project_id == project.id,
                 PerformanceNodeTask.member_snapshot_id == snapshot_id,
+                PerformanceNodeTask.target_employee_no.in_(display_employees),
             ))).scalars().all())
             task_ids = [task.id for task in delegation_tasks]
             active_by_task: dict[int, list[PerformanceNodeTaskAuthorization]] = {}
@@ -5598,6 +5710,13 @@ async def _completion_reminder_rows(cycle_id: int, node_key: str, context: Perfo
         delegation_by_employee: dict[str, list[PerformanceNodeTask]] = {}
         for delegation_task in delegation_tasks:
             delegation_by_employee.setdefault(delegation_task.target_employee_no, []).append(delegation_task)
+        handler_authorizations = {}
+        for record in (await db.execute(select(PerformanceNodeTaskAuthorization).join(
+            PerformanceNodeTask, PerformanceNodeTask.id == PerformanceNodeTaskAuthorization.task_id,
+        ).where(PerformanceNodeTask.project_id == project.id, PerformanceNodeTask.member_snapshot_id == snapshot_id,
+            PerformanceNodeTaskAuthorization.status == "ACTIVE").order_by(
+                PerformanceNodeTaskAuthorization.created_at, PerformanceNodeTaskAuthorization.id))).scalars().all():
+            handler_authorizations.setdefault(record.task_id, []).append(record)
         delivery_handlers = set((await db.execute(select(PerformanceIdentityLink.employee_no).join(
             User, User.id == PerformanceIdentityLink.portal_user_id,
         ).where(PerformanceIdentityLink.employee_no.in_(list(people_by_no)), PerformanceIdentityLink.is_active.is_(True), User.is_active.is_(True), User.feishu_user_id.is_not(None), User.feishu_user_id != ""))).scalars().all())
@@ -5614,6 +5733,7 @@ async def _completion_reminder_rows(cycle_id: int, node_key: str, context: Perfo
                 PerformanceNodeTask.node_snapshot_id == node.id,
                 PerformanceNodeTask.status == "pending",
                 PerformanceNodeTask.revoked_at.is_(None),
+                *([PerformanceNodeTask.id.in_(candidate_task_ids)] if candidate_task_ids is not None else []),
             ).order_by(PerformanceNodeTask.id))).scalars().all())
             for task in tasks:
                 if (task.target_employee_no not in member_by_employee or _task_completed(task)
@@ -5625,11 +5745,14 @@ async def _completion_reminder_rows(cycle_id: int, node_key: str, context: Perfo
                 member = member_by_employee[task.target_employee_no]
                 if search and search not in f"{member.display_name} {member.employee_no}".lower():
                     continue
-                visibility_role = await resolve_subject_visibility_role(db, context, str(actor.actor_ref), member, node, project)
-                visible_fields = visibility_rules[visibility_role]
-                handlers = await _task_handlers(db, task)
+                handlers = effective_handlers(task.handler_ref, handler_authorizations.get(task.id, []))
                 active_handlers = {handler for handler in handlers if handler in people_by_no and getattr(people_by_no[handler], "employment_status", None) not in {"离职", "已离职"}}
                 eligible_handlers = active_handlers & delivery_handlers if delivery_mode == "normal" else active_handlers
+                if display_task_ids is not None and task.id not in display_task_ids:
+                    rows.append({"task_id": task.id, "selectable": bool(eligible_handlers), "eligible_handlers": sorted(eligible_handlers)})
+                    continue
+                visibility_role = await resolve_subject_visibility_role(db, context, str(actor.actor_ref), member, node, project)
+                visible_fields = visibility_rules[visibility_role]
                 task_options = await _member_task_options(member, delegation_by_employee.get(member.employee_no, []), stages, active_by_task, progress_scope, project, context, str(actor.actor_ref), db, {snapshot_id: people_by_no})
                 values = {
                     "task_id": task.id,
@@ -5728,7 +5851,7 @@ async def _authorize_task_delegation(task: PerformanceNodeTask, node: Performanc
     if (not transfers and str(task.handler_ref) == actor_ref) or any(item.recipient_employee_no == actor_ref for item in transfers):
         return True
     try:
-        scope = await _task_management_scope(context, project, db, _task_authorization_key(node))
+        scope = named_scope if context.management_role else await _task_management_scope(context, project, db, _task_authorization_key(node))
     except HTTPException as exc:
         if exc.status_code == 403:
             return False
@@ -6160,11 +6283,52 @@ async def project_management_reminder_people(
     db: AsyncSession = Depends(get_session),
     result_kind: Literal["team"] | None = Query(default=None),
 ):
-    rows = await _completion_reminder_rows(cycle_id, node_key, context, db, keyword, department, result_kind)
+    rows = await _completion_reminder_rows(cycle_id, node_key, context, db, keyword, department, result_kind, display_task_ids=set())
     start = (page - 1) * page_size
-    items = rows[start:start + page_size]
+    selected = {row["task_id"] for row in rows[start:start + page_size]}
+    display_rows = await _completion_reminder_rows(cycle_id, node_key, context, db, keyword, department, result_kind, display_task_ids=selected) if selected else []
+    items = [row for row in display_rows if row["task_id"] in selected]
     await hydrate_task_people_rows(db, items, context=context)
-    return {"items": items, "total": len(rows), "page": page, "page_size": page_size}
+    return {"items": items, "total": len(rows), "selectable_count": sum(row["selectable"] for row in rows), "page": page, "page_size": page_size}
+
+
+@router.post("/project-management/reminder-requests", status_code=202)
+async def project_management_reminder_request(
+    payload: ReminderRequest,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    from app.performance.batch_reminders import accept_request
+    job_id = await accept_request(payload, context, db)
+    try:
+        from app.scheduler.engine import get_engine
+        engine = get_engine()
+        await engine.reload_job(job_id)
+        engine.trigger_job_soon(job_id)
+    except Exception:
+        # Persisted enabled cron remains the recovery path when acceleration is unavailable.
+        pass
+    return {"code": 0, "success": True, "msg": "操作成功", "data": {"job_id": job_id}}
+
+
+@router.get("/project-management/reminder-requests/{job_id}")
+async def project_management_reminder_request_status(
+    job_id: int,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    from app.performance.batch_reminders import KIND
+    from app.scheduler.models import ScheduledJob
+    job = await db.get(ScheduledJob, job_id)
+    owner = (job.payload or {}).get("owner", {}) if job else {}
+    if (job is None or job.kind != KIND or owner.get("subject_type") != context.subject_type
+        or owner.get("subject_id") != context.subject_id or owner.get("switch_session_id") != context.switch_session_id
+        or owner.get("operator_user_id") != context.operator_user_id):
+        raise HTTPException(404, "REMINDER_REQUEST_NOT_FOUND")
+    outcomes = (job.payload or {}).get("outcomes", [])
+    return {"job_id": job.id, "state": job.payload.get("state"),
+        "counts": {state: sum(row["status"] == state for row in outcomes) for state in ("success", "failed", "skipped", "preview_only", "unknown")}}
+
 
 
 async def _performance_task_reminder_message(task, project, node, actor, db):
@@ -6338,7 +6502,8 @@ async def project_management_remind(
     return {"accepted_task_ids": accepted, "skipped_task_ids": skipped, "failed_task_ids": failed, "preview_task_ids": preview, "delivery_status": status_value, "errors": errors}
 
 
-async def _named_management_overview(cycle_id, project_id, context, db):
+async def _named_management_overview(cycle_id, project_id, context, db, *, include_statistics=True):
+    _enable_member_read_reuse(db)
     from app.performance.management_scope import management_projects
     access = await resolve_frontend_access(db, replace(context, management_role=None, management_project_id=None))
     cycles = [cycle_payload(cycle) for cycle in access.cycles]
@@ -6366,6 +6531,12 @@ async def _named_management_overview(cycle_id, project_id, context, db):
     selected_project = project_id if isinstance(project_id, int) else context.management_project_id
     content_context = replace(context, management_role=role, management_cycle_id=active_cycle["cycle_id"], management_project_id=selected_project)
     permitted = await management_projects(active_cycle["cycle_id"], content_context, db)
+    if not include_statistics:
+        return {"cycles": cycles, "active_cycle": active_cycle, "categories": categories, "active_role": role,
+            "projects": next(item["projects"] for item in categories if item["key"] == role),
+            "completion_nodes": [],
+            "hrbp_scope": sorted(project.project_ref for project, scope in by_role[role] if scope is not None),
+            "category": dict(_PROJECT_MANAGEMENT_CATEGORY)}
     scopes, active_projects = {}, []
     for project, _scope in permitted:
         try:
@@ -6412,12 +6583,13 @@ async def project_management_overview(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
     project_id: int | None = None,
+    include_statistics: bool = True,
 ):
     if context.management_role:
-        return await _named_management_overview(cycle_id, project_id, context, db)
+        return await _named_management_overview(cycle_id, project_id, context, db, include_statistics=include_statistics)
     access = await resolve_frontend_access(db, context)
     if context.management_role or project_id is not None or getattr(access, "management_projects_by_role", {}):
-        return await _named_management_overview(cycle_id, project_id, context, db)
+        return await _named_management_overview(cycle_id, project_id, context, db, include_statistics=include_statistics)
     cycles = [cycle_payload(cycle) for cycle in access.cycles]
     active_cycle = next((item for item in cycles if item["cycle_id"] == cycle_id), None) if cycle_id is not None else (cycles[0] if cycles else None)
     if cycle_id is not None and active_cycle is None:
@@ -6436,6 +6608,10 @@ async def project_management_overview(
         "status": project.status,
     } for project, _cycle in managed]
     projects.sort(key=lambda item: item["project_name"])
+    if not include_statistics:
+        return {"cycles": cycles, "active_cycle": active_cycle, "projects": projects, "completion_nodes": [],
+            "hrbp_scope": sorted(project.project_ref for project, _cycle in managed if access.management_scopes.get(project.id) is not None),
+            "category": dict(_PROJECT_MANAGEMENT_CATEGORY)}
     active_projects = [project for project, _cycle in managed if project.id in scopes]
     completion_nodes = await _project_completion_nodes(active_projects, db, scopes=scopes) if active_projects else []
     opening_rows = await _opening_project_members(db, active_cycle["cycle_id"])
@@ -7755,27 +7931,28 @@ def _evaluate_ratio_payload(people, person_by_no):
     }
 
 
-async def _communication_progress_detail(db, project, employee_nos, *, viewer_ref=None):
+async def _communication_progress_detail(db, project, employee_nos, *, viewer_ref=None, rows=None):
     """360° 评估率弹窗数据：评估人名单（含完成状态与离职）、完成比例、评估阶段。
 
     与 _communication_progress 同源查询，但补充每位评估人的 display_name / 离职状态，
     供成员列表「360° 评估率」hover 弹窗三态渲染（空态 / 双分组 / 离职说明）。
     """
-    rows = (await db.execute(
-        select(PerformanceNodeTask, PerformanceProjectNodeSnapshot)
-        .join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id)
-        .where(
-            PerformanceNodeTask.project_id == project.id,
-            PerformanceNodeTask.cycle_ref == project.cycle_ref,
-            PerformanceProjectNodeSnapshot.project_id == project.id,
-            PerformanceProjectNodeSnapshot.node_type == "evaluation",
-            PerformanceNodeTask.task_kind == "evaluation",
-            PerformanceNodeTask.revoked_at.is_(None),
-            PerformanceNodeTask.member_snapshot_id == _latest_member_snapshot_statement(project.id),
-            PerformanceNodeTask.status.in_(["pending", "completed"]),
-            PerformanceNodeTask.target_employee_no.in_(employee_nos),
-        )
-    )).all()
+    if rows is None:
+        rows = (await db.execute(
+            select(PerformanceNodeTask, PerformanceProjectNodeSnapshot)
+            .join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id)
+            .where(
+                PerformanceNodeTask.project_id == project.id,
+                PerformanceNodeTask.cycle_ref == project.cycle_ref,
+                PerformanceProjectNodeSnapshot.project_id == project.id,
+                PerformanceProjectNodeSnapshot.node_type == "evaluation",
+                PerformanceNodeTask.task_kind == "evaluation",
+                PerformanceNodeTask.revoked_at.is_(None),
+                PerformanceNodeTask.member_snapshot_id == _latest_member_snapshot_statement(project.id),
+                PerformanceNodeTask.status.in_(["pending", "completed"]),
+                PerformanceNodeTask.target_employee_no.in_(employee_nos),
+            )
+        )).all()
     reviewers: dict[str, dict[str, bool]] = {employee: {} for employee in employee_nos}
     handler_nos: set[str] = set()
     for task, node in rows:

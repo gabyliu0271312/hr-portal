@@ -32,8 +32,9 @@ const resultKind = computed(() => route.query.source === 'team-results' ? 'team'
 const node = ref<ProjectManagementCompletionNode | null>(null)
 const error = ref('')
 let sequence = 0
-const title = computed(() => node.value?.title || '绩效任务')
+const title = computed(() => String(route.query.reminder_title || node.value?.title || '绩效任务'))
 const description = computed(() => {
+  if (route.query.reminder_description) return String(route.query.reminder_description)
   if (!node.value) return ''
   const rate = route.query.completion_rate ? `${Number(route.query.completion_rate).toFixed(2)}%` : (node.value.completion_rate?.toFixed(2) ?? '--') + '%'
   const completed = route.query.completed ?? node.value.completed_count ?? '--'
@@ -45,6 +46,7 @@ watch(() => [nodeKey.value, cycleId.value, route.query.management_role, route.qu
   const current = ++sequence
   node.value = null
   error.value = ''
+  if (route.query.reminder_title && route.query.reminder_description) return
   try {
     const result = resultKind.value
       ? await resultViewApi.overview(resultKind.value, cycleId.value)

@@ -77,6 +77,8 @@ async def named_project_scope(context, project, db, function_key, *, candidates=
 
 
 async def management_projects(cycle_id, context, db, function_keys=MANAGEMENT_FEATURES):
+    from app.performance import projects_router as shared
+
     cycle = await db.get(PerformanceCycle, cycle_id)
     if cycle is None or context.management_cycle_id not in (None, cycle_id):
         raise HTTPException(404, "CYCLE_NOT_FOUND")
@@ -95,7 +97,7 @@ async def management_projects(cycle_id, context, db, function_keys=MANAGEMENT_FE
         allowed = False
         for key in function_keys:
             try:
-                scope = await named_project_scope(context, project, db, key)
+                scope = await shared._project_data_scope(context, project, db, key)
             except HTTPException as exc:
                 if exc.status_code != 403:
                     raise

@@ -43,6 +43,7 @@ export type ReminderCapabilities = {
 export type ReminderListResult = {
   items: ReminderPerson[]
   total: number
+  selectableCount?: number
   columns: ReminderColumn[]
   capabilities: ReminderCapabilities
 }

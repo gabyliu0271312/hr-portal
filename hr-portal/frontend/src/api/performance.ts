@@ -315,8 +315,23 @@ export interface ProjectManagementReminderPerson extends PerformanceWorkbenchTas
 export interface ReminderPeoplePage {
   items: ProjectManagementReminderPerson[]
   total: number
+  selectable_count: number
   page: number
   page_size: number
+}
+
+export interface PerformanceReminderSelection {
+  is_select_all: boolean
+  selected_task_ids: number[]
+  deselected_task_ids: number[]
+  keyword?: string
+}
+
+export interface PerformanceReminderReceipt {
+  code: number
+  success: boolean
+  msg: string
+  data: { job_id: number }
 }
 
 export type PerformanceReviewMemberContext = {
@@ -1325,9 +1340,9 @@ export const resultViewApi = {
 }
 
 export const projectManagementApi = {
-  async overview(cycleId?: number, scope?: PerformanceManagementScope): Promise<ProjectManagementOverview> {
+  async overview(cycleId?: number, scope?: PerformanceManagementScope, includeStatistics = true): Promise<ProjectManagementOverview> {
     const { data } = await api.get<ProjectManagementOverview>('/performance/project-management/overview', {
-      params: { ...(cycleId ? { cycle_id: cycleId } : {}), ...scope },
+      params: { ...(cycleId ? { cycle_id: cycleId } : {}), ...scope, include_statistics: includeStatistics },
     })
     return data
   },
@@ -1360,6 +1375,14 @@ export const projectManagementApi = {
       ? 'preview_only'
       : merged.accepted_task_ids.length ? (merged.failed_task_ids!.length || merged.skipped_task_ids.length ? 'partial_success' : 'success') : 'failed'
     return merged
+  },
+  async submitCycleReminder(cycleId: number, nodeKey: string, selection: PerformanceReminderSelection, department: string | undefined, skipRecentlyReminded: boolean, resultKind: 'team' | undefined, requestId: string): Promise<PerformanceReminderReceipt> {
+    const { data } = await api.post<PerformanceReminderReceipt>('/performance/project-management/reminder-requests', {
+      cycle_id: cycleId, node_key: nodeKey, selection, department, result_kind: resultKind,
+      skip_recently_reminded: skipRecentlyReminded, request_id: requestId,
+    })
+    if (data.success !== true || data.code !== 0) throw new Error(data.msg)
+    return data
   },
   async delegationCandidates(projectId: number, taskId: number): Promise<Array<{ employee_no: string; display_name: string; department_path?: string; direct_supervisor_employee_no?: string }>> {
     const { data } = await api.get(`/performance/projects/${projectId}/tasks/${taskId}/delegation-candidates`)

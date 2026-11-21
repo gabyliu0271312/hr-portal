@@ -644,7 +644,13 @@ async def _handler_performance_comparison(job, db, triggered_by):
     return await dispatch_notifications(db, claim["ids"], claim["run_id"])
 
 
+async def _handler_performance_reminder_batch(job, db, triggered_by):
+    from app.performance.batch_reminders import dispatch
+    return await dispatch(job, db)
+
+
 JOB_HANDLERS: dict[str, HandlerFn] = {
+    "performance_reminder_batch": _handler_performance_reminder_batch,
     "performance_employment_sync": _handler_performance_employment_sync,
     "performance_comparison": _handler_performance_comparison,
     "performance_reconsideration": _handler_performance_reconsideration,

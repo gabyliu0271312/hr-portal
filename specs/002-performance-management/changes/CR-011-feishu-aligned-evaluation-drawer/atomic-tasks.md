@@ -76,3 +76,22 @@
 - 分隔线：四处均是PerformanceProfileSeparator组件，包括直属上级/入职边界；height12px、margin2px 8px、border-left1px #bbbfc4、透明背景、top48px。150%缩放时四条均border约0.666667px；两种头部共享组件，隐藏字段不产生多余竖线。
 - 手机390px视口document.scrollWidth390，参考白卡底距12px；pageerror0。截图：CR-011-T04-implemented-card-fill.png、CR-011-T04-implemented-card-long.png、CR-011-T04-implemented-profile-separators.png、CR-011-T04-implemented-card-mobile.png，已读取检查。
 - 无API、权限、数据库、迁移变更；真实业务库/生产未验收，未部署、commit/push。公共PerformanceLineTabs.vue未修改，样式覆盖仅作用于详情抽屉。
+
+## CR-011-T05 项目管理成员列表与详情加载优化（2026-11-21）
+
+- [ ] 状态：代码、单元/组件回归和前端构建完成；真实PostgreSQL/API、实际页面PNG与前后耗时验收未完成，保持未勾选。
+- Goal：缩短既有成员首屏与单人详情等待，保持范围、排序、快照、匿名及动作权限语义。
+- Type：backend/frontend/API；用户在只读评估后明确要求实施全部优化。
+- Required reading：Spec002入口及七份基线、PM001权限与次请求撤权约束、本CR规格/交互/任务、Spec012通用UI门禁、execution-contract/task-card-template/acceptance-evidence。
+- Allowed modifications：backend/app/performance/{projects_router,management_scope,member_reminders,comparison_service}.py；既有tests/test_performance_{projects,management_scope,member_reminders,comparison_runtime}.py；frontend/src/views/performance/ProjectManagement.vue/.spec.ts、ProjectManagementNavigation.spec.ts；components/performance/PerformanceReviewEvaluationDrawer.vue/.spec.ts；api/performance.ts、performanceManagementContext.spec.ts；本CR现有三文件。共享projects_router仅局部编辑，与并行催办任务划分段落，保留scheduler/batch-reminder等他人改动。
+- Forbidden/non-scope：不新建脚本/报告/测试文档，不改模型/迁移/索引、权限口径、快照内容或业务状态，不操作生产、不提交推送。performance.js实际不存在，不生成镜像。
+- Input/output contract：overview新增include_statistics=true默认兼容；false省略统计计算但保持范围响应结构。成员接口响应结构不变；默认/姓名数据库分页，计算列全局排序；view=drawer/content_loaded既有协议不变。内部read_context/result_context及tasks/nodes/active_by_task/actor仅复用后端已验证数据。
+- Source/cache/transaction：最新成员快照仍权威；读入口显式开启session.info请求缓存，完整身份+项目/周期+功能分键，返回范围副本；写操作独立重新裁决。无跨请求缓存、同一AsyncSession并发或额外提交。
+- UI：既有信息架构调整，不新增蓝图；见ui-interaction第7节，沿用共享抽屉/页签。实际PNG未取得，因此本卡未完成真实UI验收。
+- Given/When/Then：授权项目跨页→count/limit/排序及字段并集正确，空项目不做行补充；HRBP隐藏/跨项目/撤权→过滤在计数分页前且下请求拒绝；轻量overview→不调用统计/开通计算；当前页签→只hydrate必要模板，切复议恢复正文；详情更多菜单→复用成员/任务/节点/actor且仍独立授权；匿名/草稿/历史→既有裁剪保留；前端切范围/身份→不回填旧响应。
+- Evidence（实际执行）：backend目录 `.venv/Scripts/python.exe -m pytest tests/test_performance_projects.py tests/test_performance_management_scope.py tests/test_performance_member_reminders.py tests/test_performance_comparison_runtime.py -q --tb=short` → **1382 passed, 5 skipped**，仅现存python_multipart弃用警告；跳过项不记为通过。隔离SQLite实际SQL分页/范围专项24 passed，非PostgreSQL执行计划或生产性能证据。
+- Frontend evidence：`npm --prefix ../frontend test -- src/views/performance/ProjectManagement.spec.ts src/views/performance/ProjectManagementNavigation.spec.ts src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/api/performanceManagementContext.spec.ts --silent` → **172 passed**；`npm --prefix ../frontend run build` → **vue-tsc+Vite exit0**，保留既有VueUse PURE与chunk体积提示。`git diff --check`通过。
+- Failures resolved：首轮后端旧数据库替身不支持计数分页/最新snapshot；已更新并回归。并行催办fixture缺有效授权空列表、前端mock参数索引类型错误由对应会话修复后整合通过，不以忽略失败收口。
+- Blocked/not-run：本机仅5173监听且HTTP200，后端8000/8080和PostgreSQL5432无监听；真实登录API、业务数据量下的SQL耗时/查询计划、浏览器点击至首行/姓名/正文时间、PC/窄屏截图未验收。无迁移；未部署、未commit/push。
+- Stop/rollback：仅撤销本卡局部增量，不整体回滚共享工作树；部署回退需按既有版本发布流程另行授权。
+- Definition of done：代码/自动化已完成；真实SQL/API与UI/耗时证据齐全后主代理才可勾选，本轮不提升总体生产完成状态。

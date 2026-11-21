@@ -28,8 +28,9 @@
           >
             <input
               type="checkbox"
-              :checked="allSelected"
-              :indeterminate="someSelected"
+              :checked="scopeSelection?.all ?? allSelected"
+              :indeterminate="scopeSelection?.some ?? someSelected"
+              :disabled="selectionDisabled"
               aria-label="全选"
               @click.stop
               @change="toggleAll(($event.target as HTMLInputElement).checked)"
@@ -166,6 +167,8 @@ const props = withDefaults(defineProps<{
   isRowSelectable?: (row: any) => boolean
   /** 受控选中键集合；不传则组件内部托管 */
   selectedKeys?: string[]
+  scopeSelection?: { all: boolean; some: boolean }
+  selectionDisabled?: boolean
   /** 高亮行键（受控，如授权记录页跳转定位刚提交记录） */
   highlightRowKey?: string | number
   /** 多选行 checkbox 的 aria-label 取值字段 */
@@ -199,6 +202,7 @@ const emit = defineEmits<{
   'update:selectedKeys': [keys: string[]]
   'selection-change': [rows: any[]]
   'sort-change': [payload: { key: string; order: 'asc' | 'desc' | '' }]
+  'select-all': [checked: boolean]
 }>()
 
 defineSlots<{
@@ -338,6 +342,8 @@ function toggleRow(row: any, checked: boolean) {
 }
 
 function toggleAll(checked: boolean) {
+  if (props.selectionDisabled) return
+  if (props.scopeSelection) { emit('select-all', checked); return }
   const next = new Set(selectedKeyList.value)
   if (checked) selectableRows.value.forEach(row => next.add(selectionKeyOf(row)))
   else selectableRows.value.forEach(row => next.delete(selectionKeyOf(row)))

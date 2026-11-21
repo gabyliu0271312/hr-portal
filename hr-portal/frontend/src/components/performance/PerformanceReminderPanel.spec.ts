@@ -13,6 +13,7 @@ afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = ''; document.b
 
 const result = (): ReminderListResult => ({
   items: [{ task_id: 11, aggregate_task_id: 11, project_id: 3, employee_no: 'E001', display_name: '张三', job_family: '产品', job_category: '策划', job_sequence: '产品-策划', position_level: 'P6', hire_date: '2020-01-01', department: '产品中心', employee_type: '正式员工', employment_status: '在职', status: 'pending', due_at: '2026-09-30T00:00:00Z' }],
+  selectableCount: 1,
   total: 1,
   columns: [
     { key: 'display_name', label: '被评估人', locked: true, visibleByDefault: true },
@@ -253,7 +254,7 @@ describe('PerformanceReminderPanel', () => {
   it('keeps all 101 eligible selections across pages and submits every cached employee rather than the visible page', async () => {
     const api = await import('@/api/performance')
     const all = Array.from({ length: 102 }, (_, index) => ({ ...result().items[0], task_id: index + 1, employee_no: `E${index + 1}`, display_name: `员工${index + 1}`, selectable: index !== 101 }))
-    const provider = vi.fn().mockImplementation(async query => ({ ...result(), items: all.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), total: all.length }))
+    const provider = vi.fn().mockImplementation(async query => ({ ...result(), items: all.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), total: all.length, selectableCount: all.filter(item => item.selectable !== false).length }))
     const opening = vi.spyOn(api.projectManagementApi, 'openResults').mockImplementation(async (_cycleId, employees) => ({ accepted_employee_nos: employees, skipped_employee_nos: [], skipped_reasons: {}, notification_status: 'pending_integration' }))
     const wrapper = mount(PerformanceReminderPanel, { props: { context, mode: 'open-result', provider } })
     await flushPromises()
@@ -283,7 +284,7 @@ describe('PerformanceReminderPanel', () => {
   it.each([false, true])('opens 501 cached employees in bounded batches and handles partial failure=%s without resending accepted employees', async partialFailure => {
     const api = await import('@/api/performance')
     const all = Array.from({ length: 501 }, (_, index) => ({ ...result().items[0], task_id: index + 1, employee_no: `E${index + 1}` }))
-    const provider = vi.fn().mockImplementation(async query => ({ ...result(), items: all.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), total: all.length }))
+    const provider = vi.fn().mockImplementation(async query => ({ ...result(), items: all.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), total: all.length, selectableCount: all.filter(item => item.selectable !== false).length }))
     const response = (employees: string[]) => ({ accepted_employee_nos: employees, skipped_employee_nos: [], skipped_reasons: {}, notification_status: 'pending_integration' as const })
     const opening = vi.spyOn(api.projectManagementApi, 'openResults').mockImplementation(async (_cycleId, employees) => response(employees))
     if (partialFailure) opening.mockResolvedValueOnce(response(all.slice(0, 500).map(row => row.employee_no))).mockRejectedValueOnce(new Error('unconfirmed'))
@@ -387,7 +388,7 @@ describe('PerformanceReminderPanel', () => {
   it('exports all matching pages with the applied search and visible columns', async () => {
     const provider = vi.fn().mockImplementation(async query => {
       const all = Array.from({ length: 101 }, (_, index) => ({ ...result().items[0], task_id: index + 1, display_name: `员工${index + 1}` }))
-      return { ...result(), items: all.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), total: all.length, capabilities: { ...result().capabilities, canExport: true } }
+      return { ...result(), items: all.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), total: all.length, selectableCount: all.filter(item => item.selectable !== false).length, capabilities: { ...result().capabilities, canExport: true } }
     })
     const wrapper = mount(PerformanceReminderPanel, { props: { context, provider, mode: 'preview' } })
     await flushPromises()
@@ -450,10 +451,12 @@ describe('PerformanceTaskOverlay', () => {
 describe('cycle reminder selection', () => {
   it('selects all eligible rows across pages without a 500-row truncation', async () => {
     const all = Array.from({ length: 601 }, (_, index) => ({ ...result().items[0], task_id: index + 1, selectable: index !== 0 }))
-    const provider = vi.fn().mockImplementation(async query => ({ ...result(), items: all.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), total: all.length }))
+    const provider = vi.fn().mockImplementation(async query => ({ ...result(), items: all.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), total: all.length, selectableCount: all.filter(item => item.selectable !== false).length }))
     const wrapper = mount(PerformanceReminderPanel, { props: { context, provider, mode: 'cycle-remind', selectAllAvailable: true } })
     await flushPromises()
     expect(wrapper.text()).toContain('已选择 600 条')
+    expect(provider).toHaveBeenCalledTimes(1)
+    expect(wrapper.getComponent({ name: 'PerformanceManagementTable' }).props('selectedKeys')).toHaveLength(49)
     expect(wrapper.find('tbody input[type="checkbox"]').attributes('disabled')).toBeDefined()
     await wrapper.get('.selection-bar__clear').trigger('click')
     await flushPromises()
@@ -463,7 +466,7 @@ describe('cycle reminder selection', () => {
 
   it('defaults cycle-remind mode to all eligible selections without an explicit prop', async () => {
     const all = Array.from({ length: 151 }, (_, index) => ({ ...result().items[0], task_id: index + 1, selectable: index !== 0 }))
-    const provider = vi.fn().mockImplementation(async query => ({ ...result(), items: all.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), total: all.length }))
+    const provider = vi.fn().mockImplementation(async query => ({ ...result(), items: all.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), total: all.length, selectableCount: all.filter(item => item.selectable !== false).length }))
     const wrapper = mount(PerformanceReminderPanel, { props: { context, provider, mode: 'cycle-remind' } })
     await flushPromises()
     expect(wrapper.text()).toContain('已选择 150 条')
@@ -484,7 +487,7 @@ describe('cycle reminder selection', () => {
 
   it('hides delegation buttons for self-review, 360 and calibration reminder nodes even when the provider allows them', async () => {
     const api = await import('@/api/performance')
-    const people = vi.spyOn(api.projectManagementApi, 'reminderPeople').mockResolvedValue({ items: [result().items[0] as ProjectManagementReminderPerson], total: 1, page: 1, page_size: 50 })
+    const people = vi.spyOn(api.projectManagementApi, 'reminderPeople').mockResolvedValue({ items: [result().items[0] as ProjectManagementReminderPerson], total: 1, selectable_count: 1, page: 1, page_size: 50 })
     const wrapper = mount(PerformanceReminderPanel, {
       props: { context: { ...context, nodeId: 'review-360', nodeType: 'evaluation', reviewType: '360_review', title: '360°反馈', sectionTitle: '未完成的被评估人' }, mode: 'cycle-remind', selectAllAvailable: true },
     })
@@ -504,7 +507,7 @@ describe('cycle reminder selection', () => {
     const people = vi.spyOn(api.projectManagementApi, 'reminderPeople').mockResolvedValue({ items: [
       { ...result().items[0], can_authorize: true, task_map: taskMap } as ProjectManagementReminderPerson,
       { ...result().items[0], task_id: 12, can_authorize: true, task_map: taskMap } as ProjectManagementReminderPerson,
-    ], total: 2, page: 1, page_size: 50 })
+    ], total: 2, selectable_count: 2, page: 1, page_size: 50 })
     const wrapper = mount(PerformanceReminderPanel, {
       props: { context: { ...context, nodeId: 'manager-review', nodeType: 'evaluation', reviewType: 'leader_review', title: '上级评估', sectionTitle: '未完成的被评估人' }, mode: 'cycle-remind', selectAllAvailable: true },
       global: {
@@ -536,11 +539,11 @@ describe('cycle reminder selection', () => {
     wrapper.unmount(); people.mockRestore()
   })
 
-  it('matches the live batch reminder success flow and ignores response detail in the UI', async () => {
+  it('matches the live range request after durable acceptance', async () => {
     const { ElMessage } = await import('element-plus')
     const success = vi.spyOn(ElMessage, 'success')
     const api = await import('@/api/performance')
-    const sending = vi.spyOn(api.projectManagementApi, 'remindCycleTasks').mockResolvedValue({ accepted_task_ids: [], skipped_task_ids: [11], failed_task_ids: [12], preview_task_ids: [13], delivery_status: 'partial_success' })
+    const sending = vi.spyOn(api.projectManagementApi, 'submitCycleReminder').mockResolvedValue({ code: 0, success: true, msg: '操作成功', data: { job_id: 1 } })
     const provider = vi.fn().mockResolvedValue(result())
     const wrapper = mount(PerformanceReminderPanel, { props: { context, provider, mode: 'cycle-remind', selectAllAvailable: true } })
     await flushPromises()
@@ -551,7 +554,7 @@ describe('cycle reminder selection', () => {
     ;(ElMessage.success as ReturnType<typeof vi.fn>).mockClear?.()
     ;(document.body.querySelector('.performance-confirm-dialog--submit .performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
     await flushPromises()
-    expect(sending).toHaveBeenCalledWith(1, 'evaluation-1', [11], undefined, true)
+    expect(sending).toHaveBeenCalledWith(1, 'evaluation-1', { is_select_all: true, selected_task_ids: [], deselected_task_ids: [], keyword: undefined }, undefined, true, undefined, expect.any(String))
     expect(wrapper.getComponent({ name: 'PerformanceManagementTable' }).props('selectedKeys')).toEqual([])
     expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
     expect(wrapper.find('.performance-reminder-notice').exists()).toBe(false)
@@ -559,9 +562,51 @@ describe('cycle reminder selection', () => {
     wrapper.unmount(); sending.mockRestore(); success.mockRestore()
   })
 
+  it('keeps cross-page exclusions in one range request without downloading all pages', async () => {
+    const api = await import('@/api/performance')
+    const all = Array.from({ length: 601 }, (_, index) => ({ ...result().items[0], task_id: index + 1, selectable: index !== 0 }))
+    const provider = vi.fn().mockImplementation(async query => ({ ...result(), items: all.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), total: 601, selectableCount: 600 }))
+    const sending = vi.spyOn(api.projectManagementApi, 'submitCycleReminder').mockResolvedValue({ code: 0, success: true, msg: '操作成功', data: { job_id: 1 } })
+    const wrapper = mount(PerformanceReminderPanel, { props: { context, provider, mode: 'cycle-remind' } })
+    await flushPromises()
+    await wrapper.findAll('tbody input[type="checkbox"]')[1].setValue(false)
+    const table = wrapper.getComponent({ name: 'PerformanceManagementTable' })
+    table.vm.$emit('page-change', 2)
+    await flushPromises()
+    await wrapper.findAll('tbody input[type="checkbox"]')[0].setValue(false)
+    expect(table.props('selectionCount')).toBe(598)
+    expect(provider).toHaveBeenCalledTimes(2)
+    await wrapper.get('.selection-bar .performance-button--primary').trigger('click')
+    await flushPromises()
+    document.body.querySelector<HTMLButtonElement>('.performance-confirm-dialog--submit .performance-confirm-dialog__button--danger')!.click()
+    await flushPromises()
+    expect(sending).toHaveBeenCalledWith(1, 'evaluation-1', { is_select_all: true, selected_task_ids: [], deselected_task_ids: [2, 51], keyword: undefined }, undefined, true, undefined, expect.any(String))
+    expect(table.props('selectionCount')).toBe(0)
+    expect(wrapper.get('.selection-bar').text()).toContain('已选择 0 条')
+  })
+
+  it('keeps the same request ID on acceptance failure and never shows success before acceptance', async () => {
+    const api = await import('@/api/performance')
+    const { ElMessage } = await import('element-plus')
+    const success = vi.spyOn(ElMessage, 'success')
+    const sending = vi.spyOn(api.projectManagementApi, 'submitCycleReminder').mockRejectedValue(new Error('not accepted'))
+    const wrapper = mount(PerformanceReminderPanel, { props: { context, provider: vi.fn().mockResolvedValue(result()), mode: 'cycle-remind' } })
+    await flushPromises()
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await wrapper.get('.selection-bar .performance-button--primary').trigger('click')
+      await flushPromises()
+      document.body.querySelector<HTMLButtonElement>('.performance-confirm-dialog--submit .performance-confirm-dialog__button--danger')!.click()
+      await flushPromises()
+    }
+    expect(success).not.toHaveBeenCalled()
+    expect(sending).toHaveBeenCalledTimes(2)
+    expect(sending.mock.calls[0][6]).toBe(sending.mock.calls[1][6])
+    expect(wrapper.getComponent({ name: 'PerformanceManagementTable' }).props('selectionCount')).toBe(1)
+  })
+
   it('uses the live batch reminder checkbox value when it is unchecked', async () => {
     const api = await import('@/api/performance')
-    const sending = vi.spyOn(api.projectManagementApi, 'remindCycleTasks').mockResolvedValue({ accepted_task_ids: [11], skipped_task_ids: [], failed_task_ids: [], delivery_status: 'success' })
+    const sending = vi.spyOn(api.projectManagementApi, 'submitCycleReminder').mockResolvedValue({ code: 0, success: true, msg: '操作成功', data: { job_id: 1 } })
     const provider = vi.fn().mockResolvedValue(result())
     const wrapper = mount(PerformanceReminderPanel, { props: { context, provider, mode: 'cycle-remind', selectAllAvailable: true } })
     await flushPromises()
@@ -571,7 +616,7 @@ describe('cycle reminder selection', () => {
     ;(dialog.querySelector('.ud__checkbox__input') as HTMLInputElement).click()
     ;(dialog.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
     await flushPromises()
-    expect(sending).toHaveBeenCalledWith(1, 'evaluation-1', [11], undefined, false)
+    expect(sending).toHaveBeenCalledWith(1, 'evaluation-1', { is_select_all: true, selected_task_ids: [], deselected_task_ids: [], keyword: undefined }, undefined, false, undefined, expect.any(String))
     expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
     wrapper.unmount(); sending.mockRestore()
   })
@@ -597,7 +642,7 @@ describe('cycle reminder selection', () => {
 
   it('renders the submit confirm dialog with an InfoFilled icon and passes the skip-recently-reminded checkbox to the API', async () => {
     const api = await import('@/api/performance')
-    const sending = vi.spyOn(api.projectManagementApi, 'remindCycleTasks').mockResolvedValue({ accepted_task_ids: [11], skipped_task_ids: [], failed_task_ids: [], delivery_status: 'success' })
+    const sending = vi.spyOn(api.projectManagementApi, 'submitCycleReminder').mockResolvedValue({ code: 0, success: true, msg: '操作成功', data: { job_id: 1 } })
     const provider = vi.fn().mockResolvedValue(result())
     const wrapper = mount(PerformanceReminderPanel, { props: { context, provider, mode: 'cycle-remind', selectAllAvailable: true } })
     await flushPromises()
@@ -615,7 +660,7 @@ describe('cycle reminder selection', () => {
     await flushPromises()
     ;(dialog.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
     await flushPromises()
-    expect(sending).toHaveBeenCalledWith(1, 'evaluation-1', [11], undefined, false)
+    expect(sending).toHaveBeenCalledWith(1, 'evaluation-1', { is_select_all: true, selected_task_ids: [], deselected_task_ids: [], keyword: undefined }, undefined, false, undefined, expect.any(String))
     wrapper.unmount(); sending.mockRestore()
   })
 })

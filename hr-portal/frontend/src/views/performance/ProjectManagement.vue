@@ -31,7 +31,12 @@
             </template>
           </PerformancePageTitle>
           <PerformanceLineTabs v-model="activeTab" sticky :tabs="overviewTabs">
-            <template v-if="activeTab === 'overview'">
+            <div v-if="activeTab === 'overview' && statisticsLoading" class="state-message" role="status">正在加载总览统计…</div>
+            <div v-else-if="activeTab === 'overview' && statisticsError" class="state-message error-state" role="alert">
+              <p>{{ statisticsError }}</p>
+              <button type="button" @click="loadOverview(activeCycleId, true)">重新加载</button>
+            </div>
+            <template v-else-if="activeTab === 'overview'">
               <section v-if="selectedProject" class="management-timeline" aria-label="项目流程时间节点">
                 <p v-if="timelineLoading" role="status">正在加载项目流程…</p>
                 <p v-else-if="timelineError" role="alert">{{ timelineError }} <button type="button" @click="loadTimeline">重新加载</button></p>
@@ -466,15 +471,22 @@ let disposed = false
 let contextReady = false
 let selectingCycle = false
 let normalizingRole = false
-async function loadOverview(cycleId?: number | null) {
+const statisticsLoaded = ref(false)
+const statisticsLoading = ref(false)
+const statisticsError = ref('')
+async function loadOverview(cycleId?: number | null, statisticsOnly = false) {
   const request = ++overviewRequest
   const key = scopeKey.value
   const version = projectContext.cacheVersion
-  loading.value = true
+  const includeStatistics = activeTab.value === 'overview'
+  loading.value = !statisticsOnly
+  statisticsLoading.value = statisticsOnly
+  statisticsLoaded.value = false
+  statisticsError.value = ''
   error.value = ''
   const current = () => !disposed && request === overviewRequest && key === scopeKey.value && version === projectContext.cacheVersion
   try {
-    const loaded = await projectManagementApi.overview(cycleId ?? undefined, { ...requestedScope.value })
+    const loaded = await projectManagementApi.overview(cycleId ?? undefined, { ...requestedScope.value }, includeStatistics)
     if (!current()) return
     if (loaded.active_cycle && cycleId != null && loaded.active_cycle.cycle_id !== cycleId) throw new Error('INVALID_MANAGEMENT_CYCLE')
     if (!route.query.management_role && (loaded.active_role || !loaded.categories)) {
@@ -484,18 +496,40 @@ async function loadOverview(cycleId?: number | null) {
       if (disposed || request !== overviewRequest) return
     }
     applyOverview(loaded)
+    statisticsLoaded.value = includeStatistics
   } catch (failure: any) {
     if (current()) {
-      overview.value = null
-      error.value = failure?.response?.status === 403 ? '无权访问当前管理范围' : '项目管理加载失败，请稍后重试'
+      const message = failure?.response?.status === 403 ? '无权访问当前管理范围' : '项目管理加载失败，请稍后重试'
+      if (statisticsOnly) {
+        overview.value = overview.value ? { ...overview.value, completion_nodes: [] } : null
+        statisticsError.value = message
+      } else {
+        overview.value = null
+        error.value = message
+      }
     }
   } finally {
-    if (!disposed && request === overviewRequest) loading.value = false
+    if (!disposed && request === overviewRequest) {
+      loading.value = false
+      statisticsLoading.value = false
+    }
   }
 }
+watch([activeTab, loading], () => {
+  if (activeTab.value !== 'overview') {
+    if (statisticsLoading.value) overviewRequest++
+    statisticsLoading.value = false
+    statisticsError.value = ''
+    return
+  }
+  if (!loading.value && activeCycle.value && !statisticsLoaded.value && !statisticsLoading.value && !error.value && !statisticsError.value) void loadOverview(activeCycleId.value, true)
+})
 
 function clearScopeState() {
   overviewRequest++
+  statisticsLoaded.value = false
+  statisticsLoading.value = false
+  statisticsError.value = ''
   timelineRequest++
   timelineNodes.value = []
   timelineError.value = ''
@@ -589,7 +623,7 @@ async function loadTimeline() {
   timelineNodes.value = []
   timelineError.value = ''
   timelineLoading.value = false
-  if (!projectId || !cycleId || activeTab.value !== 'overview' || loading.value) return
+  if (!projectId || !cycleId || activeTab.value !== 'overview' || loading.value || statisticsLoading.value || statisticsError.value) return
   timelineLoading.value = true
   const current = () => !disposed && request === timelineRequest && key === scopeKey.value
   try {
@@ -605,7 +639,7 @@ async function loadTimeline() {
     if (current()) timelineLoading.value = false
   }
 }
-watch(() => [scopeKey.value, activeTab.value, loading.value], () => { void loadTimeline() })
+watch(() => [scopeKey.value, activeTab.value, loading.value, statisticsLoading.value, statisticsError.value], () => { void loadTimeline() })
 
 async function handleCompletionAction(payload: { action: 'remind' | 'enable-result'; nodeKey: string; title: string; description?: string; departmentPath?: string }) {
   emit('completion-action', payload)
@@ -625,6 +659,8 @@ async function handleCompletionAction(payload: { action: 'remind' | 'enable-resu
     query: {
       ...managementQuery(),
       node_key: payload.nodeKey,
+      reminder_title: payload.title,
+      reminder_description: payload.description || '',
       department: payload.departmentPath || '',
       view: overviewViewMode.value,
       ...(match ? { completion_rate: match[1], completed: match[2], total: match[3] } : {}),

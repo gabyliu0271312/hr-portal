@@ -196,9 +196,104 @@ def runtime(monkeypatch, active=True, hide=False):
     project = SimpleNamespace(id=7, cycle_ref="cycle", settings={"template_id": 3, "comparison_rules_snapshot": {"version": 1, "rules": [{**rule(), "template_id": 3}]}})
     db = SimpleNamespace(scalar=AsyncMock(return_value=SimpleNamespace(semester_diff_rules=[{"id": "r1"}] if active else [])),
                          execute=AsyncMock(side_effect=[Rows(nodes), Rows(tasks), Rows([])]))
+    for node in nodes:
+        node.project_id = project.id
+    for task in tasks:
+        task.revoked_at = None
     monkeypatch.setattr(routes, "_reference_template", AsyncMock(side_effect=lambda task, node, project, db: node.config["template"]))
     monkeypatch.setattr(routes, "_task_visible_content", AsyncMock(side_effect=lambda task, node, db, **kwargs: (record(task.id, "")["schema"], task.answers)))
     return db, project, nodes, tasks
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shared", [False, True])
+async def test_runtime_context_reuses_nodes_tasks_templates_and_shared_member(monkeypatch, shared):
+    from app.performance import projects_router as routes
+    from app.performance.models import PerformanceNodeTask
+    visible_content = routes._task_visible_content
+    db, project, nodes, tasks = runtime(monkeypatch)
+    member = SimpleNamespace(snapshot_id=4, employee_no="e", shared_result_state={
+        "source_task_id": 1, "revision": 8, "answers": {"i": "low"},
+        "submitted_at": "2026-11-20T01:00:00Z", "source_actor_type": "EMPLOYEE", "source_actor_ref": "actual"})
+    if shared:
+        nodes[0].config["template"]["include_final_result"] = True
+        tasks = [PerformanceNodeTask(**source.__dict__) for source in tasks]
+        monkeypatch.setattr(routes, "_task_visible_content", AsyncMock(wraps=visible_content))
+    templates = {candidate.id: deepcopy(candidate.config["template"]) for candidate in nodes}
+    templates[nodes[0].id]["content"][0]["items"][0]["label"] = "已加载评级"
+    for _ in range(2):
+        db.execute.side_effect = [Rows([submission(2, 2, node_id="b")] if shared else [submission(1, 1), submission(2, 2, node_id="b")]),
+                                  Rows([("actual", "冻结提交人")])]
+        _, projected = await service.evaluate_task(db, tasks[0], nodes[0], project,
+            result_context=(nodes, tasks, member), templates=templates)
+        match = projected["matches"][0]
+        assert match["first_version"] == (8 if shared else 1)
+        assert match["first_reviewer"] == {"display_name": "冻结提交人"}
+        assert match["label"] == "已加载评级"
+    assert db.scalar.await_count == 2
+    assert db.execute.await_count == 4
+    routes._reference_template.assert_not_awaited()
+    for call in routes._task_visible_content.await_args_list:
+        context_nodes, context_tasks, context_member = call.kwargs["result_context"]
+        assert context_nodes == nodes and context_tasks == tasks and context_member is member
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["project", "cycle", "snapshot", "employee", "revoked", "node", "foreign-node", "360", "non-evaluation"])
+async def test_runtime_context_filters_unrelated_records_before_comparison(monkeypatch, case):
+    db, project, nodes, tasks = runtime(monkeypatch)
+    context_nodes, context_tasks = deepcopy(nodes), deepcopy(tasks)
+    if case == "foreign-node":
+        context_nodes[1].project_id = 99
+    elif case == "360":
+        context_nodes[1].config["template"]["executor_role_code"] = "assessment.reviewer_360"
+    elif case == "non-evaluation":
+        context_nodes[1].node_type = "calibration"
+    else:
+        key, value = {"project": ("project_id", 99), "cycle": ("cycle_ref", "other"),
+                      "snapshot": ("member_snapshot_id", 99), "employee": ("target_employee_no", "other"),
+                      "revoked": ("revoked_at", datetime.now(UTC)), "node": ("node_snapshot_id", 99)}[case]
+        setattr(context_tasks[1], key, value)
+    db.execute.side_effect = AssertionError("context must not reread nodes or tasks")
+    internal, projected = await service.evaluate_task(db, tasks[0], nodes[0], project,
+        result_context=(context_nodes, context_tasks, None))
+    assert projected is None or projected["matches"] == []
+    assert internal is None or internal["matches"] == []
+    db.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mismatch", ["snapshot_id", "employee_no"])
+async def test_runtime_context_rejects_mismatched_shared_member(monkeypatch, mismatch):
+    from app.performance import projects_router as routes
+    db, project, nodes, tasks = runtime(monkeypatch)
+    nodes[0].config["template"]["include_final_result"] = True
+    member = SimpleNamespace(snapshot_id=4, employee_no="e", shared_result_state={"source_task_id": 99, "revision": 99})
+    setattr(member, mismatch, "other")
+    db.scalar.side_effect = [db.scalar.return_value, SimpleNamespace(shared_result_state={"source_task_id": 1, "revision": 8})]
+    db.execute.side_effect = [Rows([])]
+    _, projected = await service.evaluate_task(db, tasks[0], nodes[0], project, result_context=(nodes, tasks, member))
+    assert projected["matches"][0]["first_task_id"] == 1
+    assert projected["matches"][0]["first_version"] == 8
+    assert db.scalar.await_count == 2
+    assert all(call.kwargs["result_context"][2] is None for call in routes._task_visible_content.await_args_list)
+
+
+@pytest.mark.asyncio
+async def test_runtime_context_fills_template_cache_once_and_preserves_viewer_pruning(monkeypatch):
+    from app.performance import projects_router as routes
+    db, project, nodes, tasks = runtime(monkeypatch)
+    project.settings["comparison_rules_snapshot"]["rules"].append({**rule(), "id": "r2", "template_id": 3})
+    db.scalar.return_value.semester_diff_rules.append({"id": "r2"})
+    templates = {nodes[0].id: nodes[0].config["template"]}
+    db.execute.side_effect = AssertionError("hidden comparisons must not query submitters")
+    internal, projected = await service.evaluate_task(db, tasks[0], nodes[0], project,
+        viewer_schemas={"a": record(1, "low")["schema"], "b": []},
+        result_context=(nodes, tasks, None), templates=templates)
+    assert len(internal["groups"]) == 2 and projected is None
+    routes._reference_template.assert_awaited_once()
+    assert set(templates) == {11, 12}
+    db.execute.assert_not_awaited()
 
 
 def submission(task_id, version, actor="actual", node_id="a", actor_type="EMPLOYEE", **after):
@@ -255,7 +350,8 @@ async def test_runtime_reviewer_projection_never_invents_identity(monkeypatch, c
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("case", ["no-match", "hidden", "historical", "anonymous"])
-async def test_runtime_no_visible_or_historical_identity_does_not_query(monkeypatch, case):
+@pytest.mark.parametrize("use_context", [False, True])
+async def test_runtime_no_visible_or_historical_identity_does_not_query(monkeypatch, case, use_context):
     db, project, nodes, tasks = runtime(monkeypatch, active=case != "historical", hide=case == "hidden")
     if case == "no-match":
         tasks[0].answers = {"i": "high"}
@@ -266,8 +362,12 @@ async def test_runtime_no_visible_or_historical_identity_does_not_query(monkeypa
         saved = compare_ratings(rule(), {"a": [record(1, "low", version=99)], "b": [record(2, "high", version=99)]})
         saved["reason"] = "历史理由"
         tasks[0].comparison_state = saved
-    _, projected = await service.evaluate_task(db, tasks[0], nodes[0], project, include_history=True)
-    assert db.execute.await_count == 2
+    options = {}
+    if use_context:
+        options = {"result_context": (nodes, tasks, None), "templates": {candidate.id: candidate.config["template"] for candidate in nodes}}
+        db.execute.side_effect = AssertionError("no identities should be queried")
+    _, projected = await service.evaluate_task(db, tasks[0], nodes[0], project, include_history=True, **options)
+    assert db.execute.await_count == (0 if use_context else 2)
     if projected:
         assert all(match["first_reviewer"] is None and match["second_reviewer"] is None for match in projected["matches"])
 
@@ -289,10 +389,13 @@ async def test_shared_reviewer_uses_shared_source_task_and_revision_not_handler_
 
 
 @pytest.mark.asyncio
-async def test_draft_override_is_not_attributed_to_previous_formal_submitter(monkeypatch):
+@pytest.mark.parametrize("use_context", [False, True])
+async def test_draft_override_is_not_attributed_to_previous_formal_submitter(monkeypatch, use_context):
     db, project, nodes, tasks = runtime(monkeypatch)
-    db.execute.side_effect = [Rows(nodes), Rows(tasks), Rows([submission(1, 1), submission(2, 2, "other", "b")]), Rows([("other", "另一环节提交人")])]
-    _, projected = await service.evaluate_task(db, tasks[0], nodes[0], project, {"i": "low"})
+    results = [Rows([submission(1, 1), submission(2, 2, "other", "b")]), Rows([("other", "另一环节提交人")])]
+    db.execute.side_effect = results if use_context else [Rows(nodes), Rows(tasks), *results]
+    options = {"result_context": (nodes, tasks, None)} if use_context else {}
+    _, projected = await service.evaluate_task(db, tasks[0], nodes[0], project, {"i": "low"}, **options)
     assert projected["matches"][0]["first_reviewer"] is None
     assert projected["matches"][0]["second_reviewer"] == {"display_name": "另一环节提交人"}
 

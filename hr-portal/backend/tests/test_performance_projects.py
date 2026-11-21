@@ -1434,7 +1434,7 @@ async def test_reconsideration_reminder_post_revalidates_before_delivery(monkeyp
 async def test_reconsideration_reminder_list_filters_invalid_applications(monkeypatch, state, expected):
     from unittest.mock import AsyncMock
     from app.performance import projects_router as router
-    from app.performance.models import PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceAuthorizationSnapshotPerson, PerformanceIdentityLink, PerformanceResultReconsideration
+    from app.performance.models import PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceAuthorizationSnapshotPerson, PerformanceIdentityLink, PerformanceResultReconsideration
     monkeypatch.setattr("app.integrations.feishu.notification_service._global_delivery_mode", AsyncMock(return_value="blocked"))
     project = SimpleNamespace(id=1, name="项目", cycle_ref="cycle:1", settings={})
     node = SimpleNamespace(id=2, node_id="appeal", node_type="result_reconsideration", config={})
@@ -1443,7 +1443,7 @@ async def test_reconsideration_reminder_list_filters_invalid_applications(monkey
     appeal = None if state == "orphan" else SimpleNamespace(withdrawn_at=1 if state == "withdrawn" else None, closed_at=1 if state == "closed" else None)
     for name, value in [("_managed_completion_projects", [(project, {"E1"})]), ("load_subject_visibility_rules", {"activity_manager": []}), ("resolve_trusted_performance_actor", SimpleNamespace(actor_ref="ADMIN")), ("_communication_progress", {}), ("_previous_published_position_levels", {}), ("_project_final_ratings", ([], {}, [])), ("_delegatable_stages", {}), ("resolve_subject_visibility_role", "activity_manager"), ("_task_handlers", {"M1"})]:
         monkeypatch.setattr(router, name, AsyncMock(return_value=value))
-    values = {PerformanceProjectMember: [member], PerformanceProjectNodeSnapshot: [node], PerformanceNodeTask: [task], PerformanceAuthorizationSnapshotPerson: [SimpleNamespace(employee_no="M1", display_name="处理人", employment_status="在职")], PerformanceIdentityLink: []}
+    values = {PerformanceProjectMember: [member], PerformanceProjectNodeSnapshot: [node], PerformanceNodeTask: [task], PerformanceNodeTaskAuthorization: [], PerformanceAuthorizationSnapshotPerson: [SimpleNamespace(employee_no="M1", display_name="处理人", employment_status="在职")], PerformanceIdentityLink: []}
     class Db:
         async def scalar(self, query): return appeal if query.column_descriptions[0]["entity"] is PerformanceResultReconsideration else 10
         async def get(self, model, key): return SimpleNamespace(source_snapshot_id=20)
@@ -12419,6 +12419,8 @@ def management_member_data(monkeypatch):
             sql = str(query.compile(compile_kwargs={"literal_binds": True}))
             if "SELECT count(*)" in sql:
                 return len(members)
+            if query.column_descriptions[0]["entity"] is None and "max(performance_project_member_snapshots.id)" in sql:
+                return 7
             if "performance_result_openings" in sql: return self.opening
             if query.column_descriptions[0]["entity"] is models.PerformanceAuthorizationSnapshotPerson:
                 return self.opening_person
@@ -12572,6 +12574,66 @@ async def test_final_history_detail_is_lazy_and_respects_reference_visibility(ma
     detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1, view="drawer", tab="management-node-20")
     assert all(not tab["result_history"] for tab in detail["management_tabs"])
     assert "原文" not in str(detail) and "新文" not in str(detail)
+
+
+@pytest.mark.asyncio
+async def test_management_drawer_hydrates_only_active_template(management_member_data, monkeypatch):
+    from unittest.mock import AsyncMock
+    data = management_member_data
+    hydrate = AsyncMock(wraps=data.routes._reference_template)
+    monkeypatch.setattr(data.routes, "_reference_template", hydrate)
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1, view="drawer", tab="management-node-10")
+    assert [call.args[1].id for call in hydrate.await_args_list] == [10]
+    assert [item["node_id"] for item in detail["management_tabs"] if item["content_loaded"]] == ["node-10"]
+    assert all(not item["form_schema"] and not item["answers"] for item in detail["management_tabs"] if not item["content_loaded"])
+
+
+@pytest.mark.asyncio
+async def test_management_drawer_reconsideration_body_is_lazy(management_member_data, monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import reconsideration_service
+    data = management_member_data
+    data.nodes.append(data.node(40, "result_reconsideration"))
+    related = data.task(7, 40)
+    data.tasks.append(related)
+    appeal = SimpleNamespace(result_snapshot={"full_result_answers": {"text": "冻结结果"}})
+    monkeypatch.setattr(reconsideration_service, "reconsideration_for_task", AsyncMock(return_value=appeal))
+    recon = {"reason": "复议原因", "status": "submitted_editable", "edit_task_id": 7, "can_edit": True,
+        "handlers": [], "submitted_at": related.submitted_at.isoformat(), "submitted_by": "处理人",
+        "deadline_at": None, "form_schema": [], "answers": {"text": "复议正文"}, "history": [], "adjustments": []}
+    loader = AsyncMock(return_value=(recon, appeal))
+    monkeypatch.setattr(data.routes, "_reconsideration_detail", loader)
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1, view="drawer", tab="management-node-10")
+    tab = next(item for item in detail["management_tabs"] if item["node_id"] == "node-40")
+    assert not tab["content_loaded"] and tab["answers"] == {} and "reconsideration" not in tab
+    loader.assert_not_awaited()
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1, view="drawer", tab="management-node-40")
+    tab = next(item for item in detail["management_tabs"] if item["node_id"] == "node-40")
+    assert tab["content_loaded"] and tab["reconsideration"]["answers"] == {"text": "复议正文"}
+    loader.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_management_detail_actions_reuse_member_tasks_nodes_and_actor(management_member_data, monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import models
+    data = management_member_data
+    data.project.status = "STARTED"
+    from app.performance import member_reminders
+    monkeypatch.setattr(member_reminders, "can_remind_member", AsyncMock(return_value=False))
+    monkeypatch.setattr(data.routes, "_task_management_scope_or_empty", AsyncMock(return_value=None))
+    stages = {20: {"node": data.nodes[1], "key": "manager-review", "label": "上级评估"}}
+    monkeypatch.setattr(data.routes, "_delegatable_stages", AsyncMock(return_value=stages))
+    options = AsyncMock(return_value=[])
+    monkeypatch.setattr(data.routes, "_member_task_options", options)
+    await data.routes.project_member_detail(1, "E1", context(), data.db, root_review_id=1, view="drawer")
+    args = options.await_args.args
+    assert args[0] is data.members[0] and args[1] == data.tasks and args[3] == {}
+    assert data.routes.resolve_trusted_performance_actor.await_count == 1
+    entities = [query.column_descriptions[0]["entity"] for query in data.db.queries]
+    assert entities.count(models.PerformanceProjectMember) == 1
+    assert entities.count(models.PerformanceNodeTask) == 1
+    assert entities.count(models.PerformanceProjectNodeSnapshot) == 1
 
 
 @pytest.mark.asyncio
@@ -13169,12 +13231,15 @@ async def test_cycle_member_endpoints_union_projects_and_keep_view_export_inters
     from app.performance.member_columns_service import column_schema
     monkeypatch.setattr(routes, "_management_member_schema", AsyncMock(return_value=column_schema([{"key": "rating:a", "label": "项目评级"}, {"key": "rating:b", "label": "阶段评级"}], [])))
     class Db:
+        async def scalar(self, statement):
+            sql = str(statement)
+            assert "count(*)" in sql and "GROUP BY" in sql
+            return 2
         async def execute(self, statement):
             if statement.column_descriptions[0]["entity"] is routes.PerformanceProjectMemberSnapshot:
                 return SimpleNamespace(all=lambda: [])
-            project_id = next(value for key, value in statement.compile().params.items() if key.startswith("project_id"))
-            values = [row_a] if project_id == 11 else [row_b]
-            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values))
+            assert statement._limit_clause.value == 1 and statement._offset_clause.value == 0
+            return SimpleNamespace(all=lambda: [(row_a, 11)])
     result = await routes.cycle_project_members(77, None, 1, 1, "name", "asc", context(), Db())
     assert enriched == ["E1"]
     assert result.total == 2 and [item.employee_no for item in result.items] == ["E1"]

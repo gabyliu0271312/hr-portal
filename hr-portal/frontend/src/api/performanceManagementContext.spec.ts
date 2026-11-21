@@ -18,6 +18,22 @@ afterEach(() => {
 })
 
 describe('management request scope', () => {
+  it('submits one scope request and rejects an unsuccessful receipt', async () => {
+    const requests: Parameters<AxiosAdapter>[0][] = []
+    api.defaults.adapter = async config => {
+      requests.push(config)
+      return { ...response(config), status: 202, data: { code: 0, success: true, msg: '操作成功', data: { job_id: 7 } } }
+    }
+    const selection = { is_select_all: true, selected_task_ids: [], deselected_task_ids: [17], keyword: '成员' }
+    const receipt = await projectManagementApi.submitCycleReminder(9, 'work-summary', selection, '部门', true, undefined, 'request-1')
+    expect(requests).toHaveLength(1)
+    expect(requests[0].url).toBe('/performance/project-management/reminder-requests')
+    expect(requests[0].params).toMatchObject({ cycle_id: '9', project_id: '29', management_role: 'hrbp' })
+    expect(JSON.parse(requests[0].data)).toEqual({ cycle_id: 9, node_key: 'work-summary', selection, department: '部门', skip_recently_reminded: true, request_id: 'request-1' })
+    expect(receipt.data.job_id).toBe(7)
+    api.defaults.adapter = async config => ({ ...response(config), data: { code: 1, success: false, msg: '未受理', data: {} } })
+    await expect(projectManagementApi.submitCycleReminder(9, 'work-summary', selection, undefined, true, undefined, 'request-1')).rejects.toThrow('未受理')
+  })
   it('sends reviewer invitation source task in the query and only roster fields in the body', async () => {
     window.history.replaceState({}, '', '/performance/review?project_id=29&node=confirm')
     const requests: Parameters<AxiosAdapter>[0][] = []
@@ -51,6 +67,17 @@ describe('management request scope', () => {
     expect(requests[0].params).toMatchObject({ cycle_id: 9, project_id: '29', management_role: 'hrbp' })
     expect(requests[1].params).toMatchObject({ cycle_id: '9', project_id: '29', management_role: 'hrbp' })
     expect(JSON.parse(requests[1].data)).toEqual({ employee_nos: ['E1'] })
+  })
+
+  it('defaults to full statistics and preserves explicit scope on lightweight overview reads', async () => {
+    const requests: Parameters<AxiosAdapter>[0][] = []
+    api.defaults.adapter = async config => { requests.push(config); return response(config) }
+    await projectManagementApi.overview(9)
+    await projectManagementApi.overview(9, { management_role: 'project_admin', project_id: 30 }, false)
+    await projectManagementApi.overview(9, { management_role: 'project_admin', project_id: 30 }, true)
+    expect(requests[0].params).toMatchObject({ cycle_id: 9, project_id: '29', management_role: 'hrbp', include_statistics: true })
+    expect(requests[1].params).toEqual({ cycle_id: 9, project_id: 30, management_role: 'project_admin', include_statistics: false })
+    expect(requests[2].params).toEqual({ cycle_id: 9, project_id: 30, management_role: 'project_admin', include_statistics: true })
   })
 
   it('preserves indicator and comparison axes together with management scope', async () => {

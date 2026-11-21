@@ -24,7 +24,14 @@
       </div>
       <PerformanceTableSummary :total="total" :hidden-column-count="hiddenColumnCount" @columns="columnDrawerOpen = true" />
       <PerformanceManagementTable
-        v-model:selected-keys="selectedKeys"
+        :selected-keys="tableSelectedKeys"
+        :selection-count="rangeMode ? selectedCount : undefined"
+        :scope-selection="rangeMode ? { all: allMatching && !excludedKeys.length, some: selectedCount > 0 && (!allMatching || excludedKeys.length > 0) } : undefined"
+        :selection-disabled="loading || actionLoading"
+        :keep-selection-bar="rangeMode"
+        @update:selected-keys="updateSelection"
+        @select-all="selectMatching"
+        @clear-selection="clearSelection"
         :rows="sortedRows"
         :loading="loading"
         loading-text="正在加载成员…"
@@ -66,7 +73,7 @@
         </template>
         <template #selection-actions>
           <UiButton v-if="mode === 'open-result'" variant="primary" :disabled="!selectedKeys.length || actionLoading" @click="handleAction('open-result')">开通结果</UiButton>
-          <PerformanceReminderButton v-else variant="primary" :disabled="!selectedKeys.length || !capabilities.canRemind || actionLoading" @click="handleAction('remind')" />
+          <PerformanceReminderButton v-else variant="primary" :disabled="!selectedCount || !capabilities.canRemind || actionLoading || loading" @click="handleAction('remind')" />
           <UiButton v-if="capabilities.canAuthorize" :disabled="actionLoading" @click="handleAction('authorize')">授权他人处理</UiButton>
           <UiButton v-if="capabilities.canTransfer" :disabled="actionLoading" @click="handleAction('transfer')">转交他人处理</UiButton>
         </template>
@@ -140,6 +147,30 @@ const columns = ref<ReminderColumn[]>(defaultReminderColumns)
 const selectedColumnKeys = ref(defaultReminderColumns.filter(column => column.visibleByDefault !== false).map(column => column.key))
 const capabilities = ref<ReminderCapabilities>({ canRemind: true, canAuthorize: false, canTransfer: false, canExport: false })
 const selectedKeys = ref<string[]>([])
+const allMatching = ref(false)
+const excludedKeys = ref<string[]>([])
+const selectableCount = ref(0)
+const rangeMode = computed(() => props.mode === 'cycle-remind')
+const selectedCount = computed(() => rangeMode.value && allMatching.value ? Math.max(0, selectableCount.value - excludedKeys.value.length) : selectedKeys.value.length)
+const tableSelectedKeys = computed(() => rangeMode.value && allMatching.value
+  ? rows.value.filter(row => row.selectable !== false && !excludedKeys.value.includes(String(row.task_id))).map(row => String(row.task_id))
+  : selectedKeys.value)
+let reminderRequestId = ''
+let reminderRequestKey = ''
+function clearSelection() { allMatching.value = false; excludedKeys.value = []; selectedKeys.value = []; reminderRequestId = '' }
+function selectMatching(checked: boolean) { clearSelection(); allMatching.value = checked }
+function updateSelection(keys: string[]) {
+  reminderRequestId = ''
+  if (rangeMode.value && allMatching.value) {
+    const next = new Set(excludedKeys.value)
+    for (const row of rows.value.filter(item => item.selectable !== false)) {
+      const key = String(row.task_id)
+      if (keys.includes(key)) next.delete(key)
+      else next.add(key)
+    }
+    excludedKeys.value = [...next]
+  } else selectedKeys.value = keys
+}
 const taskMap = ref(new Map<string, PerformanceTaskDelegationTarget & { can_authorize?: boolean }>())
 const openingPeopleMap = ref(new Map<string, ReminderListResult['items'][number]>())
 const openedEmployeeNos = ref(new Set<string>())
@@ -162,7 +193,7 @@ const delegationTasks = computed(() => {
   }
   return [...targets.values()]
 })
-function delegationCompleted(count: number, _notificationStatus?: string, _recordId?: number, skippedCount = 0) { selectedKeys.value = []; void load(); notice.value = `已处理 ${count} 个任务${skippedCount ? `，跳过 ${skippedCount} 个无原处理人任务` : ''}` }
+function delegationCompleted(count: number, _notificationStatus?: string, _recordId?: number, skippedCount = 0) { clearSelection(); void load(); notice.value = `已处理 ${count} 个任务${skippedCount ? `，跳过 ${skippedCount} 个无原处理人任务` : ''}` }
 const page = ref(1)
 const pageSize = ref(50)
 const sortKey = ref('')
@@ -235,6 +266,7 @@ async function defaultProvider(query: Parameters<ReminderProvider>[0]): Promise<
     return {
       items: result.items,
       total: result.total,
+      selectableCount: result.selectable_count,
       columns: reminderColumnsForVisibility(result.items),
       capabilities: { canRemind: true, canAuthorize: result.items.some(item => item.can_authorize), canTransfer: query.context.nodeId !== 'calibration' && result.items.some(item => item.can_authorize), canExport: true },
     }
@@ -278,6 +310,7 @@ async function load() {
     rows.value = cacheOpeningPeople(result.items)
     for (const row of result.items) taskMap.value.set(String(row.task_id), { task_id: Number(row.task_id), project_id: row.project_id || props.context.projectId, employee_no: row.employee_no, display_name: row.display_name, task_map: row.task_map || [], can_authorize: row.can_authorize })
     total.value = result.total
+    selectableCount.value = result.selectableCount ?? result.total
     emit('loaded', result.total)
     columns.value = result.columns.length ? result.columns : defaultReminderColumns
     capabilities.value = result.capabilities
@@ -304,7 +337,7 @@ async function initialize() {
   error.value = ''
   openingForbidden.value = false
   notice.value = ''
-  selectedKeys.value = []
+  clearSelection()
   taskMap.value = new Map()
   openingPeopleMap.value = new Map()
   const query = { context: { ...props.context }, keyword: keyword.value.trim(), page: page.value, pageSize: pageSize.value }
@@ -315,6 +348,7 @@ async function initialize() {
     rows.value = cacheOpeningPeople(result.items)
     for (const row of result.items) taskMap.value.set(String(row.task_id), { task_id: Number(row.task_id), project_id: row.project_id || props.context.projectId, employee_no: row.employee_no, display_name: row.display_name, task_map: row.task_map || [], can_authorize: row.can_authorize })
     total.value = result.total
+    selectableCount.value = result.selectableCount ?? result.total
     columns.value = result.columns
     selectedColumnKeys.value = columns.value.filter(column => column.visibleByDefault !== false).map(column => column.key)
     capabilities.value = result.capabilities
@@ -322,7 +356,10 @@ async function initialize() {
       capabilities.value = { ...capabilities.value, canAuthorize: false, canTransfer: false }
     }
     emit('loaded', result.total)
-    if (selectAllEligible.value && props.mode === 'open-result') {
+    if (rangeMode.value) {
+      allMatching.value = selectAllEligible.value
+      excludedKeys.value = []
+    } else if (selectAllEligible.value && props.mode === 'open-result') {
       let nextTotal = result.total
       if (nextTotal > result.items.length) {
         for (let nextPage = 1; (nextPage - 1) * 100 < nextTotal; nextPage++) {
@@ -370,6 +407,7 @@ function changeSort(value: { key: string; order: PerformanceSortOrder }) { sortK
 
 function applyColumns(keys: string[]) {
   selectedColumnKeys.value = keys
+  columnDrawerOpen.value = false
 }
 
 function handleFilter() {
@@ -401,32 +439,58 @@ async function handleAction(action: 'remind' | 'authorize' | 'transfer' | 'open-
     return
   }
   if (action !== 'remind') {
+    if (rangeMode.value && allMatching.value) {
+      actionLoading.value = true
+      try {
+        const keys: string[] = []
+        const provider = props.provider || defaultProvider
+        for (let nextPage = 1; (nextPage - 1) * 100 < total.value; nextPage++) {
+          const result = await provider({ context: props.context, keyword: loadedKeyword.value, page: nextPage, pageSize: 100 })
+          if (disposed) return
+          if (!result.items.length) throw new Error('名单已变化')
+          for (const row of result.items) {
+            const key = String(row.task_id)
+            taskMap.value.set(key, { task_id: Number(row.task_id), project_id: row.project_id || props.context.projectId, employee_no: row.employee_no, display_name: row.display_name, task_map: row.task_map || [], can_authorize: row.can_authorize })
+            if (row.selectable !== false && !excludedKeys.value.includes(key)) keys.push(key)
+          }
+        }
+        selectedKeys.value = keys
+        allMatching.value = false
+        excludedKeys.value = []
+      } catch { return } finally { actionLoading.value = false }
+    }
     delegationAction.value = action === 'transfer' ? 'TRANSFER' : 'AUTHORIZE'
     delegationOpen.value = true
     return
   }
-  if (!selectedKeys.value.length || !capabilities.value.canRemind || actionLoading.value || loading.value || error.value) return
+  if (!selectedCount.value || !capabilities.value.canRemind || actionLoading.value || loading.value || error.value) return
   remindConfirmOpen.value = true
 }
 
 async function confirmRemind() {
-  if (!selectedKeys.value.length || !capabilities.value.canRemind || actionLoading.value || loading.value || error.value) return
+  if (!selectedCount.value || !capabilities.value.canRemind || actionLoading.value || loading.value || error.value) return
   const submittedKeys = [...selectedKeys.value]
   actionLoading.value = true
   notice.value = ''
   try {
     if (props.mode === 'cycle-remind') {
-      if (props.context.resultKind) {
-        await projectManagementApi.remindCycleTasks(props.context.cycleId, props.context.nodeId, submittedKeys.map(Number), props.context.departmentPath, skipRecentlyReminded.value, props.context.resultKind)
-      } else {
-        await projectManagementApi.remindCycleTasks(props.context.cycleId, props.context.nodeId, submittedKeys.map(Number), props.context.departmentPath, skipRecentlyReminded.value)
-      }
+      const requestKey = JSON.stringify([props.context, allMatching.value, submittedKeys, excludedKeys.value, loadedKeyword.value, skipRecentlyReminded.value])
+      if (requestKey !== reminderRequestKey) { reminderRequestId = ''; reminderRequestKey = requestKey }
+      reminderRequestId ||= crypto.randomUUID()
+      await projectManagementApi.submitCycleReminder(props.context.cycleId, props.context.nodeId, {
+        is_select_all: allMatching.value,
+        selected_task_ids: allMatching.value ? [] : submittedKeys.map(Number),
+        deselected_task_ids: allMatching.value ? excludedKeys.value.map(Number) : [],
+        keyword: loadedKeyword.value || undefined,
+      }, props.context.departmentPath, skipRecentlyReminded.value, props.context.resultKind, reminderRequestId)
     } else {
-      await projectManagementApi.remindTasks(props.context.projectId, props.context.nodeId, submittedKeys.map(Number))
+      const result = await projectManagementApi.remindTasks(props.context.projectId, props.context.nodeId, submittedKeys.map(Number))
+      if (result.delivery_status !== 'success' || result.failed_task_ids?.length || result.preview_task_ids?.length) return
     }
     if (disposed) return
-    selectedKeys.value = []
+    clearSelection()
     ElMessage.success('催办成功')
+    if (rangeMode.value) void load()
   } catch {
     if (disposed) return
   } finally {

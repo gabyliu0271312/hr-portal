@@ -40,6 +40,10 @@ const props = withDefaults(defineProps<{
   isRowSelectable?: (row: any) => boolean
   selectionKey?: string
   selectedKeys?: string[]
+  selectionCount?: number
+  scopeSelection?: { all: boolean; some: boolean }
+  selectionDisabled?: boolean
+  keepSelectionBar?: boolean
   highlightRowKey?: string | number
   stickyHeaderTop?: number | string
   stickyHeader?: boolean
@@ -76,6 +80,8 @@ const emit = defineEmits<{
   'page-size-change': [pageSize: number]
   'selection-change': [rows: any[]]
   'update:selectedKeys': [keys: string[]]
+  'select-all': [checked: boolean]
+  'clear-selection': []
   'row-click': [row: any]
   'sort-change': [payload: { key: string; order: PerformanceSortOrder }]
 }>()
@@ -117,7 +123,7 @@ watch(() => props.selectedKeys, keys => {
 }, { immediate: true })
 const selectedKeyList = computed(() => [...selectedKeys.value])
 const elSelectedRows = ref<any[]>([])
-const selectedCount = computed(() => (useNativeTable.value ? selectedKeys.value.size : elSelectedRows.value.length))
+const selectedCount = computed(() => props.selectionCount ?? (useNativeTable.value ? selectedKeys.value.size : elSelectedRows.value.length))
 function onNativeSelectedKeys(keys: string[]) {
   selectedKeys.value = new Set(keys)
   emit('update:selectedKeys', keys)
@@ -127,6 +133,8 @@ function onSelectionChange(rows: any[]) {
   emit('selection-change', rows)
 }
 function clearSelection() {
+  if (props.selectionDisabled) return
+  emit('clear-selection')
   if (useNativeTable.value) {
     selectedKeys.value = new Set()
     emit('update:selectedKeys', [])
@@ -302,12 +310,15 @@ function rowClassName({ row }: { row: any }) {
         :selection-key="selectionKey"
         :is-row-selectable="isRowSelectable"
         :selected-keys="selectedKeyList"
+        :scope-selection="scopeSelection"
+        :selection-disabled="selectionDisabled"
         :highlight-row-key="highlightRowKey"
         :sort-key="sortKey"
         :sort-order="sortOrder"
         :sticky-header-top="nativeStickyTop"
         :max-height="tableMaxHeight"
         @update:selected-keys="onNativeSelectedKeys"
+        @select-all="emit('select-all', $event)"
         @selection-change="emit('selection-change', $event)"
         @sort-change="emit('sort-change', $event)"
         @row-click="emit('row-click', $event)"
@@ -348,13 +359,13 @@ function rowClassName({ row }: { row: any }) {
       <UiPagination :page="page" :page-size="pageSize" :total="totalCount" @page-change="emit('page-change', $event)" @page-size-change="emit('page-size-change', $event)" />
     </div>
 
-    <div v-if="showSelectionBar && selectedCount" class="selection-bar-spacer" aria-hidden="true"></div>
+    <div v-if="showSelectionBar && (selectedCount || keepSelectionBar)" class="selection-bar-spacer" aria-hidden="true"></div>
     <Teleport :to="selectionBarTarget || 'body'" :disabled="!selectionBarTarget">
       <Transition name="selection-bar-slide" :css="selectionBarAnimated">
-        <div v-if="showSelectionBar && selectedCount" class="selection-bar" :class="{ 'selection-bar--viewport': selectionBarTarget }" :style="selectionBarTarget ? undefined : barStyle" :aria-label="`已选择 ${selectedCount} 条`">
+        <div v-if="showSelectionBar && (selectedCount || keepSelectionBar)" class="selection-bar" :class="{ 'selection-bar--viewport': selectionBarTarget }" :style="selectionBarTarget ? undefined : barStyle" :aria-label="`已选择 ${selectedCount} 条`">
           <slot name="selection-actions" />
           <span class="selection-bar__count">已选择 {{ selectedCount }} 条</span>
-          <button type="button" class="selection-bar__clear" @click="clearSelection">清除</button>
+          <button type="button" class="selection-bar__clear" :disabled="selectionDisabled" @click="clearSelection">清除</button>
         </div>
       </Transition>
     </Teleport>

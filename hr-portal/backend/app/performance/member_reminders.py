@@ -46,44 +46,65 @@ class MemberReminderBatchPayload(BaseModel):
     skip_recently_reminded: bool = True
 
 
-async def preload_member_reminders(project, members, context, db):
+async def preload_member_reminders(project, members, context, db, *, tasks=None, nodes=None, active_by_task=None, actor=None):
     if not members or not isinstance(getattr(db, "info", None), dict):
         return
     from app.performance import projects_router as shared
 
+    by_member = {(member.snapshot_id, member.employee_no): [] for member in members}
     snapshot_ids = {member.snapshot_id for member in members}
     employee_nos = {member.employee_no for member in members}
-    rows = list((await db.execute(select(PerformanceNodeTask, PerformanceProjectNodeSnapshot).join(
-        PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id,
-    ).where(
-        PerformanceNodeTask.project_id == project.id,
-        PerformanceNodeTask.cycle_ref == project.cycle_ref,
-        PerformanceNodeTask.member_snapshot_id.in_(snapshot_ids),
-        PerformanceNodeTask.target_employee_no.in_(employee_nos),
-        PerformanceNodeTask.revoked_at.is_(None),
-        PerformanceProjectNodeSnapshot.project_id == project.id,
-    ).order_by(PerformanceProjectNodeSnapshot.node_order, PerformanceNodeTask.id))).all())
-    task_ids = [task.id for task, _node in rows]
-    grants = list((await db.execute(select(PerformanceNodeTaskAuthorization).where(
-        PerformanceNodeTaskAuthorization.task_id.in_(task_ids),
-        PerformanceNodeTaskAuthorization.project_id == project.id,
-        PerformanceNodeTaskAuthorization.cycle_ref == project.cycle_ref,
-        PerformanceNodeTaskAuthorization.status == "ACTIVE",
-    ).order_by(PerformanceNodeTaskAuthorization.created_at, PerformanceNodeTaskAuthorization.id))).scalars().all()) if task_ids else []
+    if tasks is not None and nodes is not None:
+        nodes_by_id = {node.id: node for node in nodes}
+        rows = [(task, nodes_by_id[task.node_snapshot_id]) for task in tasks if task.node_snapshot_id in nodes_by_id]
+    else:
+        rows = list((await db.execute(select(PerformanceNodeTask, PerformanceProjectNodeSnapshot).join(
+            PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id,
+        ).where(
+            PerformanceNodeTask.project_id == project.id,
+            PerformanceNodeTask.cycle_ref == project.cycle_ref,
+            PerformanceNodeTask.member_snapshot_id.in_(snapshot_ids),
+            PerformanceNodeTask.target_employee_no.in_(employee_nos),
+            PerformanceNodeTask.revoked_at.is_(None),
+            PerformanceProjectNodeSnapshot.project_id == project.id,
+        ).order_by(PerformanceProjectNodeSnapshot.node_order, PerformanceNodeTask.id))).all())
+    rows = sorted(((task, node) for task, node in rows if (
+        task.project_id == project.id and task.cycle_ref == project.cycle_ref
+        and (task.member_snapshot_id, task.target_employee_no) in by_member
+        and task.revoked_at is None and node.project_id == project.id
+        and task.node_snapshot_id == node.id
+    )), key=lambda row: (row[1].node_order, row[0].id))
+    task_ids = {task.id for task, _node in rows}
+    if active_by_task is not None:
+        grants = [grant for task_id in task_ids for grant in active_by_task.get(task_id, []) if grant.task_id == task_id]
+    else:
+        grants = list((await db.execute(select(PerformanceNodeTaskAuthorization).where(
+            PerformanceNodeTaskAuthorization.task_id.in_(task_ids),
+            PerformanceNodeTaskAuthorization.project_id == project.id,
+            PerformanceNodeTaskAuthorization.cycle_ref == project.cycle_ref,
+            PerformanceNodeTaskAuthorization.status == "ACTIVE",
+        ).order_by(PerformanceNodeTaskAuthorization.created_at, PerformanceNodeTaskAuthorization.id))).scalars().all()) if task_ids else []
     by_task = {}
     for grant in grants:
-        by_task.setdefault(grant.task_id, []).append(grant)
-    by_member = {(member.snapshot_id, member.employee_no): [] for member in members}
+        if (grant.task_id in task_ids and grant.project_id == project.id
+                and grant.cycle_ref == project.cycle_ref and grant.status == "ACTIVE"):
+            by_task.setdefault(grant.task_id, []).append(grant)
     for task, node in rows:
-        by_member.setdefault((task.member_snapshot_id, task.target_employee_no), []).append((task, node))
-    snapshots = {key: await db.get(PerformanceProjectMemberSnapshot, key) for key in snapshot_ids}
-    authorizations = {
-        snapshot.source_snapshot_id: await db.get(PerformanceAuthorizationSnapshot, snapshot.source_snapshot_id)
-        for snapshot in snapshots.values() if snapshot is not None
-    }
+        by_member[(task.member_snapshot_id, task.target_employee_no)].append((task, node))
+    snapshot_cache = _request_cache(db, "performance_member_reminder_snapshots")
+    for snapshot_id in snapshot_ids:
+        if snapshot_id not in snapshot_cache:
+            snapshot_cache[snapshot_id] = await db.get(PerformanceProjectMemberSnapshot, snapshot_id)
+    snapshots = {snapshot_id: snapshot_cache[snapshot_id] for snapshot_id in snapshot_ids}
+    authorization_cache = _request_cache(db, "performance_member_reminder_authorizations")
+    source_snapshot_ids = {snapshot.source_snapshot_id for snapshot in snapshots.values() if snapshot is not None}
+    for source_snapshot_id in source_snapshot_ids:
+        if source_snapshot_id not in authorization_cache:
+            authorization_cache[source_snapshot_id] = await db.get(PerformanceAuthorizationSnapshot, source_snapshot_id)
+    authorizations = {source_snapshot_id: authorization_cache[source_snapshot_id] for source_snapshot_id in source_snapshot_ids}
     key = (project.id, context.subject_type, context.subject_id, context.effective_employee_no, context.switch_session_id, context.management_role, context.management_cycle_id, context.management_project_id)
     _request_cache(db, "performance_member_reminder_preload")[key] = {
-        "actor": await shared.resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref),
+        "actor": actor if actor is not None else await shared.resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref),
         "snapshots": snapshots, "authorizations": authorizations,
         "members": {(member.snapshot_id, member.employee_no): member for member in members},
         "rows": by_member, "tasks": {task.id: task for task, _node in rows},
@@ -227,7 +248,7 @@ async def _reconsideration_manager_scope(project, snapshot, employee_no, actor, 
     return False
 
 
-async def _member_scope(project, employee_no, context, db, source_task_id=None, *, preloaded=None):
+async def _member_scope(project, employee_no, context, db, source_task_id=None, *, preloaded=None, first_only=False):
     from app.performance import projects_router as shared
 
     if context.management_role:
@@ -264,7 +285,7 @@ async def _member_scope(project, employee_no, context, db, source_task_id=None, 
             raise HTTPException(404, "PROJECT_MEMBER_NOT_FOUND")
         return actor, snapshot, member, source, "source"
 
-    scope_cache = _request_cache(db, "performance_member_reminder_management")
+    scope_cache = _request_cache(db, "performance_member_reminder_management") if first_only else {}
     scope_key = (project.id, context.subject_type, context.subject_id, context.effective_employee_no, context.switch_session_id, context.management_role, context.management_cycle_id, context.management_project_id)
     management = scope_cache.get(scope_key)
     if management is None:
@@ -325,7 +346,7 @@ async def _member_tasks(project, employee_no, context, db, source_task_id=None, 
     scope_key = (project.id, employee_no, source_task_id, context.subject_type, context.subject_id, context.effective_employee_no, context.switch_session_id, context.management_role, context.management_cycle_id, context.management_project_id)
     scoped = scope_cache.get(scope_key)
     if scoped is None:
-        scoped = await _member_scope(project, employee_no, context, db, source_task_id, preloaded=preloaded)
+        scoped = await _member_scope(project, employee_no, context, db, source_task_id, preloaded=preloaded, first_only=first_only)
         scope_cache[scope_key] = scoped
     actor, snapshot, member, manager_task, scope_mode = scoped
     statement = select(PerformanceNodeTask, PerformanceProjectNodeSnapshot).join(
@@ -363,7 +384,7 @@ async def _member_tasks(project, employee_no, context, db, source_task_id=None, 
         rows = [(task, node) for task, node in rows if task.task_kind == "evaluation" and node.id == target_node.id]
     if task_id is not None and not rows:
         raise HTTPException(404, "REMINDER_TARGET_NOT_FOUND")
-    people_cache = _request_cache(db, "performance_member_reminder_people")
+    people_cache = _request_cache(db, "performance_member_reminder_people") if first_only else {}
     people_key = snapshot.source_snapshot_id
     people_data = people_cache.get(people_key)
     if people_data is None:
@@ -396,7 +417,7 @@ async def _member_tasks(project, employee_no, context, db, source_task_id=None, 
         by_task = {}
         for delegation in delegations:
             by_task.setdefault(delegation.task_id, []).append(delegation)
-    setting_cache = _request_cache(db, "performance_member_reminder_settings")
+    setting_cache = _request_cache(db, "performance_member_reminder_settings") if first_only else {}
     if "setting" not in setting_cache:
         setting_cache["setting"] = await db.get(shared.PerformanceOtherPermissionSetting, 1)
     setting = setting_cache["setting"]

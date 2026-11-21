@@ -262,3 +262,77 @@ def test_actual_api_request_preserves_selected_project_and_rejects_path_tamperin
         assert rejected.status_code == 404
         unknown = client.get("/api/v1/performance/project-management/matrix?cycle_id=1&management_role=other")
         assert unknown.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_member_read_scope_reuse_is_identity_function_and_request_scoped(scope_db):
+    from dataclasses import replace
+    db = scope_db
+    db.info = {}
+    project = db.session.get(PerformanceProject, 1)
+    ctx = context()
+    router._enable_member_read_reuse(db)
+    first = await router._project_data_scope(ctx, project, db, "performance.frontend.data-view")
+    queries = db.execute.await_count
+    first.add("FORGED")
+    assert await router._project_data_scope(ctx, project, db, "performance.frontend.data-view") == {"VISIBLE1"}
+    assert db.execute.await_count == queries
+    assert await router._project_data_scope(ctx, project, db, "performance.frontend.progress") == {"VISIBLE1"}
+    assert db.execute.await_count > queries
+    switched = replace(ctx, management_role="project_admin")
+    assert await router._project_data_scope(switched, project, db, "performance.frontend.data-view") is None
+    role = db.session.get(PerformanceRole, 1)
+    role.function_permission_keys = []
+    db.session.flush()
+    db.info = {}
+    router._enable_member_read_reuse(db)
+    with pytest.raises(HTTPException) as denied:
+        await router._project_data_scope(ctx, project, db, "performance.frontend.data-view")
+    assert denied.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_light_overview_skips_statistics_and_opening_queries(scope_db, monkeypatch):
+    db = scope_db
+    cycle = db.session.get(PerformanceCycle, 1)
+    monkeypatch.setattr(router, "resolve_frontend_access", AsyncMock(return_value=SimpleNamespace(cycles=[cycle])))
+    completion = AsyncMock(side_effect=AssertionError("statistics must be deferred"))
+    openings = AsyncMock(side_effect=AssertionError("opening must be deferred"))
+    monkeypatch.setattr(router, "_project_completion_nodes", completion)
+    monkeypatch.setattr(router, "_opening_project_members", openings)
+    result = await router.project_management_overview(1, context(), db, project_id=2, include_statistics=False)
+    assert result["completion_nodes"] == []
+    assert result["active_role"] == "hrbp"
+    assert [project["project_id"] for project in result["projects"]] == [1, 2]
+    completion.assert_not_awaited()
+    openings.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sort_order", ["asc", "desc"])
+async def test_cycle_member_sql_pagination_filters_before_count_and_skips_empty_projects(scope_db, monkeypatch, sort_order):
+    from app.performance.member_columns_service import column_schema
+    db = scope_db
+    db.session.connection().connection.create_collation("C", lambda a, b: (a > b) - (a < b))
+    monkeypatch.setattr(router, "_management_member_schema", AsyncMock(return_value=column_schema(
+        [{"key": "rating:first", "label": "第一项目"}, {"key": "rating:second", "label": "第二项目"}], [])))
+    visited = []
+    async def rows(project, scope, keyword, sort_by, order, actor, session, *, employee_nos):
+        visited.append(project.id)
+        assert len(employee_nos) == 1
+        statement = router.select(PerformanceProjectMember).where(
+            PerformanceProjectMember.snapshot_id == router._latest_member_snapshot_statement(project.id),
+            PerformanceProjectMember.employee_no.in_(employee_nos))
+        members = db.session.execute(statement).scalars().all()
+        return [router.ProjectMemberResponse(id=member.id, root_review_id=member.id, project_id=project.id,
+            employee_no=member.employee_no, display_name=member.display_name) for member in members], []
+    monkeypatch.setattr(router, "_project_member_rows", rows)
+    monkeypatch.setattr(router, "hydrate_project_member_rows", AsyncMock())
+    pages = [await router.cycle_project_members(1, None, page, 1, "name", sort_order, context(), db) for page in (1, 2, 3)]
+    expected = ["VISIBLE1", "VISIBLE2"] if sort_order == "asc" else ["VISIBLE2", "VISIBLE1"]
+    assert [page.items[0].employee_no for page in pages[:2]] == expected
+    assert all(page.total == 2 for page in pages)
+    assert pages[2].items == [] and len(visited) == 2
+    assert all({column.key for column in page.rating_columns} == {"rating:first", "rating:second"} for page in pages)
+    filtered = await router.cycle_project_members(1, "VISIBLE2", 1, 1, None, None, context(), db)
+    assert filtered.total == 1 and filtered.items[0].employee_no == "VISIBLE2"

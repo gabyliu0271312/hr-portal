@@ -230,7 +230,8 @@ def project_comparison(comparison, schemas, current_node_id=None):
     return result
 
 
-async def evaluate_task(db, task, node, project, answers=None, *, viewer_template=None, viewer_schemas=None, all_formal=None, include_history=False):
+async def evaluate_task(db, task, node, project, answers=None, *, viewer_template=None, viewer_schemas=None, all_formal=None, include_history=False,
+                        result_context=None, templates=None):
     if all_formal is None:
         all_formal = answers is None
     if project is None or not ordinary_evaluation(node):
@@ -238,6 +239,21 @@ async def evaluate_task(db, task, node, project, answers=None, *, viewer_templat
     snapshot = (getattr(project, "settings", None) or {}).get("comparison_rules_snapshot") or {}
     if not snapshot.get("rules"):
         return None, None
+    if result_context is not None:
+        if (task.project_id != project.id or task.cycle_ref != project.cycle_ref or node.project_id != project.id
+                or task.node_snapshot_id != node.id or task.revoked_at is not None):
+            return None, None
+        context_nodes, context_tasks, context_member = result_context
+        context_nodes = [candidate for candidate in context_nodes if candidate.project_id == project.id]
+        context_node_ids = {candidate.id for candidate in context_nodes}
+        context_tasks = sorted((source for source in context_tasks
+            if source.project_id == project.id and source.cycle_ref == task.cycle_ref
+            and source.member_snapshot_id == task.member_snapshot_id and source.target_employee_no == task.target_employee_no
+            and source.revoked_at is None and source.node_snapshot_id in context_node_ids), key=lambda source: source.id)
+        if context_member is not None and (context_member.snapshot_id != task.member_snapshot_id
+                or context_member.employee_no != task.target_employee_no):
+            context_member = None
+        result_context = (context_nodes, context_tasks, context_member)
     cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
     rules = [rule for rule in active_rules(project, cycle) if node.node_id in (rule["first_node_id"], rule["second_node_id"])]
     active_ids = {str(rule["id"]) for rule in rules}
@@ -253,7 +269,8 @@ async def evaluate_task(db, task, node, project, answers=None, *, viewer_templat
                 continue
             historical = deepcopy(saved)
         internal, projected = await _evaluate_rule(db, task, node, project, rule, saved, historical, answers,
-            viewer_template=viewer_template, viewer_schemas=viewer_schemas, all_formal=all_formal)
+            viewer_template=viewer_template, viewer_schemas=viewer_schemas, all_formal=all_formal,
+            result_context=result_context, templates=templates)
         if internal is not None:
             internal_groups.append(internal)
         if projected is not None:
@@ -264,29 +281,40 @@ async def evaluate_task(db, task, node, project, answers=None, *, viewer_templat
 
 
 async def _evaluate_rule(db, task, node, project, rule, previous, historical, answers,
-                         *, viewer_template=None, viewer_schemas=None, all_formal=False):
+                         *, viewer_template=None, viewer_schemas=None, all_formal=False, result_context=None, templates=None):
     from app.performance import projects_router as routes
-    nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
-        PerformanceProjectNodeSnapshot.project_id == project.id,
-        PerformanceProjectNodeSnapshot.node_id.in_([rule["first_node_id"], rule["second_node_id"]]),
-    ))).scalars().all())
+    if result_context is None:
+        nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+            PerformanceProjectNodeSnapshot.project_id == project.id,
+            PerformanceProjectNodeSnapshot.node_id.in_([rule["first_node_id"], rule["second_node_id"]]),
+        ))).scalars().all())
+    else:
+        nodes = [candidate for candidate in result_context[0]
+                 if candidate.project_id == project.id and candidate.node_id in (rule["first_node_id"], rule["second_node_id"])]
     nodes = [candidate for candidate in nodes if ordinary_evaluation(candidate)]
     if len(nodes) != 2:
         return None, None
-    tasks = list((await db.execute(select(PerformanceNodeTask).where(
-        PerformanceNodeTask.project_id == project.id, PerformanceNodeTask.cycle_ref == task.cycle_ref,
-        PerformanceNodeTask.member_snapshot_id == task.member_snapshot_id,
-        PerformanceNodeTask.target_employee_no == task.target_employee_no,
-        PerformanceNodeTask.node_snapshot_id.in_([candidate.id for candidate in nodes]),
-        PerformanceNodeTask.revoked_at.is_(None),
-    ).order_by(PerformanceNodeTask.id))).scalars().all())
-    templates, records = {}, {}
+    if result_context is None:
+        tasks = list((await db.execute(select(PerformanceNodeTask).where(
+            PerformanceNodeTask.project_id == project.id, PerformanceNodeTask.cycle_ref == task.cycle_ref,
+            PerformanceNodeTask.member_snapshot_id == task.member_snapshot_id,
+            PerformanceNodeTask.target_employee_no == task.target_employee_no,
+            PerformanceNodeTask.node_snapshot_id.in_([candidate.id for candidate in nodes]),
+            PerformanceNodeTask.revoked_at.is_(None),
+        ).order_by(PerformanceNodeTask.id))).scalars().all())
+    else:
+        tasks = [source for source in result_context[1] if source.node_snapshot_id in {candidate.id for candidate in nodes}]
+    node_templates, records = {}, {}
     for candidate in nodes:
         candidate_tasks = [source for source in tasks if source.node_snapshot_id == candidate.id]
         if candidate.id == node.id and not all_formal:
             candidate_tasks = [task]
-        template = await routes._reference_template(next(iter(candidate_tasks), None), candidate, project, db)
-        templates[candidate.node_id] = template
+        template = templates.get(candidate.id) if templates is not None else None
+        if template is None:
+            template = await routes._reference_template(next(iter(candidate_tasks), None), candidate, project, db)
+            if templates is not None:
+                templates[candidate.id] = template
+        node_templates[candidate.node_id] = template
         records[candidate.node_id] = []
         shared_seen = False
         if answers is not None and candidate.id == node.id:
@@ -303,14 +331,17 @@ async def _evaluate_rule(db, task, node, project, rule, previous, historical, an
             else:
                 if source.submitted_at is None or source.status != "completed":
                     continue
-                schema, visible_answers = await routes._task_visible_content(source, candidate, db, template=template)
+                source_options = {"result_context": result_context} if result_context is not None else {}
+                schema, visible_answers = await routes._task_visible_content(source, candidate, db, template=template, **source_options)
                 revision = source.answer_version
             shared_seen = shared_seen or shared
             record = {"task_id": source.id, "version": revision, "schema": schema, "answers": visible_answers,
                       "formal": not (is_current and answers is not None) and source.status == "completed" and source.submitted_at is not None,
                       "shared": shared, "anonymous": template.get("executor_label") == "360°评估人"}
             if shared:
-                member = await db.scalar(select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == source.member_snapshot_id, PerformanceProjectMember.employee_no == source.target_employee_no))
+                member = result_context[2] if result_context is not None else None
+                if member is None:
+                    member = await db.scalar(select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == source.member_snapshot_id, PerformanceProjectMember.employee_no == source.target_employee_no))
                 state = getattr(member, "shared_result_state", None) or {}
                 if not (is_current and answers is not None):
                     record["version"] = state.get("revision", revision)
@@ -326,22 +357,22 @@ async def _evaluate_rule(db, task, node, project, rule, previous, historical, an
     comparison = compare_ratings(rule, records, previous)
     schemas = viewer_schemas
     if schemas is None:
-        viewer_template = viewer_template if viewer_template is not None else templates[node.node_id]
+        viewer_template = viewer_template if viewer_template is not None else node_templates[node.node_id]
         schemas = {}
-        for node_id, template in templates.items():
-            if node_id == node.node_id and viewer_template is templates[node.node_id]:
+        for node_id, template in node_templates.items():
+            if node_id == node.node_id and viewer_template is node_templates[node.node_id]:
                 schemas[node_id] = build_self_summary_schema(template)
-            elif node_id == node.node_id and viewer_template == templates[node.node_id]:
+            elif node_id == node.node_id and viewer_template == node_templates[node.node_id]:
                 schemas[node_id] = build_self_summary_schema(template)
             else:
                 relation = next((content for content in viewer_template.get("content", []) if content.get("content_slot") == "reference" and content.get("reference_kind") == "node" and str(content.get("reference_value")) == node_id), None)
                 schemas[node_id] = project_reference_content(template, relation, {})[0] if relation is not None else []
     names = {}
     for candidate in nodes:
-        if viewer_template is not None and viewer_template != templates[node.node_id]:
+        if viewer_template is not None and viewer_template != node_templates[node.node_id]:
             relation = next((content for content in viewer_template.get("content", []) if content.get("content_slot") == "reference" and content.get("reference_kind") == "node" and str(content.get("reference_value")) == candidate.node_id), {})
         elif candidate.node_id != node.node_id:
-            relation = next((content for content in templates[node.node_id].get("content", []) if content.get("content_slot") == "reference" and content.get("reference_kind") == "node" and str(content.get("reference_value")) == candidate.node_id), {})
+            relation = next((content for content in node_templates[node.node_id].get("content", []) if content.get("content_slot") == "reference" and content.get("reference_kind") == "node" and str(content.get("reference_value")) == candidate.node_id), {})
         else:
             relation = {}
         names[candidate.node_id] = (relation.get("reference_settings") or {}).get("page_name") or candidate.name

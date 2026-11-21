@@ -14,7 +14,7 @@ from copy import deepcopy
 from datetime import datetime, UTC
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -148,7 +148,65 @@ class SchedulerEngine:
 
     # ===== 统一执行入口（手动 + cron 共用）=====
 
-    async def run_job_now(self, job_id: int, triggered_by: str) -> JobRun:
+    def trigger_job_soon(self, job_id: int) -> None:
+        if self._scheduler is not None:
+            self._scheduler.add_job(self._cron_trigger_callback, trigger="date", args=[job_id],
+                id=f"immediate-{job_id}", replace_existing=True, misfire_grace_time=600)
+
+    async def _run_reminder_batch(self, job_id: int, triggered_by: str) -> JobRun | None:
+        from app.performance.batch_reminders import KIND, LOCK_KEY, prepare_next
+        # Hold a dedicated transaction lock across the separate dispatch commits.
+        async with self._session_factory() as lock_db:
+            connection = await lock_db.connection()
+            claimed = await connection.scalar(select(func.pg_try_advisory_xact_lock(LOCK_KEY)))
+            if not claimed:
+                return None
+            try:
+                for _ in range(10):
+                    async with self._session_factory() as db:
+                        job = await db.scalar(select(ScheduledJob).where(ScheduledJob.id == job_id).with_for_update())
+                        if job is None or not job.enabled or job.kind != KIND:
+                            return None
+                        run = JobRun(job_id=job.id, kind=KIND, business_id=job.business_id,
+                            status="running", triggered_by=triggered_by, payload_snapshot=deepcopy(job.payload))
+                        db.add(run)
+                        await db.flush()
+                        run_id = run.id
+                        try:
+                            ready = await prepare_next(job, db, run_id)
+                            await db.commit()
+                            await db.refresh(job)
+                            await db.refresh(run)
+                            rows, message = await get_handler(KIND)(job, db, triggered_by) if ready else (0, job.payload.get("state", "queued"))
+                            run.status, run.rows, run.message = "success", rows, message
+                            run.finished_at = datetime.now(UTC)
+                            job.last_run_at, job.last_status, job.last_message = run.finished_at, run.status, message
+                            enabled = job.enabled
+                            await db.commit()
+                        except Exception as exc:
+                            await db.rollback()
+                            job = await db.get(ScheduledJob, job_id)
+                            run = await db.get(JobRun, run_id)
+                            if job is not None:
+                                state = deepcopy(job.payload)
+                                for item in state.pop("dispatch", []):
+                                    state.setdefault("outcomes", []).append({**item, "status": "unknown"})
+                                state["state"] = "queued"
+                                job.payload = state
+                                job.last_status, job.last_message = "failed", str(exc)[:1000]
+                            if run is None:
+                                run = JobRun(job_id=job_id, kind=KIND, status="failed", triggered_by=triggered_by)
+                                db.add(run)
+                            run.status, run.message, run.finished_at = "failed", str(exc)[:1000], datetime.now(UTC)
+                            await db.commit()
+                            return run
+                        if not enabled:
+                            return run
+                return run
+            finally:
+                await lock_db.rollback()
+
+    async def run_job_now(self, job_id: int, triggered_by: str) -> JobRun | None:
         """同步执行一次 job：
         - 拿到 job 定义
         - 创建 job_runs 行（status=running）
@@ -156,6 +214,10 @@ class SchedulerEngine:
         - 回写 scheduled_jobs.last_run_at / last_status / last_message
         - 返回最终的 JobRun（已持久化）
         """
+        async with self._session_factory() as probe_db:
+            kind = await probe_db.scalar(select(ScheduledJob.kind).where(ScheduledJob.id == job_id))
+        if kind == "performance_reminder_batch":
+            return await self._run_reminder_batch(job_id, triggered_by)
         async with self._session_factory() as db:
             job = await db.get(ScheduledJob, job_id)
             if job is None:
