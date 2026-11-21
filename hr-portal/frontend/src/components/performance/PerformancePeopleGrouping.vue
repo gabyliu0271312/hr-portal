@@ -31,6 +31,7 @@ onBeforeUnmount(() => clearTimeout(timer))
 
 <style scoped>
 .people-grouping { display: inline-flex; }
+:global(.people-grouping-menu::before) { content: ''; position: absolute; inset-inline: 0; bottom: 100%; height: var(--performance-popover-gap); }
 .people-grouping__button { height: auto; padding-block: var(--performance-people-group-button-padding-y); color: var(--color-text-primary); }
 .people-grouping__button:hover:not(:disabled), .people-grouping__button:active:not(:disabled) { background: var(--performance-icon-button-hover-background); }
 .people-grouping__button.is-active { color: var(--color-primary); }

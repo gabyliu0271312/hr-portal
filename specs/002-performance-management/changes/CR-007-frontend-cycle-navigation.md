@@ -258,6 +258,13 @@
 - UI证据：真实Vite路由、独立Chromium、1280×673/DPR1、所有API合成隔离；两类名单hover/toggle/层级折叠通过；蓝色按钮98×32/#1456F0，原弹窗选择接收人及全部3人，3条原`/tasks/{id}/delegations`请求分别携带正确父授权21/22/23和规则r1、原幂等键；模拟成功后未授权3→0，pageErrors=[]。首轮候选夹具形状错误已修正，第二轮定位误用button超时后改用真实combobox完成；失败尝试未计通过。独立PNG均已查看：`ui-blueprints/CR-007-F04-implemented-unauthorized-grouping-20261121.png`、`ui-blueprints/CR-007-F04-implemented-authorized-grouping-20261121.png`、`ui-blueprints/CR-007-F04-implemented-people-assist-authorization-20261121.png`。
 - 局部开发及本地验收完成；真实JWT/PostgreSQL保存回读、生产部署与同数据整页像素一致验收未运行，F04/F05/T11整体仍未勾选。适用Spec012 A01/A02/A0502/A0503/A0505/N0001/N0002/N0004/N0005/N1102–N1104，数仓/UCP专属不适用；授权按钮采用PM001具体规则保留disabled。未commit/push/deploy，无真实授权或外部通知。
 
+### 2026-11-21 F04 分组浮层鼠标过渡修复
+
+- 用户反馈从分组按钮移向浮层选项时浮层提前消失。真实Chromium加载现有组件复现：按钮与浮层间距10px，鼠标停在间隙250ms后浮层消失。原因是Teleport浮层与按钮DOM分离，间隙没有命中区域，mouseleave启动100ms关闭计时器，慢速移动尚未到达浮层即关闭。此前直接hover→click的自动化未覆盖该路径。
+- 仅在PerformancePeopleGrouping为自身`.people-grouping-menu::before`增加透明鼠标过渡区域，高度复用`--performance-popover-gap`。保留原视觉位置、间距和关闭延迟，不改共享PerformancePopover其他调用方、授权业务或接口。两类名单共用修复。
+- 浏览器修复后：同一10px间隙停留350ms仍可进入并点击选项；反向返回停留350ms、启用/取消分组、离开区域250ms后关闭、Esc关闭均通过，pageErrors=[]。真实FocusGroupPeopleDialog加载一人冻结分组，慢速移入后成功显示组行；独立PNG已查看：`ui-blueprints/CR-007-F04-implemented-grouping-hover-bridge-20261121.png`。组件挂载于本地Vite独立浏览器，无业务API或外部写入。
+- `npm --prefix hr-portal/frontend run test -- src/components/performance/focus-group/FocusGroupPeopleDialog.spec.ts src/components/performance/PerformancePopover.spec.ts --silent` → **实际匹配1文件、7 passed、exit0**；PerformancePopover.spec.ts不存在，本次不将其记为已测。最终改用实际存在的浮层消费者回归：`npm --prefix hr-portal/frontend run test -- src/components/performance/focus-group/FocusGroupPeopleDialog.spec.ts src/components/performance/PerformanceInfoPopover.spec.ts --silent` → **2文件15 passed、exit0**。`npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite通过、41.40秒、exit0**，保留既有VueUse PURE提示；`git diff --check`通过。无迁移，无生产部署；用户明确授权本次在main提交推送，仅纳入本修复和证据。
+
 ### 当前实现和证据
 
 - 主实现：`projects_router.py`、`api/performance.ts`、`ProjectManagement.vue`、`CompletionRatePanel.vue`、`CompletionNodeCard.vue`、`PerformanceManagementTable.vue`、`PerformanceReminderPanel.vue`、`performanceReminder.ts`、现有路由；新增 `ProjectManagementReminder.vue`、`ProjectAuthorizationRecords.vue`、`ProjectCalibrationAuthorization.vue`。
