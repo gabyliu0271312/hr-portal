@@ -105,31 +105,17 @@
         <PerformanceCheckbox v-model="skipRecentlyReminded" label="6 小时内已被催办过该环节的人员不再发送通知" />
       </template>
     </PerformanceConfirmDialog>
-    <PerformanceConfirmDialog
-      v-model="remindResultOpen"
-      :message="remindResult.message"
-      :description="remindResult.description"
-      :show-cancel="false"
-      confirm-text="确定"
-      confirm-variant="primary"
-      @confirm="remindResultOpen = false"
-    >
-      <template #icon>
-        <YesOutlinedIcon v-if="remindResult.success" class="reminder-result-success" />
-        <InfoFilledIcon v-else />
-      </template>
-    </PerformanceConfirmDialog>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { performanceWorkbenchApi, projectManagementApi, type PerformanceTaskDelegationTarget } from '@/api/performance'
 import PerformanceColumnVisibilityDrawer from './PerformanceColumnVisibilityDrawer.vue'
 import PerformanceTaskDelegationDialog from './PerformanceTaskDelegationDialog.vue'
 import PerformanceConfirmDialog from './PerformanceConfirmDialog.vue'
 import InfoFilledIcon from './InfoFilledIcon.vue'
-import YesOutlinedIcon from './YesOutlinedIcon.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceExportButton from './PerformanceExportButton.vue'
 import PerformanceReminderButton from './PerformanceReminderButton.vue'
@@ -189,11 +175,9 @@ const notice = ref('')
 const columnDrawerOpen = ref(false)
 const confirmOpen = ref(false)
 const remindConfirmOpen = ref(false)
-const remindResultOpen = ref(false)
-const remindResult = ref({ message: '', description: '', success: false })
 const openingForbidden = ref(false)
 const emptyText = computed(() => props.mode === 'open-result' ? '暂无未开通绩效结果的人员' : props.mode === 'preview' ? '暂无符合条件的员工' : '暂无未完成的被评估人')
-const skipRecentlyReminded = ref(false)
+const skipRecentlyReminded = ref(true)
 let requestSequence = 0
 let disposed = false
 
@@ -431,39 +415,24 @@ async function confirmRemind() {
   actionLoading.value = true
   notice.value = ''
   try {
-    const result = props.mode === 'cycle-remind'
-      ? props.context.resultKind
-        ? await projectManagementApi.remindCycleTasks(props.context.cycleId, props.context.nodeId, submittedKeys.map(Number), props.context.departmentPath, skipRecentlyReminded.value, props.context.resultKind)
-        : await projectManagementApi.remindCycleTasks(props.context.cycleId, props.context.nodeId, submittedKeys.map(Number), props.context.departmentPath, skipRecentlyReminded.value)
-      : await projectManagementApi.remindTasks(props.context.projectId, props.context.nodeId, submittedKeys.map(Number))
-    if (disposed) return
-    const accepted = result.accepted_task_ids.length
-    const skipped = result.skipped_task_ids.length
-    const failed = result.failed_task_ids?.length || 0
-    const preview = result.preview_task_ids?.length || 0
-    const delivered = accepted > 0 && (result.delivery_status === 'success' || result.delivery_status === 'partial_success')
-    const success = delivered && !failed && !preview && !skipped
-    const completed = new Set([
-      ...(delivered ? result.accepted_task_ids : []),
-      ...result.skipped_task_ids,
-    ].map(String))
-    const retryKeys = new Set([...(result.failed_task_ids || []), ...(result.preview_task_ids || [])].map(String))
-    selectedKeys.value = success ? [] : submittedKeys.filter(key => retryKeys.has(key) || !completed.has(key))
-    const skippedOnly = skipped > 0 && !accepted && !failed && !preview
-    remindResult.value = {
-      success,
-      message: success ? '催办成功' : skippedOnly ? '本次催办已跳过' : delivered ? '催办部分发送成功' : result.delivery_status === 'preview_only' || preview ? '催办未发送' : '催办发送失败',
-      description: success ? '' : skippedOnly ? `跳过 ${skipped} 条，未重复发送通知。` : `${delivered ? `已发送 ${accepted} 条，` : ''}${failed ? `失败 ${failed} 条，` : ''}${preview ? `未发送 ${preview} 条，` : ''}跳过 ${skipped} 条${result.errors?.some(item => item.error.includes('未确认')) ? '；发送结果未确认，请核对通知日志后再重试' : ''}`,
+    if (props.mode === 'cycle-remind') {
+      if (props.context.resultKind) {
+        await projectManagementApi.remindCycleTasks(props.context.cycleId, props.context.nodeId, submittedKeys.map(Number), props.context.departmentPath, skipRecentlyReminded.value, props.context.resultKind)
+      } else {
+        await projectManagementApi.remindCycleTasks(props.context.cycleId, props.context.nodeId, submittedKeys.map(Number), props.context.departmentPath, skipRecentlyReminded.value)
+      }
+    } else {
+      await projectManagementApi.remindTasks(props.context.projectId, props.context.nodeId, submittedKeys.map(Number))
     }
+    if (disposed) return
+    selectedKeys.value = []
+    ElMessage.success('催办成功')
   } catch {
     if (disposed) return
-    remindResult.value = { message: '催办请求提交失败', description: '请稍后重试。', success: false }
   } finally {
     actionLoading.value = false
     remindConfirmOpen.value = false
   }
-  await nextTick()
-  if (!disposed) remindResultOpen.value = true
 }
 
 async function confirmResults() {
@@ -512,7 +481,6 @@ onBeforeUnmount(() => { disposed = true; requestSequence++ })
 </script>
 
 <style scoped>
-.reminder-result-success { color: var(--color-success); }
 .performance-reminder-panel :deep(.performance-sort-header) { height:22px; font-weight:400; }
 .reminder-target :deep(.member-avatar) { width:20px; height:20px; flex-basis:20px; }
 .performance-reminder-panel__description.is-statistics { display:flex; align-items:center; flex-wrap:wrap; }
