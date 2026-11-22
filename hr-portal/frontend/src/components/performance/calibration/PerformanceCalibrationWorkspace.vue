@@ -11,6 +11,7 @@ import CalibrationSingleTask from './CalibrationSingleTask.vue'
 import CalibrationTaskHome from './CalibrationTaskHome.vue'
 import CalibrationTaskSidebar from './CalibrationTaskSidebar.vue'
 import CalibrationScopeContent from './CalibrationScopeContent.vue'
+import PerformanceLineTabs from '../PerformanceLineTabs.vue'
 import CalibrationState from './CalibrationState.vue'
 const props = defineProps<{ cycleId: number; nodeId?: string }>()
 const emit = defineEmits<{
@@ -24,7 +25,8 @@ let sequence = 0, returnFocus: HTMLElement | null = null, scrollContainer: HTMLE
 const scalar = (value: unknown) => typeof value === 'string' ? value : ''
 const filter = computed(() => ['pending', 'completed', 'overdue'].includes(scalar(route.query.calibration_filter)) ? scalar(route.query.calibration_filter) : 'all')
 const selectedKey = computed(() => scalar(route.query.calibration_scope))
-const tab = computed(() => ['matrix', 'report'].includes(scalar(route.query.calibration_tab)) ? scalar(route.query.calibration_tab) : 'members')
+const tab = computed<'members' | 'matrix' | 'report'>(() => route.query.calibration_tab === 'matrix' ? 'matrix' : route.query.calibration_tab === 'report' ? 'report' : 'members')
+const tabs = [{ key: 'members', label: '成员列表' }, { key: 'matrix', label: '矩阵分析' }, { key: 'report', label: '统计报表' }]
 const requestedFullScreen = computed(() => route.query.calibration_open === '1')
 const invalidRequestedScope = computed(() => requestedFullScreen.value && selectedKey.value !== '__all__' && !tasks.value.some(task => task.scope_key === selectedKey.value))
 const singleTask = computed(() => !error.value && tasks.value.length === 1 && !invalidRequestedScope.value ? tasks.value[0] : null)
@@ -75,7 +77,7 @@ defineExpose({ selected, refresh: load })
     <div class="calibration-fullscreen">
       <CalibrationTaskSidebar :tasks="tasks" :selected="selectedKey" :cycle-id="cycleId" @select="selectScope" />
       <CalibrationState v-if="loading || error" :loading="loading" :error="error" @retry="load()" />
-      <div v-else-if="selectedKey === '__all__'" class="calibration-all-people"><h1>全部被校准人</h1><slot name="all-people" :tasks="tasks" :cycleId="cycleId"><p role="status">全部被校准人聚合视图尚未接入。</p></slot></div>
+      <main v-else-if="selectedKey === '__all__'" class="calibration-all-people" aria-label="全部被校准人"><PerformanceLineTabs :model-value="tab" :tabs="tabs" flush @update:model-value="query({ calibration_tab: $event })"><slot name="all-people" :tasks="tasks" :cycleId="cycleId" :tab="tab"><p role="status">全部被校准人聚合视图尚未接入。</p></slot></PerformanceLineTabs></main>
       <CalibrationScopeContent v-else-if="selected" :key="`${employeeSwitchEpoch}:${cycleId}:${selected.scope_key}`" :scope="selected" :cycle-id="cycleId" :tab="tab" @update:tab="query({ calibration_tab: $event })" @completed="load()" @busy="fullScreenLoading = $event" @open-member="emit('open-member', $event)" @remind-evaluate="emit('remind-evaluate', $event)">
         <template v-if="$slots.matrix" #matrix="slotProps"><slot name="matrix" v-bind="slotProps" /></template>
         <template v-if="$slots.report" #report="slotProps"><slot name="report" v-bind="slotProps" /></template>

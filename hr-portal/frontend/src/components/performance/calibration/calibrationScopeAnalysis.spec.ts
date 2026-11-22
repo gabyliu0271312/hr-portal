@@ -5,7 +5,7 @@ import { employeeSwitchEpoch } from '@/stores/identitySwitch'
 import CalibrationScopeAnalysis from './CalibrationScopeAnalysis.vue'
 vi.mock('@/api/client', () => ({ api: { get: vi.fn() } }))
 import type { PerformanceWorkbenchTaskPeoplePage } from '@/api/performance'
-import { calibrationAnalysisIndicators, calibrationMemberKey, calibrationScopeComparison, calibrationScopeMatrix, calibrationScopeStatistics, loadCalibrationScopeAnalysis, uniqueCalibrationMembers, type CalibrationAnalysisMember, type CalibrationScopeAnalysisData } from './calibrationScopeAnalysis'
+import { calibrationAnalysisIndicators, calibrationMemberKey, calibrationScopeComparison, calibrationScopeMatrix, calibrationScopeStatistics, loadCalibrationScopeAnalysis, loadCalibrationScopesAnalysis, uniqueCalibrationMembers, type CalibrationAnalysisMember, type CalibrationAnalysisScope, type CalibrationScopeAnalysisData } from './calibrationScopeAnalysis'
 
 const columns = [{ key: 'rating:impact', label: '业务贡献' }, { key: 'rating:collaboration', label: '协作能力' }]
 function member(employeeNo: string, values: Partial<CalibrationAnalysisMember> = {}): CalibrationAnalysisMember {
@@ -156,6 +156,88 @@ describe('calibration scope analysis component boundary', () => {
     await flushPromises()
     expect(wrapper.find('.scope-report').exists()).toBe(true)
     expect(api.get).toHaveBeenCalledTimes(3)
+    wrapper.unmount()
+  })
+})
+
+describe('authorized multi-scope analysis', () => {
+  const scopes = [
+    { scope_key: 'a', project_id: 10, node_id: 'node-a', phase_id: 'p1' },
+    { scope_key: 'b', project_id: 10, node_id: 'node-b', phase_id: 'p2' },
+    { scope_key: 'c', project_id: 20, node_id: 'node-c', phase_id: 'p3' },
+  ]
+  it('takes every scope page, deduplicates overlapping project members and retains source context', async () => {
+    const loader = vi.fn(async (scope: CalibrationAnalysisScope, _current: number, _size: number) => page([member('1', { task_id: scope.project_id, status: scope.scope_key === 'a' ? 'completed' : 'pending', ratings: { 'rating:impact': { label: '好' } } })]))
+    const data = await loadCalibrationScopesAnalysis(scopes, loader)
+    expect(loader.mock.calls).toEqual(scopes.map(scope => [scope, 1, 100]))
+    expect(data.items).toMatchObject([{ project_id: 10, scope_key: 'b', phase_id: 'p2' }, { project_id: 20, scope_key: 'c', phase_id: 'p3' }])
+    expect(calibrationScopeMatrix(data, 0).total).toBe(2)
+    expect(calibrationScopeStatistics(data, 0).totalParticipants).toBe(2)
+    expect(data.rating_conflict).toBeUndefined()
+  })
+  it('rejects later pages and never exposes earlier successful scopes', async () => {
+    const loader = vi.fn().mockResolvedValueOnce(page([member('1')])).mockResolvedValueOnce(page([member('2')], 2)).mockRejectedValueOnce(new Error('later page denied'))
+    await expect(loadCalibrationScopesAnalysis(scopes, loader)).rejects.toThrow('later page denied')
+    expect(loader.mock.calls).toEqual([[scopes[0], 1, 100], [scopes[1], 1, 100], [scopes[1], 2, 100]])
+  })
+  it('accepts different observed samples but rejects a proven same-label color conflict', async () => {
+    const loader = vi.fn().mockResolvedValueOnce(page([member('1', { ratings: { 'rating:impact': { label: '优', color: '#123456' } } })])).mockResolvedValueOnce(page([member('2', { ratings: { 'rating:impact': { label: '好', color: '#654321' } } })]))
+    const data = await loadCalibrationScopesAnalysis([scopes[0], scopes[2]], loader)
+    expect(data.rating_conflict).toBeUndefined()
+    expect(calibrationScopeMatrix(data, 0).ratings.map(rating => rating.label)).toEqual(['优', '好'])
+    loader.mockReset().mockResolvedValueOnce(page([member('1', { ratings: { 'rating:impact': { label: '优', color: '#123456' } } })])).mockResolvedValueOnce(page([member('2', { ratings: { 'rating:impact': { label: '优', color: '#654321' } } })]))
+    expect((await loadCalibrationScopesAnalysis([scopes[0], scopes[2]], loader)).rating_conflict).toBe(true)
+  })
+  it('aborts all aggregate requests on identity changes and isolates late data', async () => {
+    let resolveOld!: (value: { data: PerformanceWorkbenchTaskPeoplePage }) => void
+    vi.mocked(api.get).mockReset().mockImplementationOnce(() => new Promise(done => { resolveOld = done })).mockResolvedValue({ data: page([member('new')]) })
+    const wrapper = mount(CalibrationScopeAnalysis, { props: { scopes: [scopes[0], scopes[2]], cycleId: 1, tab: 'matrix' }, global: { stubs: { ProjectPerformanceMatrix: { name: 'ProjectPerformanceMatrix', props: ['provider'], template: '<div />' } } } })
+    const oldSignal = vi.mocked(api.get).mock.calls[0][1]!.signal!
+    employeeSwitchEpoch.value++
+    expect(oldSignal.aborted).toBe(true)
+    await flushPromises()
+    resolveOld({ data: page([member('old')]) })
+    await flushPromises()
+    const matrix = await wrapper.getComponent({ name: 'ProjectPerformanceMatrix' }).props('provider')()
+    expect(matrix.total).toBe(2)
+    expect(JSON.stringify(matrix)).not.toContain('old')
+    expect(api.get).toHaveBeenCalledTimes(3)
+    wrapper.unmount()
+  })
+  it('reports incompatible project indicator definitions instead of generating merged results', async () => {
+    const loader = vi.fn().mockResolvedValueOnce(page([member('1')])).mockResolvedValueOnce({ ...page([member('1')]), rating_columns: [{ key: 'rating:other', label: '另一评级方案' }] })
+    const data = await loadCalibrationScopesAnalysis([scopes[0], scopes[2]], loader)
+    expect(data.rating_conflict_reason).toContain('评级体系不一致')
+    expect(() => calibrationScopeMatrix(data, 0)).toThrow('RATING_SCALE_CONFLICT')
+    expect(() => calibrationScopeStatistics(data, 0)).toThrow('RATING_SCALE_CONFLICT')
+    expect(calibrationScopeComparison(data, 0, { kind: 'dimension' }).emptyReason).toContain('评级体系不一致')
+  })
+  it('keeps matrix and report on only the original scope APIs and opens the matching project scope', async () => {
+    vi.mocked(api.get).mockReset().mockImplementation(async (_url, config) => ({ data: page([member('1', { task_id: Number(config?.params.project_id), ratings: { 'rating:impact': { label: '好' } } })]) }))
+    const wrapper = mount(CalibrationScopeAnalysis, { props: { scopes, cycleId: 1, tab: 'matrix' }, global: { stubs: {
+      ProjectPerformanceMatrix: { name: 'ProjectPerformanceMatrix', props: ['provider'], emits: ['open-member'], template: '<button @click="$emit(\'open-member\', {project_id: 20, employee_no: \'1\'})">打开</button>' },
+      ProjectStatisticsReportPanel: { name: 'ProjectStatisticsReportPanel', props: ['provider', 'comparisonProvider'], template: '<div />' },
+    } } })
+    await flushPromises()
+    expect(api.get).toHaveBeenCalledTimes(3)
+    for (const [index, scope] of scopes.entries()) expect(vi.mocked(api.get).mock.calls[index]).toEqual([`/performance/workbench/tasks/${scope.node_id}/people`, expect.objectContaining({ params: { project_id: scope.project_id, scope_key: scope.scope_key, phase_id: scope.phase_id, state: 'all', page: 1, page_size: 100 }, signal: expect.any(AbortSignal) })])
+    await wrapper.get('button').trigger('click')
+    expect(wrapper.emitted('open-member')?.[0]?.[0]).toMatchObject({ node: { project_id: 20, scope_key: 'c', node_id: 'node-c', phase_id: 'p3' }, member: { project_id: 20, scope_key: 'c', task_id: 20 } })
+    await wrapper.setProps({ tab: 'report' })
+    const report = wrapper.getComponent({ name: 'ProjectStatisticsReportPanel' })
+    expect((await report.props('provider')({ dimension: 'department' })).totalParticipants).toBe(2)
+    expect(api.get).toHaveBeenCalledTimes(3)
+    wrapper.unmount()
+  })
+  it('shows explicit conflicts and empty state without mounting analysis providers', async () => {
+    vi.mocked(api.get).mockReset().mockResolvedValueOnce({ data: page([member('1')]) }).mockResolvedValueOnce({ data: { ...page([member('2')]), rating_columns: [{ key: 'rating:impact', label: '其他定义' }] } })
+    const wrapper = mount(CalibrationScopeAnalysis, { props: { scopes: [scopes[0], scopes[2]], cycleId: 1, tab: 'report' }, global: { stubs: { ProjectStatisticsReportPanel: true } } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('评级体系不一致')
+    expect(wrapper.findComponent({ name: 'ProjectStatisticsReportPanel' }).exists()).toBe(false)
+    await wrapper.setProps({ scopes: [] })
+    await flushPromises()
+    expect(wrapper.text()).toContain('暂无可用分析数据')
     wrapper.unmount()
   })
 })

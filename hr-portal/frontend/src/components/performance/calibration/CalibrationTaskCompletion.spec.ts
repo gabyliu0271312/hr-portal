@@ -53,6 +53,30 @@ describe('task-scoped calibration completion', () => {
     expect(performanceCalibrationApi.preview).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
+  it('allows an overdue task to inspect a HARD violation without allowing a completion write', async () => {
+    vi.mocked(performanceCalibrationApi.preview).mockResolvedValueOnce({ ...preview, can_complete: false, blocked_reason: 'SUBMISSION_NOT_ALLOWED' })
+    vi.mocked(performanceCalibrationApi.distribution).mockResolvedValueOnce({ ...tips, enabled: true, rules: [{ assessment_item_id: 'grade', assessment_label: '绩效评级', conditions: [{ control_mode: 'HARD', grades: ['优秀'], operator: 'LTE', value: 25, unit: 'PERCENT', rounding: 'ROUND', target_people: 0, current_people: 1, diff: 1, violated: true }] }] })
+    const wrapper = mount(CalibrationTaskCompletion, { attachTo: document.body, props: { scope: { ...scope, status: 'overdue', can_complete: false } } })
+    expect(wrapper.find('button').attributes('disabled')).toBeUndefined()
+    await click('完成校准')
+    expect(document.body.textContent).toContain('不符合强制分布规则，请调整后重新提交')
+    const footer = document.querySelector('.calibration-completion__actions')!
+    expect([...footer.querySelectorAll('button')].map(button => button.textContent?.trim())).toEqual(['继续校准'])
+    expect(performanceCalibrationApi.confirm).not.toHaveBeenCalled()
+    await click('继续校准')
+    wrapper.unmount()
+  })
+  it('keeps a writable-looking entry from bypassing a server-side window rejection', async () => {
+    vi.mocked(performanceCalibrationApi.preview).mockResolvedValueOnce({ ...preview, can_complete: false, blocked_reason: 'SUBMISSION_NOT_ALLOWED' })
+    const wrapper = mount(CalibrationTaskCompletion, { attachTo: document.body, props: { scope: { ...scope, can_complete: false } } })
+    await click('完成校准')
+    expect(document.body.textContent).toContain('当前任务不允许完成')
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === '确定')!
+    expect(confirm.disabled).toBe(true)
+    confirm.click(); await flushPromises()
+    expect(performanceCalibrationApi.confirm).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
   it('ignores previous scope preview while a different task is selected', async () => {
     let resolve: (value: any) => void = () => {}
     vi.mocked(performanceCalibrationApi.preview).mockReturnValueOnce(new Promise(done => { resolve = done }))

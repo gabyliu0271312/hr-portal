@@ -5,13 +5,15 @@ import type { PerformanceMemberColumnSchema, PerformanceReviewMemberContext, Per
 import { calibrationReviewNode, performanceCalibrationApi, type CalibrationMember, type CalibrationPeopleQuery, type PerformanceCalibrationTaskScope } from '@/api/performanceCalibration'
 import { sortPerformanceRows } from '../performanceTableSort'
 import ProjectMemberListPanel from '../ProjectMemberListPanel.vue'
+import CalibrationScopeAnalysis from './CalibrationScopeAnalysis.vue'
+import { loadCalibrationScopeAnalysis } from './calibrationScopeAnalysis'
 
-const props = defineProps<{ tasks: PerformanceCalibrationTaskScope[]; cycleId: number }>()
+const props = withDefaults(defineProps<{ tasks: PerformanceCalibrationTaskScope[]; cycleId: number; tab?: 'members' | 'matrix' | 'report' }>(), { tab: 'members' })
 const emit = defineEmits<{ 'open-member': [payload: { node: PerformanceReviewNode; member: PerformanceReviewMemberContext }] }>()
 let generation = 0
 onBeforeUnmount(() => { generation++ })
-const taskKey = computed(() => JSON.stringify([props.cycleId, employeeSwitchEpoch.value, props.tasks.map(task => task.scope_key)]))
-watch(taskKey, () => { generation++ }, { flush: 'sync' })
+const taskKey = computed(() => JSON.stringify([props.cycleId, employeeSwitchEpoch.value, props.tasks.map(task => [task.project_id, task.scope_key, task.node_id, task.phase_id])]))
+watch([taskKey, () => props.tab], () => { generation++ }, { flush: 'sync' })
 const identity = (member: CalibrationMember) => JSON.stringify([member.project_id, member.employee_no])
 const provider = computed(() => {
   const tasks = [...props.tasks]
@@ -20,25 +22,23 @@ const provider = computed(() => {
     const members = new Map<string, CalibrationMember>()
     const schemas: Partial<PerformanceMemberColumnSchema>[] = []
     for (const scope of tasks) {
-      let page = 1
-      let count = 0
-      let total: number | undefined
-      do {
-        const result = await performanceCalibrationApi.members(scope, { keyword: query.keyword, page, pageSize: 100 })
-        if (request !== generation) throw new Error('CALIBRATION_SCOPE_CHANGED')
-        if (!Number.isInteger(result.total) || result.total < 0 || total !== undefined && total !== result.total) throw new Error('CALIBRATION_PEOPLE_INCOMPLETE')
-        total = result.total
-        if (!result.items.length && count < total || count + result.items.length > total) throw new Error('CALIBRATION_PEOPLE_INCOMPLETE')
-        for (const member of result.items) {
-          const key = identity(member)
-          const row = { ...member, root_review_id: member.root_review_id || member.task_id || member.id }
-          const existing = members.get(key)
-          if (!existing || existing.status === 'completed' && member.status !== 'completed') members.set(key, row)
-        }
-        schemas.push(result)
-        count += result.items.length
-        page++
-      } while (count < total)
+      try {
+        await loadCalibrationScopeAnalysis(async (page, pageSize) => {
+          const result = await performanceCalibrationApi.members(scope, { keyword: query.keyword, page, pageSize })
+          if (request !== generation) throw new Error('CALIBRATION_SCOPE_CHANGED')
+          for (const member of result.items) {
+            const key = identity(member)
+            const row = { ...member, root_review_id: member.root_review_id || member.task_id || member.id }
+            const existing = members.get(key)
+            if (!existing || existing.status === 'completed' && member.status !== 'completed') members.set(key, row)
+          }
+          schemas.push(result)
+          return { ...result, items: result.items.map(member => ({ ...member, task_id: member.task_id ?? member.id })) }
+        })
+      } catch (cause) {
+        if (cause instanceof Error && ['INVALID_SCOPE_PAGE', 'SCOPE_CHANGED_DURING_PAGINATION', 'INCOMPLETE_SCOPE_PAGE'].includes(cause.message)) throw new Error('CALIBRATION_PEOPLE_INCOMPLETE')
+        throw cause
+      }
     }
     const columns = new Map(schemas.flatMap(schema => schema.columns || []).map(column => [column.key, column]))
     const allowed = new Set(['name', ...schemas.flatMap(schema => schema.allowed_column_keys || [])])
@@ -64,14 +64,15 @@ const provider = computed(() => {
   }
 })
 function openMember(member: CalibrationMember) {
-  const scope = props.tasks.find(task => task.scope_key === member.scope_key)
-  if (scope) emit('open-member', { node: calibrationReviewNode(scope), member })
+  const scope = props.tasks.find(task => task.project_id === member.project_id && task.scope_key === member.scope_key && task.node_id === member.node_id && task.phase_id === member.phase_id)
+  if (scope && member.can_view_detail !== false) emit('open-member', { node: calibrationReviewNode(scope), member })
 }
 </script>
 
 <template>
   <section class="calibration-all-people" aria-label="全部被校准人">
-    <ProjectMemberListPanel :key="taskKey" :project-id="0" :cycle-id="cycleId" readonly :show-export="false" :provider="provider" @select-member="openMember($event as CalibrationMember)" />
+    <ProjectMemberListPanel v-if="tab === 'members'" :key="taskKey" :project-id="0" :cycle-id="cycleId" readonly :show-export="false" :provider="provider" @select-member="openMember($event as CalibrationMember)" />
+    <CalibrationScopeAnalysis v-else :scopes="tasks" :cycle-id="cycleId" :tab="tab" @open-member="emit('open-member', $event)" />
   </section>
 </template>
 

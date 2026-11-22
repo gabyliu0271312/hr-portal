@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import CalibrationAllPeople from './CalibrationAllPeople.vue'
 import ProjectMemberListPanel from '../ProjectMemberListPanel.vue'
+import CalibrationScopeAnalysis from './CalibrationScopeAnalysis.vue'
 import { performanceCalibrationApi, type PerformanceCalibrationTaskScope } from '@/api/performanceCalibration'
 
 const scope = (key: string, projectId = 1): PerformanceCalibrationTaskScope => ({ scope_key: key, project_id: projectId, project_name: '项目', node_id: 'calibration', node_name: '校准', phase_id: 'phase', source_rule_id: key, task_number: 1, scope_label: '项目全员', rule: null, status: 'pending', start_at: null, end_at: null, member_count: 1, can_complete: true, read_only: false })
@@ -9,6 +10,25 @@ const member = (projectId: number, scopeKey: string) => ({ id: projectId, task_i
 afterEach(() => vi.restoreAllMocks())
 
 describe('all authorized calibration people', () => {
+  it('renders only the selected existing member or aggregate analysis panel', async () => {
+    const load = vi.spyOn(performanceCalibrationApi, 'members')
+    const tasks = [scope('a'), scope('b', 2)]
+    const wrapper = mount(CalibrationAllPeople, { props: { tasks, cycleId: 1 }, global: { stubs: { ProjectMemberListPanel: true, CalibrationScopeAnalysis: true } } })
+    expect(wrapper.findComponent(ProjectMemberListPanel).exists()).toBe(true)
+    expect(wrapper.findComponent(CalibrationScopeAnalysis).exists()).toBe(false)
+    await wrapper.setProps({ tab: 'matrix' })
+    expect(wrapper.findComponent(ProjectMemberListPanel).exists()).toBe(false)
+    const analysis = wrapper.getComponent(CalibrationScopeAnalysis)
+    expect(analysis.props()).toMatchObject({ scopes: tasks, cycleId: 1, tab: 'matrix' })
+    const payload = { node: { project_id: 2, node_id: 'calibration', phase_id: 'phase', scope_key: 'b' }, member: member(2, 'b') }
+    analysis.vm.$emit('open-member', payload)
+    expect(wrapper.emitted('open-member')?.[0]?.[0]).toEqual(payload)
+    await wrapper.setProps({ tab: 'report' })
+    expect(wrapper.getComponent(CalibrationScopeAnalysis).props('tab')).toBe('report')
+    expect(load).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('deduplicates overlapping rules within one project while retaining another project and detail context', async () => {
     const scopes = [scope('a'), scope('b'), scope('c', 2)]
     vi.spyOn(performanceCalibrationApi, 'members').mockImplementation(async task => ({ items: [member(task.project_id, task.scope_key)], total: 1, rating_columns: [] }))

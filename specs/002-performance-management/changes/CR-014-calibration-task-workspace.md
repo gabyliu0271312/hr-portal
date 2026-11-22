@@ -65,7 +65,7 @@
   - 输出：定向pytest/Vitest、vue-tsc+Vite、git diff --check；本地真实Vue浏览器的正常／空／错误／任务切换／完成分支，与受控API夹具和真实SQL分开标注。
   - 验证：完成状态持久化、重开、规则增删、权限允许／拒绝、并发／事务回滚；未覆盖不得勾选。
 
-- 修复回归完成：单任务（pending/completed/overdue）沿原`PerformanceReviewContent + ProjectMemberListPanel + PerformanceConfirmDialog`直接工作区；多任务仍进入新任务首页；当前状态筛选只影响显示，不改变单／多任务模式；伪造scope不回退到唯一合法任务。首页分段筛选和白色容器按REA目标重排，范围anchor改为文字自身并局部校准浮层内部间距。最终定向回归5文件176 passed；vue-tsc及Vite构建通过（45.09s，仅既有VueUse注释提示）。
+- F02后续修复最终验证：实际Vue同视口受控API测得普通任务行46.67px、项目行43.67px；本地插槽已显式消费公共表格行样式。范围文字与任务行pointer；侧栏整项66px、4px蓝色左竖条、整项点击/键盘；全部被校准人复用成员/矩阵/统计三页签并隐藏完成/分布；强制分布入口可点击，阻断只显示继续校准，时间窗仍由服务端拒绝写入。定向4文件174 passed；`npm --prefix hr-portal/frontend run build` → vue-tsc及Vite通过；既有VueUse注释提示保留。实际页面脚本错误0，未提交/推送。
 
 ## F01 DOM还原与单任务范围回归修复（2026-11-22）
 

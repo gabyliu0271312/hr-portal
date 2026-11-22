@@ -153,7 +153,8 @@ onBeforeUnmount(() => {
 .rule-summary__title { display: block; margin-bottom: var(--spacing-2); font-weight: var(--font-weight-medium); }
 .rule-summary__note { margin: var(--spacing-4) 0 0; color: var(--color-text-secondary); white-space: normal; }
 .rule-summary__condition:last-child { margin-bottom: 0; }
-.rule-summary--scope { display: inline-flex; width: auto; max-width: 100%; flex: 0 1 auto; }
+.rule-summary--scope { display: inline-flex; width: auto; max-width: 100%; flex: 0 1 auto; cursor: pointer; }
+.rule-summary--scope > .rule-summary__empty { cursor: pointer; }
 .rule-summary--scope .rule-summary__empty { min-width: 0; }
 .rule-summary__popover--scope { --performance-rule-summary-max-width: var(--performance-calibration-scope-max-width); }
 .rule-summary__details--scope { max-height: var(--performance-calibration-scope-max-height); }

@@ -21,7 +21,7 @@
       @open-member="openMember"
       @remind-evaluate="openEvaluateReminder"
     >
-      <template #all-people="{ tasks, cycleId }"><CalibrationAllPeople :tasks="tasks" :cycle-id="cycleId" @open-member="openMember" /></template>
+      <template #all-people="{ tasks, cycleId, tab }"><CalibrationAllPeople :tasks="tasks" :cycle-id="cycleId" :tab="tab" @open-member="openMember" /></template>
       <template #matrix="{ scope }"><CalibrationScopeAnalysis :scope="scope" :cycle-id="projectContext.activeCycleId" tab="matrix" @open-member="openMember" /></template>
       <template #report="{ scope }"><CalibrationScopeAnalysis :scope="scope" :cycle-id="projectContext.activeCycleId" tab="report" @open-member="openMember" /></template>
     </PerformanceCalibrationWorkspace>

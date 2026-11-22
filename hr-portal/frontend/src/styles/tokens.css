@@ -6,7 +6,13 @@
  * ============================================================ */
 
 :root {
-  --performance-calibration-sidebar-width: 280px;
+  --performance-calibration-sidebar-width: 320px;
+  --performance-calibration-task-row-height: 47px;
+  --performance-calibration-project-row-height: 44px;
+  --performance-calibration-nav-item-height: 66px;
+  --performance-calibration-nav-padding: 11px 13px 11px 12px;
+  --performance-calibration-nav-rail-width: 4px;
+  --performance-calibration-nav-number-size: 20px;
   --performance-calibration-mobile-nav-height: 210px;
   --performance-calibration-empty-size: 120px;
   --performance-calibration-blocked-dialog-width: 600px;

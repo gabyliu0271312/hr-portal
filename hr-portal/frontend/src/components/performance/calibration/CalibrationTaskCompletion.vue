@@ -12,7 +12,7 @@ const visible = ref(false), loading = ref(false), error = ref(''), stale = ref(f
 const preview = ref<PerformanceCalibrationCompletion | null>(null)
 const tips = ref<PerformanceDistributionTips | null>(null)
 let sequence = 0
-const entryDisabled = computed(() => props.scope.read_only || props.scope.status === 'completed' || (!props.scope.can_complete && props.scope.blocked_reason !== 'CALIBRATION_DISTRIBUTION_VIOLATED'))
+const entryDisabled = computed(() => props.scope.read_only || props.scope.status === 'completed' || loading.value)
 const blocked = computed(() => preview.value?.blocked_reason === 'CALIBRATION_DISTRIBUTION_VIOLATED' || Boolean(tips.value?.rules.some(rule => rule.conditions.some(condition => condition.control_mode === 'HARD' && condition.violated))))
 const allowed = computed(() => Boolean(preview.value?.can_complete) && !blocked.value && !stale.value)
 const title = computed(() => blocked.value ? '不符合强制分布规则，请调整后重新提交' : '确定要完成当前校准任务吗？')

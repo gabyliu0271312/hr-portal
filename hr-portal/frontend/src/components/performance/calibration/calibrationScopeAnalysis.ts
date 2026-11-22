@@ -8,12 +8,15 @@ export interface CalibrationAnalysisScope {
   phase_id: string | null
   cycle_id?: number
 }
-export type CalibrationAnalysisMember = PerformanceWorkbenchTaskPerson & { project_id?: number; root_review_id?: number; can_view_detail?: boolean }
+export type CalibrationAnalysisMember = PerformanceWorkbenchTaskPerson & { project_id?: number; root_review_id?: number; can_view_detail?: boolean; scope_key?: string; node_id?: string }
 export interface CalibrationScopeAnalysisData {
   items: CalibrationAnalysisMember[]
   rating_columns: ReportIndicator[]
+  rating_conflict?: boolean
+  rating_conflict_reason?: string
 }
 export type CalibrationPeoplePageLoader = (page: number, pageSize: number) => Promise<PerformanceWorkbenchTaskPeoplePage>
+export type CalibrationScopePeoplePageLoader = (scope: CalibrationAnalysisScope, page: number, pageSize: number) => Promise<PerformanceWorkbenchTaskPeoplePage>
 
 export async function loadCalibrationScopeAnalysis(loader: CalibrationPeoplePageLoader, signal?: AbortSignal): Promise<CalibrationScopeAnalysisData> {
   const items: CalibrationAnalysisMember[] = []
@@ -35,6 +38,42 @@ export async function loadCalibrationScopeAnalysis(loader: CalibrationPeoplePage
     for (const column of member.rating_columns || []) if (!columns.has(column.key)) columns.set(column.key, column)
   }
   return { items, rating_columns: [...columns.values()] }
+}
+
+export async function loadCalibrationScopesAnalysis(scopes: CalibrationAnalysisScope[], loader: CalibrationScopePeoplePageLoader, signal?: AbortSignal): Promise<CalibrationScopeAnalysisData> {
+  const projects = new Map<number, CalibrationScopeAnalysisData>()
+  const members = new Map<string, CalibrationAnalysisMember>()
+  const columns = new Map<string, ReportIndicator>()
+  let conflict = false
+  for (const scope of scopes) {
+    const result = await loadCalibrationScopeAnalysis((page, size) => loader(scope, page, size), signal)
+    const project = projects.get(scope.project_id) || { items: [], rating_columns: [] }
+    project.items.push(...result.items)
+    project.rating_columns = [...new Map([...project.rating_columns, ...result.rating_columns].map(column => [column.key, column])).values()]
+    projects.set(scope.project_id, project)
+    for (const column of result.rating_columns) {
+      if (columns.has(column.key) && columns.get(column.key)!.label !== column.label) conflict = true
+      if ([...columns.values()].some(existing => existing.label === column.label && existing.key !== column.key)) conflict = true
+      columns.set(column.key, column)
+    }
+    for (const item of result.items) {
+      const row = { ...item, project_id: scope.project_id, scope_key: scope.scope_key, node_id: scope.node_id, phase_id: scope.phase_id }
+      const key = calibrationMemberKey(row, scope.project_id)
+      const existing = members.get(key)
+      if (!existing || existing.status === 'completed' && row.status !== 'completed') members.set(key, row)
+    }
+  }
+  const signatures = [...projects.values()].filter(project => project.items.length && project.rating_columns.length).map(project => JSON.stringify(project.rating_columns.map(column => [column.key, column.label]).sort(([a], [b]) => a.localeCompare(b))))
+  const colors = new Map<string, string>()
+  let colorConflict = false
+  for (const project of projects.values()) for (const member of project.items) for (const [key, value] of Object.entries(member.ratings || {})) {
+    if (!value?.label || !value.color) continue
+    const identity = JSON.stringify([key, value.label])
+    if (colors.has(identity) && colors.get(identity) !== value.color) colorConflict = true
+    colors.set(identity, value.color)
+  }
+  conflict ||= new Set(signatures).size > 1 || colorConflict
+  return { items: [...members.values()], rating_columns: [...columns.values()], ...(conflict ? { rating_conflict: true, rating_conflict_reason: '项目评级体系不一致，无法合并分析' } : {}) }
 }
 
 export function calibrationMemberKey(member: CalibrationAnalysisMember, projectId: number) {
@@ -69,6 +108,7 @@ function ratingOptions(members: CalibrationAnalysisMember[], indicatorKey: strin
 }
 
 export function calibrationScopeMatrix(data: CalibrationScopeAnalysisData, projectId: number, indicatorKey = calibrationAnalysisIndicators(data)[0]?.key): ProjectMatrix {
+  if (data.rating_conflict) throw new Error('RATING_SCALE_CONFLICT')
   const members = uniqueCalibrationMembers(data, projectId)
   const ratings = ratingOptions(members, indicatorKey).map(rating => ({ ...rating, color: rating.color ?? null }))
   const pending = new Map<string, ProjectMatrixRow>()
@@ -102,6 +142,7 @@ function tenureBucket(value: string, today: Date) {
   return months >= 36 ? '3年以上' : months >= 12 ? '1-3年内（不含3年）' : months >= 6 ? '6个月-1年（不含1年）' : months >= 3 ? '3-6个月（不含6个月）' : '入职未满3个月'
 }
 export function calibrationScopeStatistics(data: CalibrationScopeAnalysisData, projectId: number, dimension: ProjectReportDimension = 'department', indicatorKey = calibrationAnalysisIndicators(data)[0]?.key, today = new Date()): ProjectStatisticsReport {
+  if (data.rating_conflict) throw new Error('RATING_SCALE_CONFLICT')
   const members = uniqueCalibrationMembers(data, projectId)
   const indicators = calibrationAnalysisIndicators(data)
   if (indicatorKey && !indicators.some(indicator => indicator.key === indicatorKey)) throw new Error('UNKNOWN_SCOPE_INDICATOR')
@@ -126,6 +167,7 @@ export function calibrationScopeComparison(data: CalibrationScopeAnalysisData, p
   const members = uniqueCalibrationMembers(data, projectId)
   const indicators = calibrationAnalysisIndicators(data)
   const unavailable = (emptyReason: string): ProjectReportComparisonData => ({ source: 'api', total: 0, ratings: [], counts: [], heatLevels: [], emptyReason })
+  if (data.rating_conflict) return unavailable(data.rating_conflict_reason || '项目评级体系不一致，无法合并分析')
   if (query.kind === 'self-final') return unavailable('当前任务成员接口未提供自评数据，无法进行自评与终评对比')
   if (query.kind === 'history') return unavailable('当前任务成员接口未提供历史绩效数据，无法进行历史对比')
   if (indicators.length < 2) return unavailable('当前合法范围可用评估维度不足两个，无法进行维度对比')
