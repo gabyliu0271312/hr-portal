@@ -69,6 +69,8 @@ describe('calibration workspace route and scope isolation', () => {
   it('shows a visible return action and ignores fullscreen Escape while a scope submission is busy', async () => {
     const { wrapper, router } = await setup('/performance/review?calibration_open=1&calibration_scope=a')
     expect(document.querySelector('.performance-dialog__header')?.textContent).toContain('返回')
+    expect(document.querySelector('.calibration-workspace-dialog .performance-dialog__close')).toBeNull()
+    expect(document.querySelector('.calibration-back')).not.toBeNull()
     wrapper.findComponent(CalibrationScopeContent).vm.$emit('busy', true); await flushPromises()
     const panel = document.querySelector<HTMLElement>('.performance-dialog')!
     panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await flushPromises()

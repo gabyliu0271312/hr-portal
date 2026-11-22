@@ -10,6 +10,18 @@
   --performance-calibration-workspace-background: #f5f6f7;
   --performance-calibration-content-inset: var(--spacing-5);
   --performance-calibration-surface-bottom-gap: var(--spacing-6);
+  --performance-calibration-back-height: 28px;
+  --performance-calibration-back-font-size: 16px;
+  --performance-calibration-back-line-height: 24px;
+  --performance-calibration-back-hover: rgba(31, 35, 41, 0.1);
+  --performance-review-collapse-width: 16px;
+  --performance-review-collapse-height: 40px;
+  --performance-review-collapse-radius: 6px;
+  --performance-review-collapse-color: rgba(0, 0, 0, 0.65);
+  --performance-review-collapse-shadow: 4px 0 6px rgba(31, 35, 41, 0.03);
+  --performance-calibration-expand-size: 16px;
+  --performance-calibration-expand-icon-size: 10px;
+  --performance-calibration-expand-padding: 3px;
   --performance-calibration-tabs-height: 56px;
   --performance-calibration-table-sticky-top: 76px;
   --performance-calibration-task-row-height: 47px;

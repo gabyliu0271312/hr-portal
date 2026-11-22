@@ -475,7 +475,7 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
 
 <style scoped>
 .member-list-panel.member-list-panel--embedded { padding: 0; margin: 0; border-radius: 0; background: transparent; box-shadow: none; --performance-table-container-padding: 0px; --performance-table-sticky-top: var(--performance-calibration-table-sticky-top); }
-.member-list-panel--embedded .card-sticky-mask { display: none; }
+.member-list-panel--embedded .card-sticky-mask { display: block; top: var(--performance-calibration-tabs-height); height: var(--performance-calibration-content-inset); margin: 0 calc(-1 * var(--performance-calibration-content-inset)); border-radius: var(--radius-lg); background: var(--color-bg-card); }
 .member-list-panel.member-list-panel--calibration { padding: var(--spacing-5); margin-top: var(--spacing-4); border-radius: var(--radius-lg); background: var(--color-bg-card); box-shadow: none; --performance-table-sticky-top: 0; }
 .member-list-panel--calibration .card-sticky-mask { display: none; }
 .member-list-panel { min-width:0; border-radius:8px; background:#fff; box-shadow:rgba(31,35,41,.03) 0 4px 16px 4px,rgba(31,35,41,.02) 0 4px 8px,rgba(31,35,41,.02) 0 2px 4px -4px; padding:0 20px 20px; color:#1f2329; --performance-table-container-padding: var(--performance-review-surface-inset); --performance-table-sticky-top: calc(var(--performance-tab-area-height) - 28px); }

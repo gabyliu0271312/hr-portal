@@ -236,12 +236,12 @@ const statusLabel: Record<PerformanceReviewNode['status'], string> = {
 .review-node em.status-not_started { background: rgba(31, 35, 41, 0.1); color: #1f2329; }
 .review-node em.status-completed { background: #e4f7eb; color: #16803c; }
 .category-empty { margin: 4px 8px 8px 48px; color: #8f959e; font-size: 12px; }
-.sidebar-collapse { position: absolute; top: 50%; right: -16px; z-index: 4; display: grid; width: 16px; height: 40px; place-items: center; padding: 0; border: 0; border-radius: 0 6px 6px 0; background: #fff; color: #3370ff; box-shadow: 4px 0 6px rgba(31, 35, 41, 0.03); cursor: pointer; transform: translateY(-50%); }
+.sidebar-collapse { position: absolute; top: 50%; right: calc(-1 * var(--performance-review-collapse-width)); z-index: 4; display: grid; width: var(--performance-review-collapse-width); height: var(--performance-review-collapse-height); place-items: center; padding: 0; border: 0; border-radius: 0 var(--performance-review-collapse-radius) var(--performance-review-collapse-radius) 0; background: var(--color-bg-card); color: var(--performance-review-collapse-color); box-shadow: none; cursor: pointer; transform: translateY(-50%); }
 .universe-icon { display: inline-block; line-height: 0; }
 .universe-icon svg { display: inline-block; width: 16px; height: 16px; overflow: hidden; transition: transform .2s ease; }
 .universe-icon svg.flipped { transform: rotate(180deg); }
-.is-collapsed .sidebar-collapse { color: #1f2329; }
-.sidebar-collapse:hover { color: #3370ff; }
+.is-collapsed .sidebar-collapse { color: var(--performance-review-collapse-color); }
+.sidebar-collapse:hover, .sidebar-collapse:focus-visible { color: var(--color-primary); box-shadow: var(--performance-review-collapse-shadow); }
 :deep(.el-dropdown-menu__item) { display: flex; min-width: 220px; justify-content: space-between; gap: 18px; }
 :deep(.el-dropdown-menu__item small) { color: #8f959e; }
 @media (max-width: 720px) { .review-sidebar { width: 100%; height: auto; flex-basis: auto; } .sidebar-scroll { padding: 14px 8px 16px; } .review-node-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } .review-node { width: auto; padding-left: 16px; } }

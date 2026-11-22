@@ -5,6 +5,7 @@ import type { PerformanceCalibrationTaskScope } from '@/api/performanceCalibrati
 import UiTable from '@/components/ui/UiTable.vue'
 import PerformanceSegmentedControl from '../PerformanceSegmentedControl.vue'
 import PerformanceSurfaceCard from '../PerformanceSurfaceCard.vue'
+import PerformanceExpandButton from '../PerformanceExpandButton.vue'
 import PerformanceTaskStatus from '../PerformanceTaskStatus.vue'
 import CalibrationScopeLink from './CalibrationScopeLink.vue'
 import CalibrationState from './CalibrationState.vue'
@@ -33,7 +34,7 @@ const endAt = computed(() => props.tasks.reduce<string | null>((end, task) => ta
       <CalibrationState v-if="error" :error="error" @retry="emit('retry')" />
       <UiTable v-else :columns="columns" :rows="rows" row-key="id" :loading="loading" aria-label="校准任务">
         <template #row="{ row }">
-          <tr v-if="row.group" class="calibration-home__project"><td :colspan="columns.length" class="ui-table__cell"><button type="button" :aria-expanded="!collapsed.has(row.projectId)" @click="toggle(row.projectId)">{{ collapsed.has(row.projectId) ? '▸' : '▾' }}　{{ row.name }}</button></td></tr>
+          <tr v-if="row.group" class="calibration-home__project"><td :colspan="columns.length" class="ui-table__cell"><div class="calibration-home__project-heading"><PerformanceExpandButton variant="table" :label="`${collapsed.has(row.projectId) ? '展开' : '收起'}${row.name}`" :expanded="!collapsed.has(row.projectId)" @toggle="toggle(row.projectId)" /><span>{{ row.name }}</span></div></td></tr>
           <tr v-else class="ui-table__row calibration-home__task" :data-scope="row.task.scope_key" @click="emit('select', row.task)">
             <td class="ui-table__cell"><div class="calibration-home__range"><span>{{ row.task.task_number }}</span><CalibrationScopeLink :scope="row.task" @select="emit('select', row.task)" /></div></td>
             <td class="ui-table__cell"><PerformanceTaskStatus :status="row.task.status" /><span class="calibration-home__status-label">{{ labels[row.task.status as keyof typeof labels] }}</span></td>
@@ -56,7 +57,7 @@ h1 { margin: 0; font-size: var(--performance-page-title-size); font-weight: var(
 .calibration-home__task { cursor: pointer; }
 .calibration-home__task:hover > td { background: var(--ui-table-row-hover-background); }
 .calibration-home__task .calibration-home__range, .calibration-home__task .calibration-home__range :deep(.rule-summary) { cursor: pointer; }
-.calibration-home__project button { border: 0; padding: 0; background: transparent; color: var(--color-text-secondary); font: inherit; cursor: pointer; }
+.calibration-home__project-heading { display: flex; align-items: center; color: var(--color-text-secondary); }
 .calibration-home__range { display: flex; gap: var(--spacing-3); align-items: center; }
 .calibration-home__range > span { color: var(--color-text-secondary); flex: none; }
 .calibration-home__status-label { margin-left: var(--spacing-2); }

@@ -30,6 +30,18 @@ describe('calibration task home', () => {
     expect(wrapper.findAll('[data-scope]')).toHaveLength(1)
     wrapper.unmount()
   })
+  it('uses the shared SVG expansion control and only collapses its project', async () => {
+    const wrapper = mount(CalibrationTaskHome, { props: { tasks: [task(1, 'pending'), task(2, 'pending', 2)], pendingMemberCount: 2, filter: 'all', loading: false, error: '' } })
+    const button = wrapper.get('button[aria-label="收起项目1"]')
+    expect(button.find('svg[data-icon="ExpandDownFilled"]').exists()).toBe(true)
+    expect(button.text()).toBe('')
+    await button.trigger('click')
+    expect(wrapper.find('[data-scope="scope-1"]').exists()).toBe(false)
+    expect(wrapper.find('[data-scope="scope-2"]').exists()).toBe(true)
+    await wrapper.get('button[aria-label="展开项目1"]').trigger('click')
+    expect(wrapper.find('[data-scope="scope-1"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
   it('hides unmatched project groups and preserves original task numbers and separate member count', async () => {
     const wrapper = mount(CalibrationTaskHome, { props: { tasks: [task(1, 'pending'), task(3, 'overdue'), task(4, 'pending', 2)], pendingMemberCount: 7, filter: 'overdue', loading: false, error: '' } })
     expect(wrapper.text()).toContain('待校准：7 人')

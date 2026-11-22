@@ -1041,7 +1041,8 @@ describe('PerformanceReview', () => {
     expect(button.get('path').attributes('d')).toBe('M15.707 4.293a1 1 0 0 1 0 1.414L9.414 12l6.293 6.293a1 1 0 0 1-1.414 1.414l-7-7a1 1 0 0 1 0-1.414l7-7a1 1 0 0 1 1.414 0Z')
     expect(sidebarSource.match(/\.review-sidebar\s*\{([^}]*)\}/)?.[1]).not.toMatch(/overflow/)
     expect(sidebarSource).toMatch(/\.sidebar-scroll\s*\{[^}]*overflow-y:\s*auto/s)
-    expect(sidebarSource).toMatch(/\.sidebar-collapse\s*\{[^}]*right:\s*-16px;[^}]*width:\s*16px;[^}]*height:\s*40px;[^}]*color:\s*#3370ff;[^}]*box-shadow:\s*4px 0 6px rgba\(31, 35, 41, 0\.03\)/s)
+    expect(sidebarSource).toMatch(/\.sidebar-collapse\s*\{[^}]*right:\s*calc\(-1 \* var\(--performance-review-collapse-width\)\);[^}]*width:\s*var\(--performance-review-collapse-width\);[^}]*height:\s*var\(--performance-review-collapse-height\);[^}]*color:\s*var\(--performance-review-collapse-color\);[^}]*box-shadow:\s*none/s)
+    expect(sidebarSource).toMatch(/\.sidebar-collapse:hover[^}]*color:\s*var\(--color-primary\);[^}]*box-shadow:\s*var\(--performance-review-collapse-shadow\)/s)
   })
 
   it('collapses to a 72px category rail and rotates the edge arrow by 180 degrees', async () => {

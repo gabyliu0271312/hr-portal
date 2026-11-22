@@ -73,8 +73,8 @@ defineExpose({ selected, refresh: load })
   <div v-else ref="home" v-show="!fullScreen" class="calibration-workspace">
     <CalibrationTaskHome :tasks="tasks" :pending-member-count="pendingMemberCount" :filter="filter" :loading="loading" :error="error" @update:filter="query({ calibration_filter: $event })" @select="selectScope($event.scope_key)" @retry="load()" />
   </div>
-  <UiDialogShell :model-value="fullScreen" title="完成团队的绩效校准" fullscreen :loading="fullScreenLoading" overlay-class="calibration-workspace-overlay" @close="close">
-    <template #header-start><UiButton variant="text" :disabled="fullScreenLoading" @click="close"><SpaceLeftOutlinedIcon class="calibration-back-icon" /><span>返回</span></UiButton></template>
+  <UiDialogShell :model-value="fullScreen" title="完成团队的绩效校准" fullscreen :show-close="false" dialog-class="calibration-workspace-dialog" :loading="fullScreenLoading" overlay-class="calibration-workspace-overlay" @close="close">
+    <template #header-start><UiButton class="calibration-back" variant="text" :disabled="fullScreenLoading" @click="close"><SpaceLeftOutlinedIcon class="calibration-back-icon" /><span>返回</span></UiButton></template>
     <div class="calibration-fullscreen">
       <CalibrationTaskSidebar :tasks="tasks" :selected="selectedKey" :cycle-id="cycleId" @select="selectScope" />
       <CalibrationState v-if="loading || error" :loading="loading" :error="error" @retry="load()" />
@@ -83,7 +83,7 @@ defineExpose({ selected, refresh: load })
         <template v-if="$slots.matrix" #matrix="slotProps"><slot name="matrix" v-bind="slotProps" /></template>
         <template v-if="$slots.report" #report="slotProps"><slot name="report" v-bind="slotProps" /></template>
       </CalibrationScopeContent>
-      <div v-else class="calibration-all-people" role="alert"><p>此校准任务已失效或你没有访问权限。</p><button type="button" @click="close">返回校准首页</button></div>
+      <div v-else class="calibration-scope-unavailable" role="alert"><p>此校准任务已失效或你没有访问权限。</p><button type="button" @click="close">返回校准首页</button></div>
     </div>
   </UiDialogShell>
 </template>
@@ -92,8 +92,10 @@ defineExpose({ selected, refresh: load })
 .calibration-workspace { flex: 1; min-width: 0; min-height: 0; overflow: auto; box-sizing: border-box; padding: var(--performance-review-surface-inset); background: var(--performance-review-page-bg); }
 .calibration-fullscreen { display: grid; grid-template-columns: var(--performance-calibration-sidebar-width) minmax(0, 1fr); min-width: 0; min-height: 0; flex: 1; padding-top: var(--performance-calibration-content-inset); box-sizing: border-box; background: var(--performance-calibration-workspace-background); }
 .calibration-fullscreen > :deep(.calibration-task-nav) { padding-top: 0; padding-right: 0; background: transparent; }
-.calibration-fullscreen > div.calibration-all-people { min-width: 0; padding: var(--spacing-6); overflow: auto; }
+.calibration-fullscreen > .calibration-scope-unavailable { min-width: 0; padding: var(--spacing-6); overflow: auto; }
 h1 { margin: 0 0 var(--spacing-5); font-size: var(--font-size-xl); }
+.calibration-back { --performance-button-height: var(--performance-calibration-back-height); --performance-button-font-size: var(--performance-calibration-back-font-size); --performance-button-line-height: var(--performance-calibration-back-line-height); --performance-button-text-color: var(--color-text-primary); --performance-button-text-hover-background: var(--performance-calibration-back-hover); --performance-button-text-active-background: var(--performance-calibration-back-hover); padding: calc(var(--spacing-1) / 2) var(--spacing-1); border: 0; }
+:global(.calibration-workspace-dialog.performance-dialog--fullscreen .performance-dialog__header) { padding-left: var(--spacing-4); padding-right: var(--spacing-5); }
 .calibration-back-icon { width: var(--performance-header-icon-size); height: var(--performance-header-icon-size); margin-right: var(--spacing-2); }
 @media (max-width: 760px) { .calibration-fullscreen { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); } .calibration-fullscreen :deep(.calibration-task-nav) { max-height: var(--performance-calibration-mobile-nav-height); border-right: 0; border-bottom: var(--ui-control-border-width) solid var(--color-line-divider); } }
 </style>

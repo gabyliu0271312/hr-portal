@@ -90,6 +90,18 @@
 - 独立实现证据：`ui-blueprints/CR-014-F03-implemented-task-white-surface.png`、`CR-014-F03-implemented-sticky-tabs.png`、`CR-014-F03-implemented-aggregate-white-surface.png`，来自实际Vue受控API，非生产数据库验收。截图仅辅助，尺寸与吸附结论依据DOM和computed style。
 - `git diff --check`通过；未commit、push或部署。
 
+## F04 遮挡层、页头、折叠控件及固定底部留白（2026-11-22）
+
+- 用户授权：修复页签与表头间漏出、默认蓝色返回、校准前收起控件差异、全屏右侧多余关闭按钮、底部没有固定留白五项；不修改业务任务、API、权限、完成校准规则或单任务原工作流。
+- 目标DOM补采：页签sticky top0／高56px／z30，另有20px白色遮挡层top56px／z19／左右margin -20px，表头top76px／z20。F03隐藏embedded的card-sticky-mask导致间隙透出；现仅恢复该变体遮挡层，其他成员列表默认规则保留。
+- 页头继续复用UiDialogShell和UiButton；业务返回入口局部消费深色及中性hover tokens，28px高、16px字／24px行高、padding 2px 4px，页头左16px右20px。UiDialogShell新增默认true的showClose，校准全屏显式false，返回／Escape及busy保护保留，普通及嵌套确认弹窗仍有关闭按钮。
+- 侧栏收起按钮：默认rgba(0,0,0,.65)／无阴影，hover蓝色／4px 0 6px rgba(31,35,41,.03)；16×40、r0 6 6 0、原SVG及居中定位保留。项目分组收起同次修复：复用PerformanceExpandButton的table变体，16×16按钮、padding3、10×10目标ExpandDownFilled路径，收起旋转-90度，项目名不再与图标共用文字按钮。button/navigation默认变体不改。
+- CalibrationContentSurface新增不滚动外框，padding-bottom24px，滚动区高度为扣除底部留白后的可用高度；白底min-height100%滚动区，内部padding-bottom20px仍保留。适用于当前任务／全部人员的成员、矩阵、统计。旧失效提示选择器已独立为calibration-scope-unavailable，避免新div外框误命中旧24px四边padding。
+- 回归：`npm --prefix hr-portal/frontend test -- src/components/performance/calibration src/components/ui/UiDialogShell.spec.ts src/components/performance/PerformanceLineTabs.spec.ts src/components/performance/ProjectPerformanceMatrix.spec.ts src/components/performance/ProjectStatisticsReportPanel.spec.ts src/views/performance/Review.spec.ts` → **13文件254 passed**；涵盖单任务保护、关闭显隐与Escape、busy、分组独立折叠、路由及公共分析兼容性。初轮Review中旧断言要求默认蓝色及固定像素，已按补采规格改为tokens和默认无阴影断言后复验通过；未将初轮失败记为通过。
+- 实际Vue／隔离Chrome＋受控API，1280×673、DPR1.5：返回x16／68×28／默认深色，关闭按钮不存在；成员滚动420px后tabs y76、mask y132／20px、表头y152，在y132／142／151逐点elementFromPoint均命中遮挡层。短成员、30人聚合、矩阵、长报表及报表滚动到底均保留24px底部区域；矩阵／报表滚动区y76，报表页签吸附y76；400px无页面横向溢出、pageerror=0。
+- 实施PNG：`ui-blueprints/CR-014-F04-implemented-header-bottom-gap.png`、`CR-014-F04-implemented-sticky-mask.png`、`CR-014-F04-implemented-report-bottom-gap.png`，均已查看，来自实际组件受控API，非生产数据或生产验收。早期矩阵夹具未提供rating_columns导致空态，补齐合法评级数据后验证真实矩阵／报表容器通过。
+- 最终构建：`npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite通过，40.15s，exit0**，涵盖最终失效提示选择器与局部样式修正；仅既有VueUse PURE注释提示。`git diff --check`通过。公共弹窗测试 `src/components/ui/UiDialogShell.spec.ts` 为本地既有未跟踪文件，本轮补充默认关闭／隐藏关闭／Escape用例，交付时须与相关修复一并纳入。未commit、push或部署。
+
 ## 验收记录
 
 2026-11-22，本地代码开发与前端验收完成，真实PostgreSQL迁移／并发尚未验收，未发布。

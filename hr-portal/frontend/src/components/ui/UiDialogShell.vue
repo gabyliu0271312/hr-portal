@@ -11,12 +11,13 @@ const props = withDefaults(defineProps<{
   width?: string
   loading?: boolean
   fullscreen?: boolean
+  showClose?: boolean
   overlayClass?: string
   dialogClass?: string
   titleId?: string
   teleport?: boolean
 }>(), {
-  width: 'var(--ui-dialog-width)', loading: false, fullscreen: false,
+  width: 'var(--ui-dialog-width)', loading: false, fullscreen: false, showClose: true,
   overlayClass: '', dialogClass: '', titleId: undefined, teleport: true,
 })
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; close: [] }>()
@@ -55,7 +56,7 @@ onBeforeUnmount(() => { if (props.modelValue) previousFocus?.focus() })
           <slot name="header-start" />
           <h2 :id="titleId">{{ title }}</h2>
           <div v-if="$slots.description" class="performance-dialog__description"><slot name="description" /></div>
-          <button class="performance-dialog__close" type="button" aria-label="关闭" :disabled="loading" @click="close">
+          <button v-if="showClose" class="performance-dialog__close" type="button" aria-label="关闭" :disabled="loading" @click="close">
             <svg viewBox="0 0 24 24" fill="none" data-icon="CloseOutlined" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
           </button>
         </header>
