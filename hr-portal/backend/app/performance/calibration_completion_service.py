@@ -96,7 +96,7 @@ def completion_digest(project, node, tasks, actor, versions, records=()):
     value = {"project": project.id, "settings": project.settings, "node": node.id,
              "config": node.config, "actor": [actor.actor_type, str(actor.actor_ref)],
              "tasks": [[task.id, task.phase_id, task.member_snapshot_id, task.target_employee_no,
-                         task.status, str(task.calibration_completed_at or ""),
+                         task.status, str(task.calibration_completed_at or ""), getattr(task, "calibration_rule_completions", None),
                          str(task.available_at or ""), str(task.due_at or "")]
                         for task in sorted(tasks, key=lambda item: item.id)], "results": versions,
              "authorizations": [[record.id, record.task_id, record.recipient_employee_no, record.status, record.read_only, record.authorization_settings]
@@ -104,11 +104,52 @@ def completion_digest(project, node, tasks, actor, versions, records=()):
     return hashlib.sha256(json.dumps(value, sort_keys=True, default=str, ensure_ascii=False).encode()).hexdigest()
 
 
-def is_completed(task, authorization):
-    return bool((authorization.authorization_settings or {}).get("calibration_completed_at")) if authorization is not None else task.calibration_completed_at is not None
+def is_completed(task, authorization, node=None, source_rule_id=None):
+    from app.performance.calibration_workspace_service import responsibility_completed, rule_completed
+    if authorization is not None:
+        return bool((authorization.authorization_settings or {}).get("calibration_completed_at"))
+    return rule_completed(task, source_rule_id) if source_rule_id is not None else responsibility_completed(task, node)
 
 
-async def completion_scope(db, project_id, node_id, phase_id, context, *, lock=False):
+async def scoped_completion(db, project_id, node_id, phase_id, key, context, *, lock=False, writable=True):
+    from app.performance import projects_router as routes
+    from app.performance.calibration_workspace_service import resolve_scope
+    project, node, actor, group, records = await resolve_scope(db, project_id, node_id, key, context, lock=lock, phase_id=phase_id)
+    if writable and group["read_only"]:
+        raise HTTPException(403, "TASK_AUTHORIZATION_READ_ONLY")
+    tasks = group["tasks"]
+    by_id = {task.id: task for task in tasks}
+    targets = [(by_id[record.task_id], record) for record in group["authorizations"]] if group["authorizations"] else [(task, None) for task in tasks]
+    now = datetime.now(UTC)
+    in_window = all((start is None or start <= now) and (end is None or now <= end) for start, end in [routes._task_window(task, node, project) for task in tasks])
+    schema = routes.build_self_summary_schema(await routes._self_summary_template(tasks[0], node, db))
+    metadata = routes._task_rating_metadata(schema)
+    versions, ratings, missing = [], {}, 0
+    for task in tasks:
+        member = member_key(task)
+        if member in ratings:
+            continue
+        result = await routes._effective_member_result(project.id, project.cycle_ref, task.member_snapshot_id, task.target_employee_no, db)
+        state = result.get("shared_state") or {}
+        versions.append([task.member_snapshot_id, task.target_employee_no, state.get("revision", 0), result["answers"]])
+        ratings[member] = routes._rating_values_from_answers(result["answers"], metadata)
+        missing += not routes._result_ready([type("Result", (), {"status": "completed", "submitted_at": now, "answers": result["answers"]})()], schema)
+    tips = distribution_tips(project, node, [group], ratings, metadata)
+    blocked = any(condition["control_mode"] == "HARD" and condition["violated"] for rule in tips["rules"] for condition in rule["conditions"])
+    completed = [is_completed(task, record, node, group["source_rule_id"]) for task, record in targets]
+    digest = completion_digest(project, node, tasks, actor, versions, records)
+    digest = hashlib.sha256(json.dumps([key, digest, [getattr(task, "calibration_rule_completions", None) for task in tasks]], sort_keys=True, default=str).encode()).hexdigest()
+    response = {"scope_key": key, "source_rule_id": group["source_rule_id"], "scope_version": digest,
+                "total_count": len(targets), "completed_count": sum(completed), "missing_result_count": missing,
+                "can_complete": in_window and not blocked, "completed": all(completed), "distribution_tips": tips,
+                "blocked_reason": "SUBMISSION_NOT_ALLOWED" if not in_window else "CALIBRATION_DISTRIBUTION_VIOLATED" if blocked else None,
+                "has_original_tasks": not bool(group["authorizations"])}
+    return project, node, actor, targets, response
+
+
+async def completion_scope(db, project_id, node_id, phase_id, context, *, lock=False, scope_key=None):
+    if scope_key is not None:
+        return await scoped_completion(db, project_id, node_id, phase_id, scope_key, context, lock=lock)
     from app.performance import projects_router as routes
     statement = select(PerformanceProject).where(PerformanceProject.id == project_id)
     if lock:
@@ -182,18 +223,18 @@ async def completion_scope(db, project_id, node_id, phase_id, context, *, lock=F
                 "total_count": len(targets), "completed_count": sum(is_completed(task, record) for task, record in targets.values()),
                 "missing_result_count": missing, "can_complete": in_window and not blocked, "completed": completed,
                 "blocked_reason": "SUBMISSION_NOT_ALLOWED" if not in_window else "CALIBRATION_DISTRIBUTION_VIOLATED" if blocked else None,
-                "has_original_tasks": any(record is None for _task, record in targets.values())}
+                "has_original_tasks": any(record is None for _task, record in targets.values()), "distribution_tips": tips}
     return project, node, actor, list(targets.values()), response
 
 
 async def preview_completion(db, project_id, payload, context):
-    *_, response = await completion_scope(db, project_id, payload.node_id, payload.phase_id, context)
+    *_, response = await completion_scope(db, project_id, payload.node_id, payload.phase_id, context, **({"scope_key": payload.scope_key} if getattr(payload, "scope_key", None) else {}))
     return response
 
 
 async def confirm_completion(db, project_id, payload, context):
     from app.performance.projects_router import _sync_automatic_openings
-    project, node, actor, targets, response = await completion_scope(db, project_id, payload.node_id, payload.phase_id, context, lock=True)
+    project, node, actor, targets, response = await completion_scope(db, project_id, payload.node_id, payload.phase_id, context, lock=True, **({"scope_key": payload.scope_key} if getattr(payload, "scope_key", None) else {}))
     if response["completed"]:
         return response
     if response["scope_version"] != payload.scope_version:
@@ -202,22 +243,26 @@ async def confirm_completion(db, project_id, payload, context):
         raise HTTPException(409, response.get("blocked_reason") or "SUBMISSION_NOT_ALLOWED")
     now = datetime.now(UTC)
     for task, record in targets:
-        if is_completed(task, record):
+        if is_completed(task, record, node, response.get("source_rule_id")):
             continue
         if record is None:
-            task.calibration_completed_at = now
-            task.calibration_completed_by = str(actor.actor_ref)
+            if isinstance(task, PerformanceNodeTask) or getattr(payload, "scope_key", None) or getattr(task, "calibration_rule_completions", None) is not None:
+                from app.performance.calibration_workspace_service import complete_rule
+                complete_rule(task, node, response.get("source_rule_id"), actor.actor_ref, now)
+            else:
+                task.calibration_completed_at = now
+                task.calibration_completed_by = str(actor.actor_ref)
         else:
             record.authorization_settings = {**record.authorization_settings, "calibration_completed_at": now.isoformat(), "calibration_completed_by": str(actor.actor_ref)}
     PerformanceAuditService(db).append_event(AuditEventInput(
         event_type="CALIBRATION_COMPLETED", cycle_ref=project.cycle_ref, actor_type=actor.actor_type,
         actor_ref=actor.actor_ref, subject_type="PERFORMANCE_PROJECT", subject_ref=str(project.id),
-        after_state={"node_id": node.node_id, "phase_id": payload.phase_id, "task_ids": sorted({task.id for task, _record in targets}),
+        after_state={"scope_key": getattr(payload, "scope_key", None), "source_rule_id": response.get("source_rule_id"), "node_id": node.node_id, "phase_id": payload.phase_id, "task_ids": sorted({task.id for task, _record in targets}),
                      "authorization_ids": [record.id for _task, record in targets if record is not None],
                      "scope_version": response["scope_version"], "missing_result_count": response["missing_result_count"]},
     ))
     if any(record is None for _task, record in targets):
         await _sync_automatic_openings(db, project)
     await db.commit()
-    *_, response = await completion_scope(db, project_id, payload.node_id, payload.phase_id, context)
+    *_, response = await completion_scope(db, project_id, payload.node_id, payload.phase_id, context, **({"scope_key": payload.scope_key} if getattr(payload, "scope_key", None) else {}))
     return response

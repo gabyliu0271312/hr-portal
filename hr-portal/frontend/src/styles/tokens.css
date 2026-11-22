@@ -6,6 +6,10 @@
  * ============================================================ */
 
 :root {
+  --performance-calibration-sidebar-width: 280px;
+  --performance-calibration-mobile-nav-height: 210px;
+  --performance-calibration-empty-size: 120px;
+  --performance-calibration-blocked-dialog-width: 600px;
   --font-weight-normal: 400;
   --font-weight-medium: 500;
   --ui-control-border-width: 1px;

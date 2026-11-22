@@ -6,16 +6,22 @@ import PerformancePopover from './PerformancePopover.vue'
 import PerformanceSelectTag from './PerformanceSelectTag.vue'
 import { parseCalibrationRule, summarizeCalibrationRule, type CalibrationSummaryPersonOption } from './performanceCalibrationRuleSummary'
 
+defineOptions({ inheritAttrs: false })
 const props = withDefaults(defineProps<{
-  rule: PerformanceProjectFlowRule
+  rule: PerformanceProjectFlowRule | null
+  triggerLabel?: string
+  scopeTitle?: string
+  scopeNote?: string
+  historyAmbiguous?: boolean
   subject?: boolean
   peopleOptions?: CalibrationSummaryPersonOption[]
   organizationTree?: PerformanceHrbpOrganizationNode[]
 }>(), { subject: false, peopleOptions: () => [], organizationTree: () => [] })
 const emit = defineEmits<{ 'open-options': [] }>()
 const options = computed(() => ({ subject: props.subject, peopleOptions: props.peopleOptions, organizationTree: props.organizationTree }))
-const summary = computed(() => parseCalibrationRule(props.rule, options.value))
-const text = computed(() => summarizeCalibrationRule(props.rule, options.value))
+const summary = computed(() => props.rule && !props.historyAmbiguous ? parseCalibrationRule(props.rule, options.value) : { kind: 'empty', label: '历史校准范围来源不明', groups: [] })
+const text = computed(() => props.triggerLabel || (props.rule ? summarizeCalibrationRule(props.rule, options.value) : summary.value.label))
+const canOpen = computed(() => Boolean(props.scopeTitle) || summary.value.kind === 'conditions')
 const first = computed(() => summary.value.groups[0]?.conditions[0])
 const more = computed(() => summary.value.groups.length > 1 || (summary.value.groups[0]?.conditions.length || 0) > 1)
 const trigger = ref<HTMLElement | null>(null)
@@ -80,12 +86,13 @@ onBeforeUnmount(() => {
 
 <template>
   <span
-    ref="trigger" class="rule-summary" tabindex="0" role="button"
-    :aria-label="text" :aria-expanded="opened && summary.kind === 'conditions'" aria-haspopup="dialog"
+    ref="trigger" v-bind="$attrs" class="rule-summary" tabindex="0" role="button"
+    :aria-label="text" :aria-expanded="opened && canOpen" aria-haspopup="dialog"
     @mouseenter="triggerHovered = true; open()" @mouseleave="triggerHovered = false; scheduleClose()"
     @focusin="focusIn" @focusout="focusOut" @keydown.esc.stop="close" @keydown.enter="open" @keydown.space.prevent="open"
   >
-    <template v-if="first">
+    <span v-if="triggerLabel" class="rule-summary__empty">{{ triggerLabel }}</span>
+    <template v-else-if="first">
       <span v-for="mode in ['visible', 'measure']" :key="mode" :ref="mode === 'measure' ? setMeasuring : undefined" class="rule-summary__row" :class="{ 'rule-summary__measure': mode === 'measure' }" :aria-hidden="mode === 'measure' ? true : undefined">
         <PerformanceSelectTag class="rule-summary__field" :label="first.label" :closable="false" />
         <span class="rule-summary__operator">{{ first.operator }}</span>
@@ -98,9 +105,11 @@ onBeforeUnmount(() => {
     </template>
     <span v-else class="rule-summary__empty">{{ summary.label || '暂未配置' }}<span v-if="more">…</span></span>
   </span>
-  <PerformancePopover :visible="opened && summary.kind === 'conditions'" :anchor="trigger" width="auto" role="dialog" name="calibration-rule-summary-popover" class="rule-summary__popover" aria-label="完整校准条件" @close="close" @mouseenter="popupHovered = true; clearClose()" @mouseleave="popupHovered = false; scheduleClose()">
+  <PerformancePopover :visible="opened && canOpen" :anchor="trigger" width="auto" role="dialog" name="calibration-rule-summary-popover" class="rule-summary__popover" :aria-label="scopeTitle || '完整校准条件'" @close="close" @mouseenter="popupHovered = true; clearClose()" @mouseleave="popupHovered = false; scheduleClose()">
     <div ref="popup" class="rule-summary__details" tabindex="0" @focusin="focused = true; clearClose()" @focusout="focusOut" @keydown.esc.stop="close">
-      <PerformanceConditionLogicGroup :count="summary.groups.length" operator="或">
+      <strong v-if="scopeTitle" class="rule-summary__title">{{ scopeTitle }}</strong>
+      <PerformanceSelectTag v-if="summary.kind !== 'conditions'" :label="summary.label" :closable="false" />
+      <PerformanceConditionLogicGroup v-else :count="summary.groups.length" operator="或">
         <template #default="{ index: groupIndex }">
           <div class="rule-summary__group">
             <PerformanceConditionLogicGroup :count="summary.groups[groupIndex].conditions.length" operator="且">
@@ -117,6 +126,7 @@ onBeforeUnmount(() => {
           </div>
         </template>
       </PerformanceConditionLogicGroup>
+      <p v-if="scopeNote" class="rule-summary__note">{{ scopeNote }}</p>
     </div>
   </PerformancePopover>
 </template>
@@ -139,5 +149,7 @@ onBeforeUnmount(() => {
 .rule-summary__condition { display: flex; flex-wrap: wrap; align-items: center; gap: var(--performance-rule-summary-gap); margin-bottom: var(--performance-rule-summary-row-gap); }
 .rule-summary__condition > :deep(.performance-select-shell__tag) { max-width: 100%; height: auto; min-height: var(--performance-rule-summary-tag-height); flex: 0 1 auto; }
 .rule-summary__condition :deep(.performance-select-shell__tag-content) { white-space: normal; overflow-wrap: anywhere; }
+.rule-summary__title { display: block; margin-bottom: var(--spacing-2); font-weight: var(--font-weight-medium); }
+.rule-summary__note { margin: var(--spacing-4) 0 0; color: var(--color-text-secondary); white-space: normal; }
 .rule-summary__condition:last-child { margin-bottom: 0; }
 </style>

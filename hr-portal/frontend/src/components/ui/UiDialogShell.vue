@@ -50,8 +50,9 @@ onBeforeUnmount(() => { if (props.modelValue) previousFocus?.focus() })
 <template>
   <Teleport to="body" :disabled="!teleport">
     <div v-if="modelValue" class="performance-dialog-overlay" :class="[overlayClass, { 'performance-dialog-overlay--fullscreen': fullscreen }]" @mousedown.self="close">
-      <section ref="panel" class="performance-dialog" :class="[dialogClass, { 'performance-dialog--fullscreen': fullscreen }]" :style="{ width: fullscreen ? '100vw' : width }" role="dialog" aria-modal="true" :aria-labelledby="titleId" tabindex="-1" @keydown.esc.prevent="close" @keydown="trapFocus">
+      <section ref="panel" class="performance-dialog" :class="[dialogClass, { 'performance-dialog--fullscreen': fullscreen }]" :style="{ width: fullscreen ? '100vw' : width }" role="dialog" aria-modal="true" :aria-labelledby="titleId" tabindex="-1" @keydown.esc.stop.prevent="close" @keydown="trapFocus">
         <header class="performance-dialog__header">
+          <slot name="header-start" />
           <h2 :id="titleId">{{ title }}</h2>
           <div v-if="$slots.description" class="performance-dialog__description"><slot name="description" /></div>
           <button class="performance-dialog__close" type="button" aria-label="关闭" :disabled="loading" @click="close">
@@ -81,7 +82,7 @@ onBeforeUnmount(() => { if (props.modelValue) previousFocus?.focus() })
 .performance-dialog__footer { flex: 0 0 auto; padding: 0 var(--ui-dialog-padding) var(--ui-dialog-padding); box-sizing: border-box; }
 .performance-dialog-overlay--fullscreen { padding: 0; }
 .performance-dialog--fullscreen { width: 100vw; height: 100vh; max-width: none; max-height: none; border-radius: 0; box-shadow: none; }
-.performance-dialog--fullscreen .performance-dialog__header { display: flex; align-items: center; flex: 0 0 var(--ui-dialog-fullscreen-header-height); height: var(--ui-dialog-fullscreen-header-height); min-height: var(--ui-dialog-fullscreen-header-height); padding: 0 var(--ui-dialog-padding); border-bottom: var(--ui-control-border-width) solid var(--color-surface-disabled); }
+.performance-dialog--fullscreen .performance-dialog__header { display: flex; align-items: center; gap: var(--spacing-5); flex: 0 0 var(--ui-dialog-fullscreen-header-height); height: var(--ui-dialog-fullscreen-header-height); min-height: var(--ui-dialog-fullscreen-header-height); padding: 0 var(--ui-dialog-padding); border-bottom: var(--ui-control-border-width) solid var(--color-surface-disabled); }
 .performance-dialog--fullscreen .performance-dialog__header h2 { font-size: var(--font-size-lg); font-weight: var(--ui-dialog-title-weight); line-height: var(--ui-dialog-line-height); }
 .performance-dialog--fullscreen .performance-dialog__close { top: var(--spacing-4); right: var(--spacing-5); }
 .performance-dialog--fullscreen .performance-dialog__body { flex: 1; min-height: 0; margin: 0; padding: 0; display: flex; flex-direction: column; overflow: hidden; }

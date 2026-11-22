@@ -61,7 +61,8 @@ async def previous_ready(db, task, node):
         PerformanceNodeTask.node_snapshot_id == previous.id,
         PerformanceNodeTask.revoked_at.is_(None),
     ))).scalars().all())
-    return bool(tasks) and all(item.calibration_completed_at is not None if previous.node_type == "calibration"
+    from app.performance.calibration_workspace_service import responsibility_completed
+    return bool(tasks) and all(responsibility_completed(item, previous) if previous.node_type == "calibration"
                                else item.submitted_at is not None and item.status == "completed" for item in tasks)
 
 

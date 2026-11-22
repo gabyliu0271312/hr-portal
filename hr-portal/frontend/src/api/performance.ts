@@ -335,6 +335,9 @@ export interface PerformanceReminderReceipt {
 }
 
 export type PerformanceReviewMemberContext = {
+  project_id?: number
+  phase_id?: string | null
+  scope_key?: string
   task_id?: number | null
   aggregate_task_id?: number | null
   employee_no: string
@@ -352,6 +355,8 @@ export type PerformanceReviewMemberContext = {
 }
 
 export interface PerformanceReviewNode {
+  project_id?: number
+  scope_key?: string
   comparison?: PerformanceComparisonResult | null
   draft_choice?: 'use' | 'discard'
   task_id?: number

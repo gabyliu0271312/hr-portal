@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { api } from '@/api/client'
+import ProjectReportComparison from './ProjectReportComparison.vue'
 import ProjectReportMatrix from './ProjectReportMatrix.vue'
 import ProjectStatisticsReportPanel from './ProjectStatisticsReportPanel.vue'
 import ProjectReportNavigation from './ProjectReportNavigation.vue'
@@ -21,6 +22,16 @@ beforeEach(() => setActivePinia(createPinia()))
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
 
 describe('ProjectStatisticsReportPanel', () => {
+  it('does not expose example data for scoped comparisons with missing source data', async () => {
+    const wrapper = mount(ProjectReportComparison, {
+      props: { kind: 'self-final', allowExamples: false, comparison: { source: 'api', total: 0, ratings: [], counts: [], heatLevels: [], emptyReason: '当前范围未提供自评数据' } },
+      global: { stubs: { PerformanceComparisonMatrix: true, PerformanceReportCommentButton: true } },
+    })
+    expect(wrapper.text()).toContain('当前范围未提供自评数据')
+    expect(wrapper.find('.example-button').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('renders captured chapters with the api overview and self-final comparison', async () => {
     const department = apiReport(await mockProjectReportProvider({ cycleId: 1 }))
     const get = vi.spyOn(api, 'get')

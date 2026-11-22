@@ -1,6 +1,6 @@
 <template>
   <div class="report-comparison" :data-comparison="kind">
-    <div v-if="unavailableMessage && !showExample" class="comparison-unavailable" role="status"><span>{{ unavailableMessage }}</span><button type="button" class="example-button" @click="showExample = true">查看示例</button></div>
+    <div v-if="unavailableMessage && !showExample" class="comparison-unavailable" role="status"><span>{{ unavailableMessage }}</span><button v-if="allowExamples" type="button" class="example-button" @click="showExample = true">查看示例</button></div>
       <div v-if="showExample" class="comparison-example-notice" role="status">示例数据，仅用于展示图表效果，不代表真实绩效结果。<button type="button" @click="showExample = false">关闭示例</button></div>
       <div v-if="kind === 'history' && !showExample && historyOptions.length" class="history-cycle-control"><PerformanceSearchSelect class="history-cycle-select" :model-value="comparison.historyCycleId == null ? null : String(comparison.historyCycleId)" :options="historyOptions" selection-style="plain" aria-label="历史绩效周期" placeholder="选择历史周期" @update:model-value="selectHistory" /></div>
       <div class="comparison-mark-label"><span class="focus-stripe-icon" aria-hidden="true" /><span>重点关注区域</span></div>
@@ -16,12 +16,12 @@ import PerformanceReportCommentButton from './PerformanceReportCommentButton.vue
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import type { PerformanceComparisonCellData, PerformanceComparisonFocusArea, PerformanceComparisonOption } from './performanceComparison'
 import { mockProjectReportComparison, type ProjectReportComparisonData, type ReportRating } from './projectStatisticsReport'
-const props = withDefaults(defineProps<{ comparison: ProjectReportComparisonData; kind?: 'self-final' | 'dimension' | 'history' }>(), { kind: 'self-final' })
+const props = withDefaults(defineProps<{ comparison: ProjectReportComparisonData; kind?: 'self-final' | 'dimension' | 'history'; allowExamples?: boolean }>(), { kind: 'self-final', allowExamples: true })
 const emit = defineEmits<{ change: [query: { xKey?: string; yKey?: string; historyCycleId?: number }]; cell: [cell: { rowKey: string; columnKey: string; count: number }] }>()
 const showExample = ref(false)
-watch([() => props.comparison, () => props.kind], () => { showExample.value = false })
-const unavailableMessage = computed(() => props.comparison.emptyReason === 'INSUFFICIENT_DIMENSIONS' ? '当前绩效周期可对比的绩效维度不足两个，暂无维度对比数据' : props.comparison.emptyReason === 'NO_HISTORY' ? '暂无可对比的历史绩效周期' : '')
-const displayComparison = computed(() => showExample.value ? mockProjectReportComparison() : props.comparison)
+watch([() => props.comparison, () => props.kind, () => props.allowExamples], () => { showExample.value = false })
+const unavailableMessage = computed(() => props.comparison.emptyReason === 'INSUFFICIENT_DIMENSIONS' ? '当前绩效周期可对比的绩效维度不足两个，暂无维度对比数据' : props.comparison.emptyReason === 'NO_HISTORY' ? '暂无可对比的历史绩效周期' : props.comparison.emptyReason || '')
+const displayComparison = computed(() => props.allowExamples && showExample.value ? mockProjectReportComparison() : props.comparison)
 const toOptions = (ratings: ReportRating[]): PerformanceComparisonOption[] => ratings.map(rating => ({ value: rating.key, label: rating.label, color: rating.color }))
 const rows = computed(() => toOptions(displayComparison.value.yRatings ?? (props.kind === 'self-final' || showExample.value ? displayComparison.value.ratings : [])))
 const columns = computed(() => toOptions(displayComparison.value.xRatings ?? (props.kind !== 'history' || showExample.value ? displayComparison.value.ratings : [])))

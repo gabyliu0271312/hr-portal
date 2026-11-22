@@ -1643,10 +1643,17 @@ class CalibrationCompletionPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     node_id: str = Field(min_length=1, max_length=128)
     phase_id: str | None = Field(default=None, max_length=96)
+    scope_key: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class CalibrationCompletionConfirmPayload(CalibrationCompletionPayload):
     scope_version: str = Field(min_length=1, max_length=128)
+
+
+@router.get("/review/calibration-tasks")
+async def review_calibration_tasks(cycle_id: int = Query(..., ge=1), context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session)):
+    from app.performance.calibration_workspace_service import list_scopes
+    return await list_scopes(db, cycle_id, context)
 
 
 @router.post("/projects/{project_id}/calibration-completion/preview")
@@ -2411,8 +2418,9 @@ def _member_result_ready(employee_no: str, final: PerformanceProjectNodeSnapshot
     return _result_ready([task for task in tasks if task.target_employee_no == employee_no and task.node_snapshot_id == final.id], schema)
 
 
-def _calibration_completed(task):
-    return getattr(task, "calibration_completed_at", None) is not None
+def _calibration_completed(task, node=None):
+    from app.performance.calibration_workspace_service import responsibility_completed
+    return responsibility_completed(task, node)
 
 
 def _previous_finished(employee_no: str, previous: PerformanceProjectNodeSnapshot | None, tasks: list[PerformanceNodeTask]) -> bool:
@@ -2420,7 +2428,7 @@ def _previous_finished(employee_no: str, previous: PerformanceProjectNodeSnapsho
         return True
     related = [task for task in tasks if task.target_employee_no == employee_no and task.node_snapshot_id == previous.id and getattr(task, "revoked_at", None) is None]
     if previous.node_type == "calibration":
-        return bool(related) and all(_calibration_completed(task) for task in related)
+        return bool(related) and all(_calibration_completed(task, previous) for task in related)
     return not related or any(task.status == "completed" and task.submitted_at is not None for task in related)
 
 
@@ -5259,11 +5267,9 @@ def _completion_node_status(starts: list[datetime], deadlines: list[datetime], c
 def _completion_task_counts(node, tasks):
     tasks = [task for task in tasks if getattr(task, "revoked_at", None) is None]
     if node.node_type == "calibration":
-        groups = {}
-        for task in tasks:
-            if getattr(task, "revoked_at", None) is None and calibration_task_scope(task, node):
-                groups.setdefault((task.phase_id, task.handler_ref), []).append(task)
-        return sum(all(_calibration_completed(task) for task in group) for group in groups.values()), len(groups)
+        from app.performance.calibration_workspace_service import rule_completed
+        groups = _calibration_rule_task_groups(node, tasks, None)
+        return sum(all(rule_completed(task, rule_id) for task in group) for (_phase, _handler, rule_id), group in groups.items()), len(groups)
     return sum(_task_completed(task) for task in tasks), len(tasks)
 
 
@@ -6983,6 +6989,7 @@ async def project_management_calibration_authorization(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
+    from app.performance.calibration_workspace_service import rule_completed
     projects = await _task_authorization_projects(cycle_id, context, db, TASK_CALIBRATION_AUTHORIZATION_KEY)
     projects = await _first_started_calibration_project(projects, db)
     items = []
@@ -7093,7 +7100,7 @@ async def project_management_calibration_authorization(
                     "notify_original": None,
                     "project_id": project.id, "node_id": node.node_id, "phase_id": phase_id,
                     "calibrator": names.get(handler, handler),
-                    "status": "已校准" if all(_calibration_completed(task) for task in group) else "待校准",
+                    "status": "已校准" if all(rule_completed(task, rule_id) for task in group) else "待校准",
                     "scope": _calibration_scope_label(rules), "scope_rules": rules,
                     "authorized_count": len(group), "allow_authorize": allow_authorize,
                     "can_authorize": bool(group) and all(
@@ -8032,7 +8039,7 @@ async def _communication_final_rating_values(project, rows, db):
 
 
 @router.get("/workbench/tasks/{node_id}/people")
-async def workbench_task_people(node_id: str, project_id: int, state: str = Query(default="pending", pattern="^(pending|completed|all)$"), context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), keyword: str | None = Query(default=None, max_length=100), phase_id: str | None = Query(default=None, max_length=96), page: int | None = Query(default=None, ge=1), page_size: int = Query(default=50, ge=1, le=100), sort_by: str = Query(default="task_id", max_length=256), sort_order: str = Query(default="asc", pattern="^(asc|desc)$")):
+async def workbench_task_people(node_id: str, project_id: int, state: str = Query(default="pending", pattern="^(pending|completed|all)$"), context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), keyword: str | None = Query(default=None, max_length=100), phase_id: str | None = Query(default=None, max_length=96), page: int | None = Query(default=None, ge=1), page_size: int = Query(default=50, ge=1, le=100), sort_by: str = Query(default="task_id", max_length=256), sort_order: str = Query(default="asc", pattern="^(asc|desc)$"), scope_key: str | None = Query(default=None, max_length=128)):
     paged = isinstance(page, int)
     page_size = page_size if isinstance(page_size, int) else 50
     sort_by = sort_by if isinstance(sort_by, str) else "task_id"
@@ -8047,6 +8054,10 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
     )
     if isinstance(phase_id, str) and phase_id:
         scope += (PerformanceNodeTask.phase_id == phase_id,)
+    if isinstance(scope_key, str):
+        from app.performance.calibration_workspace_service import resolve_scope
+        _project, _node, _actor, business_scope, _records = await resolve_scope(db, project_id, node_id, scope_key, context, phase_id=phase_id if isinstance(phase_id, str) else None)
+        scope += (PerformanceNodeTask.id.in_([task.id for task in business_scope["tasks"]]),)
     statement = (
         select(PerformanceNodeTask, PerformanceProjectNodeSnapshot, PerformanceProjectMember)
         .select_from(PerformanceNodeTask)
@@ -8253,7 +8264,11 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
 
 
 @router.get("/workbench/tasks/{node_id}/distribution-tips")
-async def workbench_task_distribution_tips(node_id: str, project_id: int, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), phase_id: str | None = Query(default=None, max_length=96)):
+async def workbench_task_distribution_tips(node_id: str, project_id: int, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), phase_id: str | None = Query(default=None, max_length=96), scope_key: str | None = Query(default=None, max_length=128)):
+    if isinstance(scope_key, str):
+        from app.performance.calibration_completion_service import scoped_completion
+        *_, response = await scoped_completion(db, project_id, node_id, phase_id if isinstance(phase_id, str) else None, scope_key, context, writable=False)
+        return response["distribution_tips"]
     """运行期绩效结果强制/建议分布提示（校准节点顶部）。
 
     与 /workbench/tasks/{node_id}/people 同权限、同数据源、同评级解析（021 一条计算链）：

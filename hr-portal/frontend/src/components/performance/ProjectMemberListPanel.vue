@@ -25,6 +25,7 @@ type MemberRow = ProjectMember & {
 }
 
 const props = withDefaults(defineProps<{
+  variant?: 'default' | 'calibration'
   projectId: number | string
   cycleId?: number
   reviewContext?: { nodeId: string; state: 'pending' | 'completed' | 'all'; phaseId?: string | null }
@@ -260,8 +261,8 @@ const loadMembers = async () => {
       const key = memberSelectionKey(member)
       if (selectedKeys.value.includes(key)) selectedRows.value[key] = member
     }
-  } catch {
-    if (sequence === requestSequence) error.value = '成员列表加载失败，请稍后重试'
+  } catch (cause: any) {
+    if (sequence === requestSequence) error.value = cause?.response?.status === 403 ? '你没有当前成员范围的访问权限' : '成员列表加载失败，请稍后重试'
   } finally {
     if (sequence === requestSequence) loading.value = false
   }
@@ -399,7 +400,7 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
 </script>
 
 <template>
-  <section class="member-list-panel" aria-label="成员列表">
+  <section class="member-list-panel" :class="{ 'member-list-panel--calibration': variant === 'calibration' }" aria-label="成员列表">
     <div class="card-sticky-mask" aria-hidden="true"></div>
     <PerformanceListToolbar
       v-model:keyword="keyword"
@@ -409,7 +410,7 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
       search-fill
       @search="page = 1; loadMembers()"
       @clear="page = 1; loadMembers()"
-      @filter="emit('filter')"
+      @filter="variant === 'calibration' ? (page = 1, loadMembers()) : emit('filter')"
     >
       <template v-if="showExport" #actions>
         <PerformanceExportButton :load-rows="exportRows" :filename="`成员列表_${props.cycleId || props.projectId}`" :disabled="loading || Boolean(error) || !total" @success="exportNotice = '导出成功'" @error="exportNotice = '导出失败，请稍后重试'" />
@@ -459,8 +460,8 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
       </template>
       <template #empty>
         <div v-if="loading" class="member-state" role="status">正在加载成员…</div>
-        <div v-else-if="error" class="member-state member-state--error" role="alert">{{ error }}</div>
-        <div v-else class="member-state">暂无成员</div>
+        <div v-else-if="error" class="member-state member-state--error" role="alert">{{ error }} <UiButton variant="text" @click="loadMembers">重试</UiButton></div>
+        <slot v-else name="empty"><div class="member-state">暂无成员</div></slot>
       </template>
       <template #selection-actions>
         <UiButton variant="outline-primary" aria-label="授权他人处理" :disabled="!selectedMembers.some(member => member.can_authorize)" @click="emit('authorize-selected', selectedMembers)">授权他人处理</UiButton>
@@ -473,6 +474,8 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
 </template>
 
 <style scoped>
+.member-list-panel.member-list-panel--calibration { padding: var(--spacing-5); margin-top: var(--spacing-4); border-radius: var(--radius-lg); background: var(--color-bg-card); box-shadow: none; --performance-table-sticky-top: 0; }
+.member-list-panel--calibration .card-sticky-mask { display: none; }
 .member-list-panel { min-width:0; border-radius:8px; background:#fff; box-shadow:rgba(31,35,41,.03) 0 4px 16px 4px,rgba(31,35,41,.02) 0 4px 8px,rgba(31,35,41,.02) 0 2px 4px -4px; padding:0 20px 20px; color:#1f2329; --performance-table-container-padding: var(--performance-review-surface-inset); --performance-table-sticky-top: calc(var(--performance-tab-area-height) - 28px); }
 .card-sticky-mask { position: sticky; top: calc(var(--performance-table-sticky-top, 0px) - 20px); z-index: 19; flex: none; height: 20px; margin: 0 -20px; border-radius: 8px 8px 0 0; background: var(--color-bg-card, #fff); }
 .member-list-toolbar{height:var(--control-height)}

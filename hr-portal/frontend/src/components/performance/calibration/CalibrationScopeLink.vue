@@ -1,0 +1,14 @@
+<script setup lang="ts">
+import type { PerformanceCalibrationTaskScope } from '@/api/performanceCalibration'
+import PerformanceCalibrationRuleSummary from '../PerformanceCalibrationRuleSummary.vue'
+defineProps<{ scope: PerformanceCalibrationTaskScope; snapshot?: boolean }>()
+const emit = defineEmits<{ select: [] }>()
+const snapshotNote = '备注：以校准任务开始时刻圈定的校准范围为准，后续部门、汇报关系、项目范围的更新不会影响已圈定的校准范围。'
+</script>
+<template>
+  <PerformanceCalibrationRuleSummary class="calibration-range" :rule="scope.rule" :trigger-label="scope.scope_label" scope-title="具体校准范围" :scope-note="snapshot ? snapshotNote : undefined" :history-ambiguous="scope.history_ambiguous" :people-options="(scope.people_options || []).map(person => ({ value: person.employee_no, label: person.display_name }))" @click="emit('select')" @keydown.enter.prevent="emit('select')" @keydown.space.prevent="emit('select')" />
+</template>
+<style scoped>
+.calibration-range { width: 100%; cursor: pointer; }
+.calibration-range:hover { color: var(--color-primary); }
+</style>

@@ -294,17 +294,36 @@ async def apply_calibration_delta(db, project, old_flow, new_flow, *, actor_type
         existing = {(t.phase_id, t.handler_ref, t.target_employee_no): t for t in node_tasks}
         for key, task in existing.items():
             assignment = assignments.get(key)
+            if assignment is not None:
+                state = deepcopy(getattr(task, "calibration_rule_completions", None))
+                if state is None:
+                    state = {"rules": {}, "history_ambiguous": getattr(task, "calibration_completed_at", None) is not None}
+                sources = assignment.get("source_rule_ids") or []
+                state["retired_rules"] = {**state.get("retired_rules", {}), **{identity: value for identity, value in state["rules"].items() if identity not in sources}}
+                state["rules"] = {identity: state["rules"].get(identity) for identity in sources}
+                task.calibration_rule_completions = state
             if assignment is None:
                 task.revoked_at = now
                 outcome["revoked_tasks"] += 1
                 notify.add(task.handler_ref)
                 PerformanceAuditService(db).append_event(AuditEventInput(event_type="CALIBRATION_TASK_REVOKED", cycle_ref=project.cycle_ref, actor_type=actor_type, actor_ref=str(actor_id), employee_no=task.target_employee_no, subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id), after_state={"reason": "calibration_source_removed", "project_id": project.id, "revoked_at": now.isoformat()}))
-            if assignment is None or not assignment["allow_authorize"]:
-                records = list((await db.execute(select(PerformanceNodeTaskAuthorization).where(PerformanceNodeTaskAuthorization.task_id == task.id, PerformanceNodeTaskAuthorization.status == "ACTIVE").with_for_update())).scalars().all())
-                for record in records:
-                    record.status = "REVOKED"
-                    record.revoked_at = now
-                    record.revoked_by_employee_no = str(actor_id)
+            records = list((await db.execute(select(PerformanceNodeTaskAuthorization).where(PerformanceNodeTaskAuthorization.task_id == task.id, PerformanceNodeTaskAuthorization.status == "ACTIVE").with_for_update())).scalars().all())
+            by_record = {record.id: record for record in records}
+            invalid = set()
+            for record in records:
+                source = (record.authorization_settings or {}).get("source_rule_id")
+                if assignment is None or not assignment["allow_authorize"] or source is not None and source not in assignment.get("source_rule_ids", []):
+                    invalid.add(record.id)
+            while True:
+                children = {record.id for record in records if (record.authorization_settings or {}).get("parent_authorization_id") in invalid}
+                if children <= invalid:
+                    break
+                invalid |= children
+            for identity in invalid:
+                record = by_record[identity]
+                record.status = "REVOKED"
+                record.revoked_at = now
+                record.revoked_by_employee_no = str(actor_id)
         for key in assignments.keys() - existing.keys():
             phase_id, handler, employee_no = key
             window = timing["phase_times"][phase_id]

@@ -7,13 +7,24 @@
       @select-filter="selectCycle"
       :projects="overview?.projects || []"
       :active-project="overview?.active_project || null"
-      :selected-node-id="resultScopeKind ? selectedNodeId : isReviewer360Node(selectedNode || {}) ? '__reviewer-360__' : `${activeProjectId}:${selectedNodeId}`"
+      :selected-node-id="resultScopeKind ? selectedNodeId : calibrationSelected ? '__calibration__' : isReviewer360Node(selectedNode || {}) ? '__reviewer-360__' : `${activeProjectId}:${selectedNodeId}`"
       :loading="loading"
       @select-project="selectProject"
       @select-node="selectNode"
     >
     </PerformanceReviewCategorySidebar>
     <PerformanceResultScopeView v-if="resultScopeKind && projectContext.activeCycleId" :kind="resultScopeKind" :cycle-id="projectContext.activeCycleId" />
+    <PerformanceCalibrationWorkspace
+      v-else-if="calibrationSelected && projectContext.activeCycleId"
+      :cycle-id="projectContext.activeCycleId"
+      :node-id="selectedNode?.node_id"
+      @open-member="openMember"
+      @remind-evaluate="openEvaluateReminder"
+    >
+      <template #all-people="{ tasks, cycleId }"><CalibrationAllPeople :tasks="tasks" :cycle-id="cycleId" @open-member="openMember" /></template>
+      <template #matrix="{ scope }"><CalibrationScopeAnalysis :scope="scope" :cycle-id="projectContext.activeCycleId" tab="matrix" @open-member="openMember" /></template>
+      <template #report="{ scope }"><CalibrationScopeAnalysis :scope="scope" :cycle-id="projectContext.activeCycleId" tab="report" @open-member="openMember" /></template>
+    </PerformanceCalibrationWorkspace>
     <PerformanceReviewContent
       v-else
       :loading="loading"
@@ -30,7 +41,7 @@
       @open-member="openMember"
       @remind-evaluate="openEvaluateReminder"
     >
-      <template #heading-actions><UiButton v-if="selectedNode?.node_type === 'calibration'" variant="primary" :disabled="calibrationCompletion?.completed || calibrationBusy || (calibrationCompletion?.can_complete === false && calibrationCompletion?.blocked_reason !== 'CALIBRATION_DISTRIBUTION_VIOLATED')" :loading="calibrationBusy" @click="openCalibrationCompletion">{{ calibrationCompletion?.completed ? '已完成校准' : '完成校准' }}</UiButton><PerformanceResultReconsiderationMenu v-if="selectedNode?.node_type === 'result_view' && !resultLoading && !resultError && !reconsiderationError" :status="reconsideration" :expired="reconsiderationExpired" :busy="reconsiderationBusy" @start="reconsiderationPanel?.open()" /></template>
+      <template #heading-actions><PerformanceResultReconsiderationMenu v-if="selectedNode?.node_type === 'result_view' && !resultLoading && !resultError && !reconsiderationError" :status="reconsideration" :expired="reconsiderationExpired" :busy="reconsiderationBusy" @start="reconsiderationPanel?.open()" /></template>
       <div v-if="selectedNode?.node_type === 'result_view'" class="review-results" aria-label="我的绩效结果">
         <div v-if="resultLoading" role="status">正在加载绩效结果…</div>
         <div v-else-if="resultError" role="alert">{{ resultError }} <button type="button" @click="loadMyResults">重新加载</button></div>
@@ -52,6 +63,7 @@
     <PerformanceReviewEvaluationDrawer
       v-if="drawerMember"
       v-model="drawerOpen"
+      :project-id="drawerMember.member.project_id || activeProjectId"
       :task-id="drawerMember.task_id"
       :detail-loader="drawerDetailLoader"
       :employee-no="drawerMember.member.employee_no"
@@ -67,7 +79,6 @@
       @remind="openDrawerReminder"
     />
     <PerformanceMemberReminderDialog v-model="reminderOpen" :context="reminderContext" />
-    <PerformanceConfirmDialog v-model="calibrationConfirmOpen" appearance="calibration-completion" message="确定要完成校准吗？" :description="calibrationDescription" cancel-text="取消" confirm-text="确定" confirm-variant="primary" :loading="calibrationBusy" :error-message="calibrationError" @confirm="confirmCalibrationCompletion" />
   </div>
 </template>
 
@@ -78,15 +89,12 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   performanceReviewApi,
   projectManagementApi,
-  type PerformanceCalibrationCompletion,
   type PerformanceReferenceTab,
   type PerformanceReviewMemberContext,
   type PerformanceReviewNode,
   type PerformanceReviewOverview,
   type PerformanceResultRegion,
 } from '@/api/performance'
-import UiButton from '@/components/ui/UiButton.vue'
-import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceMemberReminderDialog from '@/components/performance/PerformanceMemberReminderDialog.vue'
 import { usePerformanceMemberReminder } from '@/composables/usePerformanceMemberReminder'
 import PerformanceResultReconsideration from '@/components/performance/PerformanceResultReconsideration.vue'
@@ -96,6 +104,9 @@ import PerformanceResultReviewer360Block, { hasVisibleReviewer360Content } from 
 import PerformanceOkrPanel from '@/components/performance/PerformanceOkrPanel.vue'
 import PerformanceReviewCategorySidebar, { type ReviewNavigationNode } from '@/components/performance/PerformanceReviewCategorySidebar.vue'
 import PerformanceResultScopeView from '@/components/performance/PerformanceResultScopeView.vue'
+import PerformanceCalibrationWorkspace from '@/components/performance/calibration/PerformanceCalibrationWorkspace.vue'
+import CalibrationAllPeople from '@/components/performance/calibration/CalibrationAllPeople.vue'
+import CalibrationScopeAnalysis from '@/components/performance/calibration/CalibrationScopeAnalysis.vue'
 import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
 import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
@@ -224,6 +235,13 @@ const visibleCategories = computed(() => projectCategories.value.map(category =>
   const nodes: ReviewNavigationNode[] = []
   const feedback = category.nodes.filter(isReviewer360Node)
   for (const node of category.nodes) {
+    if (node.node_type === 'calibration') {
+      if (nodes.some(item => item.node_type === 'calibration')) continue
+      const calibration = category.nodes.filter(item => item.node_type === 'calibration')
+      const status = ['overdue', 'pending', 'not_started', 'completed'].find(value => calibration.some(item => item.status === value)) as PerformanceReviewNode['status'] || 'completed'
+      nodes.push({ ...node, navigation_id: '__calibration__', status })
+      continue
+    }
     if (!isReviewer360Node(node)) { nodes.push(node); continue }
     if (nodes.some(isReviewer360Node)) continue
     const status = ['overdue', 'pending', 'not_started', 'completed'].find(value => feedback.some(item => item.show_status !== false && item.status === value)) as PerformanceReviewNode['status'] || 'completed'
@@ -234,64 +252,13 @@ const visibleCategories = computed(() => projectCategories.value.map(category =>
 const cycleOptions = computed(() => projectContext.cycles.map(cycle => ({ value: cycle.cycle_id, label: cycle.cycle_name })))
 const allNodes = computed(() => projectCategories.value.flatMap(category => category.nodes).filter(node => !node.project_id || node.project_id === activeProjectId.value))
 const selectedNode = computed(() => resultScopeKind.value ? allNodes.value.find(node => node.node_id === selectedNodeId.value) || null : overview.value?.active_project?.project_id === activeProjectId.value ? allNodes.value.find(node => node.node_id === selectedNodeId.value) || null : null)
-const calibrationCompletion = ref<PerformanceCalibrationCompletion | null>(null)
-const calibrationConfirmOpen = ref(false)
-const calibrationBusy = ref(false)
-const calibrationError = ref('')
-let calibrationRequest = 0
-const calibrationDescription = computed(() => `${calibrationCompletion.value?.missing_result_count ? `当前有 ${calibrationCompletion.value.missing_result_count} 名被评估人尚无绩效结果，仍可确定完成校准。` : ''}${calibrationCompletion.value?.has_original_tasks === false ? '本次仅完成你的授权任务，原校准人仍需完成父任务。' : '完成后，终评结果将无法修改，'}校准内容仍可在允许的期限内继续编辑。`)
-async function loadCalibrationCompletion() {
-  const projectId = activeProjectId.value
-  const node = selectedNode.value
-  const request = ++calibrationRequest
-  calibrationCompletion.value = null
-  calibrationConfirmOpen.value = false
-  calibrationError.value = ''
-  if (!projectId || node?.node_type !== 'calibration') return
-  try {
-    const result = await projectManagementApi.calibrationCompletionPreview(projectId, node.node_id, node.phase_id)
-    if (request === calibrationRequest) calibrationCompletion.value = result
-  } catch { if (request === calibrationRequest) calibrationError.value = '校准完成状态加载失败，请重试' }
-}
-async function openCalibrationCompletion() {
-  const node = selectedNode.value
-  const projectId = activeProjectId.value
-  if (!projectId || !node || calibrationBusy.value) return
-  calibrationBusy.value = true
-  calibrationError.value = ''
-  try {
-    const result = await projectManagementApi.calibrationCompletionPreview(projectId, node.node_id, node.phase_id)
-    if (selectedNode.value?.node_id !== node.node_id || activeProjectId.value !== projectId) return
-    calibrationCompletion.value = result
-    if (result.blocked_reason === 'CALIBRATION_DISTRIBUTION_VIOLATED') ElMessage.error('当前任务尚未满足强制分布规则，请调整后重新确认')
-    calibrationConfirmOpen.value = !result.completed && result.can_complete
-  } catch { ElMessage.error('校准完成状态加载失败，请重试') }
-  finally { calibrationBusy.value = false }
-}
-async function confirmCalibrationCompletion() {
-  const node = selectedNode.value
-  const projectId = activeProjectId.value
-  const preview = calibrationCompletion.value
-  if (!projectId || !node || !preview || calibrationBusy.value) return
-  calibrationBusy.value = true
-  try {
-    const result = await projectManagementApi.calibrationCompletionConfirm(projectId, node.node_id, preview.scope_version, node.phase_id)
-    if (selectedNode.value?.node_id !== node.node_id || activeProjectId.value !== projectId) return
-    calibrationCompletion.value = result
-    calibrationConfirmOpen.value = false
-    projectContext.invalidateReviewOverview(projectId)
-    ElMessage.success('已完成校准')
-  } catch (cause: any) {
-    calibrationError.value = cause?.response?.data?.detail === 'CALIBRATION_DISTRIBUTION_VIOLATED' ? '当前任务尚未满足强制分布规则，请调整后重新确认' : cause?.response?.status === 409 ? '校准范围或规则已变化，请取消并重新确认' : '完成校准失败，请重试'
-  } finally { calibrationBusy.value = false }
-}
-watch([activeProjectId, () => selectedNode.value?.node_id, () => selectedNode.value?.phase_id], () => { void loadCalibrationCompletion() })
+const calibrationSelected = computed(() => selectedNode.value?.node_type === 'calibration' && selectedNode.value.status !== 'not_started' || route.query.calibration_open === '1')
 watch([activeProjectId, () => selectedNode.value?.node_id, () => selectedNode.value?.node_type], () => { void loadMyResults() })
 const drawerMember = ref<{ node: PerformanceReviewNode; member: PerformanceReviewMemberContext; task_id: number; active_tab: string } | null>(null)
 const drawerOpen = ref(false)
 const drawerDetailLoader = computed(() => {
   const member = drawerMember.value
-  const projectId = activeProjectId.value
+  const projectId = member?.member.project_id || member?.node.project_id || activeProjectId.value
   return member ? (tab?: string) => projectContext.loadDrawerDetail(
     JSON.stringify(['review', projectId, member.member.employee_no, member.task_id, tab || '']),
     () => performanceReviewApi.templateTask(member.task_id, member.member.employee_no || undefined, { view: 'drawer', tab }),
@@ -299,12 +266,12 @@ const drawerDetailLoader = computed(() => {
 })
 function finishClosingDrawer() { if (!drawerOpen.value) drawerMember.value = null }
 function clearDrawerQuery() {
-  const { rootReviewId: _rootReview, activeTab: _activeTab, employee_no: _employee, ...query } = route.query
+  const { rootReviewId: _rootReview, activeTab: _activeTab, employee_no: _employee, member_project_id: _memberProject, ...query } = route.query
   return query
 }
 function drawerQuery() {
   const current = drawerMember.value
-  return { ...clearDrawerQuery(), project_id: String(activeProjectId.value || ''), node: current?.node.node_id, rootReviewId: String(current?.task_id || ''), activeTab: current?.active_tab === 'evaluation' ? current.node.node_id : current?.active_tab }
+  return { ...clearDrawerQuery(), project_id: String(activeProjectId.value || ''), node: current?.node.node_id, ...(current?.node.node_type === 'calibration' ? { member_project_id: String((current.member as { project_id?: number }).project_id || activeProjectId.value || '') } : {}), rootReviewId: String(current?.task_id || ''), activeTab: current?.active_tab === 'evaluation' ? current.node.node_id : current?.active_tab }
 }
 async function closeDrawer() {
   drawerOpen.value = false
@@ -325,7 +292,7 @@ async function copyDrawerLink() {
 }
 function restoreDrawer() {
   const taskId = Number(route.query.rootReviewId)
-  const node = allNodes.value.find(item => item.node_id === String(route.query.node || ''))
+  const node = projectCategories.value.flatMap(category => category.nodes).find(item => item.node_id === String(route.query.node || '') && (!route.query.member_project_id || item.project_id === Number(route.query.member_project_id)))
   if (!Number.isSafeInteger(taskId) || taskId <= 0 || !node || !(node.task_kind === 'evaluation' || performanceReviewDisplay(node.node_type)?.completedView === 'drawer')) return
   if (drawerMember.value?.task_id === taskId && drawerMember.value.node.node_id === node.node_id) {
     drawerMember.value.active_tab = !route.query.activeTab || route.query.activeTab === node.node_id ? 'evaluation' : String(route.query.activeTab)
@@ -333,7 +300,7 @@ function restoreDrawer() {
     return
   }
   selectedNodeId.value = node.node_id
-  drawerMember.value = { node, task_id: taskId, member: { employee_no: '' }, active_tab: !route.query.activeTab || route.query.activeTab === node.node_id ? 'evaluation' : String(route.query.activeTab) }
+  drawerMember.value = { node, task_id: taskId, member: { employee_no: '', project_id: Number(route.query.member_project_id) || undefined }, active_tab: !route.query.activeTab || route.query.activeTab === node.node_id ? 'evaluation' : String(route.query.activeTab) }
   drawerOpen.value = true
 }
 watch(() => route.query.project_id, value => {
@@ -396,7 +363,7 @@ function routeTaskId() {
 }
 let overviewRequest = 0
 let disposed = false
-onBeforeUnmount(() => { disposed = true; ++overviewRequest; ++calibrationRequest })
+onBeforeUnmount(() => { disposed = true; ++overviewRequest })
 async function loadOverview(projectId?: number, silent = false) {
   if (disposed) return
   const request = ++overviewRequest
@@ -478,7 +445,7 @@ async function selectNode(node: ReviewNavigationNode) {
   }
   if (activeProjectId.value) projectContext.setSelectedReviewNode(activeProjectId.value, node.node_id)
   drawerMember.value = null
-  const { task_id: _taskId, entry: _entry, tab: _tab, ...query } = clearDrawerQuery()
+  const { task_id: _taskId, entry: _entry, tab: _tab, calibration_open: _calibrationOpen, calibration_scope: _calibrationScope, calibration_tab: _calibrationTab, ...query } = clearDrawerQuery()
   await router.replace({ query: { ...query, project_id: String(activeProjectId.value || ''), node: node.node_id } })
 }
 async function openNode(node: PerformanceReviewNode) {
@@ -494,7 +461,8 @@ async function openNode(node: PerformanceReviewNode) {
 async function openMember(payload: { node: PerformanceReviewNode; member: PerformanceReviewMemberContext }) {
   const taskId = payload.member.task_id || payload.member.aggregate_task_id || payload.node.task_id
   if (!taskId) return
-  const memberProjectId = Number((payload.member as PerformanceReviewMemberContext & { project_id?: number }).project_id) || activeProjectId.value
+  const memberProjectId = payload.member.project_id || payload.node.project_id || activeProjectId.value
+  payload = { ...payload, member: { ...payload.member, project_id: memberProjectId } }
   if (isReviewer360Node(payload.node) && memberProjectId && memberProjectId !== activeProjectId.value) {
     const cycleId = projectContext.activeCycleId
     await selectProject(memberProjectId)
@@ -526,11 +494,12 @@ const { reminderOpen, reminderContext, openMemberReminder } = usePerformanceMemb
 function openEvaluateReminder(payload: { node: PerformanceReviewNode; member: PerformanceReviewMemberContext; pendingCount: number }) {
   if (!payload.pendingCount) return
   const sourceTaskId = payload.member.task_id || payload.member.aggregate_task_id || payload.node.task_id || undefined
-  openMemberReminder({ projectId: Number(activeProjectId.value), cycleId: projectContext.activeCycleId || undefined, employeeNo: payload.member.employee_no, displayName: payload.member.display_name, sourceTaskId: supportsReminderSourceTask(payload.node.task_kind || payload.node.node_type) ? sourceTaskId : undefined, targetKind: 'reviewer_360' })
+  const memberProjectId = payload.member.project_id || payload.node.project_id || activeProjectId.value
+  openMemberReminder({ projectId: Number(memberProjectId), cycleId: projectContext.activeCycleId || undefined, employeeNo: payload.member.employee_no, displayName: payload.member.display_name, sourceTaskId: supportsReminderSourceTask(payload.node.task_kind || payload.node.node_type) ? sourceTaskId : undefined, targetKind: 'reviewer_360' })
 }
 function openDrawerReminder(reference: PerformanceReferenceTab, sourceTaskId?: number) {
   const member = drawerMember.value
-  openMemberReminder({ projectId: Number(activeProjectId.value), cycleId: projectContext.activeCycleId || undefined, employeeNo: reference.employee_no || member?.member.employee_no || '', displayName: member?.member.display_name, sourceTaskId: sourceTaskId || (member && supportsReminderSourceTask(member.node.task_kind || member.node.node_type) ? member.task_id : undefined), nodeId: reference.node_id, targetKind: reference.kind === 'reviewer_360' ? 'reviewer_360' : undefined, taskId: reference.kind === 'reviewer_360' ? undefined : reference.task_id || undefined })
+  openMemberReminder({ projectId: Number(member?.member.project_id || member?.node.project_id || activeProjectId.value), cycleId: projectContext.activeCycleId || undefined, employeeNo: reference.employee_no || member?.member.employee_no || '', displayName: member?.member.display_name, sourceTaskId: sourceTaskId || (member && supportsReminderSourceTask(member.node.task_kind || member.node.node_type) ? member.task_id : undefined), nodeId: reference.node_id, targetKind: reference.kind === 'reviewer_360' ? 'reviewer_360' : undefined, taskId: reference.kind === 'reviewer_360' ? undefined : reference.task_id || undefined })
 }
 async function editDrawerTask(payload: { task_id: string | number; employee_no: string; draft_choice?: 'use' | 'discard'; task_kind?: string; node_id?: string; phase_id?: string | null; project_id?: number }) {
   const current = drawerMember.value
@@ -540,7 +509,8 @@ async function editDrawerTask(payload: { task_id: string | number; employee_no: 
   const node = payload.node_id && payload.node_id !== current.node.node_id
     ? allNodes.value.find(item => item.node_id === payload.node_id) || { ...current.node, node_id: payload.node_id, task_kind: payload.task_kind }
     : current.node
-  let taskRoute = performanceTaskEntryRoute({ ...node, task_kind: payload.task_kind || node.task_kind, entry_mode: 'template_task', task_id: Number(payload.task_id), draft_choice: payload.draft_choice }, activeProjectId.value, payload.employee_no)
+  const memberProjectId = payload.project_id || current.member.project_id || current.node.project_id || activeProjectId.value
+  let taskRoute = performanceTaskEntryRoute({ ...node, task_kind: payload.task_kind || node.task_kind || (node.node_type === 'calibration' ? 'calibration' : undefined), entry_mode: 'template_task', task_id: Number(payload.task_id), draft_choice: payload.draft_choice }, memberProjectId, payload.employee_no)
   if (!taskRoute) return
   if ((payload.task_kind || node.task_kind) === 'result_reconsideration' && projectContext.activeCycleId) taskRoute += `&cycle_id=${projectContext.activeCycleId}`
   if (payload.phase_id) taskRoute += `&phase_id=${encodeURIComponent(payload.phase_id)}`

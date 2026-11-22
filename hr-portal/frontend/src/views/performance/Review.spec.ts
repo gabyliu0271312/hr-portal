@@ -4,6 +4,8 @@ import { defineComponent, reactive } from 'vue'
 import { ElTableColumn } from 'element-plus'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { performanceReview360InviteApi, performanceReview360FeedbackApi, performanceNavigationApi, performanceReviewApi, performanceWorkbenchApi, projectManagementApi, resultViewApi, type PerformanceNavigationContext, type PerformanceReviewOverview } from '@/api/performance'
+import { performanceCalibrationApi, type PerformanceCalibrationTaskScope } from '@/api/performanceCalibration'
+import PerformanceCalibrationWorkspace from '@/components/performance/calibration/PerformanceCalibrationWorkspace.vue'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 
 const push = vi.fn()
@@ -64,6 +66,7 @@ const navigationOf = (cycleId = 1, overrides: Partial<PerformanceNavigationConte
   ...overrides,
 })
 
+const calibrationScope = (overrides: Partial<PerformanceCalibrationTaskScope> = {}): PerformanceCalibrationTaskScope => ({ scope_key: 'scope-rule-2', project_id: 1, project_name: '绩效项目', node_id: 'calibration', node_name: '校准', phase_id: 'phase-2', source_rule_id: 'rule-2', task_number: 2, scope_label: '项目全员', rule: null, status: 'pending', start_at: null, end_at: null, member_count: 2, can_complete: true, read_only: false, ...overrides })
 let pinia: Pinia
 
 const ElTableStub = defineComponent({
@@ -529,6 +532,10 @@ describe('PerformanceReview', () => {
     vi.spyOn(performanceNavigationApi, 'get').mockImplementation(async (cycleId) => navigationOf(cycleId || 1))
     const context = usePerformanceProjectContextStore()
     context.setNavigation(navigationOf(1))
+    vi.spyOn(performanceCalibrationApi, 'tasks').mockResolvedValue({ tasks: [calibrationScope()], pending_member_count: 2 })
+    vi.spyOn(performanceCalibrationApi, 'preview').mockResolvedValue({ scope_version: 'scope-1', total_count: 2, completed_count: 0, missing_result_count: 1, can_complete: true, completed: false })
+    vi.spyOn(performanceCalibrationApi, 'distribution').mockResolvedValue({ rules: [] } as any)
+    vi.spyOn(performanceCalibrationApi, 'members').mockResolvedValue({ items: [], total: 0, rating_columns: [] })
     vi.spyOn(projectManagementApi, 'resultReconsideration').mockRejectedValue(new Error('RECONSIDERATION_NOT_CONFIGURED'))
     vi.spyOn(performanceReviewApi, 'overview').mockResolvedValue(overview)
     vi.spyOn(projectManagementApi, 'calibrationCompletionPreview').mockResolvedValue({ scope_version: 'scope-1', total_count: 2, completed_count: 0, missing_result_count: 1, can_complete: true, completed: false })
@@ -1706,79 +1713,46 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
-  it('allows completing calibration with missing results and confirms the exact preview scope', async () => {
+  it('opens calibration task home without exposing stage-wide completion', async () => {
     Object.assign(routeQuery, { project_id: '1', node: 'calibration' })
     const node = { ...overview.categories[2].nodes[0], status: 'pending' as const, phase_id: 'phase-2' }
     vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...overview, categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
-    const confirm = vi.spyOn(projectManagementApi, 'calibrationCompletionConfirm').mockResolvedValue({ scope_version: 'scope-1', total_count: 2, completed_count: 0, missing_result_count: 1, can_complete: false, completed: true })
     const wrapper = mountView()
     await flushPromises()
-    const button = wrapper.findAll('button').find(item => item.text() === '完成校准')!
-    expect(button.attributes('disabled')).toBeUndefined()
-    await button.trigger('click')
-    await flushPromises()
-    expect(document.body.textContent).toContain('确定要完成校准吗？')
-    expect(document.body.textContent).toContain('1 名被评估人尚无绩效结果')
-    expect(document.body.querySelector('[data-icon="WarningFilled"]')).not.toBeNull()
-    document.body.querySelector<HTMLButtonElement>('.performance-confirm-dialog--calibration-completion .performance-button--primary')!.click()
-    await flushPromises()
-    expect(confirm).toHaveBeenCalledWith(1, 'calibration', 'scope-1', 'phase-2')
-    expect(wrapper.text()).toContain('已完成校准')
+    expect(wrapper.findComponent(PerformanceCalibrationWorkspace).exists()).toBe(true)
+    expect(performanceCalibrationApi.tasks).toHaveBeenCalledWith(1)
+    expect(wrapper.findAll('button').some(item => item.text() === '完成校准')).toBe(false)
+    expect(wrapper.text()).toContain('项目全员')
     wrapper.unmount()
   })
 
-  it('keeps delegated completion separate and reports hard distribution rejection', async () => {
-    Object.assign(routeQuery, { project_id: '1', node: 'calibration' })
-    const node = { ...overview.categories[2].nodes[0], status: 'pending' as const, phase_id: 'phase-2' }
-    vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...overview, categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
-    vi.mocked(projectManagementApi.calibrationCompletionPreview).mockResolvedValue({ scope_version: 'child-scope', total_count: 1, completed_count: 0, missing_result_count: 0, can_complete: true, completed: false, has_original_tasks: false })
-    const confirm = vi.spyOn(projectManagementApi, 'calibrationCompletionConfirm').mockRejectedValue({ response: { status: 409, data: { detail: 'CALIBRATION_DISTRIBUTION_VIOLATED' } } })
+  it('restores a task-specific full screen and forwards the selected scope to preflight', async () => {
+    Object.assign(routeQuery, { project_id: '1', node: 'calibration', calibration_open: '1', calibration_scope: 'scope-rule-2' })
     const wrapper = mountView()
     await flushPromises()
-    await wrapper.findAll('button').find(item => item.text() === '完成校准')!.trigger('click')
+    const button = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === '完成校准')!
+    button.click()
     await flushPromises()
-    expect(document.body.textContent).toContain('本次仅完成你的授权任务，原校准人仍需完成父任务。')
-    expect(document.body.textContent).not.toContain('终评结果将无法修改')
-    document.body.querySelector<HTMLButtonElement>('.performance-confirm-dialog--calibration-completion .performance-button--primary')!.click()
-    await flushPromises()
-    expect(confirm).toHaveBeenCalledWith(1, 'calibration', 'child-scope', 'phase-2')
-    expect(document.body.textContent).toContain('当前任务尚未满足强制分布规则，请调整后重新确认')
-    expect(document.body.textContent).not.toContain('校准范围或规则已变化')
-    wrapper.unmount()
-  })
-
-  it('rechecks distribution after adjustments instead of permanently disabling completion', async () => {
-    Object.assign(routeQuery, { project_id: '1', node: 'calibration' })
-    const node = { ...overview.categories[2].nodes[0], status: 'pending' as const, phase_id: 'phase-2' }
-    vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...overview, categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
-    vi.mocked(projectManagementApi.calibrationCompletionPreview).mockResolvedValue({ scope_version: 'blocked', total_count: 1, completed_count: 0, missing_result_count: 0, can_complete: false, completed: false, blocked_reason: 'CALIBRATION_DISTRIBUTION_VIOLATED' })
-    const wrapper = mountView()
-    await flushPromises()
-    const button = wrapper.findAll('button').find(item => item.text() === '完成校准')!
-    expect(button.attributes('disabled')).toBeUndefined()
-    await button.trigger('click'); await flushPromises()
-    expect(document.body.textContent).not.toContain('确定要完成校准吗？')
-    vi.mocked(projectManagementApi.calibrationCompletionPreview).mockResolvedValue({ scope_version: 'updated', total_count: 1, completed_count: 0, missing_result_count: 0, can_complete: true, completed: false })
-    await button.trigger('click'); await flushPromises()
-    expect(document.body.textContent).toContain('确定要完成校准吗？')
+    expect(performanceCalibrationApi.preview).toHaveBeenCalledWith(expect.objectContaining({ scope_key: 'scope-rule-2', phase_id: 'phase-2' }))
+    expect(document.body.textContent).toContain('1 人尚无校准结果')
     wrapper.unmount()
   })
 
   it('renders calibration with the manager list and passes the frozen phase', async () => {
     const node = { ...overview.categories[0].nodes[0], node_id: 'calibration', node_name: '校准', node_type: 'calibration', task_kind: 'calibration', phase_id: 'phase-2', status: 'pending' as const }
-    Object.assign(routeQuery, { project_id: '1', node: 'calibration' })
+    Object.assign(routeQuery, { project_id: '1', node: 'calibration', calibration_open: '1', calibration_scope: 'scope-rule-2' })
     vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...overview, categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
     const wrapper = mountView()
     await flushPromises()
     expect(wrapper.findComponent({ name: 'ProjectMemberListPanel' }).exists()).toBe(true)
     expect(wrapper.text()).not.toContain('去完成')
-    expect(performanceWorkbenchApi.taskPeople).toHaveBeenCalledWith(1, 'calibration', 'all', undefined, 'phase-2', 1, 50, undefined, undefined)
+    expect(performanceCalibrationApi.members).toHaveBeenCalledWith(expect.objectContaining({ scope_key: 'scope-rule-2', phase_id: 'phase-2' }), expect.objectContaining({ page: 1, pageSize: 50 }))
     wrapper.unmount()
   })
 
   it.each(['pending', 'completed', 'overdue'])('opens a %s calibration member in the shared readonly drawer before editing', async status => {
     const node = { ...overview.categories[0].nodes[0], node_id: 'calibration', node_name: '校准', node_type: 'calibration', task_kind: 'calibration', phase_id: 'phase-2', status: 'pending' as const }
-    Object.assign(routeQuery, { project_id: '1', node: 'calibration' })
+    Object.assign(routeQuery, { project_id: '1', node: 'calibration', calibration_open: '1', calibration_scope: 'scope-rule-2' })
     vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...overview, categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
     const detail = vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ task_id: 81, node_id: 'calibration', task_kind: 'calibration', entry_mode: 'template_task', node_name: '校准', editable: status !== 'overdue', submit_allowed: status !== 'overdue', person: { employee_no: 'E3', display_name: '被校准人' }, form_schema: [], answers: {} })
     const wrapper = mountView()
@@ -1792,6 +1766,21 @@ describe('PerformanceReview', () => {
     wrapper.getComponent({ name: 'PerformanceReviewEvaluationDrawer' }).vm.$emit('edit', { task_id: 81, employee_no: 'E3' })
     await flushPromises()
     expect(push).toHaveBeenCalledWith('/performance/review/template-task?task_id=81&project_id=1&node=calibration&employee_no=E3')
+    wrapper.unmount()
+  })
+
+  it('keeps the selected calibration member project when opening and editing across projects', async () => {
+    Object.assign(routeQuery, { project_id: '1', node: 'calibration', calibration_open: '1', calibration_scope: 'scope-rule-2' })
+    vi.mocked(performanceCalibrationApi.tasks).mockResolvedValue({ tasks: [calibrationScope({ project_id: 2 })], pending_member_count: 1 })
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ task_id: 81, task_kind: 'calibration', entry_mode: 'template_task', node_name: '校准', editable: true, submit_allowed: true, person: { employee_no: 'E3', display_name: '跨项目成员' }, form_schema: [], answers: {} })
+    const wrapper = mountView()
+    await flushPromises()
+    wrapper.getComponent(PerformanceCalibrationWorkspace).vm.$emit('open-member', { node: { ...overview.categories[2].nodes[0], project_id: 2, task_kind: 'calibration', entry_mode: 'template_task' }, member: { project_id: 2, task_id: 81, employee_no: 'E3', display_name: '跨项目成员' } })
+    await flushPromises()
+    expect(wrapper.getComponent(PerformanceReviewEvaluationDrawer).props('projectId')).toBe(2)
+    wrapper.getComponent(PerformanceReviewEvaluationDrawer).vm.$emit('edit', { task_id: 81, employee_no: 'E3' })
+    await flushPromises()
+    expect(push).toHaveBeenLastCalledWith('/performance/review/template-task?task_id=81&project_id=2&node=calibration&employee_no=E3')
     wrapper.unmount()
   })
 

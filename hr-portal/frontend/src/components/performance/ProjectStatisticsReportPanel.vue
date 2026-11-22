@@ -35,7 +35,7 @@
                 <template v-else-if="isComparison(section.key)">
                   <p v-if="comparisonLoading[section.key]" class="report-placeholder" role="status">正在加载{{ section.label }}…</p>
                   <div v-else-if="comparisonErrors[section.key]" class="report-state" role="alert"><p>{{ comparisonErrors[section.key] }}</p><button type="button" @click="loadComparison(section.key)">重新加载</button></div>
-                  <ProjectReportComparison v-else-if="comparisons[section.key]" :kind="section.key" :comparison="comparisons[section.key]!" @change="changeComparison(section.key, $event)" />
+                  <ProjectReportComparison v-else-if="comparisons[section.key]" :kind="section.key" :comparison="comparisons[section.key]!" :allow-examples="allowExamples" @change="changeComparison(section.key, $event)" />
                   <p v-else class="report-placeholder">{{ section.label }}数据尚未加载</p>
                 </template>
               </section>
@@ -62,7 +62,7 @@ import { projectManagementApi } from '@/api/performance'
 import { reportGroups, reportSectionInfo, type ProjectReportComparisonData, type ProjectReportComparisonKind, type ProjectReportComparisonProvider, type ProjectReportComparisonQuery, type ProjectReportDimension, type ProjectReportProvider, type ProjectStatisticsReport } from './projectStatisticsReport'
 import { useProjectReportNavigation } from './useProjectReportNavigation'
 
-const props = defineProps<{ cycleId: number; cycleName?: string; provider?: ProjectReportProvider; selfFinalProvider?: () => Promise<ProjectReportComparisonData>; comparisonProvider?: ProjectReportComparisonProvider }>()
+const props = withDefaults(defineProps<{ cycleId: number; cycleName?: string; provider?: ProjectReportProvider; selfFinalProvider?: () => Promise<ProjectReportComparisonData>; comparisonProvider?: ProjectReportComparisonProvider; allowExamples?: boolean }>(), { allowExamples: true })
 const reportStore = usePerformanceProjectContextStore()
 const emit = defineEmits<{ filter: []; compare: [] }>()
 const root = ref<HTMLElement | null>(null)
