@@ -51,6 +51,20 @@ describe('PerformanceSegmentedControl', () => {
     expect(sm.find('.segment-icon').exists()).toBe(false)
   })
 
+  it('keeps calibration geometry opt-in and preserves default caller styles', async () => {
+    const legacy = mountControl()
+    expect(legacy.classes()).not.toContain('variant-calibration')
+    const calibration = mountControl('by-person', { variant: 'calibration' })
+    expect(calibration.classes()).toContain('variant-calibration')
+    expect(calibration.attributes('role')).toBe('radiogroup')
+    await calibration.findAll('[role="radio"]')[1].trigger('click')
+    expect(calibration.emitted('update:modelValue')).toEqual([['by-org']])
+    expect(segmentedSource).toMatch(/\.segmented-control\.variant-calibration \.segment\s*\{[^}]*height:\s*var\(--performance-calibration-filter-height\);[^}]*padding:\s*0 var\(--performance-calibration-filter-padding-x\);[^}]*border-color:\s*var\(--performance-calibration-filter-border\)/)
+    expect(segmentedSource).toMatch(/\.variant-calibration \.segment\.checked\s*\{[^}]*z-index:\s*1;[^}]*font-weight:\s*var\(--font-weight-medium\)/)
+    legacy.unmount()
+    calibration.unmount()
+  })
+
   it('emits update:modelValue only when selecting a different segment', async () => {
     const wrapper = mountControl()
     await wrapper.findAll('.segment')[1].trigger('click')

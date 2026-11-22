@@ -65,6 +65,18 @@
   - 输出：定向pytest/Vitest、vue-tsc+Vite、git diff --check；本地真实Vue浏览器的正常／空／错误／任务切换／完成分支，与受控API夹具和真实SQL分开标注。
   - 验证：完成状态持久化、重开、规则增删、权限允许／拒绝、并发／事务回滚；未覆盖不得勾选。
 
+- 修复回归完成：单任务（pending/completed/overdue）沿原`PerformanceReviewContent + ProjectMemberListPanel + PerformanceConfirmDialog`直接工作区；多任务仍进入新任务首页；当前状态筛选只影响显示，不改变单／多任务模式；伪造scope不回退到唯一合法任务。首页分段筛选和白色容器按REA目标重排，范围anchor改为文字自身并局部校准浮层内部间距。最终定向回归5文件176 passed；vue-tsc及Vite构建通过（45.09s，仅既有VueUse注释提示）。
+
+## F01 DOM还原与单任务范围回归修复（2026-11-22）
+
+- 用户明确：本轮新增首页／全屏选择流程只用于当前周期、当前身份的多条合法业务校准任务；单任务保留已实现的直接成员工作区和完成确认交互。
+- 模式依据未筛选的完整任务集合，包含已完成与逾期；不能用项目数、被校准人数、物理任务数或当前状态筛选结果判断。初次任务加载期间显示加载态，避免单任务先闪现新首页；伪造范围引用仍拒绝，不回退到唯一有效任务。
+- 多任务首页按重新实采DOM纠正：32px相连分段筛选、14/22文字、左右16px内距；标题在白卡外，公共白卡四边20px内距、r8、既有阴影，筛选至表格16px。页面内容外边距20px，保持导航→白卡→表格两层边界。
+- 范围hover以文字自身为锚点，不用整列宽度；新范围展示场景局部对齐标题字重600／顶部4px、字段标签26px、条件间距6px、人员标签左2右8及20px头像。旧规则配置摘要／其他分段控件默认样式不变，不全局改浮层边框或定位引擎。
+- 影响：前端calibration组件、原公共review内容组合、Segmented/RuleSummary的隔离变体、必要tokens和测试。无数据库／权限／后端写入合同变化；不自动commit/push。
+- 验收：单任务pending/completed/overdue原UI、原确认、scope参数；多任务筛选只剩一条不切模式；无权限及身份切换旧请求均有回归保护。实际Vue＋受控API、1280px视口下验证白卡x280／表格x300、padding20px、分段高32px、筛选至表格16px；hover锚点与文字宽度相等、标题600／margin4px 0 8px、条件gap6px、字段高26px、人员padding0 8px 0 2px。单任务直接成员及原确认、多任务筛选不切模式，pageerror=0。
+- 本轮实现PNG：`ui-blueprints/CR-014-F01-implemented-multi-task-home.png`、`CR-014-F01-implemented-scope-hover.png`、`CR-014-F01-implemented-single-task.png`。均来自实际Vue组件与受控API，不是生产或真实数据库验收。
+
 ## 验收记录
 
 2026-11-22，本地代码开发与前端验收完成，真实PostgreSQL迁移／并发尚未验收，未发布。

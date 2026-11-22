@@ -1713,7 +1713,7 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
-  it('opens calibration task home without exposing stage-wide completion', async () => {
+  it('keeps a single calibration task in the existing direct member workspace', async () => {
     Object.assign(routeQuery, { project_id: '1', node: 'calibration' })
     const node = { ...overview.categories[2].nodes[0], status: 'pending' as const, phase_id: 'phase-2' }
     vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...overview, categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
@@ -1721,8 +1721,9 @@ describe('PerformanceReview', () => {
     await flushPromises()
     expect(wrapper.findComponent(PerformanceCalibrationWorkspace).exists()).toBe(true)
     expect(performanceCalibrationApi.tasks).toHaveBeenCalledWith(1)
-    expect(wrapper.findAll('button').some(item => item.text() === '完成校准')).toBe(false)
-    expect(wrapper.text()).toContain('项目全员')
+    expect(wrapper.findComponent(ProjectMemberListPanel).exists()).toBe(true)
+    expect(wrapper.find('.calibration-home').exists()).toBe(false)
+    expect(wrapper.findAll('button').some(item => item.text() === '完成校准')).toBe(true)
     wrapper.unmount()
   })
 
@@ -1730,11 +1731,10 @@ describe('PerformanceReview', () => {
     Object.assign(routeQuery, { project_id: '1', node: 'calibration', calibration_open: '1', calibration_scope: 'scope-rule-2' })
     const wrapper = mountView()
     await flushPromises()
-    const button = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === '完成校准')!
-    button.click()
+    await wrapper.findAll('button').find(item => item.text() === '完成校准')!.trigger('click')
     await flushPromises()
     expect(performanceCalibrationApi.preview).toHaveBeenCalledWith(expect.objectContaining({ scope_key: 'scope-rule-2', phase_id: 'phase-2' }))
-    expect(document.body.textContent).toContain('1 人尚无校准结果')
+    expect(document.body.textContent).toContain('1 名被评估人尚无绩效结果')
     wrapper.unmount()
   })
 
@@ -1746,7 +1746,7 @@ describe('PerformanceReview', () => {
     await flushPromises()
     expect(wrapper.findComponent({ name: 'ProjectMemberListPanel' }).exists()).toBe(true)
     expect(wrapper.text()).not.toContain('去完成')
-    expect(performanceCalibrationApi.members).toHaveBeenCalledWith(expect.objectContaining({ scope_key: 'scope-rule-2', phase_id: 'phase-2' }), expect.objectContaining({ page: 1, pageSize: 50 }))
+    expect(performanceWorkbenchApi.taskPeople).toHaveBeenCalledWith(1, 'calibration', 'all', undefined, 'phase-2', 1, 50, undefined, undefined)
     wrapper.unmount()
   })
 

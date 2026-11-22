@@ -1,5 +1,5 @@
 <template>
-  <div class="segmented-control" :class="`size-${size}`" role="radiogroup" :aria-label="ariaLabel">
+  <div class="segmented-control" :class="[`size-${size}`, { 'variant-calibration': variant === 'calibration' }]" role="radiogroup" :aria-label="ariaLabel">
     <button
       v-for="(option, index) in options"
       :key="option.value"
@@ -32,9 +32,11 @@ const props = withDefaults(defineProps<{
   modelValue: string
   options: PerformanceSegmentedOption[]
   size?: 'md' | 'sm'
+  variant?: 'default' | 'calibration'
   ariaLabel?: string
 }>(), {
   size: 'md',
+  variant: 'default',
   ariaLabel: '',
 })
 
@@ -67,4 +69,10 @@ function select(option: PerformanceSegmentedOption) {
 .segmented-control.size-sm .segment-icon { width: 12px; height: 12px; }
 .segment-icon :deep(svg) { width: 100%; height: 100%; }
 .segment-label { min-width: 0; overflow: hidden; max-width: 240px; text-overflow: ellipsis; word-break: keep-all; }
+.segmented-control.variant-calibration { flex-wrap: nowrap; border-radius: var(--performance-calibration-filter-radius); }
+.segmented-control.variant-calibration .segment { height: var(--performance-calibration-filter-height); padding: 0 var(--performance-calibration-filter-padding-x); border-color: var(--performance-calibration-filter-border); font-size: var(--performance-calibration-filter-font-size); font-weight: var(--font-weight-normal); line-height: var(--performance-calibration-filter-line-height); }
+.variant-calibration .segment.first { border-radius: var(--performance-calibration-filter-radius) 0 0 var(--performance-calibration-filter-radius); }
+.variant-calibration .segment.last { border-radius: 0 var(--performance-calibration-filter-radius) var(--performance-calibration-filter-radius) 0; }
+.variant-calibration .segment.checked { z-index: 1; border-color: var(--color-primary); color: var(--color-primary); font-weight: var(--font-weight-medium); }
+.variant-calibration .segment:hover { z-index: 1; border-color: var(--color-primary); }
 </style>

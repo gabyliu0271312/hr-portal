@@ -22,6 +22,7 @@ const options = computed(() => ({ subject: props.subject, peopleOptions: props.p
 const summary = computed(() => props.rule && !props.historyAmbiguous ? parseCalibrationRule(props.rule, options.value) : { kind: 'empty', label: '历史校准范围来源不明', groups: [] })
 const text = computed(() => props.triggerLabel || (props.rule ? summarizeCalibrationRule(props.rule, options.value) : summary.value.label))
 const canOpen = computed(() => Boolean(props.scopeTitle) || summary.value.kind === 'conditions')
+const scopeVariant = computed(() => Boolean(props.scopeTitle || props.triggerLabel))
 const first = computed(() => summary.value.groups[0]?.conditions[0])
 const more = computed(() => summary.value.groups.length > 1 || (summary.value.groups[0]?.conditions.length || 0) > 1)
 const trigger = ref<HTMLElement | null>(null)
@@ -86,7 +87,7 @@ onBeforeUnmount(() => {
 
 <template>
   <span
-    ref="trigger" v-bind="$attrs" class="rule-summary" tabindex="0" role="button"
+    ref="trigger" v-bind="$attrs" class="rule-summary" :class="{ 'rule-summary--scope': scopeVariant }" tabindex="0" role="button"
     :aria-label="text" :aria-expanded="opened && canOpen" aria-haspopup="dialog"
     @mouseenter="triggerHovered = true; open()" @mouseleave="triggerHovered = false; scheduleClose()"
     @focusin="focusIn" @focusout="focusOut" @keydown.esc.stop="close" @keydown.enter="open" @keydown.space.prevent="open"
@@ -105,8 +106,8 @@ onBeforeUnmount(() => {
     </template>
     <span v-else class="rule-summary__empty">{{ summary.label || '暂未配置' }}<span v-if="more">…</span></span>
   </span>
-  <PerformancePopover :visible="opened && canOpen" :anchor="trigger" width="auto" role="dialog" name="calibration-rule-summary-popover" class="rule-summary__popover" :aria-label="scopeTitle || '完整校准条件'" @close="close" @mouseenter="popupHovered = true; clearClose()" @mouseleave="popupHovered = false; scheduleClose()">
-    <div ref="popup" class="rule-summary__details" tabindex="0" @focusin="focused = true; clearClose()" @focusout="focusOut" @keydown.esc.stop="close">
+  <PerformancePopover :visible="opened && canOpen" :anchor="trigger" :width="scopeVariant && scopeNote ? 'var(--performance-calibration-scope-max-width)' : 'auto'" role="dialog" name="calibration-rule-summary-popover" class="rule-summary__popover" :class="{ 'rule-summary__popover--scope': scopeVariant }" :aria-label="scopeTitle || '完整校准条件'" @close="close" @mouseenter="popupHovered = true; clearClose()" @mouseleave="popupHovered = false; scheduleClose()">
+    <div ref="popup" class="rule-summary__details" :class="{ 'rule-summary__details--scope': scopeVariant }" tabindex="0" @focusin="focused = true; clearClose()" @focusout="focusOut" @keydown.esc.stop="close">
       <strong v-if="scopeTitle" class="rule-summary__title">{{ scopeTitle }}</strong>
       <PerformanceSelectTag v-if="summary.kind !== 'conditions'" :label="summary.label" :closable="false" />
       <PerformanceConditionLogicGroup v-else :count="summary.groups.length" operator="或">
@@ -152,4 +153,15 @@ onBeforeUnmount(() => {
 .rule-summary__title { display: block; margin-bottom: var(--spacing-2); font-weight: var(--font-weight-medium); }
 .rule-summary__note { margin: var(--spacing-4) 0 0; color: var(--color-text-secondary); white-space: normal; }
 .rule-summary__condition:last-child { margin-bottom: 0; }
+.rule-summary--scope { display: inline-flex; width: auto; max-width: 100%; flex: 0 1 auto; }
+.rule-summary--scope .rule-summary__empty { min-width: 0; }
+.rule-summary__popover--scope { --performance-rule-summary-max-width: var(--performance-calibration-scope-max-width); }
+.rule-summary__details--scope { max-height: var(--performance-calibration-scope-max-height); }
+.rule-summary__details--scope .rule-summary__title { margin: var(--performance-calibration-scope-title-margin-top) 0 var(--performance-calibration-scope-title-margin-bottom); font-size: var(--performance-calibration-scope-title-font-size); font-weight: var(--performance-calibration-scope-title-font-weight); line-height: var(--performance-calibration-scope-title-line-height); }
+.rule-summary__details--scope .rule-summary__condition { gap: var(--performance-calibration-scope-condition-gap); }
+.rule-summary__details--scope .rule-summary__operator { line-height: var(--performance-calibration-scope-field-height); }
+.rule-summary__details--scope .rule-summary__field { box-sizing: border-box; height: var(--performance-calibration-scope-field-height); min-height: var(--performance-calibration-scope-field-height); padding: var(--performance-calibration-scope-field-padding-y) var(--performance-calibration-scope-field-padding-x); }
+.rule-summary__details--scope .rule-summary__person { height: var(--performance-calibration-scope-person-height); min-height: var(--performance-calibration-scope-person-height); padding: 0 var(--performance-calibration-scope-person-padding-right) 0 var(--performance-calibration-scope-person-padding-left); }
+.rule-summary__details--scope .rule-summary__person :deep(.performance-select-shell__tag-content) { max-width: var(--performance-calibration-scope-person-name-max-width); white-space: nowrap; }
+.rule-summary__details--scope .rule-summary__person :deep(.performance-select-shell__tag-avatar) { width: var(--performance-calibration-scope-avatar-size); height: var(--performance-calibration-scope-avatar-size); flex-basis: var(--performance-calibration-scope-avatar-size); margin-right: var(--performance-calibration-scope-person-gap); }
 </style>

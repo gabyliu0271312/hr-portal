@@ -4,6 +4,7 @@ import { usePerformanceProjectContextStore } from '@/stores/performanceProjectCo
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import PerformanceCalibrationWorkspace from './PerformanceCalibrationWorkspace.vue'
+import CalibrationSingleTask from './CalibrationSingleTask.vue'
 import CalibrationTaskHome from './CalibrationTaskHome.vue'
 import CalibrationScopeContent from './CalibrationScopeContent.vue'
 import CalibrationTaskSidebar from './CalibrationTaskSidebar.vue'
@@ -15,13 +16,36 @@ const a = task('a'), b = task('b', 2)
 async function setup(path = '/performance/review?calibration_filter=pending', slots = {}) {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/performance/review', component: { template: '<div />' } }] })
   await router.push(path); await router.isReady()
-  const wrapper = mount(PerformanceCalibrationWorkspace, { attachTo: document.body, props: { cycleId: 1 }, slots, global: { plugins: [router, createPinia()], stubs: { CalibrationScopeContent: { props: ['scope', 'cycleId', 'tab'], template: '<div class="scope-stub"><slot name="matrix" :scope="scope" /><slot name="report" :scope="scope" /></div>' } } } })
+  const wrapper = mount(PerformanceCalibrationWorkspace, { attachTo: document.body, props: { cycleId: 1 }, slots, global: { plugins: [router, createPinia()], stubs: { CalibrationSingleTask: { props: ['scope', 'cycleId'], template: '<div class="single-task-stub" />' }, CalibrationScopeContent: { props: ['scope', 'cycleId', 'tab'], template: '<div class="scope-stub"><slot name="matrix" :scope="scope" /><slot name="report" :scope="scope" /></div>' } } } })
   await flushPromises()
   return { wrapper, router }
 }
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(performanceCalibrationApi.tasks).mockResolvedValue({ tasks: [a, b], pending_member_count: 2 }) })
 afterEach(() => { document.body.innerHTML = '' })
 describe('calibration workspace route and scope isolation', () => {
+  it.each(['pending', 'completed', 'overdue'] as const)('keeps the existing direct single-task UI for %s, including old fullscreen links', async status => {
+    vi.mocked(performanceCalibrationApi.tasks).mockResolvedValueOnce({ tasks: [{ ...a, status }], pending_member_count: 1 })
+    const { wrapper } = await setup('/performance/review?calibration_open=1&calibration_scope=a&calibration_filter=completed')
+    expect(wrapper.findComponent(CalibrationSingleTask).props('scope')).toMatchObject({ scope_key: 'a', status })
+    expect(wrapper.findComponent(CalibrationTaskHome).exists()).toBe(false)
+    expect(document.querySelector('.calibration-fullscreen')).toBeNull()
+    wrapper.unmount()
+  })
+  it('does not change multi-task mode when a status filter leaves one task', async () => {
+    vi.mocked(performanceCalibrationApi.tasks).mockResolvedValueOnce({ tasks: [a, { ...b, status: 'completed' }], pending_member_count: 1 })
+    const { wrapper } = await setup('/performance/review?calibration_filter=pending')
+    expect(wrapper.findComponent(CalibrationTaskHome).exists()).toBe(true)
+    expect(wrapper.findComponent(CalibrationSingleTask).exists()).toBe(false)
+    expect(wrapper.findAll('[data-scope]')).toHaveLength(1)
+    wrapper.unmount()
+  })
+  it('keeps an invalid single-task scope link rejected instead of widening to the sole valid task', async () => {
+    vi.mocked(performanceCalibrationApi.tasks).mockResolvedValueOnce({ tasks: [a], pending_member_count: 1 })
+    const { wrapper } = await setup('/performance/review?calibration_open=1&calibration_scope=forged')
+    expect(wrapper.findComponent(CalibrationSingleTask).exists()).toBe(false)
+    expect(document.body.textContent).toContain('此校准任务已失效')
+    wrapper.unmount()
+  })
   it('restores direct fullscreen scope/tab and passes exact API scope into analysis slots', async () => {
     const { wrapper } = await setup('/performance/review?calibration_open=1&calibration_scope=b&calibration_tab=matrix', { matrix: '<p class="scope-slot">矩阵插槽</p>' })
     const content = wrapper.findComponent(CalibrationScopeContent)
@@ -68,16 +92,16 @@ describe('calibration workspace route and scope isolation', () => {
     let resolveOld: (value: any) => void = () => {}
     vi.mocked(performanceCalibrationApi.tasks).mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve }))
     await wrapper.setProps({ cycleId: 2 })
-    expect(wrapper.findComponent(CalibrationTaskHome).props('tasks')).toEqual([])
+    expect(wrapper.findComponent(CalibrationTaskHome).exists()).toBe(false)
     vi.mocked(performanceCalibrationApi.tasks).mockResolvedValueOnce({ tasks: [b], pending_member_count: 1 })
     employeeSwitchEpoch.value++; await flushPromises()
     resolveOld({ tasks: [a], pending_member_count: 99 }); await flushPromises()
-    expect(wrapper.findComponent(CalibrationTaskHome).props('tasks')).toEqual([b])
-    expect(wrapper.findComponent(CalibrationTaskHome).props('pendingMemberCount')).toBe(1)
+    expect(wrapper.findComponent(CalibrationSingleTask).props('scope')).toEqual(b)
+    expect(wrapper.findComponent(CalibrationTaskHome).exists()).toBe(false)
     wrapper.unmount()
   })
   it('uses the real cycle name and shared minute-level Shanghai time in task navigation', async () => {
-    vi.mocked(performanceCalibrationApi.tasks).mockResolvedValueOnce({ tasks: [{ ...a, end_at: '2026-11-22T01:02:59Z' }], pending_member_count: 1 })
+    vi.mocked(performanceCalibrationApi.tasks).mockResolvedValueOnce({ tasks: [{ ...a, end_at: '2026-11-22T01:02:59Z' }, b], pending_member_count: 2 })
     const { wrapper } = await setup('/performance/review?calibration_open=1&calibration_scope=a')
     const context = usePerformanceProjectContextStore()
     context.cycles = [{ cycle_id: 1, cycle_name: '2026年度绩效', cycle_start_at: '', cycle_end_at: '' }]

@@ -7,6 +7,7 @@ import { employeeSwitchEpoch } from '@/stores/identitySwitch'
 import UiDialogShell from '@/components/ui/UiDialogShell.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import SpaceLeftOutlinedIcon from '../SpaceLeftOutlinedIcon.vue'
+import CalibrationSingleTask from './CalibrationSingleTask.vue'
 import CalibrationTaskHome from './CalibrationTaskHome.vue'
 import CalibrationTaskSidebar from './CalibrationTaskSidebar.vue'
 import CalibrationScopeContent from './CalibrationScopeContent.vue'
@@ -24,7 +25,10 @@ const scalar = (value: unknown) => typeof value === 'string' ? value : ''
 const filter = computed(() => ['pending', 'completed', 'overdue'].includes(scalar(route.query.calibration_filter)) ? scalar(route.query.calibration_filter) : 'all')
 const selectedKey = computed(() => scalar(route.query.calibration_scope))
 const tab = computed(() => ['matrix', 'report'].includes(scalar(route.query.calibration_tab)) ? scalar(route.query.calibration_tab) : 'members')
-const fullScreen = computed(() => route.query.calibration_open === '1')
+const requestedFullScreen = computed(() => route.query.calibration_open === '1')
+const invalidRequestedScope = computed(() => requestedFullScreen.value && selectedKey.value !== '__all__' && !tasks.value.some(task => task.scope_key === selectedKey.value))
+const singleTask = computed(() => !error.value && tasks.value.length === 1 && !invalidRequestedScope.value ? tasks.value[0] : null)
+const fullScreen = computed(() => requestedFullScreen.value && !singleTask.value)
 const selected = computed(() => tasks.value.find(task => task.scope_key === selectedKey.value))
 async function query(patch: Record<string, string | undefined>, push = false) {
   const target = { query: { ...route.query, ...patch } }
@@ -61,7 +65,9 @@ onBeforeUnmount(() => { ++sequence })
 defineExpose({ selected, refresh: load })
 </script>
 <template>
-  <div ref="home" v-show="!fullScreen" class="calibration-workspace">
+  <CalibrationSingleTask v-if="singleTask" :scope="singleTask" :cycle-id="cycleId" @completed="load()" @open-member="emit('open-member', $event)" @remind-evaluate="emit('remind-evaluate', $event)" />
+  <div v-else-if="loading && !tasks.length && !fullScreen" class="calibration-workspace"><CalibrationState loading /></div>
+  <div v-else ref="home" v-show="!fullScreen" class="calibration-workspace">
     <CalibrationTaskHome :tasks="tasks" :pending-member-count="pendingMemberCount" :filter="filter" :loading="loading" :error="error" @update:filter="query({ calibration_filter: $event })" @select="selectScope($event.scope_key)" @retry="load()" />
   </div>
   <UiDialogShell :model-value="fullScreen" title="完成团队的绩效校准" fullscreen :loading="fullScreenLoading" overlay-class="calibration-workspace-overlay" @close="close">
@@ -80,6 +86,7 @@ defineExpose({ selected, refresh: load })
 </template>
 <style scoped>
 :global(.calibration-workspace-overlay) { z-index: var(--z-index-drawer); }
+.calibration-workspace { flex: 1; min-width: 0; min-height: 0; overflow: auto; box-sizing: border-box; padding: var(--performance-review-surface-inset); background: var(--performance-review-page-bg); }
 .calibration-fullscreen { display: grid; grid-template-columns: var(--performance-calibration-sidebar-width) minmax(0, 1fr); min-width: 0; min-height: 0; flex: 1; }
 .calibration-all-people { min-width: 0; padding: var(--spacing-6); overflow: auto; }
 h1 { margin: 0 0 var(--spacing-5); font-size: var(--font-size-xl); }
