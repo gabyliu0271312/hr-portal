@@ -1,6 +1,6 @@
 <template>
   <section ref="root" class="project-report-root" aria-label="统计报表" :aria-busy="reportLoading">
-    <PerformanceSurfaceCard class="report-surface">
+    <PerformanceSurfaceCard class="report-surface" :embedded="embedded">
       <div class="report-wrapper" :class="{ 'directory-collapsed': collapsed }">
         <div class="report-top-spacer" aria-hidden="true" />
         <div class="report-filter-overlay">
@@ -62,7 +62,7 @@ import { projectManagementApi } from '@/api/performance'
 import { reportGroups, reportSectionInfo, type ProjectReportComparisonData, type ProjectReportComparisonKind, type ProjectReportComparisonProvider, type ProjectReportComparisonQuery, type ProjectReportDimension, type ProjectReportProvider, type ProjectStatisticsReport } from './projectStatisticsReport'
 import { useProjectReportNavigation } from './useProjectReportNavigation'
 
-const props = withDefaults(defineProps<{ cycleId: number; cycleName?: string; provider?: ProjectReportProvider; selfFinalProvider?: () => Promise<ProjectReportComparisonData>; comparisonProvider?: ProjectReportComparisonProvider; allowExamples?: boolean }>(), { allowExamples: true })
+const props = withDefaults(defineProps<{ cycleId: number; cycleName?: string; provider?: ProjectReportProvider; selfFinalProvider?: () => Promise<ProjectReportComparisonData>; comparisonProvider?: ProjectReportComparisonProvider; allowExamples?: boolean; embedded?: boolean }>(), { allowExamples: true })
 const reportStore = usePerformanceProjectContextStore()
 const emit = defineEmits<{ filter: []; compare: [] }>()
 const root = ref<HTMLElement | null>(null)
@@ -213,6 +213,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .project-report-root { --report-sticky-offset: 68px; --report-sticky-top: calc(var(--report-sticky-offset) - var(--report-scroll-padding, 0px)); min-width: 0; margin-bottom: 20px; }
 .report-surface { padding: 0 20px 20px; }
+.report-surface.surface-card--embedded { padding: 0; border-radius: 0; box-shadow: none; }
 .report-wrapper { position: relative; min-width: 0; }
 .report-top-spacer { position: sticky; top: calc(56px - var(--report-scroll-padding, 0px)); z-index: 10; height: 20px; background: #fff; }
 .report-layout { display: flex; align-items: flex-start; min-width: 0; }

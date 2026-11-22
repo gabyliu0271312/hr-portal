@@ -6,7 +6,12 @@
  * ============================================================ */
 
 :root {
-  --performance-calibration-sidebar-width: 320px;
+  --performance-calibration-sidebar-width: 300px;
+  --performance-calibration-workspace-background: #f5f6f7;
+  --performance-calibration-content-inset: var(--spacing-5);
+  --performance-calibration-surface-bottom-gap: var(--spacing-6);
+  --performance-calibration-tabs-height: 56px;
+  --performance-calibration-table-sticky-top: 76px;
   --performance-calibration-task-row-height: 47px;
   --performance-calibration-project-row-height: 44px;
   --performance-calibration-nav-item-height: 66px;

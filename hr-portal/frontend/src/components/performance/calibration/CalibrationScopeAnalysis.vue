@@ -10,9 +10,9 @@
         <label v-if="indicators.length > 1" class="analysis-indicator">评估维度
           <PerformanceSearchSelect :model-value="indicatorKey ?? null" :options="indicators.map(indicator => ({ value: indicator.key, label: indicator.label }))" selection-style="plain" aria-label="校准矩阵评估维度" @update:model-value="selectIndicator" />
         </label>
-        <ProjectPerformanceMatrix :key="`${generation}:${indicatorKey}`" :project-id="projectId" :cycle-id="cycleId" :scope-key="scopeKey" :provider="matrixProvider" readonly @open-member="openMember" />
+        <ProjectPerformanceMatrix embedded :key="`${generation}:${indicatorKey}`" :project-id="projectId" :cycle-id="cycleId" :scope-key="scopeKey" :provider="matrixProvider" readonly @open-member="openMember" />
       </template>
-      <ProjectStatisticsReportPanel v-else :key="generation" :cycle-id="cycleId" :provider="scopeStatsProvider" :comparison-provider="scopeComparisonProvider" :allow-examples="false" @filter="emit('filter')" />
+      <ProjectStatisticsReportPanel v-else embedded :key="generation" :cycle-id="cycleId" :provider="scopeStatsProvider" :comparison-provider="scopeComparisonProvider" :allow-examples="false" @filter="emit('filter')" />
     </template>
   </section>
 </template>

@@ -15,6 +15,7 @@ describe('all authorized calibration people', () => {
     const tasks = [scope('a'), scope('b', 2)]
     const wrapper = mount(CalibrationAllPeople, { props: { tasks, cycleId: 1 }, global: { stubs: { ProjectMemberListPanel: true, CalibrationScopeAnalysis: true } } })
     expect(wrapper.findComponent(ProjectMemberListPanel).exists()).toBe(true)
+    expect(wrapper.getComponent(ProjectMemberListPanel).props('variant')).toBe('embedded')
     expect(wrapper.findComponent(CalibrationScopeAnalysis).exists()).toBe(false)
     await wrapper.setProps({ tab: 'matrix' })
     expect(wrapper.findComponent(ProjectMemberListPanel).exists()).toBe(false)

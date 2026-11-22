@@ -25,7 +25,7 @@ type MemberRow = ProjectMember & {
 }
 
 const props = withDefaults(defineProps<{
-  variant?: 'default' | 'calibration'
+  variant?: 'default' | 'calibration' | 'embedded'
   projectId: number | string
   cycleId?: number
   reviewContext?: { nodeId: string; state: 'pending' | 'completed' | 'all'; phaseId?: string | null }
@@ -400,7 +400,7 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
 </script>
 
 <template>
-  <section class="member-list-panel" :class="{ 'member-list-panel--calibration': variant === 'calibration' }" aria-label="成员列表">
+  <section class="member-list-panel" :class="{ 'member-list-panel--calibration': variant === 'calibration', 'member-list-panel--embedded': variant === 'embedded' }" aria-label="成员列表">
     <div class="card-sticky-mask" aria-hidden="true"></div>
     <PerformanceListToolbar
       v-model:keyword="keyword"
@@ -410,7 +410,7 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
       search-fill
       @search="page = 1; loadMembers()"
       @clear="page = 1; loadMembers()"
-      @filter="variant === 'calibration' ? (page = 1, loadMembers()) : emit('filter')"
+      @filter="variant === 'calibration' || variant === 'embedded' ? (page = 1, loadMembers()) : emit('filter')"
     >
       <template v-if="showExport" #actions>
         <PerformanceExportButton :load-rows="exportRows" :filename="`成员列表_${props.cycleId || props.projectId}`" :disabled="loading || Boolean(error) || !total" @success="exportNotice = '导出成功'" @error="exportNotice = '导出失败，请稍后重试'" />
@@ -474,6 +474,8 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
 </template>
 
 <style scoped>
+.member-list-panel.member-list-panel--embedded { padding: 0; margin: 0; border-radius: 0; background: transparent; box-shadow: none; --performance-table-container-padding: 0px; --performance-table-sticky-top: var(--performance-calibration-table-sticky-top); }
+.member-list-panel--embedded .card-sticky-mask { display: none; }
 .member-list-panel.member-list-panel--calibration { padding: var(--spacing-5); margin-top: var(--spacing-4); border-radius: var(--radius-lg); background: var(--color-bg-card); box-shadow: none; --performance-table-sticky-top: 0; }
 .member-list-panel--calibration .card-sticky-mask { display: none; }
 .member-list-panel { min-width:0; border-radius:8px; background:#fff; box-shadow:rgba(31,35,41,.03) 0 4px 16px 4px,rgba(31,35,41,.02) 0 4px 8px,rgba(31,35,41,.02) 0 2px 4px -4px; padding:0 20px 20px; color:#1f2329; --performance-table-container-padding: var(--performance-review-surface-inset); --performance-table-sticky-top: calc(var(--performance-tab-area-height) - 28px); }

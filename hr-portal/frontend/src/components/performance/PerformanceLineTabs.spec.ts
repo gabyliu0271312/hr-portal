@@ -69,6 +69,16 @@ describe('PerformanceLineTabs', () => {
     expect(performanceLineTabsSource).toMatch(/\.line-tabs\.fill \.line-tabs-pane\s*\{[^}]*flex: 1 1 auto/s)
   })
 
+  it('opts into the fullscreen embedded sticky variant without altering ordinary tabs', () => {
+    const normal = mountTabs()
+    const embedded = mountTabs('members', { embedded: true, sticky: true, flush: true })
+    expect(normal.classes()).not.toContain('line-tabs--embedded')
+    expect(embedded.classes()).toEqual(expect.arrayContaining(['line-tabs--embedded', 'sticky', 'flush']))
+    expect(embedded.get('.pane-body').text()).toBe('pane')
+    normal.unmount()
+    embedded.unmount()
+  })
+
   it('applies sticky positioning only with the sticky prop', () => {
     const normal = mountTabs()
     expect(normal.find('.line-tabs-holder').classes()).not.toContain('sticky')

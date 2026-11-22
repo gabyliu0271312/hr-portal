@@ -77,6 +77,19 @@
 - 验收：单任务pending/completed/overdue原UI、原确认、scope参数；多任务筛选只剩一条不切模式；无权限及身份切换旧请求均有回归保护。实际Vue＋受控API、1280px视口下验证白卡x280／表格x300、padding20px、分段高32px、筛选至表格16px；hover锚点与文字宽度相等、标题600／margin4px 0 8px、条件gap6px、字段高26px、人员padding0 8px 0 2px。单任务直接成员及原确认、多任务筛选不切模式，pageerror=0。
 - 本轮实现PNG：`ui-blueprints/CR-014-F01-implemented-multi-task-home.png`、`CR-014-F01-implemented-scope-hover.png`、`CR-014-F01-implemented-single-task.png`。均来自实际Vue组件与受控API，不是生产或真实数据库验收。
 
+## F03 全屏统一白色底板与吸附修复（2026-11-22）
+
+- 范围：仅多任务全屏的当前任务及全部被校准人视图；单任务直接评估页保持原交互和公共组件默认样式。无后端、权限或迁移变更。
+- 新增薄容器 `CalibrationContentSurface.vue`，复用UiSurface：右侧独立滚动区左右20px；白色底板r8、无阴影、`min-height:calc(100% - 24px)`，内容区padding `0 20px 20px`。任务标题、分布、页签和成员／分析均在同一底板内。短内容铺满最小高度，长内容自然增长，不使用固定内容高度。
+- PerformanceLineTabs新增隔离embedded属性，配合sticky使用时相对右侧滚动区top0、顶部20px白色带、z-index沿公共规则；不改变默认负20px吸附策略。成员表头使用76px场景偏移，避免与56px页签带重叠。
+- ProjectMemberListPanel新增embedded变体；矩阵与统计透传PerformanceSurfaceCard的embedded属性。校准全屏关闭重复padding、圆角、背景和阴影；其他项目管理／结果页及单任务使用默认外观。全部被校准人不再在白底上增加成员卡片。
+- 最终回归：`npm --prefix hr-portal/frontend test -- src/components/performance/calibration src/components/performance/PerformanceLineTabs.spec.ts src/components/performance/ProjectStatisticsReportPanel.spec.ts src/components/performance/ProjectPerformanceMatrix.spec.ts src/views/performance/Review.spec.ts` → **12文件251 passed**。覆盖原单任务、任务切换、嵌入属性及公共页签默认行为。既有jsdom scrollTo／stub提示保留。
+- 最终构建：`npm --prefix hr-portal/frontend run build` → **vue-tsc及Vite通过，3832模块，41.24s**。此前新增测试对get().exists()的类型错误已修正再复验；仅既有VueUse PURE注释提示。
+- 实际Vue＋受控API，1280×673、DPR1.5：右侧滚动区x300/y76/左右padding20；白底x320/y76/宽940/r8/无阴影；内容x340；短内容白底573px、滚动区597px；30人成员长内容白底增长2048px。滚动420px后页签白带y76，与左首卡y76一致，页签带高56px、top0、padding-top20px。
+- 聚合成员、矩阵和统计实测：内部不再增加卡片，成员padding0/r0/无阴影；矩阵及报表padding0/r0/透明/无阴影，x340；报表滚动吸附同为y76。400px无页面横向溢出，pageerror=0。
+- 独立实现证据：`ui-blueprints/CR-014-F03-implemented-task-white-surface.png`、`CR-014-F03-implemented-sticky-tabs.png`、`CR-014-F03-implemented-aggregate-white-surface.png`，来自实际Vue受控API，非生产数据库验收。截图仅辅助，尺寸与吸附结论依据DOM和computed style。
+- `git diff --check`通过；未commit、push或部署。
+
 ## 验收记录
 
 2026-11-22，本地代码开发与前端验收完成，真实PostgreSQL迁移／并发尚未验收，未发布。

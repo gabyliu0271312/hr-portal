@@ -1,5 +1,5 @@
 <template>
-  <div class="line-tabs" :class="{ sticky, flush, fill }">
+  <div class="line-tabs" :class="{ sticky, flush, fill, 'line-tabs--embedded': embedded }">
     <div class="line-tabs-holder">
       <div ref="wrapRef" class="line-tabs-wrap">
         <div class="line-tabs-overflow">
@@ -42,6 +42,7 @@ const props = withDefaults(defineProps<{
   sticky?: boolean
   flush?: boolean
   fill?: boolean
+  embedded?: boolean
 }>(), {
   sticky: false,
   flush: false,
@@ -114,6 +115,9 @@ watch(() => [props.modelValue, props.tabs], async () => {
 .line-tabs-divider { position: absolute; top: var(--ui-tabs-divider-top); right: 0; bottom: 0; left: 0; z-index: 0; height: 1px; background: var(--performance-line-tabs-divider); }
 .line-tabs-content { min-height: 0; padding-top: 0; background: var(--performance-line-tabs-surface); }
 .line-tabs-pane { min-width: 0; min-height: 0; }
+.line-tabs--embedded.sticky .line-tabs-holder { top: 0; background: var(--color-bg-card); padding-top: var(--performance-calibration-content-inset); }
+.line-tabs--embedded .line-tabs-overflow { margin-bottom: 0; }
+.line-tabs--embedded .line-tabs-content { background: transparent; }
 .line-tabs.fill { flex: 1 1 auto; overflow: hidden; }
 .line-tabs.fill .line-tabs-holder { flex-shrink: 0; }
 .line-tabs.fill .line-tabs-content { display: flex; flex: 1 1 auto; padding-top: var(--performance-table-tabs-gap); overflow: hidden; }

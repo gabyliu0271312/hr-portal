@@ -71,7 +71,7 @@ function openMember(member: CalibrationMember) {
 
 <template>
   <section class="calibration-all-people" aria-label="全部被校准人">
-    <ProjectMemberListPanel v-if="tab === 'members'" :key="taskKey" :project-id="0" :cycle-id="cycleId" readonly :show-export="false" :provider="provider" @select-member="openMember($event as CalibrationMember)" />
+    <ProjectMemberListPanel v-if="tab === 'members'" variant="embedded" :key="taskKey" :project-id="0" :cycle-id="cycleId" readonly :show-export="false" :provider="provider" @select-member="openMember($event as CalibrationMember)" />
     <CalibrationScopeAnalysis v-else :scopes="tasks" :cycle-id="cycleId" :tab="tab" @open-member="emit('open-member', $event)" />
   </section>
 </template>

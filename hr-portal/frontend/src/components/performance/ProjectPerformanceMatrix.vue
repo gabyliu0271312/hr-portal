@@ -1,5 +1,5 @@
 <template>
-  <PerformanceSurfaceCard ref="rootEl" class="project-matrix" role="region" aria-label="矩阵分析">
+  <PerformanceSurfaceCard ref="rootEl" :embedded="embedded" class="project-matrix" role="region" aria-label="矩阵分析">
     <div v-if="loading" class="matrix-state">正在加载矩阵分析…</div>
     <div v-else-if="error" class="matrix-state matrix-state-error">
       <p>{{ error }}</p>
@@ -112,7 +112,7 @@ import { projectManagementApi, type ProjectMatrix, type ProjectMatrixRating, typ
 import PerformanceSurfaceCard from './PerformanceSurfaceCard.vue'
 import { performanceLevelBackground } from './performanceColorOptions'
 
-const props = defineProps<{ projectId: number; cycleId?: number; scopeKey?: string; cycleName?: string; provider?: () => Promise<ProjectMatrix>; readonly?: boolean }>()
+const props = defineProps<{ projectId: number; cycleId?: number; scopeKey?: string; cycleName?: string; provider?: () => Promise<ProjectMatrix>; readonly?: boolean; embedded?: boolean }>()
 const emit = defineEmits<{ 'open-member': [member: { project_id?: number; employee_no: string; root_review_id?: number; can_view_detail?: boolean }] }>()
 const matrix = ref<ProjectMatrix>({ source: 'template_final_result', dimension: 'rating', display_modes: ['name', 'count'], total: 0, completed_count: 0, pending_count: 0, ratings: [], pending_rows: [], completed_rows: [] })
 const loading = ref(false)
@@ -294,6 +294,7 @@ export default { components: { PeopleCell } }
 
 <style scoped>
 .project-matrix.surface-card { display: block; flex: none; padding: 0 20px 20px; }
+.project-matrix.surface-card.surface-card--embedded { padding: 0; border-radius: 0; box-shadow: none; }
 .matrix-toolbar { position: sticky; top: calc(var(--performance-tab-area-height) - var(--performance-review-surface-inset)); z-index: 4; display: flex; align-items: center; justify-content: space-between; min-height: 72px; background: #fff; }
 .matrix-scope-tabs { display: flex; align-items: center; min-width: 0; }
 .matrix-scope-tab { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 16px; border: 1px solid #3370ff; border-radius: 6px 0 0 6px; background: #e1eaff; color: #3370ff; font-size: 14px; font-weight: 500; cursor: pointer; }

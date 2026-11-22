@@ -11,6 +11,7 @@ import CalibrationSingleTask from './CalibrationSingleTask.vue'
 import CalibrationTaskHome from './CalibrationTaskHome.vue'
 import CalibrationTaskSidebar from './CalibrationTaskSidebar.vue'
 import CalibrationScopeContent from './CalibrationScopeContent.vue'
+import CalibrationContentSurface from './CalibrationContentSurface.vue'
 import PerformanceLineTabs from '../PerformanceLineTabs.vue'
 import CalibrationState from './CalibrationState.vue'
 const props = defineProps<{ cycleId: number; nodeId?: string }>()
@@ -77,7 +78,7 @@ defineExpose({ selected, refresh: load })
     <div class="calibration-fullscreen">
       <CalibrationTaskSidebar :tasks="tasks" :selected="selectedKey" :cycle-id="cycleId" @select="selectScope" />
       <CalibrationState v-if="loading || error" :loading="loading" :error="error" @retry="load()" />
-      <main v-else-if="selectedKey === '__all__'" class="calibration-all-people" aria-label="全部被校准人"><PerformanceLineTabs :model-value="tab" :tabs="tabs" flush @update:model-value="query({ calibration_tab: $event })"><slot name="all-people" :tasks="tasks" :cycleId="cycleId" :tab="tab"><p role="status">全部被校准人聚合视图尚未接入。</p></slot></PerformanceLineTabs></main>
+      <CalibrationContentSurface v-else-if="selectedKey === '__all__'" class="calibration-all-people" aria-label="全部被校准人"><PerformanceLineTabs :model-value="tab" :tabs="tabs" flush sticky embedded @update:model-value="query({ calibration_tab: $event })"><slot name="all-people" :tasks="tasks" :cycleId="cycleId" :tab="tab"><p role="status">全部被校准人聚合视图尚未接入。</p></slot></PerformanceLineTabs></CalibrationContentSurface>
       <CalibrationScopeContent v-else-if="selected" :key="`${employeeSwitchEpoch}:${cycleId}:${selected.scope_key}`" :scope="selected" :cycle-id="cycleId" :tab="tab" @update:tab="query({ calibration_tab: $event })" @completed="load()" @busy="fullScreenLoading = $event" @open-member="emit('open-member', $event)" @remind-evaluate="emit('remind-evaluate', $event)">
         <template v-if="$slots.matrix" #matrix="slotProps"><slot name="matrix" v-bind="slotProps" /></template>
         <template v-if="$slots.report" #report="slotProps"><slot name="report" v-bind="slotProps" /></template>
@@ -89,8 +90,9 @@ defineExpose({ selected, refresh: load })
 <style scoped>
 :global(.calibration-workspace-overlay) { z-index: var(--z-index-drawer); }
 .calibration-workspace { flex: 1; min-width: 0; min-height: 0; overflow: auto; box-sizing: border-box; padding: var(--performance-review-surface-inset); background: var(--performance-review-page-bg); }
-.calibration-fullscreen { display: grid; grid-template-columns: var(--performance-calibration-sidebar-width) minmax(0, 1fr); min-width: 0; min-height: 0; flex: 1; }
-.calibration-all-people { min-width: 0; padding: var(--spacing-6); overflow: auto; }
+.calibration-fullscreen { display: grid; grid-template-columns: var(--performance-calibration-sidebar-width) minmax(0, 1fr); min-width: 0; min-height: 0; flex: 1; padding-top: var(--performance-calibration-content-inset); box-sizing: border-box; background: var(--performance-calibration-workspace-background); }
+.calibration-fullscreen > :deep(.calibration-task-nav) { padding-top: 0; padding-right: 0; background: transparent; }
+.calibration-fullscreen > div.calibration-all-people { min-width: 0; padding: var(--spacing-6); overflow: auto; }
 h1 { margin: 0 0 var(--spacing-5); font-size: var(--font-size-xl); }
 .calibration-back-icon { width: var(--performance-header-icon-size); height: var(--performance-header-icon-size); margin-right: var(--spacing-2); }
 @media (max-width: 760px) { .calibration-fullscreen { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); } .calibration-fullscreen :deep(.calibration-task-nav) { max-height: var(--performance-calibration-mobile-nav-height); border-right: 0; border-bottom: var(--ui-control-border-width) solid var(--color-line-divider); } }

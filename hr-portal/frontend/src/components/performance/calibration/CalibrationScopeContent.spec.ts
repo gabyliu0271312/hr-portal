@@ -2,17 +2,23 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CalibrationScopeContent from './CalibrationScopeContent.vue'
 import { performanceCalibrationApi, type PerformanceCalibrationTaskScope } from '@/api/performanceCalibration'
+import PerformanceLineTabs from '../PerformanceLineTabs.vue'
+import CalibrationContentSurface from './CalibrationContentSurface.vue'
 import ProjectMemberListPanel from '../ProjectMemberListPanel.vue'
 import PerformanceDistributionTips from '../PerformanceDistributionTips.vue'
 vi.mock('@/api/performanceCalibration', async importOriginal => ({ ...await importOriginal<typeof import('@/api/performanceCalibration')>(), performanceCalibrationApi: { members: vi.fn(), distribution: vi.fn() } }))
 const task = (key: string): PerformanceCalibrationTaskScope => ({ scope_key: key, project_id: key === 'A' ? 1 : 2, project_name: `项目${key}`, node_id: 'calibration', node_name: '校准', phase_id: `phase-${key}`, source_rule_id: `rule-${key}`, task_number: 1, scope_label: `范围${key}`, rule: null, status: 'pending', start_at: null, end_at: null, member_count: 1, can_complete: true, read_only: false })
-const options = { global: { stubs: { ProjectMemberListPanel: { props: ['provider', 'reviewContext'], template: '<div><slot name="empty" /></div>' }, CalibrationTaskCompletion: true } } }
+const options = { global: { stubs: { ProjectMemberListPanel: { props: ['provider', 'reviewContext', 'variant'], template: '<div><slot name="empty" /></div>' }, CalibrationTaskCompletion: true } } }
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(performanceCalibrationApi.distribution).mockResolvedValue({ enabled: false, total_people: 1, rated_people: 0, rules: [], lines: [] }) })
 describe('scoped member/content assembly', () => {
   it('binds provider, review context, and detail events to selected API task', async () => {
     const scope = task('A')
     const wrapper = mount(CalibrationScopeContent, { props: { scope, cycleId: 3, tab: 'members' }, ...options })
     const panel = wrapper.findComponent(ProjectMemberListPanel)
+    expect(wrapper.findComponent(CalibrationContentSurface).exists()).toBe(true)
+    expect(wrapper.getComponent(PerformanceLineTabs).props()).toMatchObject({ embedded: true, sticky: true, flush: true })
+    expect(panel.props('variant')).toBe('embedded')
+    expect(wrapper.find('.calibration-content-surface .calibration-scope-content__header').exists()).toBe(true)
     const query = { page: 2, pageSize: 50, keyword: '成员' }
     await panel.props('provider')!(query)
     expect(performanceCalibrationApi.members).toHaveBeenLastCalledWith(scope, query)
