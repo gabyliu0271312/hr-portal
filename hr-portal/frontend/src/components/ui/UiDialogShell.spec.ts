@@ -3,6 +3,14 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import UiDialogShell from './UiDialogShell.vue'
 describe('UiDialogShell nested keyboard isolation', () => {
+  it('keeps acknowledgement dialogs open on Escape and backdrop interaction', async () => {
+    const wrapper = mount(UiDialogShell, { props: { modelValue: true, title: '知悉公告', dismissible: false, showClose: false, teleport: false } })
+    await wrapper.get('[role="dialog"]').trigger('keydown', { key: 'Escape' })
+    await wrapper.get('.performance-dialog-overlay').trigger('mousedown')
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    wrapper.unmount()
+  })
   it('keeps close visible by default and makes it optional without disabling Escape', async () => {
     const wrapper = mount(UiDialogShell, { props: { modelValue: true, title: '关闭行为', teleport: false } })
     expect(wrapper.find('button[aria-label="关闭"]').exists()).toBe(true)

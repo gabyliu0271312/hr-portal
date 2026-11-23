@@ -920,15 +920,23 @@ export interface PerformanceWorkbenchEntry {
   updated_at: string
 }
 
+export type PerformanceWorkbenchVisibilityRole = 'HRBP' | 'REAL_LINE_MANAGER'
+
 export interface PerformanceWorkbenchAnnouncement {
   id: number
   title: string
+  title_en?: string
   status: 'active' | 'inactive'
   link: string
+  link_en?: string
+  description?: string
+  description_en?: string
+  image_id?: number | null
+  image_en_id?: number | null
   cycle_label: string
   cycle_ref: string | null
   visibility: string
-  visibility_role: string | null
+  visibility_roles: PerformanceWorkbenchVisibilityRole[]
   require_ack: boolean
   display_order: number
   created_at: string
@@ -938,8 +946,15 @@ export interface PerformanceWorkbenchAnnouncement {
 export interface PerformanceWorkbenchAnnouncementFeedItem {
   id: number
   title: string
+  title_en?: string
   link: string
+  link_en?: string
+  description?: string
+  description_en?: string
+  image_id?: number | null
+  image_en_id?: number | null
   cycle_label: string
+  acknowledged?: boolean
   require_ack: boolean
   display_order: number
   updated_at: string
@@ -947,6 +962,7 @@ export interface PerformanceWorkbenchAnnouncementFeedItem {
 
 export interface PerformanceWorkbenchAnnouncementFeed {
   announcement_enabled: boolean
+  cycle_ref?: string | null
   items: PerformanceWorkbenchAnnouncementFeedItem[]
 }
 
@@ -968,11 +984,17 @@ export interface PerformanceWorkbenchEntryPayload {
 
 export interface PerformanceWorkbenchAnnouncementPayload {
   title: string
+  title_en?: string
   link: string
+  link_en?: string
+  description?: string
+  description_en?: string
+  image_id?: number | null
+  image_en_id?: number | null
   cycle_label?: string
   cycle_ref?: string | null
   visibility?: string
-  visibility_role?: 'HRBP' | 'REAL_LINE_MANAGER' | null
+  visibility_roles?: PerformanceWorkbenchVisibilityRole[]
   require_ack?: boolean
   status?: 'active' | 'inactive'
   display_order?: number
@@ -1005,6 +1027,19 @@ export const performanceWorkbenchSettingsApi = {
   },
   async removeEntry(id: number): Promise<void> {
     await api.delete(`/performance/workbench-settings/entries/${id}`)
+  },
+  async uploadAnnouncementImage(file: File): Promise<{ id: number }> {
+    const payload = new FormData()
+    payload.append('file', file)
+    const { data } = await api.post<{ id: number }>('/performance/workbench-settings/announcement-images', payload)
+    return data
+  },
+  async announcementImage(id: number, cycleRef?: string | null): Promise<Blob> {
+    const { data } = await api.get<Blob>(`/performance/workbench/announcement-images/${id}`, {
+      params: cycleRef ? { cycle_ref: cycleRef } : undefined,
+      responseType: 'blob',
+    })
+    return data
   },
   async listAnnouncements(keyword = '', status?: 'active' | 'inactive', page = 1, pageSize = 10): Promise<PerformanceWorkbenchPage<PerformanceWorkbenchAnnouncement>> {
     const { data } = await api.get<PerformanceWorkbenchPage<PerformanceWorkbenchAnnouncement>>('/performance/workbench-settings/announcements', { params: { keyword: keyword || undefined, status, page, page_size: pageSize } })
@@ -1782,11 +1817,18 @@ export const performanceWorkbenchApi = {
       if (data.length < 100) return projects
     }
   },
-  async announcements(cycleRef?: string | null): Promise<PerformanceWorkbenchAnnouncementFeed> {
+  async announcements(cycleRef?: string | null, cycleId?: number): Promise<PerformanceWorkbenchAnnouncementFeed> {
     const { data } = await api.get<PerformanceWorkbenchAnnouncementFeed>('/performance/workbench/announcements', {
-      params: cycleRef ? { cycle_ref: cycleRef } : undefined,
+      params: cycleRef ? { cycle_ref: cycleRef } : cycleId ? { cycle_id: cycleId } : undefined,
     })
     return data
+  },
+  async acknowledge(id: number, cycleRef: string): Promise<{ acknowledged: boolean }> {
+    const { data } = await api.post<{ acknowledged: boolean }>(`/performance/workbench/announcements/${id}/acknowledge`, { cycle_ref: cycleRef })
+    return data
+  },
+  async announcementImage(id: number, cycleRef?: string | null): Promise<Blob> {
+    return performanceWorkbenchSettingsApi.announcementImage(id, cycleRef)
   },
   async timeline(projectId: number): Promise<PerformanceWorkbenchTimelineNode[]> {
     const { data } = await api.get<PerformanceWorkbenchTimelineNode[]>(`/performance/workbench/projects/${projectId}/timeline`)

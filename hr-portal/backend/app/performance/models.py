@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, FetchedValue, ForeignKey, ForeignKeyConstraint, Identity, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, FetchedValue, ForeignKey, ForeignKeyConstraint, Identity, Index, Integer, LargeBinary, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -240,7 +240,13 @@ class PerformanceWorkbenchAnnouncement(Base):
     cycle_label: Mapped[str] = mapped_column(String(128), nullable=False, default="所有周期")
     cycle_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     visibility: Mapped[str] = mapped_column(String(128), nullable=False, default="所有人")
-    visibility_role: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    visibility_roles: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    title_en: Mapped[str] = mapped_column(String(128), nullable=False, default="", server_default="")
+    link_en: Mapped[str] = mapped_column(String(2048), nullable=False, default="", server_default="")
+    description: Mapped[str] = mapped_column(String(1000), nullable=False, default="", server_default="")
+    description_en: Mapped[str] = mapped_column(String(1000), nullable=False, default="", server_default="")
+    image_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("performance_announcement_images.id", ondelete="RESTRICT"), nullable=True)
+    image_en_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("performance_announcement_images.id", ondelete="RESTRICT"), nullable=True)
     require_ack: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_by_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -251,6 +257,32 @@ class PerformanceWorkbenchAnnouncement(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class PerformanceAnnouncementImage(Base):
+    __tablename__ = "performance_announcement_images"
+    __table_args__ = (
+        CheckConstraint("octet_length(content) BETWEEN 1 AND 10485760", name="ck_performance_announcement_image_size"),
+        CheckConstraint("content_type IN ('image/png', 'image/jpeg')", name="ck_performance_announcement_image_type"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    content_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class PerformanceAnnouncementAcknowledgement(Base):
+    __tablename__ = "performance_announcement_acknowledgements"
+    __table_args__ = (
+        UniqueConstraint("announcement_id", "employee_no", "cycle_ref", name="uq_performance_announcement_ack"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    announcement_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("performance_workbench_announcements.id", ondelete="CASCADE"), nullable=False)
+    employee_no: Mapped[str] = mapped_column(String(64), nullable=False)
+    cycle_ref: Mapped[str] = mapped_column(String(64), ForeignKey("performance_cycles.cycle_ref", ondelete="RESTRICT"), nullable=False)
+    acknowledged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class PerformanceRole(Base):

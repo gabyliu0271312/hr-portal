@@ -12,12 +12,13 @@ const props = withDefaults(defineProps<{
   loading?: boolean
   fullscreen?: boolean
   showClose?: boolean
+  dismissible?: boolean
   overlayClass?: string
   dialogClass?: string
   titleId?: string
   teleport?: boolean
 }>(), {
-  width: 'var(--ui-dialog-width)', loading: false, fullscreen: false, showClose: true,
+  width: 'var(--ui-dialog-width)', loading: false, fullscreen: false, showClose: true, dismissible: true,
   overlayClass: '', dialogClass: '', titleId: undefined, teleport: true,
 })
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; close: [] }>()
@@ -25,7 +26,7 @@ const titleId = props.titleId || `ui-dialog-title-${++nextDialogId}`
 const panel = ref<HTMLElement>()
 let previousFocus: HTMLElement | null = null
 function close() {
-  if (props.loading) return
+  if (props.loading || !props.dismissible) return
   emit('close')
   emit('update:modelValue', false)
 }

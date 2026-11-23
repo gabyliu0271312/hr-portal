@@ -60,6 +60,8 @@ defineEmits<{ click: [event: MouseEvent] }>()
 .performance-button--outline-primary { border-color: var(--performance-button-outline-primary-border); background: var(--performance-button-outline-primary-background); color: var(--performance-button-outline-primary-text); }
 .performance-button--outline-primary:hover:not(:disabled) { background: var(--performance-button-outline-primary-hover-background); }
 .performance-button--secondary:hover:not(:disabled) { background: var(--performance-button-secondary-hover-background); }
+.performance-button--secondary:active:not(:disabled) { background: var(--performance-button-secondary-active-background); }
+.performance-button--outline-primary:active:not(:disabled) { background: var(--performance-button-outline-primary-active-background); }
 .performance-button--continue { border-color: var(--performance-button-continue-border); background: var(--performance-button-continue-background); color: var(--performance-button-continue-text); }
 .performance-button--continue:hover:not(:disabled) { border-color: var(--performance-button-continue-hover-border); background: var(--performance-button-continue-hover-background); }
 .performance-button--text { min-width: 0; padding-inline: var(--spacing-1); border-color: transparent; background: transparent; color: var(--performance-button-text-color); }

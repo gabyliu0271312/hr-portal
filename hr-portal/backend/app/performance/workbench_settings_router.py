@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal, TypeVar
+from typing import Annotated, Any, Literal, TypeVar
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import and_, func, or_, select
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
@@ -17,13 +17,13 @@ from app.performance.auth_context import (
     resolve_trusted_performance_actor,
 )
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
+from app.performance import announcement_service
 from app.performance.models import (
-    PerformanceAuthorizationSnapshot,
-    PerformanceAuthorizationSnapshotPerson,
+    PerformanceAnnouncementAcknowledgement,
+    PerformanceAnnouncementImage,
     PerformanceWorkbenchAnnouncement,
     PerformanceWorkbenchEntry,
     PerformanceWorkbenchSetting,
-    SUBJECT_TYPE_SYSTEM_ACCOUNT,
 )
 
 router = APIRouter(prefix="/performance/workbench-settings", tags=["performance-workbench-settings"])
@@ -101,9 +101,15 @@ class WorkbenchAnnouncementCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=128)
     link: str = Field(..., min_length=1, max_length=2048)
     cycle_label: str = Field(default="所有周期", min_length=1, max_length=128)
-    cycle_ref: str | None = Field(default=None, max_length=64)
-    visibility: str = Field(default="所有人", min_length=1, max_length=128)
-    visibility_role: Literal["HRBP", "REAL_LINE_MANAGER"] | None = None
+    cycle_ref: str | None = Field(default=None, min_length=1, max_length=64)
+    visibility: Literal["所有人", "指定角色"] = "所有人"
+    visibility_roles: list[Literal["HRBP", "REAL_LINE_MANAGER"]] = Field(default_factory=list)
+    title_en: str = Field(default="", max_length=128)
+    link_en: str = Field(default="", max_length=2048)
+    description: str = Field(default="", max_length=1000)
+    description_en: str = Field(default="", max_length=1000)
+    image_id: int | None = Field(default=None, gt=0)
+    image_en_id: int | None = Field(default=None, gt=0)
     require_ack: bool = False
     status: Literal["active", "inactive"] = "active"
     display_order: int = Field(default=0, ge=0)
@@ -116,6 +122,27 @@ class WorkbenchAnnouncementCreate(BaseModel):
             raise ValueError("字段不能为空")
         return value
 
+    @field_validator("title_en", "description", "description_en")
+    @classmethod
+    def trim_text(cls, value):
+        return value.strip()
+
+    @field_validator("link", "link_en")
+    @classmethod
+    def valid_link(cls, value):
+        return announcement_service.validate_announcement_link(value)
+
+    @field_validator("visibility_roles")
+    @classmethod
+    def unique_roles(cls, value):
+        return list(dict.fromkeys(value))
+
+    @model_validator(mode="after")
+    def required_roles(self):
+        if self.visibility == "指定角色" and not self.visibility_roles:
+            raise ValueError("ANNOUNCEMENT_ROLES_REQUIRED")
+        return self
+
 
 class WorkbenchAnnouncementPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -123,9 +150,15 @@ class WorkbenchAnnouncementPatch(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=128)
     link: str | None = Field(default=None, min_length=1, max_length=2048)
     cycle_label: str | None = Field(default=None, min_length=1, max_length=128)
-    cycle_ref: str | None = Field(default=None, max_length=64)
-    visibility: str | None = Field(default=None, min_length=1, max_length=128)
-    visibility_role: Literal["HRBP", "REAL_LINE_MANAGER"] | None = None
+    cycle_ref: str | None = Field(default=None, min_length=1, max_length=64)
+    visibility: Literal["所有人", "指定角色"] | None = None
+    visibility_roles: list[Literal["HRBP", "REAL_LINE_MANAGER"]] | None = None
+    title_en: str | None = Field(default=None, max_length=128)
+    link_en: str | None = Field(default=None, max_length=2048)
+    description: str | None = Field(default=None, max_length=1000)
+    description_en: str | None = Field(default=None, max_length=1000)
+    image_id: int | None = Field(default=None, gt=0)
+    image_en_id: int | None = Field(default=None, gt=0)
     require_ack: bool | None = None
     status: Literal["active", "inactive"] | None = None
     display_order: int | None = Field(default=None, ge=0)
@@ -139,6 +172,28 @@ class WorkbenchAnnouncementPatch(BaseModel):
         if not value:
             raise ValueError("字段不能为空")
         return value
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_nulls(cls, values):
+        if isinstance(values, dict) and any(value is None for key, value in values.items() if key not in {"cycle_ref", "image_id", "image_en_id"}):
+            raise ValueError("字段不能为null")
+        return values
+
+    @field_validator("title_en", "description", "description_en")
+    @classmethod
+    def trim_text(cls, value):
+        return value.strip()
+
+    @field_validator("link", "link_en")
+    @classmethod
+    def valid_link(cls, value):
+        return announcement_service.validate_announcement_link(value)
+
+    @field_validator("visibility_roles")
+    @classmethod
+    def unique_roles(cls, value):
+        return list(dict.fromkeys(value))
 
 
 class WorkbenchStatusPatch(BaseModel):
@@ -171,7 +226,13 @@ class WorkbenchAnnouncementOut(BaseModel):
     cycle_label: str
     cycle_ref: str | None
     visibility: str
-    visibility_role: str | None
+    visibility_roles: list[str]
+    title_en: str
+    link_en: str
+    description: str
+    description_en: str
+    image_id: int | None
+    image_en_id: int | None
     require_ack: bool
     display_order: int
     created_at: datetime
@@ -198,15 +259,37 @@ class WorkbenchAnnouncementFeedItem(BaseModel):
     id: int
     title: str
     link: str
+    title_en: str
+    link_en: str
+    description: str
+    description_en: str
+    image_id: int | None
+    image_en_id: int | None
     cycle_label: str
     require_ack: bool
+    acknowledged: bool = False
     display_order: int
     updated_at: datetime
 
 
 class WorkbenchAnnouncementFeedOut(BaseModel):
     announcement_enabled: bool
+    cycle_ref: str | None
     items: list[WorkbenchAnnouncementFeedItem]
+
+
+class AnnouncementAcknowledgeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cycle_ref: str = Field(min_length=1, max_length=64)
+
+
+class AnnouncementAcknowledgeOut(BaseModel):
+    acknowledged: bool
+
+
+class AnnouncementImageOut(BaseModel):
+    id: int
 
 
 class WorkbenchSettingsOut(BaseModel):
@@ -259,72 +342,75 @@ async def get_workbench_announcement_feed(
     cycle_ref: str | None = Query(default=None, max_length=64),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    cycle_id: Annotated[int | None, Query(ge=1)] = None,
 ) -> WorkbenchAnnouncementFeedOut:
+    cycle_ref = await announcement_service.resolve_cycle_ref(db, cycle_ref, cycle_id)
     setting = await db.get(PerformanceWorkbenchSetting, 1)
     if setting is not None and not setting.announcement_enabled:
-        return WorkbenchAnnouncementFeedOut(announcement_enabled=False, items=[])
-
-    conditions = [PerformanceWorkbenchAnnouncement.status == "active"]
-    if cycle_ref:
-        conditions.append(
-            or_(
-                PerformanceWorkbenchAnnouncement.cycle_ref.is_(None),
-                PerformanceWorkbenchAnnouncement.cycle_ref == cycle_ref,
-            )
-        )
-    else:
-        conditions.append(PerformanceWorkbenchAnnouncement.cycle_ref.is_(None))
-
-    visibility_conditions = [PerformanceWorkbenchAnnouncement.visibility == "所有人"]
-    if cycle_ref:
-        actor = await resolve_trusted_performance_actor(db, context, cycle_ref=cycle_ref)
-        if actor.actor_type == SUBJECT_TYPE_SYSTEM_ACCOUNT:
-            visibility_conditions.extend([
-                and_(
-                    PerformanceWorkbenchAnnouncement.visibility == "指定人员",
-                    PerformanceWorkbenchAnnouncement.visibility_role == "HRBP",
-                ),
-                and_(
-                    PerformanceWorkbenchAnnouncement.visibility == "指定人员",
-                    PerformanceWorkbenchAnnouncement.visibility_role == "REAL_LINE_MANAGER",
-                ),
-            ])
-        else:
-            snapshot_id = select(PerformanceAuthorizationSnapshot.id).where(
-                PerformanceAuthorizationSnapshot.cycle_ref == cycle_ref,
-            )
-            hrbp_exists = select(PerformanceAuthorizationSnapshotPerson.id).where(
-                PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot_id.scalar_subquery(),
-                PerformanceAuthorizationSnapshotPerson.hrbp_employee_no == actor.actor_ref,
-            ).exists()
-            manager_exists = select(PerformanceAuthorizationSnapshotPerson.id).where(
-                PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot_id.scalar_subquery(),
-                PerformanceAuthorizationSnapshotPerson.direct_supervisor_employee_no == actor.actor_ref,
-            ).exists()
-            visibility_conditions.extend([
-                and_(
-                    PerformanceWorkbenchAnnouncement.visibility == "指定人员",
-                    PerformanceWorkbenchAnnouncement.visibility_role == "HRBP",
-                    hrbp_exists,
-                ),
-                and_(
-                    PerformanceWorkbenchAnnouncement.visibility == "指定人员",
-                    PerformanceWorkbenchAnnouncement.visibility_role == "REAL_LINE_MANAGER",
-                    manager_exists,
-                ),
-            ])
-    conditions.append(or_(*visibility_conditions))
-    items = (
-        await db.execute(
-            select(PerformanceWorkbenchAnnouncement)
-            .where(*conditions)
-            .order_by(PerformanceWorkbenchAnnouncement.display_order, PerformanceWorkbenchAnnouncement.id)
-        )
-    ).scalars().all()
+        return WorkbenchAnnouncementFeedOut(announcement_enabled=False, cycle_ref=cycle_ref, items=[])
+    items, employee_no = await announcement_service.visible_announcements(db, context, cycle_ref)
+    acknowledged = set()
+    if cycle_ref is not None and employee_no and items:
+        acknowledged = set((await db.execute(select(PerformanceAnnouncementAcknowledgement.announcement_id).where(
+            PerformanceAnnouncementAcknowledgement.employee_no == employee_no,
+            PerformanceAnnouncementAcknowledgement.cycle_ref == cycle_ref,
+            PerformanceAnnouncementAcknowledgement.announcement_id.in_([item.id for item in items]),
+        ))).scalars().all())
     return WorkbenchAnnouncementFeedOut(
-        announcement_enabled=True,
-        items=[WorkbenchAnnouncementFeedItem.model_validate(item) for item in items],
+        announcement_enabled=True, cycle_ref=cycle_ref,
+        items=[WorkbenchAnnouncementFeedItem.model_validate(item).model_copy(update={
+            "acknowledged": item.id in acknowledged,
+            "require_ack": bool(item.require_ack and employee_no and cycle_ref is not None),
+        }) for item in items],
     )
+
+
+@consumer_router.post("/announcements/{item_id}/acknowledge", response_model=AnnouncementAcknowledgeOut)
+async def acknowledge_workbench_announcement(
+    item_id: int,
+    payload: AnnouncementAcknowledgeIn,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    return await announcement_service.acknowledge_announcement(db, context, item_id, payload.cycle_ref)
+
+
+@router.post("/announcement-images", response_model=AnnouncementImageOut, status_code=201)
+async def upload_announcement_image(
+    file: UploadFile = File(...),
+    _: PerformanceAccessContext = Depends(_context),
+    db: AsyncSession = Depends(get_session),
+):
+    content = await file.read(announcement_service.MAX_IMAGE_BYTES + 1)
+    content_type = announcement_service.validate_announcement_image(content)
+    image = PerformanceAnnouncementImage(content=content, content_type=content_type)
+    db.add(image)
+    await db.commit()
+    await db.refresh(image)
+    return AnnouncementImageOut(id=image.id)
+
+
+@consumer_router.get("/announcement-images/{image_id}")
+async def get_announcement_image(
+    image_id: int,
+    cycle_ref: str | None = Query(default=None, max_length=64),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    if "performance.configuration.manage" not in context.permission_codes:
+        cycle_ref = await announcement_service.resolve_cycle_ref(db, cycle_ref)
+        setting = await db.get(PerformanceWorkbenchSetting, 1)
+        if setting is not None and not setting.announcement_enabled:
+            raise HTTPException(404, "ANNOUNCEMENT_IMAGE_NOT_FOUND")
+        items, _ = await announcement_service.visible_announcements(db, context, cycle_ref, image_id=image_id)
+        if not items:
+            raise HTTPException(404, "ANNOUNCEMENT_IMAGE_NOT_FOUND")
+    image = await db.get(PerformanceAnnouncementImage, image_id)
+    if image is None:
+        raise HTTPException(404, "ANNOUNCEMENT_IMAGE_NOT_FOUND")
+    return Response(content=image.content, media_type=image.content_type, headers={
+        "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store",
+    })
 
 
 @router.get("", response_model=WorkbenchSettingsOut)
@@ -467,6 +553,7 @@ async def create_workbench_announcement(
     context: PerformanceAccessContext = Depends(_context),
     db: AsyncSession = Depends(get_session),
 ) -> WorkbenchAnnouncementOut:
+    await announcement_service.validate_announcement_references(db, payload.model_dump())
     actor = await resolve_trusted_performance_actor(db, context)
     item = PerformanceWorkbenchAnnouncement(**payload.model_dump(), created_by_type=actor.actor_type, created_by_ref=actor.actor_ref)
     db.add(item)
@@ -492,8 +579,16 @@ async def update_workbench_announcement(
     db: AsyncSession = Depends(get_session),
 ) -> WorkbenchAnnouncementOut:
     item = await _announcement_or_404(db, item_id)
-    before = {key: getattr(item, key) for key in payload.model_dump(exclude_unset=True)}
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    values = {key: getattr(item, key) for key in WorkbenchAnnouncementCreate.model_fields}
+    values.update(changes)
+    try:
+        WorkbenchAnnouncementCreate.model_validate(values)
+    except ValueError:
+        raise HTTPException(422, "INVALID_ANNOUNCEMENT_SETTINGS") from None
+    await announcement_service.validate_announcement_references(db, changes)
+    before = {key: getattr(item, key) for key in changes}
+    for key, value in changes.items():
         setattr(item, key, value)
     await _audit(db, context, "PERFORMANCE_WORKBENCH_ANNOUNCEMENT_UPDATED", "WORKBENCH_ANNOUNCEMENT", str(item.id), before, payload.model_dump(exclude_unset=True))
     await db.commit()

@@ -23,6 +23,8 @@
 - 每周期一次申诉
 - 审计记录
 
+当前增量（2026-11-23）：[CR-015 工作台公告与按周期知悉](changes/CR-015-workbench-announcements.md)角色多选过滤、中英文描述/图片、示例hover和员工按公告/周期知悉已实现；86项前端、44项后端定向回归通过，实际Vue受控API页面验收通过；真实PostgreSQL迁移/并发阻塞，未部署。
+
 当前增量（2026-11-22）：[CR-014 多项目校准任务工作区](changes/CR-014-calibration-task-workspace.md)首页、范围hover、全屏成员／分析与任务级完成已实现，本地回归、构建和实际Vue受控API验收通过；真实PostgreSQL迁移／并发受本机环境阻塞，未发布，不提升整体数据库验收状态。
 
 当前增量（2026-11-21）：PM-T003-I03-F01按REA对齐锁定设置及锁前项目名单调整，具体合同与验收见该功能的spec/ui-interaction/atomic-tasks。前端与本地隔离浏览器验证已通过；真实PostgreSQL迁移、API回读及调度事务验收受本机数据库/Docker不可用阻塞，阶段状态不据此提升为完成。

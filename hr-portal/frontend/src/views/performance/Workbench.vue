@@ -124,6 +124,9 @@
       <section v-if="announcementEnabled" class="side-card announcement-card">
         <h2>公告</h2>
         <div v-if="announcementLoading" class="announcement-state">正在加载公告...</div>
+        <div v-else-if="announcementError" class="announcement-state" role="alert">
+          {{ announcementError }} <UiButton variant="text" @click="retryAnnouncements">重试</UiButton>
+        </div>
         <template v-else-if="announcements.length">
           <a
             v-for="announcement in announcements"
@@ -132,13 +135,30 @@
             :href="announcement.link"
             :target="isExternalLink(announcement.link) ? '_blank' : undefined"
             :rel="isExternalLink(announcement.link) ? 'noreferrer' : undefined"
+            @mouseenter="showAnnouncementTitle($event, announcement.title)"
+            @focus="showAnnouncementTitle($event, announcement.title)"
+            @mouseleave="announcementAnchor = null"
+            @blur="announcementAnchor = null"
           >
-            <span>{{ announcement.title }}</span><time>{{ formatAnnouncementTime(announcement.updated_at) }}</time>
+            <span>{{ announcement.title }}</span><small v-if="announcement.require_ack && announcement.acknowledged" class="announcement-ack-status">已知悉</small><time>{{ formatAnnouncementTime(announcement.updated_at) }}</time>
           </a>
         </template>
         <div v-else class="announcement-state">暂无公告</div>
       </section>
     </aside>
+    <PerformancePopover :visible="Boolean(announcementAnchor)" :anchor="announcementAnchor" width="auto" @close="announcementAnchor = null">{{ announcementTitle }}</PerformancePopover>
+    <WorkbenchAnnouncementAckDialog
+      v-if="pendingAnnouncement"
+      :key="`${announcementCycleRef}-${pendingAnnouncement.id}`"
+      :announcement="pendingAnnouncement"
+      :submitting="acknowledging"
+      :error="acknowledgementError"
+      :image-url="announcementImageUrl"
+      :image-loading="announcementImageLoading"
+      :image-error="announcementImageError"
+      @acknowledge="acknowledgeAnnouncement"
+      @retry-image="loadAnnouncementImage"
+    />
   </div>
 </template>
 
@@ -155,6 +175,8 @@ import RightOutlinedIcon from '@/components/performance/RightOutlinedIcon.vue'
 import WorkSummaryTaskIcon from '@/components/performance/WorkSummaryTaskIcon.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceWorkbenchTimeline from '@/components/performance/PerformanceWorkbenchTimeline.vue'
+import WorkbenchAnnouncementAckDialog from '@/components/performance/WorkbenchAnnouncementAckDialog.vue'
+import PerformancePopover from '@/components/performance/PerformancePopover.vue'
 import { performanceApi, performanceWorkbenchApi, type PerformanceWorkbenchAnnouncementFeedItem, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup } from '@/api/performance'
 import { usePerformanceProjectContextStore, type PerformanceWorkbenchSnapshot } from '@/stores/performanceProjectContext'
 
@@ -216,16 +238,46 @@ const completedCount = computed(() => completedTodos.value.length)
 const announcements = ref<PerformanceWorkbenchAnnouncementFeedItem[]>([])
 const announcementEnabled = ref(true)
 const announcementLoading = ref(false)
+const announcementError = ref('')
+const announcementCycleRef = ref<string | null>(null)
+const acknowledging = ref(false)
+const acknowledgementError = ref('')
+const announcementAnchor = ref<HTMLElement | null>(null)
+const announcementTitle = ref('')
+const announcementImageUrl = ref('')
+const announcementImageLoading = ref(false)
+const announcementImageError = ref(false)
+const pendingAnnouncement = computed(() => announcementEnabled.value && activeCycleId.value && announcementCycleRef.value
+  ? announcements.value.find(item => item.require_ack && !item.acknowledged) || null : null)
 let selectionVersion = 0
 let announcementVersion = 0
+let imageVersion = 0
+function clearAnnouncementImage() {
+  imageVersion += 1
+  if (announcementImageUrl.value) URL.revokeObjectURL(announcementImageUrl.value)
+  announcementImageUrl.value = ''
+  announcementImageLoading.value = false
+  announcementImageError.value = false
+}
+function resetAnnouncements() {
+  announcementVersion += 1
+  announcements.value = []
+  announcementCycleRef.value = null
+  announcementLoading.value = false
+  announcementError.value = ''
+  acknowledging.value = false
+  acknowledgementError.value = ''
+  announcementAnchor.value = null
+  clearAnnouncementImage()
+}
+watch(() => projectContext.cacheVersion, resetAnnouncements, { flush: 'sync' })
+watch(() => pendingAnnouncement.value?.id, () => { void loadAnnouncementImage() })
 
 watch(activeCycleId, () => {
   projects.value = []
   selectionVersion += 1
   snapshots.value = {}
-  announcementVersion += 1
-  announcements.value = []
-  announcementLoading.value = false
+  resetAnnouncements()
 }, { flush: 'sync' })
 
 function formatDateTime(value: string | null) {
@@ -250,21 +302,68 @@ function formatAnnouncementTime(value: string) {
 function isExternalLink(link: string) {
   return /^(https?:|mailto:)/i.test(link)
 }
-function loadAnnouncements(cycleRef?: string | null) {
-  const version = ++announcementVersion
+function showAnnouncementTitle(event: Event, title: string) {
+  announcementAnchor.value = event.currentTarget as HTMLElement
+  announcementTitle.value = title
+}
+function retryAnnouncements() {
+  const cycleRef = projects.value.find(project => project.cycle_ref)?.cycle_ref
+  return loadAnnouncements(cycleRef, activeCycleId.value || undefined)
+}
+function loadAnnouncements(cycleRef?: string | null, cycleId?: number) {
+  resetAnnouncements()
+  const version = announcementVersion
+  const cacheVersion = projectContext.cacheVersion
+  const currentCycleId = activeCycleId.value
+  const current = () => !disposed.value && version === announcementVersion && cacheVersion === projectContext.cacheVersion && currentCycleId === activeCycleId.value
+  announcementEnabled.value = true
   announcementLoading.value = true
-  return performanceWorkbenchApi.announcements(cycleRef)
-    .then((feed) => {
-      if (version !== announcementVersion) return
-      announcementEnabled.value = feed.announcement_enabled
-      announcements.value = feed.items
-    })
-    .catch(() => {
-      if (version !== announcementVersion) return
-      announcementEnabled.value = false
-      announcements.value = []
-    })
-    .finally(() => { if (version === announcementVersion) announcementLoading.value = false })
+  const request = cycleRef ? performanceWorkbenchApi.announcements(cycleRef) : performanceWorkbenchApi.announcements(undefined, cycleId)
+  return request.then((feed) => {
+    if (!current()) return
+    announcementEnabled.value = feed.announcement_enabled
+    announcementCycleRef.value = feed.cycle_ref || cycleRef || null
+    announcements.value = feed.announcement_enabled ? [...feed.items].sort((a, b) => a.display_order - b.display_order || a.id - b.id) : []
+  }).catch(() => {
+    if (!current()) return
+    announcementError.value = '公告加载失败，请稍后重试'
+  }).finally(() => { if (current()) announcementLoading.value = false })
+}
+async function acknowledgeAnnouncement() {
+  const item = pendingAnnouncement.value
+  const cycleRef = announcementCycleRef.value
+  if (!item || !cycleRef || acknowledging.value) return
+  const version = announcementVersion
+  acknowledging.value = true
+  acknowledgementError.value = ''
+  try {
+    const result = await performanceWorkbenchApi.acknowledge(item.id, cycleRef)
+    if (disposed.value || version !== announcementVersion) return
+    if (!result.acknowledged) throw new Error('acknowledgement failed')
+    announcements.value = announcements.value.map(announcement => announcement.id === item.id ? { ...announcement, acknowledged: true } : announcement)
+  } catch {
+    if (!disposed.value && version === announcementVersion) acknowledgementError.value = '知悉失败，请重试'
+  } finally {
+    if (version === announcementVersion) acknowledging.value = false
+  }
+}
+async function loadAnnouncementImage() {
+  clearAnnouncementImage()
+  const imageId = pendingAnnouncement.value?.image_id
+  if (!imageId) return
+  const version = imageVersion
+  const feedVersion = announcementVersion
+  const cycleRef = announcementCycleRef.value
+  announcementImageLoading.value = true
+  try {
+    const blob = await performanceWorkbenchApi.announcementImage(imageId, cycleRef)
+    if (disposed.value || version !== imageVersion || feedVersion !== announcementVersion) return
+    announcementImageUrl.value = URL.createObjectURL(blob)
+  } catch {
+    if (!disposed.value && version === imageVersion && feedVersion === announcementVersion) announcementImageError.value = true
+  } finally {
+    if (version === imageVersion) announcementImageLoading.value = false
+  }
 }
 function formatDueAt(value: string | null) {
   if (!value) return '未配置'
@@ -294,7 +393,7 @@ function restoreSnapshots() {
 restoreSnapshots()
 
 const disposed = ref(false)
-onBeforeUnmount(() => { disposed.value = true; selectionVersion += 1 })
+onBeforeUnmount(() => { disposed.value = true; selectionVersion += 1; resetAnnouncements() })
 async function loadProject(projectId: number) {
   if (disposed.value) return
   const cycleId = activeCycleId.value
@@ -343,7 +442,7 @@ async function loadCycle() {
   const version = ++selectionVersion
   const cycleId = projectContext.activeCycleId
   const cacheVersion = projectContext.cacheVersion
-  if (!cycleId) { error.value = '当前没有可用的绩效周期'; loading.value = false; return }
+  if (!cycleId) { void loadAnnouncements(); error.value = '当前没有可用的绩效周期'; loading.value = false; return }
   const cachedProjects = projectContext.workbenchProjects
   if (cachedProjects) projects.value = cachedProjects
   restoreSnapshots()
@@ -361,13 +460,10 @@ async function loadCycle() {
     projectContext.setActiveProjectId(preferredId)
     const preferredProject = loadedProjects.find(project => project.project_id === preferredId)
     restoreSnapshots()
-    if (!preferredId) {
-      void loadAnnouncements(null)
-      return
-    }
+    void loadAnnouncements(preferredProject?.cycle_ref, cycleId)
+    if (!preferredId) return
     if (String(route.query.project_id || '') !== String(preferredId)) await router.replace({ query: { ...route.query, cycle_id: cycleId ? String(cycleId) : undefined, project_id: String(preferredId) } })
     if (disposed.value || version !== selectionVersion || cycleId !== activeCycleId.value) return
-    void loadAnnouncements(preferredProject?.cycle_ref)
     await Promise.all(loadedProjects.map(project => loadProject(project.project_id)))
   } catch {
     if (version === selectionVersion) error.value = '工作台数据加载失败，请稍后重试'
@@ -461,6 +557,8 @@ onMounted(async () => {
 .announcement-card .announcement-link:first-of-type { margin-top: 0; }
 .announcement-card .announcement-link span { overflow: hidden; color: #3370ff; font-size: 14px; font-weight: 400; line-height: 19px; text-overflow: ellipsis; white-space: nowrap; }
 .announcement-card time { color: #8b96a7; font-size: 13px; white-space: nowrap; }
+.announcement-ack-status { flex-shrink: 0; margin-inline: var(--spacing-2); color: var(--color-text-secondary); font-size: var(--font-size-sm); }
+.announcement-link:focus-visible { outline: 0; box-shadow: var(--performance-button-focus-ring); }
 .announcement-state { color: #8b96a7; font-size: 13px; line-height: 20px; }
 @media (max-width: 720px) { .workbench-page { width: calc(100vw - 32px); min-width: 0; grid-template-columns: 1fr; padding: 16px 0; } .workbench-main, .side-card { width: 100%; } .workbench-side { grid-template-columns: 1fr; } .timeline-card { overflow-x: auto; padding: 24px 12px 18px; } .result-card { align-items: flex-start; padding: 18px; } .result-card :deep(.el-button) { min-width: 76px; } .todo-tabs { padding: 0 14px; } .todo-item { gap: 12px; } .todo-icon { width: 44px; height: 44px; font-size: 21px; } .todo-action { padding: 8px 12px; } }
 </style>

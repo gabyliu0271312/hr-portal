@@ -410,6 +410,11 @@
   --performance-workbench-editor-radio-size: 16px;
   --performance-workbench-editor-compact-switch-width: 28px;
   --performance-workbench-editor-compact-switch-height: 16px;
+  --performance-announcement-example-width: 500px;
+  --performance-announcement-example-image-width: 468px;
+  --performance-announcement-upload-preview-height: 160px;
+  --performance-announcement-upload-empty-padding: 32px 12px 28px;
+  --performance-announcement-role-tag-height: 24px;
   --performance-dialog-radius: var(--radius-lg);
   --performance-dialog-header-min-height: var(--performance-dialog-header-height);
   --performance-dialog-padding: var(--spacing-6);
@@ -555,10 +560,12 @@
   --performance-button-primary-text: var(--color-bg-card);
   --performance-button-secondary-background: var(--color-bg-card);
   --performance-button-secondary-hover-background: #f2f3f5;
+  --performance-button-secondary-active-background: #dee0e3;
   --performance-button-secondary-border: var(--color-line-control);
   --performance-button-secondary-text: var(--color-text-primary);
   --performance-button-outline-primary-background: var(--color-bg-card);
   --performance-button-outline-primary-hover-background: #e0e9ff;
+  --performance-button-outline-primary-active-background: #c2d4ff;
   --performance-button-outline-primary-border: var(--color-primary-hover);
   --performance-button-outline-primary-text: var(--color-primary-hover);
   --performance-button-continue-background: #c2d4ff;
