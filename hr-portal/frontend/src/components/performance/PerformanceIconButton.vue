@@ -1,7 +1,7 @@
 <template>
   <button
     class="performance-icon-button"
-    :class="{ 'is-active': active, 'is-disabled': disabled, 'is-static': static, 'is-outlined': variant === 'outlined', 'is-contextual': variant === 'contextual' }"
+    :class="{ 'is-active': active, 'is-disabled': disabled, 'is-static': static, 'is-outlined': variant === 'outlined', 'is-contextual': variant === 'contextual', 'is-menu': variant === 'menu' }"
     type="button"
     :aria-label="label"
     :aria-hidden="static || undefined"
@@ -19,7 +19,7 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{ icon: string; label: string; disabled?: boolean; active?: boolean; expanded?: boolean; static?: boolean; variant?: 'default' | 'outlined' | 'contextual'; text?: string }>()
+defineProps<{ icon: string; label: string; disabled?: boolean; active?: boolean; expanded?: boolean; static?: boolean; variant?: 'default' | 'outlined' | 'contextual' | 'menu'; text?: string }>()
 defineEmits<{ click: [event: MouseEvent] }>()
 
 const paths: Record<string, string> = {
@@ -57,5 +57,9 @@ const paths: Record<string, string> = {
 .performance-icon-button.is-contextual svg { display: block; width: var(--performance-cycle-more-icon-size); height: var(--performance-cycle-more-icon-size); flex: none; }
 .performance-icon-button.is-contextual:active:not(:disabled), .performance-icon-button.is-contextual.is-active:not(:disabled) { background: var(--performance-icon-button-hover-background); color: inherit; }
 .performance-icon-button.is-contextual:disabled { color: var(--performance-button-link-disabled-color); }
+.performance-icon-button.is-menu { box-sizing: border-box; width: var(--performance-icon-button-size); height: var(--performance-icon-button-size); padding: 0; border-radius: var(--performance-menu-trigger-radius); color: var(--color-primary); }
+.performance-icon-button.is-menu svg { display: block; width: var(--performance-action-menu-icon-size); height: var(--performance-action-menu-icon-size); }
+.performance-icon-button.is-menu:hover:not(:disabled), .performance-icon-button.is-menu:active:not(:disabled), .performance-icon-button.is-menu.is-active:not(:disabled) { background: var(--performance-action-menu-trigger-hover-background); color: var(--color-primary); }
+.performance-icon-button.is-menu:disabled { color: var(--performance-button-link-disabled-color); }
 </style>
 

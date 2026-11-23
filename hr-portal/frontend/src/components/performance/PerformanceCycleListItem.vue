@@ -1,13 +1,13 @@
 <template>
   <div class="cycle-item" :class="{ active: selected, 'is-menu-open': open }" role="button" tabindex="0" @click="emit('select')" @keydown.enter.self.prevent="emit('select')" @keydown.space.self.prevent="emit('select')" @mouseleave="scheduleClose">
-    <span class="truncate">{{ name }}</span>
+    <PerformanceInfoPopover :content="name" :aria-label="name" variant="text" gap="var(--spacing-2)" overflow-only width="auto" max-width="var(--performance-popover-width)">{{ name }}</PerformanceInfoPopover>
     <span v-if="canManage" class="cycle-more-anchor" @mouseenter="showMenu" @mouseleave="scheduleClose">
       <PerformanceIconButton ref="trigger" class="cycle-more" icon="MoreOutlined" label="更多操作" variant="contextual" :expanded="open" aria-haspopup="menu" @click.stop="showMenu" @keydown.stop @keydown.down.prevent="focusFirst" @keydown.esc.prevent="close(true)" />
     </span>
     <Teleport to="body">
       <ul v-if="open && canManage" ref="menu" class="cycle-action-menu" role="menu" aria-label="周期操作" :style="menuStyle" @mouseenter="cancelClose" @mouseleave="scheduleClose" @keydown="handleKeydown">
         <li role="none"><div class="cycle-action-menu__item" role="menuitem" tabindex="0" @click="selectAction('edit')" @keydown.enter.prevent="selectAction('edit')" @keydown.space.prevent="selectAction('edit')"><PerformanceIconButton class="cycle-action-menu__icon" icon="EditOutlined" label="编辑" static /><span>编辑</span></div></li>
-        <li role="none"><div class="cycle-action-menu__item" role="menuitem" :tabindex="deleteDisabled ? -1 : 0" :aria-disabled="deleteDisabled" @click="selectAction('remove')" @keydown.enter.prevent="selectAction('remove')" @keydown.space.prevent="selectAction('remove')"><PerformanceIconButton class="cycle-action-menu__icon" icon="DeleteTrashOutlined" label="删除" static :disabled="deleteDisabled" /><span>删除</span></div></li>
+        <li role="none"><PerformanceDisabledReason class="cycle-action-menu__reason" :disabled="deleteDisabled" reason="周期中已有启动的项目，不支持删除" side="right" gap="var(--spacing-3)" @popover-enter="cancelClose" @popover-leave="scheduleClose"><div class="cycle-action-menu__item" role="menuitem" :tabindex="deleteDisabled ? -1 : 0" :aria-disabled="deleteDisabled" @click="selectAction('remove')" @keydown.enter.prevent="selectAction('remove')" @keydown.space.prevent="selectAction('remove')"><PerformanceIconButton class="cycle-action-menu__icon" icon="DeleteTrashOutlined" label="删除" static :disabled="deleteDisabled" /><span>删除</span></div></PerformanceDisabledReason></li>
       </ul>
     </Teleport>
   </div>
@@ -16,6 +16,8 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'
+import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
+import PerformanceDisabledReason from './PerformanceDisabledReason.vue'
 
 const props = defineProps<{ name: string; selected: boolean; canManage: boolean; deleteDisabled: boolean }>()
 const emit = defineEmits<{ select: []; edit: []; remove: [] }>()
@@ -96,7 +98,8 @@ onBeforeUnmount(() => {
 .cycle-item { display: flex; align-items: center; justify-content: space-between; width: var(--performance-cycle-item-width); height: var(--performance-cycle-item-height); box-sizing: border-box; padding: var(--performance-cycle-item-padding); border-radius: var(--performance-cycle-item-radius); color: var(--color-text-primary); font: var(--font-weight-normal) var(--font-size-md)/var(--performance-button-line-height) var(--font-sans); cursor: pointer; }
 .cycle-item:hover { background: var(--performance-cycle-item-hover-background); }
 .cycle-item.active { background: var(--performance-cycle-item-selected-background); color: var(--color-primary); font-weight: var(--performance-calibration-scope-title-font-weight); }
-.truncate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cycle-action-menu__reason { display: flex; width: 100%; }
+.cycle-action-menu__reason :deep(.performance-info-popover__anchor) { width: 100%; color: inherit !important; }
 .cycle-more-anchor { display: flex; flex: none; margin-left: var(--performance-cycle-more-gap); }
 .cycle-more { opacity: 0; }
 .cycle-item:hover .cycle-more, .cycle-item:focus-within .cycle-more, .is-menu-open .cycle-more { opacity: 1; }

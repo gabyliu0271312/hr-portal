@@ -460,6 +460,11 @@
   --performance-popover-padding-y: var(--spacing-3);
   --performance-popover-padding-x: var(--spacing-4);
   --performance-popover-line-height: 22px;
+  --performance-popover-text-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --performance-ellipsis-font-family: var(--performance-popover-text-font-family);
+  --performance-ellipsis-font-feature-settings: 'tnum';
+  --performance-ellipsis-font-variant-numeric: tabular-nums;
+  --performance-ellipsis-text-rendering: auto;
   --performance-popover-min-width: 30px;
   --performance-popover-width: 420px;
   --performance-comparison-detail-width: 372px;
@@ -572,6 +577,8 @@
   --performance-icon-button-color: #646a73;
   /* hover 底色 REA 实采对齐飞书：icon/text neutral=rgba(31,35,41,0.1) 叠白≈#E9E9EA；outlined=#F2F3F5；primary=#E0E9FF（0.2 旧值偏深） */
   --performance-icon-button-hover-background: rgba(31, 35, 41, 0.1);
+  --performance-action-menu-icon-size: var(--font-size-md);
+  --performance-action-menu-trigger-hover-background: var(--performance-button-secondary-active-background);
   --performance-button-primary-background: var(--color-primary-hover);
   --performance-button-primary-hover-background: var(--color-primary-hover);
   --performance-button-primary-active-background: var(--color-primary-active);

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useUserStore } from '@/stores/user'
 import UiButton from '../ui/UiButton.vue'
+import PerformanceIconButton from './PerformanceIconButton.vue'
 
 const props = withDefaults(defineProps<{
   allowed: boolean
@@ -10,6 +11,8 @@ const props = withDefaults(defineProps<{
   danger?: boolean
   variant?: 'primary' | 'secondary' | 'text' | 'danger'
   ariaLabel?: string
+  icon?: string
+  iconVariant?: 'default' | 'outlined' | 'contextual' | 'menu'
 }>(), {
   op: 'U',
   disabled: false,
@@ -28,8 +31,9 @@ const buttonVariant = computed(() => props.danger ? 'danger' : props.variant)
 </script>
 
 <template>
+  <PerformanceIconButton v-if="visible && icon" :icon="icon" :label="ariaLabel || ''" :variant="iconVariant" :disabled="internalDisabled" />
   <UiButton
-    v-if="visible"
+    v-else-if="visible"
     :variant="buttonVariant"
     :disabled="internalDisabled"
     :aria-label="ariaLabel"

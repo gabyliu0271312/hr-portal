@@ -256,7 +256,6 @@ import PerformanceDateTimeField from '@/components/performance/PerformanceDateTi
 import PerformanceCycleLockSettings from '@/components/performance/PerformanceCycleLockSettings.vue'
 import PerformanceRequiredLabel from '@/components/performance/PerformanceRequiredLabel.vue'
 import PerformanceInfoPopover from '@/components/performance/PerformanceInfoPopover.vue'
-import { PERFORMANCE_INFO_PLACEHOLDER } from '@/components/performance/performanceInfoPlaceholder'
 import PerformanceSearchInput from '@/components/performance/PerformanceSearchInput.vue'
 import PerformanceSelectShell from '@/components/performance/PerformanceSelectShell.vue'
 import PerformanceCycleListItem from '@/components/performance/PerformanceCycleListItem.vue'
@@ -336,7 +335,7 @@ type PeriodTypeOption = { value: string; type: PerformanceCyclePeriodType; subty
 const selectedPeriodOption = computed(() => periodTypeGroups.flatMap(group => group.options).find(option => option.type === form.period_type && option.subtype === (form.period_subtype || null)) || periodTypeGroups.flatMap(group => group.options).find(option => option.type === form.period_type));
 const activeAnchor = ref('cycle-info'); const anchorItems = [{ id: 'cycle-info', label: '周期信息' }, { id: 'people-settings', label: '人员和部门信息设置' }, { id: 'evaluation-settings', label: '评估设置' }, { id: 'leaver-settings', label: '离职人员参评设置' }]; const yearPageSize = 20; const getDefaultYearPageStart = () => Math.floor(new Date().getFullYear() / yearPageSize) * yearPageSize; const yearPageStart = ref(Math.floor(new Date().getFullYear() / yearPageSize) * yearPageSize); const yearOptions = computed(() => Array.from({ length: yearPageSize }, (_, index) => yearPageStart.value + index).filter(year => year >= 1900 && year <= 2200)); const form = reactive<any>({ name: '', period_year: null, period_type: '', period_subtype: null, start_at: '', end_at: '', lock_rule: 'IMMEDIATE', lock_at: '', pre_lock_sync_mode: 'MANUAL', pre_lock_adjust_until: '', leaver_enabled: false, leaver_start_date: '', leaver_end_date: '', leaver_participation_mode: 'CREATE_TASK', allow_delete_360: false, anonymous_360_config: { enable: false, anonymous_object: '', anonymous_low_limit: 0, reviewer_tag_visibility_mode: 'visibleOverLowLimit' }, invitation_out_of_range_tips_config: { enable: false, range_count: 0, tips: { 'zh-CN': '', 'en-US': '' } }, overdue_submission_enabled: true, overdue_submission_scope: 'EVALUATION', evaluation_templates: [], semester_diff_rules: [], comparison_rules_revision: 0 }); const formSubmitted = ref(false); const isDirty = computed(() => editing.value && JSON.stringify(form) !== initialForm.value)
 watch(() => [...form.evaluation_templates], loadSelectedWorkflows, { flush: 'sync' })
-const cycleListInfo = PERFORMANCE_INFO_PLACEHOLDER
+const cycleListInfo = '如所在项目已启动，周期将按截止时间降序展示在绩效评估页面'
 const cycleFormRef = ref<HTMLFormElement | null>(null)
 const fieldErrors = reactive<Record<string, string>>({})
 const requiredFields = computed(() => [

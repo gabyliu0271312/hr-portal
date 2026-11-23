@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { ElDropdown, ElDropdownMenu, ElDropdownItem } from 'element-plus'
 import PerformancePermissionButton from './PerformancePermissionButton.vue'
 import PerformanceDisabledReason from './PerformanceDisabledReason.vue'
@@ -34,6 +34,7 @@ const startDisabledReason = computed(() => {
   return ''
 })
 const showStartButton = computed(() => props.status === 'DRAFT')
+const moreOpen = ref(false)
 </script>
 
 <template>
@@ -46,10 +47,8 @@ const showStartButton = computed(() => props.status === 'DRAFT')
         启动
       </PerformancePermissionButton>
     </PerformanceDisabledReason>
-    <el-dropdown trigger="click" @command="run">
-      <PerformancePermissionButton op="V" :allowed="props.canManage" class="more-action" aria-label="更多项目操作">
-        ···
-      </PerformancePermissionButton>
+    <el-dropdown :trigger="['hover', 'click']" placement="bottom-end" @visible-change="moreOpen = $event" @command="run">
+      <PerformancePermissionButton op="V" :allowed="props.canManage" class="more-action" :class="{ 'is-active': moreOpen }" icon="MoreOutlined" icon-variant="menu" aria-label="更多项目操作" aria-haspopup="menu" :aria-expanded="moreOpen" />
       <template #dropdown>
         <el-dropdown-menu>
           <el-dropdown-item v-if="props.canCopy" command="copy">复制</el-dropdown-item>
@@ -61,8 +60,7 @@ const showStartButton = computed(() => props.status === 'DRAFT')
 </template>
 
 <style scoped>
-.project-actions { display: inline-flex; align-items: center; gap: 12px; white-space: nowrap; }
-.project-actions button { padding: 0; border: 0; background: transparent; color: #3370ff; font: inherit; line-height: 22px; cursor: pointer; }
-.project-actions button:disabled { color: var(--performance-button-link-disabled-color); cursor: not-allowed; }
-.more-action { font-size: 18px !important; letter-spacing: 1px; }
+.project-actions { display: inline-flex; align-items: center; gap: var(--spacing-3); white-space: nowrap; }
+.project-actions :deep(.performance-button) { padding: 0; border: 0; background: transparent; color: var(--color-primary); font: inherit; line-height: var(--performance-button-line-height); cursor: pointer; }
+.project-actions :deep(.performance-button:disabled) { color: var(--performance-button-link-disabled-color); cursor: not-allowed; }
 </style>

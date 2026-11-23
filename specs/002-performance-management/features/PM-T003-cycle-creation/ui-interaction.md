@@ -199,7 +199,17 @@
 - 菜单按触发器左边缘定位，间距 4px；本地基准宽 124px、高 69px。目标当前缩放下实测约 123.33×69.52px，存在子像素差异，不宣称逐像素完全相等。删除在已有启动项目时为灰色、不可执行；Esc 关闭恢复焦点，点击外部关闭。120ms 关闭延迟为本地保留选择，未证明为目标精确延迟。
 - Chrome 隔离模拟 API 验证：1280×800 与1534×900，周期行40px、按钮24px、图标16px，默认 opacity=0，按下底色与采集一致，菜单124×69px，禁用删除颜色 `rgb(187,191,196)`、点击后确认框0/写请求0，搜索空态、Esc关闭、工具栏右侧间距0、外层横向溢出0、pageerror0。首次模拟接口路径不匹配和一次菜单定位超时均未计入通过，修正后完成上述检查。
 - 实现截图已查看：`../../ui-blueprints/PM-T003-I01-cycle-detail-default-implemented-20261123.png`、`../../ui-blueprints/PM-T003-I01-cycle-detail-active-implemented-20261123.png`、`../../ui-blueprints/PM-T003-I01-cycle-detail-menu-implemented-20261123.png`、`../../ui-blueprints/PM-T003-I01-cycle-detail-empty-implemented-20261123.png`、`../../ui-blueprints/PM-T003-I01-cycle-detail-wide-implemented-20261123.png`。
-- 尚未执行真实鉴权 API→数据库→GET 回读、生产部署和生产验收，`PM-T003-I01` 整体保持未勾选；不以局部 UI 与模拟接口验收代替完整业务完成。
+- 长周期名称使用共享 `PerformanceInfoPopover` 的文本变体，仅当实际内容宽度超过周期项可用宽度时触发；触发区保留 `text-overflow: ellipsis`，完整名称在共享白色浮层中显示。短名称不显示空提示。
+- 周期更多菜单的删除禁用项复用 `PerformanceDisabledReason` → `PerformanceInfoPopover`，提示文案固定为“周期中已有启动的项目，不支持删除”；按目标从菜单项右侧展开，复用全局浮层 token、箭头、延迟和移入浮层保持逻辑。删除判定、权限和确认流程不变。
+- REA 增量证据（目标 `s=7709448125064170517`）：长名称内容 `scrollWidth=184`、`clientWidth=154`，提示浮层约 215.22×47.33px、上方展开；短名称 `scrollWidth=clientWidth` 不显示。禁用删除项锚点约 x=463.67..563.67，提示从右侧展开约 257.33×47.33px，箭头为侧向 8×16 SVG；两类浮层均为白底、8px圆角、12px/16px内边距、14px/22px字体。Chrome 隔离模拟 API 已验证提示移入保持、移出关闭、无写请求和 pageerror=0；截图：`../../ui-blueprints/PM-T003-I01-cycle-name-tooltip-implemented-20261123.png`、`../../ui-blueprints/PM-T003-I01-cycle-delete-reason-implemented-20261123.png`。
+
+- 周期列表说明与项目更多按钮补齐（2026-11-23）：目标当前页 `s=7707127396310305784` 悬浮实采的周期说明为“如所在项目已启动，周期将按截止时间降序展示在绩效评估页面”，通过现有 `PerformanceInfoPopover` 展示，浮层420px、12px/16px内边距、8px圆角、14px/22px字体。该文案为展示说明，本轮不更改前台周期排序逻辑。
+- 项目操作的更多触发器复用权限按钮包装共享 `PerformanceIconButton` 的 menu 变体：24×24px、14px `MoreOutlined` SVG、4px圆角、默认透明、蓝色图标，hover/按下/菜单展开底色 `#dee0e3`。全局 token `--performance-action-menu-icon-size` 与 `--performance-action-menu-trigger-hover-background` 管理外观；不修改周期列表更多按钮原变体。项目菜单支持 hover 与 click，移入菜单保持展开，沿用复制和删除确认回调及现有权限。不新增目标站额外“导入评估信息/查看导入记录”能力，也不宣称本地菜单整体与目标菜单一致。
+- 本地Chrome+隔离模拟API验证：周期说明文案完整，浮层420×约69.33px；项目更多按钮24×24px、SVG14px、圆角4px，悬浮无点击即展开，移入菜单保持，复制进入复制框、删除进入原强确认框，确认前写请求0、pageerror0。截图已查看：`../../ui-blueprints/PM-T003-I01-cycle-list-help-implemented-20261123.png`、`../../ui-blueprints/PM-T003-I01-project-more-hover-implemented-20261123.png`。颜色采样曾处于120ms过渡中，为rgba(222,224,227,.957)，最终CSS值为#dee0e3；不为过渡中间值另造token。
+
+- 周期名称省略号字形校准（2026-11-23）：按用户要求以目标DOM/命中CSS/平台字体为主要依据。目标名称为完整文本节点，无`...`/`…`字面量、无`::before/::after`内容，使用浏览器原生`overflow:hidden; text-overflow:ellipsis; white-space:nowrap`。实际字体为 Segoe UI Semibold + Microsoft YaHei Bold，字号14px、选中600、行高22px，`font-feature-settings:"tnum"`、`font-variant-numeric:tabular-nums`、`text-rendering:auto`。本地此前继承平台另一字体栈且为普通数字/optimizeLegibility，导致文本更宽、截断点和省略字形不一致。
+- 共享 `PerformanceInfoPopover` 文本变体统一消费 `--performance-ellipsis-font-family` / `--performance-ellipsis-font-feature-settings` / `--performance-ellipsis-font-variant-numeric` / `--performance-ellipsis-text-rendering`；外层flex `0 1 auto`按内容收缩，文本内层flex `1 1 0%`，保留完整文本并由原生ellipsis绘制。周期行宽/操作按钮占位/权限不变，不修改全局body字体。
+- 同Chrome/DPR1.5的DOM复验：目标和本地同文案“2026 Q4 测试360°评估及邀请”，文本范围均183.76043701171875px、可用宽154px、scrollWidth184；字体栈、字号、字重、行高、数字特性、text-rendering、flex、overflow/text-overflow/white-space、伪元素均一致；未选中态同名文本范围均181.88543701171875px、字重400，其余所核对参数同样无差异；短名“测试B”均36.03125px且不弹提示，完整名称浮层215.21875px，上方展开，pageerror0。截图仅作辅证：`../../ui-blueprints/PM-T003-I01-cycle-ellipsis-dom-aligned-20261123.png`，不以不同截图倍率判断实现。
 
 ## 7. 列表操作与删除
 

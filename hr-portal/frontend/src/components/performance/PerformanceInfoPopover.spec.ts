@@ -6,6 +6,58 @@ enableAutoUnmount(afterEach)
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('PerformanceInfoPopover', () => {
+  it('仅在文本实际溢出时显示完整名称，并保留省略号触发区', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(PerformanceInfoPopover, {
+      attachTo: document.body,
+      props: { content: '很长的周期完整名称', variant: 'text', overflowOnly: true, width: 'auto' },
+      slots: { default: '很长的周期完整名称' },
+    })
+    const anchor = wrapper.get('.performance-info-popover__anchor')
+    expect(anchor.text()).toBe('很长的周期完整名称')
+    expect(anchor.element.textContent).not.toContain('...')
+    expect(anchor.element.textContent).not.toContain('…')
+    expect(anchor.attributes('title')).toBeUndefined()
+    Object.defineProperty(anchor.element, 'clientWidth', { configurable: true, value: 154 })
+    Object.defineProperty(anchor.element, 'scrollWidth', { configurable: true, value: 100 })
+    await anchor.trigger('mouseenter')
+    vi.advanceTimersByTime(124)
+    await wrapper.vm.$nextTick()
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    Object.defineProperty(anchor.element, 'scrollWidth', { configurable: true, value: 240 })
+    await anchor.trigger('mouseenter')
+    vi.advanceTimersByTime(124)
+    await wrapper.vm.$nextTick()
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain('很长的周期完整名称')
+    expect(wrapper.classes()).toContain('performance-info-popover-root--text')
+    await anchor.trigger('mouseleave')
+    vi.advanceTimersByTime(124)
+    await wrapper.vm.$nextTick()
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+  })
+
+  it.each([
+    { left: 100, right: 200, placement: 'right', expectedLeft: '210px' },
+    { left: 900, right: 1000, placement: 'left', expectedLeft: '630px' },
+  ])('右侧提示在空间不足时翻至 $placement 并使用侧向箭头', async ({ left, right, placement, expectedLeft }) => {
+    vi.useFakeTimers()
+    vi.stubGlobal('innerWidth', 1024)
+    const wrapper = mount(PerformanceInfoPopover, { attachTo: document.body, props: { content: '周期中已有启动的项目，不支持删除', variant: 'disabled-action', side: 'right', width: 'auto' } })
+    const anchor = wrapper.get('.performance-info-popover__anchor')
+    vi.spyOn(anchor.element, 'getBoundingClientRect').mockReturnValue({ top: 200, bottom: 222, left, right, width: 100, height: 22 } as DOMRect)
+    await anchor.trigger('mouseenter')
+    vi.advanceTimersByTime(124)
+    await wrapper.vm.$nextTick()
+    const popover = document.body.querySelector<HTMLElement>('[role="tooltip"]')!
+    vi.spyOn(popover, 'getBoundingClientRect').mockReturnValue({ width: 260, height: 48 } as DOMRect)
+    window.dispatchEvent(new Event('resize'))
+    await wrapper.vm.$nextTick()
+    expect(popover.dataset.placement).toBe(placement)
+    expect(popover.style.left).toBe(expectedLeft)
+    expect(popover.style.top).toBe('187px')
+    expect(popover.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 8 16')
+  })
+
   it('opens after the configured delay and positions a text tooltip above its anchor', async () => {
     vi.useFakeTimers()
     const wrapper = mount(PerformanceInfoPopover, {

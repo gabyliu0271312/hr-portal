@@ -382,6 +382,7 @@ describe('CycleManagement', () => {
   it('按北京时间显示起止日期和真实创建时间，缺失创建时间不伪造', async () => {
     mocks.list.mockResolvedValue({ items: [{ ...cycle, start_at: '2025-12-31T16:00:00Z', created_at: '2026-11-18T09:56:09Z' }], total: 1, page: 1, page_size: 20 })
     const wrapper = await mountView()
+    expect(wrapper.getComponent({ name: 'PerformanceInfoPopover' }).props('content')).toBe('如所在项目已启动，周期将按截止时间降序展示在绩效评估页面')
     expect(wrapper.get('.metrics').text()).toContain('2026-01-01 - 2026-12-31')
     expect(wrapper.get('.metrics').text()).toContain('周期创建时间2026-11-18 17:56')
     expect(wrapper.get('.metrics').text()).not.toContain('09:00')
@@ -411,6 +412,13 @@ describe('CycleManagement', () => {
     const menu = document.body.querySelector<HTMLElement>('[aria-label="周期操作"]')!
     const remove = menu.querySelector<HTMLElement>('[aria-disabled="true"]')!
     expect(remove.textContent).toContain('删除')
+    const reasonAnchor = menu.querySelector<HTMLElement>('[data-disabled-reason] .performance-info-popover__anchor')!
+    reasonAnchor.dispatchEvent(new MouseEvent('mouseenter'))
+    await new Promise(resolve => setTimeout(resolve, 150))
+    await flushPromises()
+    const tooltip = document.getElementById(reasonAnchor.getAttribute('aria-describedby')!)!
+    expect(tooltip.textContent).toContain('周期中已有启动的项目，不支持删除')
+    expect(tooltip.dataset.placement).toBe('right')
     remove.click()
     await flushPromises()
     expect(wrapper.findComponent(PerformanceConfirmDialog).props('modelValue')).toBe(false)
@@ -599,8 +607,12 @@ describe('CycleManagement', () => {
     mocks.projectRemove.mockResolvedValue(undefined)
     const wrapper = await mountView()
 
-    const moreButton = wrapper.findAll('button').find(button => button.attributes('aria-label') === '更多操作')
-    await moreButton!.trigger('click')
+    const moreButton = wrapper.findAll('button').find(button => button.attributes('aria-label') === '更多项目操作')
+    expect(moreButton!.find('[data-icon="MoreOutlined"]').exists()).toBe(true)
+    await moreButton!.trigger('mouseenter')
+    await new Promise(resolve => setTimeout(resolve, 300))
+    await flushPromises()
+    expect(moreButton!.attributes('aria-expanded')).toBe('true')
     await document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
     await wrapper.vm.$nextTick()
     const removeItems = [...document.body.querySelectorAll('.el-dropdown-menu__item')].filter(item => item.textContent === '删除')
@@ -622,13 +634,33 @@ describe('CycleManagement', () => {
     expect(mocks.get).toHaveBeenCalled()
   })
 
+  it('项目管理员悬浮菜单不显示复制，未授权项目隐藏操作入口', async () => {
+    mocks.list.mockResolvedValue({ items: [{ ...cycle, projects: [project] }], total: 1, page: 1, page_size: 20 })
+    mocks.getAccessContext.mockResolvedValue({ permission_codes: ['performance.projects.manage'], role_grants: [{ scope_type: 'PROJECT', scope_ref: project.project_ref }] })
+    const wrapper = await mountView()
+    await wrapper.get('[aria-label="更多项目操作"]').trigger('mouseenter')
+    await new Promise(resolve => setTimeout(resolve, 300))
+    await flushPromises()
+    expect(wrapper.get('[aria-label="更多项目操作"]').attributes('aria-expanded')).toBe('true')
+    const menu = document.getElementById(wrapper.get('[aria-label="更多项目操作"]').attributes('aria-controls')!)!
+    const visibleItems = [...menu.querySelectorAll('.el-dropdown-menu__item')].map(item => item.textContent)
+    expect(visibleItems).toContain('删除')
+    expect(visibleItems).not.toContain('复制')
+    wrapper.unmount()
+    mocks.getAccessContext.mockResolvedValue({ permission_codes: ['performance.projects.manage'], role_grants: [] })
+    const unauthorized = await mountView()
+    expect(unauthorized.find('[aria-label="更多项目操作"]').exists()).toBe(false)
+    expect(unauthorized.find('[aria-label="编辑dee"]').exists()).toBe(false)
+    unauthorized.unmount()
+  })
+
   it('keeps project remove behind the confirm dialog until confirmed', async () => {
     const cycleWithProjects = { ...cycle, projects: [project] }
     mocks.list.mockResolvedValue({ items: [cycleWithProjects], total: 1, page: 1, page_size: 20 })
     mocks.get.mockResolvedValue(cycleWithProjects)
     const wrapper = await mountView()
 
-    const moreButton = wrapper.findAll('button').find(button => button.attributes('aria-label') === '更多操作')
+    const moreButton = wrapper.findAll('button').find(button => button.attributes('aria-label') === '更多项目操作')
     await moreButton!.trigger('click')
     const removeItems = [...document.body.querySelectorAll('.el-dropdown-menu__item')].filter(item => item.textContent === '删除')
     removeItems[0].dispatchEvent(new Event('click', { bubbles: true }))
@@ -650,7 +682,7 @@ describe('CycleManagement', () => {
     mocks.projectRemove.mockResolvedValue(undefined)
     const wrapper = await mountView()
 
-    const moreButton = wrapper.findAll('button').find(button => button.attributes('aria-label') === '更多操作')
+    const moreButton = wrapper.findAll('button').find(button => button.attributes('aria-label') === '更多项目操作')
     await moreButton!.trigger('click')
     const removeItems = [...document.body.querySelectorAll('.el-dropdown-menu__item')].filter(item => item.textContent === '删除')
     expect(removeItems.length).toBeGreaterThanOrEqual(1)
