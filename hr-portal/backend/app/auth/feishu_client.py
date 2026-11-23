@@ -10,7 +10,7 @@ app_access_token 走自建应用凭证，带 30 分钟内存缓存（飞书有�
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlencode
 
 import httpx
@@ -34,6 +34,9 @@ class FeishuUser:
     name: str
     email: str | None
     enterprise_email: str | None
+    access_token: str = field(default="", repr=False)
+    expires_in: int = 0
+    scope: str = ""
 
 
 @dataclass
@@ -53,6 +56,11 @@ def get_authorize_url(state: str) -> str:
         "response_type": "code",
         "state": state,
     }
+    if settings.FEISHU_DOCUMENT_TITLE_ENABLED:
+        from app.auth.feishu_user_grant import DOCUMENT_METADATA_SCOPE
+        params["client_id"] = params.pop("app_id")
+        params["scope"] = f"{DOCUMENT_METADATA_SCOPE} contact:user.email:readonly contact:user.employee:readonly"
+        return f"https://accounts.feishu.cn/open-apis/authen/v1/authorize?{urlencode(params)}"
     return f"{_AUTHORIZE_URL}?{urlencode(params)}"
 
 
@@ -86,19 +94,28 @@ async def _get_app_access_token(timeout: float = 15.0) -> str:
 
 async def exchange_user_info(code: str, timeout: float = 15.0) -> FeishuUser:
     """回调 code -> user_access_token -> 用户信息"""
-    app_token = await _get_app_access_token(timeout=timeout)
+    app_token = await _get_app_access_token(timeout=timeout) if not settings.FEISHU_DOCUMENT_TITLE_ENABLED else None
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        token_resp = await client.post(
-            _OIDC_TOKEN_URL,
-            headers={"Authorization": f"Bearer {app_token}"},
-            json={"grant_type": "authorization_code", "code": code},
-        )
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        if settings.FEISHU_DOCUMENT_TITLE_ENABLED:
+            token_resp = await client.post(
+                "https://open.feishu.cn/open-apis/authen/v2/oauth/token",
+                json={"grant_type": "authorization_code", "client_id": settings.FEISHU_APP_ID,
+                      "client_secret": settings.FEISHU_APP_SECRET, "code": code,
+                      "redirect_uri": settings.FEISHU_REDIRECT_URI},
+            )
+        else:
+            token_resp = await client.post(
+                _OIDC_TOKEN_URL,
+                headers={"Authorization": f"Bearer {app_token}"},
+                json={"grant_type": "authorization_code", "code": code},
+            )
         token_resp.raise_for_status()
         token_data = token_resp.json()
         if token_data.get("code") != 0:
-            raise FeishuError(f"换取用户 token 失败：{token_data.get('msg')}")
-        user_access_token = token_data["data"]["access_token"]
+            raise FeishuError("飞书用户授权失败，请重新登录")
+        grant = token_data if settings.FEISHU_DOCUMENT_TITLE_ENABLED else token_data["data"]
+        user_access_token = grant["access_token"]
 
         info_resp = await client.get(
             _USER_INFO_URL,
@@ -115,4 +132,7 @@ async def exchange_user_info(code: str, timeout: float = 15.0) -> FeishuUser:
         name=d.get("name", ""),
         email=d.get("email"),
         enterprise_email=d.get("enterprise_email"),
+        access_token=user_access_token if settings.FEISHU_DOCUMENT_TITLE_ENABLED else "",
+        expires_in=int(grant.get("expires_in", 0)),
+        scope=str(grant.get("scope", "")),
     )

@@ -425,6 +425,8 @@
 
 ## 统一富文本内核与标签输入（PM-T004-T05-F18，2026-10-23）
 
+- 2026-11-23链接增强：直接粘贴http/https/mailto安全网址自动超链接，保留HTML可见文档标题和空链接的title/data-title纯文本；已有标题或用户选择的显示文字不自动覆盖。光标/选区进入同一链接时工具栏高亮，普通文字时取消；弹层回填和编辑原href。裸飞书文档链接先显示可点击URL，再按本人用户授权异步取标题，无权限/失效/错误保留URL，查询期间正文发生变化则不替换；支持原插入操作undo/redo。沿现有布局，无新蓝图，三variant共用。FEISHU_DOCUMENT_TITLE_ENABLED默认关闭，需新增0324迁移、飞书用户metadata与邮箱scope、私有加密密钥及重登；不读正文、不改文档权限。Renderer67/67、backend69/69、Chrome真实组件+受控标题响应27项通过，PNG `../../ui-blueprints/PM-T004-T05-F18-implemented-link-title-20261123.png` 已查看；真实授权/PostgreSQL/生产未验收，完整合同与部署边界见CR-010-F06链接增强小节。
+
 - 2026-11-23拼音占位补漏：组合输入开始即隐藏默认提示，未确认拼音不与提示重叠；组合期间不重建DOM、不发布中间答案；取消后若仍为空恢复提示，确认中文后保持隐藏。default/task-entry/tag共用实现，Renderer 56/56、真实Chrome CDP IME 43项检查通过；截图 `../../ui-blueprints/CR-010-F06-implemented-ime-placeholder-20261123.png` 已查看，非OS输入法/生产人工验收。
 
 - 用户确认配置预览与实际填写的标签样式一致：单外框/顶部共享工具栏/各标签独立紧凑输入区；不是把既有实现差异一律当变体保留。两处统一调用 `PerformanceTagRichTextInput`，工作总结、文本与标签编辑均调用 `PerformanceRichTextEditor`；移除旧局部引擎与员工端execCommand实现。普通文本default/task-entry维持现有尺寸场景，宽度由调用容器决定，不固定采集宽度、不改变实际填写页面宽度。

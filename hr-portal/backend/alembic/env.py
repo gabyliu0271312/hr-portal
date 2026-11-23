@@ -20,6 +20,7 @@ from app.core.db import Base
 # 后续阶段的 model 模块在此导入，使其注册到 Base.metadata：
 from app.identity_switch import models as _identity_switch_models
 from app.users import models as _users_models  # noqa: F401
+from app.auth import feishu_user_grant as _feishu_user_grant  # noqa: F401
 from app.field_category import models as _field_cat_models  # noqa: F401
 from app.datasources import models as _datasources_models  # noqa: F401
 from app.data import models as _data_models  # noqa: F401

@@ -129,6 +129,8 @@ async def logout(user: User = Depends(current_user), db: AsyncSession = Depends(
     from sqlalchemy import update
     from app.identity_switch.models import IdentitySwitchSession
     await db.execute(update(IdentitySwitchSession).where(IdentitySwitchSession.operator_user_id == user.id, IdentitySwitchSession.revoked_at.is_(None)).values(revoked_at=datetime.now(UTC)))
+    from app.auth.feishu_user_grant import revoke_user_grants
+    await revoke_user_grants(db, user.id)
     await db.commit()
     return {"ok": True}
 
@@ -234,6 +236,8 @@ async def feishu_callback(
                 detail="你的飞书账号未开通 HR Portal 权限，请联系管理员",
             )
         # 首次匹配，回写绑定
+        if user.feishu_user_id and user.feishu_user_id != fs_user.open_id:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="飞书账号与已有绑定不一致")
         user.feishu_user_id = fs_user.open_id
 
     if not user.is_active:
@@ -243,8 +247,15 @@ async def feishu_callback(
     user.failed_login_count = 0
     user.locked_until = None
     user.last_login_at = now
+    token = create_access_token(user.id)
+    if settings.FEISHU_DOCUMENT_TITLE_ENABLED:
+        from app.auth.feishu_user_grant import retain_user_grant
+        try:
+            async with db.begin_nested():
+                await retain_user_grant(db, user, token, fs_user)
+        except Exception:
+            pass
     await db.commit()
 
-    token = create_access_token(user.id)
     expires_at = now + timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
     return LoginOut(access_token=token, expires_at=expires_at)

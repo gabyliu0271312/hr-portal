@@ -47,7 +47,8 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import PerformanceRichTextBox from './PerformanceRichTextBox.vue'
-import { sanitizePerformanceRichTextHtml as sanitizeHtml } from './performanceRichTextHtml'
+import { sanitizePerformanceRichTextHtml as sanitizeHtml, linkifyPerformanceRichText, performanceRichTextUrl, isFeishuDocumentUrl } from './performanceRichTextHtml'
+import { performanceRichTextApi } from '@/api/performanceRichText'
 
 type CommandKey = 'bold' | 'italic' | 'underline' | 'insertOrderedList' | 'insertUnorderedList' | 'link'
 type MarkKey = 'bold' | 'italic' | 'underline'
@@ -101,6 +102,32 @@ let selectionFrame = 0
 let markOverride: string | null = null
 let compositionStart: Bookmark | null = null
 let compositionMarks = { bold: false, italic: false, underline: false }
+let disposed = false
+
+function resolveDocumentTitles(anchors: HTMLAnchorElement[]) {
+  let expected = editor.value?.innerHTML
+  for (const anchor of anchors) {
+    const href = anchor.getAttribute('href') || ''
+    if (!isFeishuDocumentUrl(href) || visibleText(anchor) !== href) continue
+    void performanceRichTextApi.title(href).then(title => {
+      const root = editor.value
+      if (!title || disposed || props.readonly || composing || beforeEdit || !root?.contains(anchor)
+          || root.innerHTML !== expected || anchor.getAttribute('href') !== href || visibleText(anchor) !== href) return
+      const saved = bookmark()
+      const start = positionAt(anchor, 0)
+      const end = positionAt(anchor, anchor.childNodes.length)
+      const adjust = (point: Position): Position => point.block !== start.block || point.offset <= start.offset ? point
+        : { ...point, offset: point.offset >= end.offset ? point.offset + title.length - href.length : start.offset + title.length }
+      anchor.textContent = title
+      if (saved) restoreBookmark({ ...saved, start: adjust(saved.start), end: adjust(saved.end) })
+      restoringHistory = true
+      try { emitHtml() } finally { restoringHistory = false }
+      committed = snapshot()
+      expected = root.innerHTML
+      if (saved) styleState(selection.value)
+    })
+  }
+}
 
 function contentOf(block: HTMLElement) { return block.querySelector(':scope > ol > li, :scope > ul > li') as HTMLElement || block }
 function visibleText(node: Node) { return (node.textContent || '').replace(/​/g, '') }
@@ -415,6 +442,20 @@ function hasMark(node: Text, state: MarkKey) {
   return false
 }
 
+function selectedLink(range: Range | null) {
+  if (!range || !editor.value) return null
+  const element = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement
+  const anchor = element?.closest('a[href]') as HTMLAnchorElement | null
+  if (range.collapsed) return anchor && editor.value.contains(anchor) ? anchor : null
+  const nodes = selectedTextNodes(range).filter(node => {
+    const start = node === range.startContainer ? range.startOffset : 0
+    const end = node === range.endContainer ? range.endOffset : node.length
+    return end > start
+  })
+  const first = nodes[0]?.parentElement?.closest('a[href]') as HTMLAnchorElement | null
+  return first && nodes.every(node => node.parentElement?.closest('a[href]') === first) ? first : null
+}
+
 function styleState(range: Range | null) {
   if (!range || !editor.value || !editor.value.contains(range.startContainer) || !editor.value.contains(range.endContainer)) return
   const textNodes = range.collapsed ? [] : selectedTextNodes(range)
@@ -430,6 +471,7 @@ function styleState(range: Range | null) {
   active.bold = range.collapsed ? pendingMarks.bold : textNodes.length > 0 && textNodes.every(node => hasMark(node, 'bold'))
   active.italic = range.collapsed ? pendingMarks.italic : textNodes.length > 0 && textNodes.every(node => hasMark(node, 'italic'))
   active.underline = range.collapsed ? pendingMarks.underline : textNodes.length > 0 && textNodes.every(node => hasMark(node, 'underline'))
+  active.link = Boolean(selectedLink(range))
   const blocks = selectedBlocks(range)
   active.insertOrderedList = blocks.length > 0 && blocks.every(block => directList(block)?.tagName === 'OL')
   active.insertUnorderedList = blocks.length > 0 && blocks.every(block => directList(block)?.tagName === 'UL')
@@ -838,10 +880,21 @@ function keyHandler(event: KeyboardEvent) {
 function applyLink() {
   const value = url.value.trim()
   const range = selectedFragment()
-  if (props.readonly || !range || !value || !/^(https?:|mailto:)/i.test(value)) return
+  if (props.readonly || !range || !performanceRichTextUrl(value)) return
   beginEdit()
+  const currentRange = document.getSelection()?.rangeCount ? document.getSelection()!.getRangeAt(0) : null
+  const existing = selectedLink(currentRange)
+  if (existing) {
+    existing.setAttribute('href', value)
+    emitHtml()
+    linkOpen.value = false
+    url.value = ''
+    editor.value?.focus({ preventScroll: true })
+    return
+  }
   let saved = bookmark()
   if (!saved) return
+  const resolveTitle = range.collapsed
   if (range.collapsed) {
     const point = { ...saved.start }
     transactionOpen = true
@@ -854,6 +907,7 @@ function applyLink() {
   linkOpen.value = false
   url.value = ''
   emitHtml()
+  if (resolveTitle) resolveDocumentTitles(Array.from(editor.value!.querySelectorAll<HTMLAnchorElement>('a[href]')).filter(anchor => positionAt(anchor, 0).block === saved!.start.block && positionAt(anchor, 0).offset >= saved!.start.offset && positionAt(anchor, anchor.childNodes.length).offset <= saved!.end.offset))
   editor.value?.focus({ preventScroll: true })
 }
 
@@ -867,8 +921,11 @@ function command(cmd: CommandKey) {
     selection.value = range
   }
   if (cmd === 'link') {
+    const currentRange = document.getSelection()?.rangeCount ? document.getSelection()!.getRangeAt(0) : null
+    const existing = selectedLink(currentRange)
+    url.value = existing?.href || ''
     restoreSelection()
-    active.link = !linkOpen.value
+    active.link = true
     linkOpen.value = !linkOpen.value
     return
   }
@@ -887,8 +944,10 @@ function paste(event: ClipboardEvent) {
   const html = event.clipboardData?.getData('text/html') || ''
   const source = document.createElement('div')
   source.textContent = event.clipboardData?.getData('text/plain') || ''
+  source.innerHTML = sanitizeHtml(html || source.innerHTML)
+  linkifyPerformanceRichText(source)
   const normalized = document.createElement('div')
-  normalized.innerHTML = normalizeHtml(html || source.innerHTML)
+  normalized.innerHTML = normalizeHtml(source.innerHTML)
   const incoming = Array.from(normalized.children) as HTMLElement[]
   const first = editor.value.children[saved.start.block] as HTMLElement
   const last = editor.value.children[saved.end.block] as HTMLElement
@@ -907,6 +966,9 @@ function paste(event: ClipboardEvent) {
     const endFragment = index === incoming.length - 1 ? after : null
     if (startFragment) content.prepend(startFragment)
     if (endFragment) content.appendChild(endFragment)
+    content.querySelectorAll('a').forEach(anchor => { if (!visibleText(anchor)) anchor.remove() })
+    content.querySelectorAll('[data-enter]').forEach(leaf => leaf.remove())
+    ensureEndLeaf(content)
     if (!directList(block) && (incoming.length === 1 || directList(first))) {
       const list = directList(first)
       return list ? blockListWrapper(list.tagName as 'OL' | 'UL', content) : plainBlock(content)
@@ -919,6 +981,7 @@ function paste(event: ClipboardEvent) {
   restoreBookmark({ start: point, end: point, backward: false })
   emitHtml()
   rememberSelection()
+  resolveDocumentTitles(replacements.flatMap(block => Array.from(block.querySelectorAll<HTMLAnchorElement>('a[href]'))))
 }
 
 function syncEditor(value: string) {
@@ -974,6 +1037,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  disposed = true
   document.removeEventListener('selectionchange', handleSelectionChange)
   if (selectionFrame) cancelAnimationFrame(selectionFrame)
 })

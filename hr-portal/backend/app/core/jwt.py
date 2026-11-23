@@ -5,6 +5,7 @@
 """
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import uuid4
 
 from jose import JWTError, jwt
 
@@ -27,6 +28,7 @@ def _create_token(
         "sub": str(subject_id),
         "subject_type": subject_type,
         "exp": expire,
+        "jti": uuid4().hex,
     }
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 

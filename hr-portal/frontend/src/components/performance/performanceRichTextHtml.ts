@@ -1,3 +1,48 @@
+export function performanceRichTextUrl(value: string) {
+  if (!/^(https?:\/\/|mailto:)/i.test(value) || /[\s\u0000-\u001f\u007f]/.test(value)) return null
+  try {
+    const url = new URL(value)
+    return !url.username && !url.password && (url.protocol === 'mailto:' ? Boolean(url.pathname) : Boolean(url.hostname)) ? value : null
+  } catch { return null }
+}
+
+export function isFeishuDocumentUrl(value: string) {
+  if (!performanceRichTextUrl(value)) return false
+  const url = new URL(value)
+  return url.protocol === 'https:' && /(^|\.)feishu\.cn$/.test(url.hostname) && !url.port && /^\/(docx|docs|wiki|sheets|base|file)\/[a-zA-Z0-9]+\/?$/.test(url.pathname)
+}
+
+export function linkifyPerformanceRichText(root: HTMLElement) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  const nodes: Text[] = []
+  let node = walker.nextNode() as Text | null
+  while (node) {
+    if (!node.parentElement?.closest('a')) nodes.push(node)
+    node = walker.nextNode() as Text | null
+  }
+  for (const text of nodes) {
+    const pattern = /(?:https?:\/\/|mailto:)[^\s<>"​，。；！？、【】「」（）]+/gi
+    const fragment = document.createDocumentFragment()
+    let offset = 0
+    for (const match of text.data.matchAll(pattern)) {
+      let value = match[0].replace(/[.,;:!?]+$/, '')
+      while (value.endsWith(')') && (value.match(/\)/g)?.length || 0) > (value.match(/\(/g)?.length || 0)) value = value.slice(0, -1)
+      if (!performanceRichTextUrl(value)) continue
+      fragment.appendChild(document.createTextNode(text.data.slice(offset, match.index)))
+      const anchor = document.createElement('a')
+      anchor.setAttribute('href', value)
+      anchor.target = '_blank'
+      anchor.rel = 'noopener noreferrer'
+      anchor.textContent = value
+      fragment.appendChild(anchor)
+      offset = match.index! + value.length
+    }
+    if (!offset) continue
+    fragment.appendChild(document.createTextNode(text.data.slice(offset)))
+    text.replaceWith(fragment)
+  }
+}
+
 const allowedTags = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'OL', 'UL', 'LI', 'A', 'P', 'DIV', 'BR', 'SPAN'])
 const dangerousTags = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'SVG', 'MATH'])
 const allowedClasses: Record<string, string[]> = {
@@ -25,10 +70,13 @@ export function sanitizePerformanceRichTextHtml(value: unknown) {
     if (classes.length) next.setAttribute('class', classes.join(' '))
     if (node.tagName === 'A') {
       const href = node.getAttribute('href') || ''
-      if (/^(https?:|mailto:)/i.test(href)) {
-        next.setAttribute('href', href)
+      const safeHref = performanceRichTextUrl(href)
+      if (safeHref) {
+        next.setAttribute('href', safeHref)
         next.setAttribute('target', '_blank')
         next.setAttribute('rel', 'noopener noreferrer')
+        const title = (node.getAttribute('data-title') || node.getAttribute('title') || '').trim()
+        if (title && !node.textContent?.trim()) next.appendChild(document.createTextNode(title.slice(0, 500)))
       }
     } else if (node.tagName === 'DIV') {
       if (node.getAttribute('data-node') === 'true') next.setAttribute('data-node', 'true')

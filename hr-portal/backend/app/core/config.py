@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     # 飞书通知投递保险丝：True 允许真实发送，实际是否发送由「身份管理 → delivery_mode」三态运行时控制
     FEISHU_NOTIFICATION_DELIVERY_ENABLED: bool = False
     FEISHU_SSO_ENABLED: bool = False
+    FEISHU_DOCUMENT_TITLE_ENABLED: bool = False
     FEISHU_APP_ID: str = ""
     FEISHU_APP_SECRET: str = ""
     # 绩效「OKR」参考内容的数据源：none（默认，不接入，前端展示空态）/ feishu（飞书 OKR v1 接口）

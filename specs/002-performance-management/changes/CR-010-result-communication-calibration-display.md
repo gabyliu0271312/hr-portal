@@ -167,6 +167,21 @@
 
 ### 2026-11-23 公共编辑稳定性补充（用户确认“完成上述全部优化”）
 
+#### 文档标题与直接粘贴链接（用户确认实施并选择补充用户授权）
+
+- 关联 PM-T004-T05-F18；本次用户授权扩展前后端、OAuth与新迁移范围，取代此前本任务“无API/迁移”的限制，仅限本段列明能力。沿公共编辑器/工具栏和原弹层，无新页面、信息架构或设计体系，不改变HTML答案/草稿版本/历史快照。保留并行周期管理/Popover修改，不执行真实外呼、生产迁移、部署、commit/push。
+- 粘贴：安全 http/https/mailto 网址自动生成链接，可混合正文和多链接；先清洗HTML再识别，不嵌套已有链接，不吸收中文句号/括号等末尾标点。剪贴板已有可见标题优先保留；空链接的title/data-title作为纯文本补充标题，输出不保留该元数据。连续粘贴移除空链接和重复结束叶。仅粘贴入口识别，不在读取历史答案时改写纯文本。
+- 工具栏：光标/选区位于同一链接时高亮，移至普通文本取消高亮；点击回填当前链接地址，应用更新原链接并保留显示文字。新建折叠链接和粘贴的裸飞书URL异步查询标题，自定义选中文字不自动替换。仍保存标准 `<a href>`，无新答案字段。
+- 异步保护：先插入可点击URL，失败保留URL；响应必须命中原链接、原文字和未变化正文，输入/IME/撤销/卸载/readonly/登录或身份切换发生后丢弃迟到结果；标题以textContent写入，不执行HTML。多链接同批解析可依次完成，标题替换并入原插入的撤销事务；undo/redo不产生额外标题查询。
+- 新接口：`POST /api/v1/performance/rich-text/link-title`，请求 `{url: string<=2048}`，响应 `200 {title: string|null}`；无登录401、入口不足403、非法body422。额外限制PORTAL_USER且具performance.app，本人非切换；系统账号/admin-only/切换/缺授权/到期/不匹配URL返回null，拒绝分支不取得令牌、不外呼。前端静默降级，不为辅助标题查询弹全局错误。
+- 飞书边界：只解析https、无userinfo/自定义端口的feishu.cn及子域 `/docs|docx|wiki|sheets|base|file/{alnum token}`。仅POST固定 `https://open.feishu.cn/open-apis/drive/v1/metas/batch_query`，with_url=false，4秒超时，不跟随重定向、不抓取粘贴URL、不使用tenant令牌；按request_doc_info或直接doc_token/doc_type精确匹配标题。Lark全球域及任意外站不发飞书标题查询。官方合同：[元数据](https://open.feishu.cn/document/server-docs/docs/drive-v1/file/batch_query)、[OAuth v2](https://open.feishu.cn/document/authentication-management/access-token/get-user-access-token)、[用户身份字段](https://open.feishu.cn/document/server-docs/authentication-management/login-state-management/get)。
+- 用户授权：`FEISHU_DOCUMENT_TITLE_ENABLED=false`默认关闭，已映射compose并补.env.example。开启时使用accounts.feishu.cn授权入口及authen/v2/oauth/token，scope为drive:drive.metadata:readonly与原邮箱匹配所需contact:user.email:readonly/contact:user.employee:readonly；关闭时保留原OIDC登录。用户令牌仅服务端Fernet加密，不进入浏览器/JWT/响应/repr/日志；按Portal用户、绑定OpenID、AppID及Portal JWT的SHA256会话摘要读取，期限不超过飞书返回时长和Portal JWT期限，过期不自动refresh，需重新飞书登录。JWT新增随机jti确保同秒登录会话隔离，旧JWT仍按原方式校验；退出登录删除本人文档授权，邮箱匹配不覆盖已绑定的其他OpenID。缺scope/加密存储失败不阻断成功登录。
+- 迁移：新增 `0324_feishu_user_document_grants`，down_revision=`0323_pm_workbench_announcements`；表feishu_user_grants以session_digest为主键，user_id外键CASCADE+索引，保存open_id/app_id/密文/到期时间。downgrade只删除临时授权表，不接触绩效答案。后端目录`.venv/Scripts/python.exe -m alembic heads`实跑唯一0324 head；隔离SQLite真实执行新增迁移upgrade→写入→downgrade→upgrade通过，不冒称PostgreSQL全链升级或生产验收。
+- 测试：`npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceTemplateRenderer.spec.ts`最终67/67通过；三文件Renderer/SelfSummaryTask/Layers扩大回归296 passed/1既有颜色断言failed（该次Renderer65项，其后新增2项专项通过），原失败未隐藏。backend执行`.venv/Scripts/python.exe -m pytest tests/test_performance_rich_text.py tests/test_performance_auth_context.py -q` 69/69通过（新标题40项+认证29项），全部HTTP为MockTransport，包含allow/deny、会话/身份/期限/缺scope、固定API、无tenant回退、非JSON/超时/权限失败、OAuth旧新流程、callback/退出、随机JWT与迁移。两条既有/SQLite弃用警告。
+- 浏览器：本地Vite真实Vue+受控HTTP标题夹具，三variant粘贴→标题→toolbar回填/更新→undo/redo、多链接、剪贴板标题不查询、缺标题保留URL、离开链接取消高亮，共27项通过、pageerror=0。独立PNG `ui-blueprints/PM-T004-T05-F18-implemented-link-title-20261123.png` 已查看，为模拟标题/隔离组件，非真实飞书文档。
+- 最终构建：`npm --prefix hr-portal/frontend run build` 的vue-tsc与Vite均通过（57.05s，exit0），保留既有VueUse PURE注释提示；本轮文件diff检查通过。中间曾被并行CycleManagement.spec.ts类型错误阻塞，该处由并行工作修正，本轮未改该文件。
+- 启用步骤：先备份并执行0324迁移；在同一飞书应用开通/发布上述用户权限，保持已配置redirect_uri，配置持久且私有的SECRET_BOX_KEY；设置FEISHU_DOCUMENT_TITLE_ENABLED=true并重建后端；本人重新飞书登录后再粘贴新链接。关闭开关可立即停用查询并保留链接功能，暂不需要downgrade；失效令牌不复用。未执行真实飞书授权、受限文档权限验收、PostgreSQL upgrade/downgrade/故障回滚、真实业务保存重开或生产发布；整体F18保持未勾选。
+
 - 拼音未确认提示重叠补漏（用户确认“完成修复”）：`startComposition` 在开启组合状态时立即隐藏占位提示，只更新展示状态；组合期间仍不修复/重建正文DOM、不发布中间答案。取消后由既有compositionend空态计算恢复提示，确认非空中文后保持隐藏。三variant新增回归覆盖未确认拼音、节点identity、无中间emit/queue-save、取消恢复及确认答案不含拼音/提示；Renderer 56/56通过。真实Chrome CDP IME三variant共43项检查通过，提示伪元素在未确认时为none，取消后恢复，pageerror=0；截图 `ui-blueprints/CR-010-F06-implemented-ime-placeholder-20261123.png` 已查看。非OS输入法人工/生产验收。
 
 - 关联 PM-T004-T05-F18，沿原组件与信息架构，无新蓝图；本轮仅修改公共编辑器、只读展示、新增 `performanceRichTextHtml.ts` 生产工具以及既有 Renderer/Layers 测试。HTML 字符串、tags/notes/旧 note、API、草稿版本、权限、快照不变；未修改后端、迁移或生产数据，保留并行工作区改动。

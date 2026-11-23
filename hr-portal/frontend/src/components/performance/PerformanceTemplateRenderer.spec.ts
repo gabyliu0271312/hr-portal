@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 import PerformanceRichTextEditor from './PerformanceRichTextEditor.vue'
 import PerformanceReadonlyAnswer from './PerformanceReadonlyAnswer.vue'
-import { sanitizePerformanceRichTextHtml } from './performanceRichTextHtml'
+import { sanitizePerformanceRichTextHtml, linkifyPerformanceRichText } from './performanceRichTextHtml'
+import { performanceRichTextApi } from '@/api/performanceRichText'
 import PerformanceTagRichTextInput from './PerformanceTagRichTextInput.vue'
 import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
 import PerformanceRatingControl from './PerformanceRatingControl.vue'
@@ -460,6 +461,147 @@ ${'NoBreakText'.repeat(80)}`
       input.element.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: 'X', bubbles: true, cancelable: true }))
       expect(input.element.textContent?.replace(/​/g, '')).toBe('abcdefX')
       expect(input.findAll('strong').map(node => node.text()).join('')).toBe('abef')
+    } finally { wrapper.unmount() }
+  })
+
+  it('auto-links pasted URLs, preserves clipboard document titles and syncs toolbar state', async () => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body })
+    try {
+      const input = wrapper.get('[contenteditable="true"]')
+      selectText(input.element, 0)
+      await input.trigger('paste', { clipboardData: { getData: (type: string) => type === 'text/plain' ? 'https://feishu.cn/docx/demo123' : '' } })
+      const anchor = input.get('a')
+      expect(anchor.text()).toBe('https://feishu.cn/docx/demo123')
+      expect(anchor.attributes('href')).toBe('https://feishu.cn/docx/demo123')
+      expect(wrapper.get('[aria-label="超链接"]').classes()).toContain('active')
+
+      await input.trigger('paste', { clipboardData: { getData: (type: string) => type === 'text/html' ? '<a href="https://feishu.cn/docx/demo123" data-title="季度复盘文档"></a>' : 'https://feishu.cn/docx/demo123' } })
+      expect(input.findAll('a').at(-1)?.text()).toBe('季度复盘文档')
+      expect(input.findAll('a').at(-1)?.attributes('href')).toBe('https://feishu.cn/docx/demo123')
+
+      await wrapper.get('[aria-label="超链接"]').trigger('click')
+      expect((wrapper.get('[aria-label="链接地址"]').element as HTMLInputElement).value).toBe('https://feishu.cn/docx/demo123')
+      await wrapper.get('[aria-label="链接地址"]').setValue('https://feishu.cn/docx/renamed')
+      await wrapper.get('.link-popover button').trigger('click')
+      expect(input.findAll('a').at(-1)?.attributes('href')).toBe('https://feishu.cn/docx/renamed')
+    } finally { wrapper.unmount() }
+  })
+
+  it('resolves a pasted Feishu URL into a title as one undoable paste', async () => {
+    const resolver = vi.spyOn(performanceRichTextApi, 'title').mockResolvedValue('季度复盘文档')
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body })
+    try {
+      const input = wrapper.get('[contenteditable="true"]')
+      selectText(input.element, 0)
+      await input.trigger('paste', { clipboardData: { getData: (type: string) => type === 'text/plain' ? 'https://example.feishu.cn/docx/demo123' : '' } })
+      await flushPromises()
+      expect(resolver).toHaveBeenCalledWith('https://example.feishu.cn/docx/demo123')
+      expect(input.get('a').text()).toBe('季度复盘文档')
+      expect(wrapper.get('[aria-label="超链接"]').attributes('aria-pressed')).toBe('true')
+      expect(String(wrapper.emitted('update:modelValue')?.at(-1)?.[0])).toContain('季度复盘文档')
+      await input.trigger('keydown', { key: 'z', ctrlKey: true })
+      expect(input.element.textContent?.replace(/​/g, '')).toBe('')
+      await input.trigger('keydown', { key: 'z', ctrlKey: true, shiftKey: true })
+      expect(input.get('a').text()).toBe('季度复盘文档')
+    } finally { wrapper.unmount(); resolver.mockRestore() }
+  })
+
+  it('resolves multiple document titles and toolbar insertion without replacing selected display text', async () => {
+    const resolver = vi.spyOn(performanceRichTextApi, 'title').mockImplementation(async url => url.includes('two') ? '第二份文档' : '第一份文档')
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body })
+    try {
+      const input = wrapper.get('[contenteditable="true"]')
+      selectText(input.element, 0)
+      await input.trigger('paste', { clipboardData: { getData: (type: string) => type === 'text/plain' ? 'https://example.feishu.cn/docx/one https://example.feishu.cn/wiki/two' : '' } })
+      await flushPromises()
+      expect(input.findAll('a').map(node => node.text())).toEqual(['第一份文档', '第二份文档'])
+      await input.trigger('keydown', { key: 'z', ctrlKey: true })
+      await wrapper.get('[aria-label="超链接"]').trigger('click')
+      await wrapper.get('[aria-label="链接地址"]').setValue('https://example.feishu.cn/docx/one')
+      await wrapper.get('.link-popover button').trigger('click')
+      await flushPromises()
+      expect(input.get('a').text()).toBe('第一份文档')
+      await wrapper.setProps({ modelValue: '<p>自定义说明</p>' })
+      resolver.mockClear()
+      selectText(input.element, 0, 5)
+      await wrapper.get('[aria-label="超链接"]').trigger('click')
+      await wrapper.get('[aria-label="链接地址"]').setValue('https://example.feishu.cn/docx/one')
+      await wrapper.get('.link-popover button').trigger('click')
+      await flushPromises()
+      expect(input.get('a').text()).toBe('自定义说明')
+      expect(resolver).not.toHaveBeenCalled()
+    } finally { wrapper.unmount(); resolver.mockRestore() }
+  })
+
+  it('retains the original URL when the title service has no authorized title', async () => {
+    const resolver = vi.spyOn(performanceRichTextApi, 'title').mockResolvedValue(null)
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body })
+    try {
+      const input = wrapper.get('[contenteditable="true"]')
+      selectText(input.element, 0)
+      await input.trigger('paste', { clipboardData: { getData: (type: string) => type === 'text/plain' ? 'https://example.feishu.cn/docx/one' : '' } })
+      await flushPromises()
+      expect(input.get('a').text()).toBe('https://example.feishu.cn/docx/one')
+    } finally { wrapper.unmount(); resolver.mockRestore() }
+  })
+
+  it.each(['typing', 'undo', 'readonly', 'unmount'] as const)('ignores a late document title after %s', async action => {
+    let finish!: (title: string | null) => void
+    const resolver = vi.spyOn(performanceRichTextApi, 'title').mockReturnValue(new Promise(resolve => { finish = resolve }))
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body })
+    try {
+      const input = wrapper.get('[contenteditable="true"]')
+      selectText(input.element, 0)
+      await input.trigger('paste', { clipboardData: { getData: (type: string) => type === 'text/plain' ? 'https://example.feishu.cn/docx/demo123' : '' } })
+      if (action === 'typing') input.element.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: 'X', bubbles: true, cancelable: true }))
+      if (action === 'undo') await input.trigger('keydown', { key: 'z', ctrlKey: true })
+      if (action === 'readonly') await wrapper.setProps({ readonly: true })
+      if (action === 'unmount') wrapper.unmount()
+      const count = wrapper.emitted('update:modelValue')?.length
+      finish('不应覆盖的迟到标题')
+      await flushPromises()
+      expect(wrapper.emitted('update:modelValue')?.length).toBe(count)
+      expect(input.element.textContent).not.toContain('不应覆盖的迟到标题')
+    } finally { if (action !== 'unmount') wrapper.unmount(); resolver.mockRestore() }
+  })
+
+  it('preserves a clipboard title without querying it and unhighlights the toolbar outside links', async () => {
+    const resolver = vi.spyOn(performanceRichTextApi, 'title').mockResolvedValue('不应覆盖')
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body })
+    try {
+      const input = wrapper.get('[contenteditable="true"]')
+      selectText(input.element, 0)
+      await input.trigger('paste', { clipboardData: { getData: (type: string) => type === 'text/html' ? '<p>参考 <a href="https://example.feishu.cn/wiki/demo123">季度复盘文档</a> 正文</p>' : '' } })
+      await flushPromises()
+      expect(input.get('a').text()).toBe('季度复盘文档')
+      resolver.mockClear()
+      selectText(input.element, 4)
+      await wrapper.vm.$nextTick()
+      expect(wrapper.get('[aria-label="超链接"]').attributes('aria-pressed')).toBe('true')
+      selectText(input.element, 1)
+      await wrapper.vm.$nextTick()
+      expect(wrapper.get('[aria-label="超链接"]').attributes('aria-pressed')).toBe('false')
+      expect(resolver).not.toHaveBeenCalled()
+    } finally { wrapper.unmount(); resolver.mockRestore() }
+  })
+
+  it('recognizes multiple URLs in text without nested links or absorbing punctuation', () => {
+    const root = document.createElement('div')
+    root.innerHTML = '<p>资料（https://example.com/a）。 <a href="https://existing.test">原链接</a> https://example.org/path(x), mailto:a@example.com</p>'
+    linkifyPerformanceRichText(root)
+    expect(Array.from(root.querySelectorAll('a')).map(node => node.getAttribute('href'))).toEqual(['https://example.com/a', 'https://existing.test', 'https://example.org/path(x)', 'mailto:a@example.com'])
+    expect(root.querySelector('a a')).toBeNull()
+    expect(root.textContent).toBe('资料（https://example.com/a）。 原链接 https://example.org/path(x), mailto:a@example.com')
+  })
+
+  it('does not auto-link unsafe or partial URL-like text', async () => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body })
+    try {
+      const input = wrapper.get('[contenteditable="true"]')
+      selectText(input.element, 0)
+      await input.trigger('paste', { clipboardData: { getData: () => 'javascript:alert(1) https:// example.com' } })
+      expect(input.findAll('a')).toHaveLength(0)
+      expect(input.text()).toContain('javascript:alert(1)')
     } finally { wrapper.unmount() }
   })
 
