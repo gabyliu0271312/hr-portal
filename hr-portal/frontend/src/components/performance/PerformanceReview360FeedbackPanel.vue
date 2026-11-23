@@ -33,6 +33,7 @@ const props = withDefaults(defineProps<{
   projectId: number | string
   nodeId: string
   mode?: 'feedback' | 'communication' | 'taskPeople'
+  embedded?: boolean
   sources?: PerformanceReview360Source[]
 }>(), { mode: 'feedback' })
 const emit = defineEmits<{
@@ -331,7 +332,7 @@ defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVo
 </script>
 
 <template>
-  <section class="feedback-panel" :aria-label="taskPeopleMode ? tableTitle : '360° 反馈'">
+  <section class="feedback-panel" :class="{ 'feedback-panel--embedded': embedded }" :aria-label="taskPeopleMode ? tableTitle : '360° 反馈'">
     <div class="card-sticky-mask" aria-hidden="true"></div>
     <PerformancePromptNotice v-for="tip in invitationTips" :key="tip" class="feedback-invitation-tip" type="info" multiline role="status">{{ tip }}</PerformancePromptNotice>
     <PerformanceListToolbar
@@ -414,6 +415,8 @@ defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVo
 <style scoped>
 .feedback-panel { min-width: 0; padding: 0 var(--spacing-5) var(--spacing-5); box-sizing: border-box; border-radius: var(--radius-lg); background: var(--color-bg-card); color: var(--color-text-primary); box-shadow: var(--shadow-dialog); --performance-table-container-padding: var(--performance-review-surface-inset); }
 .card-sticky-mask { position: sticky; top: calc(-1 * var(--performance-table-container-padding, 0px)); z-index: 19; flex: none; height: 20px; margin: 0 calc(-1 * var(--spacing-5)); border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--color-bg-card, #fff); }
+.feedback-panel--embedded { flex: none; padding: 0; border-radius: 0; background: transparent; box-shadow: none; --performance-table-sticky-top: 0px; }
+.feedback-panel--embedded .card-sticky-mask { margin-top: calc(-1 * var(--performance-review-surface-inset)); }
 .feedback-invitation-tip { margin-bottom: var(--spacing-3); white-space: pre-wrap; }
 .feedback-invitation-tip :deep(.prompt-notice__text) { white-space: pre-wrap; }
 .feedback-member { min-width: 0; }

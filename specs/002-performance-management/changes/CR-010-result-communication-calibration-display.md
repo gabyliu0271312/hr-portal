@@ -459,6 +459,16 @@
 - 已符合保留增量验证：修改仅限提示组件、既有组件测试及两处现有交互记录，不改后端/DTO/权限/取整或铺满布局。frontend目录执行 `npx vitest run src/components/performance/PerformanceDistributionTips.spec.ts src/views/performance/Review.spec.ts` → **2文件156 passed**（组件12、页面144，既有jsdom XHR/Vue stub告警保留）；覆盖两模式全部符合、混合状态、状态双向切换、符合但diff非零不显示增减、折叠再展开与原不符合增减逻辑。`npm run build` → **vue-tsc + Vite通过，built in 1m 4s**，既有VueUse PURE提示。真实组件/合成规则在2560及390px验证四条规则全部保留，两条绿色已符合均无增减提示，两条不符合均增加35人，左右对齐且无横向溢出；截图 `C:/Users/gaby.liu/AppData/Local/Temp/CR-010-T03-satisfied-distribution-{2560,390}.png`，已读取390截图。此为本地组件证据，不是完整鉴权页面/真实API/生产验收。本次增量未重新运行后端测试（后端未改），未commit/push/部署。
 - 首轮未执行：全量后端/全量前端套件、真实业务库/生产项目验收、commit、push、部署及生产数据操作。本次无迁移、通知或评级写入。
 
+## F09 追加：他评及团队结果白色容器统一（2026-11-23）
+
+- 用户确认：完成评估前台中“给他人的评估”“我团队的绩效”与“我的绩效”容器一致性修复。沿F09自然撑高契约，属于既有页面局部样式调整，无新信息架构或整页蓝图；不改变实际填写工作区既有尺寸、多任务校准全屏、API、权限、周期快照、数据库或业务行为。
+- 实现：`PerformanceReviewContent.vue` 的成员/反馈工作区由父白板统一承担四边20px内距、背景/圆角/阴影，body及panel使用`flex:1 0 auto`，内部内容不收缩；短内容铺满、长内容自然增长，纵向滚动仍由review-content承担。`ProjectMemberListPanel.vue`增加隔离`review`变体，`PerformanceReview360FeedbackPanel.vue`增加`embedded`属性，嵌入时关闭自身重复padding/背景/阴影，保留表头和白色遮挡层。
+- 团队/关注人员结果：`PerformanceResultScopeView.vue`外部20px灰底间距，四页签共用唯一`PerformanceSurfaceCard`；总览/矩阵/报表嵌入，成员使用review。flex链铺满剩余高度，报表局部抵消顶部重复20px spacer并清除底部额外margin；继承专用表头偏移，不改变公共页签/全屏校准默认样式。`Review.spec.ts`覆盖六类工作区嵌入、四结果页签及原完成态自然增长。
+- 本地浏览器证据：Vite5173实际Vue组件、隔离Chrome及受控API，在1280×720验证评估/单任务校准/复议成员、360评估/结果沟通/360确认的0/2/40人成员。普通短白板616px；40人评估白板2570px、反馈2510px，长列表底内距20px。普通列表滚动420px后遮挡层y0、表头y20，无灰底漏出；错误态保留同一白板并可重试。团队四页签短白板588px；长成员白板2510px/底内距20px，滚动后页签底60px、遮挡层60–80px、表头80px；统计标题首屏距白板20px、吸附68px，与页签无重叠。390px无页面横向溢出，pageerror=0。
+- 截图已读取：`C:/Users/gaby.liu/AppData/Local/Temp/CR-010-review-surface-short.png`、`CR-010-review-surface-feedback-long.png`、`CR-010-team-report-top.png`、`CR-010-team-member-sticky.png`。均为实际组件受控API证据，不是完整登录态真实项目/数据库或生产验收；浏览器夹具曾因模块路径与Vite依赖版本不一致失败，改用应用实际模块后复验通过，未修改业务代码解决夹具问题。
+- 最终定向命令：`npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/components/performance/calibration src/components/performance/PerformanceLineTabs.spec.ts src/components/performance/ProjectStatisticsReportPanel.spec.ts src/components/performance/ProjectPerformanceMatrix.spec.ts` → **12文件262 passed**；保留既有jsdom scrollTo/XHR和Vue stub提示。构建尚在运行，不提前记录通过。
+- UI合规：已读Spec002基线、CR010/014及Spec012 UI交互/实施守则，沿N00/N11复用既有token和组件，无禁止项；不涉及数仓/UCP/破坏性操作。未创建脚本、独立报告或测试文档，未commit/push/部署，未执行真实业务API/数据库或全量套件。
+
 ## 19. CR-010-F13 结果查看配置与运行架构一致性（2026-11-10）
 
 - 用户确认：修复结果查看与工作总结提交后容器不一致、未配置评级摘要及显示顺序偏差，保证整体架构一致。沿用PM-T004结果查看与区域排序契约、CR-007正式入口；无新页面/流程，无需新完整蓝图。

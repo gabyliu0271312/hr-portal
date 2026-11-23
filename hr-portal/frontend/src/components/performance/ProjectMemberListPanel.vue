@@ -25,7 +25,7 @@ type MemberRow = ProjectMember & {
 }
 
 const props = withDefaults(defineProps<{
-  variant?: 'default' | 'calibration' | 'embedded'
+  variant?: 'default' | 'calibration' | 'embedded' | 'review'
   projectId: number | string
   cycleId?: number
   reviewContext?: { nodeId: string; state: 'pending' | 'completed' | 'all'; phaseId?: string | null }
@@ -400,7 +400,7 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
 </script>
 
 <template>
-  <section class="member-list-panel" :class="{ 'member-list-panel--calibration': variant === 'calibration', 'member-list-panel--embedded': variant === 'embedded' }" aria-label="成员列表">
+  <section class="member-list-panel" :class="{ 'member-list-panel--calibration': variant === 'calibration', 'member-list-panel--embedded': variant === 'embedded', 'member-list-panel--review': variant === 'review' }" aria-label="成员列表">
     <div class="card-sticky-mask" aria-hidden="true"></div>
     <PerformanceListToolbar
       v-model:keyword="keyword"
@@ -480,6 +480,8 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
 .member-list-panel--calibration .card-sticky-mask { display: none; }
 .member-list-panel { min-width:0; border-radius:8px; background:#fff; box-shadow:rgba(31,35,41,.03) 0 4px 16px 4px,rgba(31,35,41,.02) 0 4px 8px,rgba(31,35,41,.02) 0 2px 4px -4px; padding:0 20px 20px; color:#1f2329; --performance-table-container-padding: var(--performance-review-surface-inset); --performance-table-sticky-top: calc(var(--performance-tab-area-height) - 28px); }
 .card-sticky-mask { position: sticky; top: calc(var(--performance-table-sticky-top, 0px) - 20px); z-index: 19; flex: none; height: 20px; margin: 0 -20px; border-radius: 8px 8px 0 0; background: var(--color-bg-card, #fff); }
+.member-list-panel.member-list-panel--review { padding: 0; border-radius: 0; background: transparent; box-shadow: none; --performance-table-sticky-top: var(--performance-review-table-sticky-top, 0px); }
+.member-list-panel--review .card-sticky-mask { top: calc(var(--performance-table-sticky-top) - var(--performance-review-surface-inset)); height: var(--performance-review-surface-inset); margin: calc(-1 * var(--performance-review-surface-inset)) calc(-1 * var(--performance-review-surface-inset)) 0; }
 .member-list-toolbar{height:var(--control-height)}
 .rating-badge{display:inline-flex;align-items:center;justify-content:center;min-width:44px;height:24px;padding:0 10px;box-sizing:border-box;border-radius:9999px;font-size:14px;line-height:24px}.rating-badge--teal{background:#d5f6f2;color:#024b41}.rating-badge--blue{background:#e1eaff;color:#0c296e}.rating-badge--green{background:#d9f5d6;color:#124b0c}
 .table-text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

@@ -26,7 +26,7 @@
           </PerformanceDisabledReason>
         </div>
       </div>
-      <div class="review-body" :class="{ 'review-body--completed': !resultUnavailable && (node.node_type === 'result_view' || node.status === 'completed' && !showsEvaluationWorkspace) }">
+      <div class="review-body" :class="{ 'review-body--completed': !resultUnavailable && (node.node_type === 'result_view' || node.status === 'completed' && !showsEvaluationWorkspace), 'review-body--workspace': showsEvaluationWorkspace || showsFeedbackTable }">
         <div class="review-panel" :class="{ completed: !resultUnavailable && (node.node_type === 'result_view' || node.status === 'completed' && !showsEvaluationWorkspace), evaluation: showsEvaluationWorkspace, feedback: showsFeedbackTable }">
         <template v-if="node.node_type === 'result_view' && resultUnavailable">
           <div class="state-illustration" aria-hidden="true"><img src="/performance-not-started.svg" alt="" width="120" height="121"></div>
@@ -36,6 +36,7 @@
         <PerformanceReview360FeedbackPanel
           v-else-if="showsFeedbackTable && props.projectId"
           ref="feedbackPanel"
+          embedded
           :key="`${props.projectId}-${node.node_id}`"
           :mode="displayConfig?.table === 'taskPeople' ? 'taskPeople' : displayConfig?.table === 'communication' ? 'communication' : 'feedback'"
           :project-id="props.projectId"
@@ -53,6 +54,7 @@
               :key="`${props.projectId}-${node.node_id}`"
               :review-context="{ nodeId: node.node_id, state: 'all', phaseId: node.phase_id }"
               :preference-scope="props.memberPreferenceScope"
+              variant="review"
               :show-export="false"
               @select-member="emit('open-member', { node, member: $event })"
               @remind-evaluate="emit('remind-evaluate', { node, ...$event })"
@@ -63,10 +65,11 @@
                 :project-id="props.projectId"
                 :key="`${props.projectId}-${node.node_id}-${node.phase_id || ''}`"
                 :review-context="{ nodeId: node.node_id, state: 'all', phaseId: node.phase_id }"
-              :preference-scope="props.memberPreferenceScope"
+                :preference-scope="props.memberPreferenceScope"
+                variant="review"
                 :show-export="false"
                 @select-member="emit('open-member', { node, member: $event })"
-              @remind-evaluate="emit('remind-evaluate', { node, ...$event })"
+                @remind-evaluate="emit('remind-evaluate', { node, ...$event })"
               />
               <p v-else class="evaluation-pane-hint">该页签内容将在后续迭代中开发</p>
             </PerformanceLineTabs>
@@ -198,7 +201,7 @@ function formatStartTime(value: string) {
 .review-content { display: flex; min-width: 0; min-height: 0; height: 100%; flex: 1; flex-direction: column; overflow: auto; padding: var(--performance-review-surface-inset) var(--performance-review-surface-inset) 0; box-sizing: border-box; background: var(--performance-review-page-bg); scrollbar-width: none; }
 .review-content::-webkit-scrollbar { display: none; }
 .review-heading { display: flex; flex: none; align-items: flex-start; margin: 0; max-width: none; }.review-heading-copy { flex: 1; min-width: 0; margin-right: 40px; box-sizing: border-box; color: #1f2329; font-size: 14px; font-weight: 400; line-height: 21px; }.review-heading-actions { display: flex; flex: none; align-items: center; gap: 8px; }.review-heading-copy h2 { min-width: 0; min-height: 0; margin: 0; box-sizing: border-box; color: rgba(0,0,0,.85); font-size: 18px; font-weight: 600; line-height: 26px; }.review-deadline { display: block; min-width: 0; min-height: 0; box-sizing: border-box; color: #646a73; font-size: 12px; font-weight: 400; line-height: 22px; }
-.evaluation-workspace { display: flex; width: 100%; min-width: 0; align-self: stretch; flex: 1; flex-direction: column; }
+.evaluation-workspace { display: flex; width: 100%; min-width: 0; align-self: stretch; flex: none; flex-direction: column; --performance-line-tabs-surface: var(--performance-content-surface-background); }
 .evaluation-pane-hint { display: grid; min-height: 360px; place-items: center; margin: 0; color: #8f959e; font-size: 14px; }
 .heading-status { padding: 5px 9px; border-radius: 4px; background: #f1f2f4; color: #646a73; font-size: 12px; }
 .heading-status.status-pending { background: #fff0df; color: #d46b08; }
@@ -207,8 +210,8 @@ function formatStartTime(value: string) {
 .review-panel { display: flex; flex: 1 1 auto; min-height: 100%; max-width: none; flex-direction: column; align-items: center; justify-content: center; margin: 0; padding: var(--performance-review-surface-inset); box-sizing: border-box; border-radius: var(--performance-content-surface-radius); background: var(--performance-content-surface-background); color: #646a73; box-shadow: var(--shadow-dialog); }
 .review-body--completed { flex: 1 0 auto; }
 .review-panel.completed { flex: 1 0 auto; min-height: 0; align-items: stretch; justify-content: flex-start; padding: var(--performance-review-surface-inset); }
-.review-panel.evaluation { align-items: stretch; justify-content: flex-start; padding: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.review-panel.feedback { align-items: stretch; justify-content: flex-start; padding: 0; }
+.review-body--workspace { flex: 1 0 auto; }
+.review-panel.evaluation, .review-panel.feedback { flex: 1 0 auto; min-height: 0; align-items: stretch; justify-content: flex-start; }
 .completed-content { flex: none; min-width: 0; width: 100%; max-width: var(--performance-review-content-max-width); margin: 0 auto; }
 .completed-fallback { margin: auto !important; }
 .review-panel > p, .review-state p { margin: 8px 0 20px; color: #646a73; font-size: 16px; font-weight: 400; line-height: 24px; text-align: center; }

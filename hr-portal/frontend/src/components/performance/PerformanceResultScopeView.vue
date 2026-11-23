@@ -4,11 +4,13 @@
     <div v-else-if="error" class="result-view-state result-view-state--error"><p>{{ error }}</p><button type="button" @click="load">重新加载</button></div>
     <template v-else-if="overview">
       <PerformancePageTitle :title="title" />
-      <PerformanceLineTabs :model-value="activeTab" sticky :tabs="tabs" @update:model-value="selectTab">
-        <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" @action="handleCompletionAction" />
-        <ProjectMemberListPanel v-else-if="activeTab === 'members'" :project-id="0" :cycle-id="cycleId" readonly :provider="memberProvider" @select-member="openMember" />
-        <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :project-id="0" :cycle-name="overview.cycle.cycle_name" readonly :provider="matrixProvider" @open-member="openMember" />
-        <ProjectStatisticsReportPanel v-else :cycle-id="cycleId" :cycle-name="overview.cycle.cycle_name" :provider="statisticsProvider" :self-final-provider="selfFinalProvider" :comparison-provider="comparisonProvider" />
+      <PerformanceLineTabs class="result-view-tabs" :model-value="activeTab" sticky :tabs="tabs" @update:model-value="selectTab">
+        <PerformanceSurfaceCard class="result-view-surface">
+          <CompletionRatePanel v-if="activeTab === 'overview'" :embedded="true" :nodes="completionNodes" @action="handleCompletionAction" />
+          <ProjectMemberListPanel v-else-if="activeTab === 'members'" variant="review" :project-id="0" :cycle-id="cycleId" readonly :provider="memberProvider" @select-member="openMember" />
+          <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" embedded :project-id="0" :cycle-name="overview.cycle.cycle_name" readonly :provider="matrixProvider" @open-member="openMember" />
+          <ProjectStatisticsReportPanel v-else embedded :cycle-id="cycleId" :cycle-name="overview.cycle.cycle_name" :provider="statisticsProvider" :self-final-provider="selfFinalProvider" :comparison-provider="comparisonProvider" />
+        </PerformanceSurfaceCard>
       </PerformanceLineTabs>
     </template>
     <PerformanceReviewEvaluationDrawer
@@ -37,6 +39,7 @@ import { resultViewApi, type PerformanceReferenceTab, type PerformanceResultView
 import PerformanceMemberReminderDialog from './PerformanceMemberReminderDialog.vue'
 import { usePerformanceMemberReminder } from '@/composables/usePerformanceMemberReminder'
 import type { ProjectReportComparisonQuery, ProjectReportDimension } from '@/components/performance/projectStatisticsReport'
+import PerformanceSurfaceCard from '@/components/performance/PerformanceSurfaceCard.vue'
 import PerformancePageTitle from '@/components/performance/PerformancePageTitle.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from '@/components/performance/PerformanceLineTabs.vue'
 import CompletionRatePanel from '@/components/performance/CompletionRatePanel.vue'
@@ -180,7 +183,10 @@ onMounted(load)
 </script>
 
 <style scoped>
-.result-view-page { display:flex; min-width:0; min-height:0; flex:1; flex-direction:column; overflow-y:auto; padding:40px 24px; background:var(--performance-page-surface); }
+.result-view-page { display:flex; min-width:0; min-height:0; flex:1; flex-direction:column; overflow-y:auto; padding:var(--performance-review-surface-inset); box-sizing:border-box; background:var(--performance-review-page-bg); --performance-review-table-sticky-top:var(--performance-tab-area-height); }
+.result-view-tabs, .result-view-tabs :deep(.line-tabs-content), .result-view-tabs :deep(.line-tabs-pane), .result-view-surface { flex:1 0 auto; }
+.result-view-tabs :deep(.line-tabs-content), .result-view-tabs :deep(.line-tabs-pane) { display:flex; flex-direction:column; }
+.result-view-surface :deep(.project-report-root) { margin-top:calc(-1 * var(--performance-review-surface-inset)); margin-bottom:0; }
 .result-view-state { display:grid; min-height:240px; place-items:center; color:var(--color-text-secondary); }
 .result-view-state--error { color:var(--color-danger); }
 .result-view-state button { border:0; background:transparent; color:var(--color-primary); cursor:pointer; }

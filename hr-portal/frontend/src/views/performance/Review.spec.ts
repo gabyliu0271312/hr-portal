@@ -169,6 +169,24 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it.each(['overview', 'members', 'matrix', 'reports'])('keeps the %s result tab inside one shared white surface', async tab => {
+    routeQuery = reactive({ tab })
+    vi.spyOn(resultViewApi, 'overview').mockResolvedValue({ kind: 'team', cycle: navigationOf(1).active_cycle!, projects: [], member_count: 0, completion_nodes: [] })
+    const wrapper = mount(PerformanceResultScopeView, {
+      props: { kind: 'team', cycleId: 1 },
+      global: { plugins: [pinia], stubs: {
+        CompletionRatePanel: true, ProjectMemberListPanel: true, ProjectPerformanceMatrix: true, ProjectStatisticsReportPanel: true,
+        PerformanceReviewEvaluationDrawer: true, PerformanceMemberReminderDialog: true,
+      } },
+    })
+    await flushPromises()
+    expect(wrapper.findAll('.result-view-surface')).toHaveLength(1)
+    const content = wrapper.get('.result-view-surface').findComponent({ name: { overview: 'CompletionRatePanel', members: 'ProjectMemberListPanel', matrix: 'ProjectPerformanceMatrix', reports: 'ProjectStatisticsReportPanel' }[tab] })
+    if (tab === 'members') expect(content.props('variant')).toBe('review')
+    else expect(content.attributes('embedded') === 'true' || content.props('embedded') === true).toBe(true)
+    wrapper.unmount()
+  })
+
   it.each(['team', 'focus'] as const)('forwards %s member reconsideration editing and reminders with the original result context', async kind => {
     routeQuery = reactive({ cycle_id: '1', node: kind === 'team' ? '__team-results__' : '__focus-results__', tab: 'members' })
     vi.spyOn(resultViewApi, 'overview').mockResolvedValue({ kind, cycle: navigationOf(1).active_cycle!, projects: [], member_count: 1, completion_nodes: [] })
@@ -514,12 +532,27 @@ describe('PerformanceReview', () => {
     expect(reviewContentSource).not.toMatch(/\.review-content\.is-completed\s*\{/)
   })
 
-  it('removes the old white panel decoration from the evaluation workspace', () => {
-    expect(reviewContentSource).toMatch(/\.review-panel\.evaluation\s*\{[^}]*align-items:\s*stretch;[^}]*padding:\s*0;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none/s)
-    expect(reviewContentSource).toMatch(/\.evaluation-workspace\s*\{[^}]*width:\s*100%;[^}]*align-self:\s*stretch/s)
+  it('keeps one padded white surface that grows around evaluation and feedback content', () => {
+    expect(reviewContentSource).toMatch(/\.review-body--workspace\s*\{[^}]*flex:\s*1 0 auto/s)
+    expect(reviewContentSource).toMatch(/\.review-panel\.evaluation, \.review-panel\.feedback\s*\{[^}]*flex:\s*1 0 auto;[^}]*min-height:\s*0;[^}]*align-items:\s*stretch/s)
+    expect(reviewContentSource).toMatch(/\.review-panel\s*\{[^}]*padding:\s*var\(--performance-review-surface-inset\)/s)
+    expect(reviewContentSource).toMatch(/\.evaluation-workspace\s*\{[^}]*width:\s*100%;[^}]*align-self:\s*stretch;[^}]*flex:\s*none/s)
     expect(reviewContentSource).toContain(':tabs="evaluationTabs" flush')
     expect(reviewContentSource).not.toContain(':tabs="evaluationTabs" sticky flush')
     expect(reviewContentSource).toMatch(/\.review-panel\.completed\s*\{[^}]*padding:\s*var\(--performance-review-surface-inset\)/s)
+  })
+
+  it.each(['evaluation', 'calibration', 'result_reconsideration', 'reviewer_360_confirm', 'result_communication', 'reviewer360'])('embeds %s lists without a second white card', async kind => {
+    const feedback = ['reviewer_360_confirm', 'result_communication', 'reviewer360'].includes(kind)
+    const node = { ...overview.categories[0].nodes[0], node_id: kind, node_type: kind === 'reviewer360' ? 'evaluation' : kind, task_kind: 'evaluation', executor_role_code: kind === 'reviewer360' ? 'assessment.reviewer_360' : 'assessment.line_manager', status: 'pending' as const }
+    const wrapper = mount(PerformanceReviewContent, {
+      props: { node, loading: false, error: '', templateName: '', projectId: 1 },
+      global: { plugins: [pinia], stubs: { ProjectMemberListPanel: true, PerformanceReview360FeedbackPanel: true, PerformanceDistributionTips: true } },
+    })
+    expect(wrapper.get('.review-body').classes()).toContain('review-body--workspace')
+    if (feedback) expect(wrapper.getComponent(PerformanceReview360FeedbackPanel).props('embedded')).toBe(true)
+    else expect(wrapper.getComponent(ProjectMemberListPanel).props('variant')).toBe('review')
+    wrapper.unmount()
   })
 
   beforeEach(() => {
