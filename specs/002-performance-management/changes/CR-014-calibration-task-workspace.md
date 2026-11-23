@@ -69,7 +69,7 @@
 
 ## F01 DOM还原与单任务范围回归修复（2026-11-22）
 
-- 用户明确：本轮新增首页／全屏选择流程只用于当前周期、当前身份的多条合法业务校准任务；单任务保留已实现的直接成员工作区和完成确认交互。
+- 用户明确：本轮新增首页／全屏选择流程只用于当前周期、当前身份的多条合法业务校准任务；单任务保留已实现的直接成员工作区。完成确认交互原保留要求已由2026-11-23用户最新决定覆盖：单、多任务共用完成组件，HARD阻断均展示分布明细且仅允许继续校准，见F05。
 - 模式依据未筛选的完整任务集合，包含已完成与逾期；不能用项目数、被校准人数、物理任务数或当前状态筛选结果判断。初次任务加载期间显示加载态，避免单任务先闪现新首页；伪造范围引用仍拒绝，不回退到唯一有效任务。
 - 多任务首页按重新实采DOM纠正：32px相连分段筛选、14/22文字、左右16px内距；标题在白卡外，公共白卡四边20px内距、r8、既有阴影，筛选至表格16px。页面内容外边距20px，保持导航→白卡→表格两层边界。
 - 范围hover以文字自身为锚点，不用整列宽度；新范围展示场景局部对齐标题字重600／顶部4px、字段标签26px、条件间距6px、人员标签左2右8及20px头像。旧规则配置摘要／其他分段控件默认样式不变，不全局改浮层边框或定位引擎。
@@ -101,6 +101,14 @@
 - 实际Vue／隔离Chrome＋受控API，1280×673、DPR1.5：返回x16／68×28／默认深色，关闭按钮不存在；成员滚动420px后tabs y76、mask y132／20px、表头y152，在y132／142／151逐点elementFromPoint均命中遮挡层。短成员、30人聚合、矩阵、长报表及报表滚动到底均保留24px底部区域；矩阵／报表滚动区y76，报表页签吸附y76；400px无页面横向溢出、pageerror=0。
 - 实施PNG：`ui-blueprints/CR-014-F04-implemented-header-bottom-gap.png`、`CR-014-F04-implemented-sticky-mask.png`、`CR-014-F04-implemented-report-bottom-gap.png`，均已查看，来自实际组件受控API，非生产数据或生产验收。早期矩阵夹具未提供rating_columns导致空态，补齐合法评级数据后验证真实矩阵／报表容器通过。
 - 最终构建：`npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite通过，40.15s，exit0**，涵盖最终失效提示选择器与局部样式修正；仅既有VueUse PURE注释提示。`git diff --check`通过。公共弹窗测试 `src/components/ui/UiDialogShell.spec.ts` 为本地既有未跟踪文件，本轮补充默认关闭／隐藏关闭／Escape用例，交付时须与相关修复一并纳入。未commit、push或部署。
+
+## F05 单、多任务完成与分布提示一致性（2026-11-23）
+
+- 用户明确要求单任务也打开强制分布阻断弹窗、展示分布明细、仅允许“继续校准”，完成校准保持两边一致；覆盖F01原确认交互保留要求。单任务直接成员工作区与多任务首页／全屏导航保持原结构，本轮属既有交互局部修复，不新增整页蓝图。
+- 实现：CalibrationSingleTask直接组合现有CalibrationTaskCompletion，删除独立预检／确认／全局阻断提示；两边共用缺结果可确认、授权任务说明、HARD阻断、版本确认、409重新预检、未完成响应不报成功、busy与旧请求隔离。刷新同一scope对象也清理旧预检，避免沿用刷新前权限及范围版本。
+- 提示：PerformanceReviewContent首次挂载加载分布，携带node.scope_key进入既有范围后端；失败显示错误并可重试，范围／阶段／项目／身份切换或卸载时隔离旧响应。既有taskDistributionTips增加可选scopeKey，不改变无key调用合同。没有新增后端、数据库、权限或结果计算链。
+- 验收：`npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/components/performance/calibration --cache=false --silent` → **9文件236 passed**。单任务用例使用真实PerformanceReviewContent与共享完成组件，仅替换成员表格，覆盖首次范围提示、失败重试、阻断明细与唯一继续按钮、取消不写、缺结果成功、授权说明、409重预检、过期响应。共享组件另覆盖SOFT可确认、未完成响应拒绝成功及同scope权限刷新。首次联合回归发现Review旧文案断言失败，按统一文案更新并补首次提示API mock后复验通过。
+- 构建：最终`npm --prefix hr-portal/frontend run build` → **vue-tsc与Vite通过，3832模块，48.38s，exit0**；仅既有VueUse PURE注释提示。`git diff --check`通过。无本轮真实浏览器截图、真实SQL/API或生产验收；历史T02/T05/T06的PG阻塞保持不变，未commit、push或部署。
 
 ## 验收记录
 

@@ -469,6 +469,16 @@
 - 最终定向命令：`npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/components/performance/calibration src/components/performance/PerformanceLineTabs.spec.ts src/components/performance/ProjectStatisticsReportPanel.spec.ts src/components/performance/ProjectPerformanceMatrix.spec.ts` → **12文件262 passed**；保留既有jsdom scrollTo/XHR和Vue stub提示。构建尚在运行，不提前记录通过。
 - UI合规：已读Spec002基线、CR010/014及Spec012 UI交互/实施守则，沿N00/N11复用既有token和组件，无禁止项；不涉及数仓/UCP/破坏性操作。未创建脚本、独立报告或测试文档，未commit/push/部署，未执行真实业务API/数据库或全量套件。
 
+## F09 追加：成员列表加载后底线上移修复（2026-11-23）
+
+- 用户确认现象为数据出现后表格底线上移，授权完成修复。范围为360反馈、上级评估、绩效沟通和关注人员绩效的共享列表加载行为；沿既有页面小修，无新蓝图/API/权限/迁移或生产操作。
+- 根因：列表加载态沿空态预留220–300px，少量数据呈现后收缩；成员请求和列偏好独立返回，成员先显示时，稍后移除表格前的列设置提示段落还会再次上移。UiTable的ResizeObserver仅量宽，未发现该链路直接重写高度，不将其泛称为根因。
+- 实现：UiTable仅增加loading行标识；PerformanceManagementTable仅对page滚动模式消费既有51px行高，内滚动及其他UiTable消费者的空态不变。成员/反馈加载提示移除220/300px空态最小高度，真实空态/错误态保留。ProjectMemberListPanel将成员和列偏好加载共同作为表格loading门禁，列设置提示放入同一加载行，不再在数据上方追加后移除段落。未固定表格总高度，长数据仍自然撑高。
+- 本轮文件：UiTable.vue/spec.ts、PerformanceManagementTable.vue、ProjectMemberListPanel.vue、PerformanceReview360FeedbackPanel.vue、Review.spec.ts中的late preferences回归及本记录；保留其他会话的360未开始/校准完成组件与测试改动。
+- 验证：专项2文件27 passed（筛选未执行160项）；最终联合 `npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/components/ui/UiTable.spec.ts src/components/performance/calibration src/components/performance/ProjectStatisticsReportPanel.spec.ts src/components/performance/ProjectPerformanceMatrix.spec.ts` → **12文件285 passed**。首轮282 passed/1失败为并行校准文案旧断言，由对应会话更新后复验；构建首轮并行360测试可空访问报TS2531，修正后最终 `npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite通过，3832模块，45.34s，exit0**；既有jsdom XHR/scrollTo与VueUse PURE警告保留。
+- 实际Vite＋隔离Chrome受控API逐帧覆盖四类列表1/2/30人及空态，数据呈现后底线保持稳定；按真实identity_status字段复验四类单人场景，加载/数据行均51px、表格底线均y221（0px位移）。上级评估偏好故意晚返回时保持加载行，不先显示数据；390px无页面横溢、pageerror0。早期无identity_status夹具产生57px行高，曾补57px占位，真实字段复验后撤回该夹具推导，最终沿51px既有token。截图performance-loading-before/after.png仅为中间夹具，不作为最终51px证据；最终结论依据DOM实测。
+- UI合规：已读Spec002/012交互与实施守则，复用现有token/组件，无禁止项；无新脚本/独立报告/测试文档，无commit/push/部署，真实业务项目API及数据库验收未执行，不以受控API冒充生产。
+
 ## 19. CR-010-F13 结果查看配置与运行架构一致性（2026-11-10）
 
 - 用户确认：修复结果查看与工作总结提交后容器不一致、未配置评级摘要及显示顺序偏差，保证整体架构一致。沿用PM-T004结果查看与区域排序契约、CR-007正式入口；无新页面/流程，无需新完整蓝图。

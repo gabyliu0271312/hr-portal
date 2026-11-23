@@ -63,7 +63,7 @@
         </tr>
       </thead>
       <tbody v-if="section !== 'header'">
-        <tr v-if="loading || !rows.length" class="ui-table__row ui-table__row--state">
+        <tr v-if="loading || !rows.length" class="ui-table__row ui-table__row--state" :class="{ 'ui-table__row--loading': loading }">
           <td class="ui-table__cell ui-table__state" :colspan="columns.length + (selectable ? 1 : 0)">
             <div class="ui-table__state-content" :style="viewportWidth ? { width: `${viewportWidth}px` } : undefined">
               <slot name="empty" :loading="loading" :text="loading ? loadingText : emptyText">

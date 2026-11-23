@@ -32,6 +32,7 @@
       :template-name="overview?.template_name || ''"
       :node="selectedNode"
       :feedback-sources="selectedNode && isReviewer360Node(selectedNode) ? reviewer360Sources : undefined"
+      :feedback-state="reviewer360NotStarted ? 'not_started' : 'started'"
       :project-id="activeProjectId"
       :member-preference-scope="activeProjectId && projectContext.activeCycleId && selectedNodeId ? { cycle_ref: projectContext.activeCycleId, scene: 'evaluation', project_id: activeProjectId, node_id: selectedNodeId } : undefined"
       :result-unavailable="resultUnavailable"
@@ -228,8 +229,10 @@ const projectCategories = computed(() => {
   const order = ['mine', 'others', 'team', 'other']
   return categories.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
 })
-const reviewer360Sources = computed(() => projectCategories.value.flatMap(category => category.nodes)
-  .filter(node => node.project_id && isReviewer360Node(node))
+const reviewer360Nodes = computed(() => projectCategories.value.flatMap(category => category.nodes)
+  .filter(node => node.project_id && isReviewer360Node(node)))
+const reviewer360NotStarted = computed(() => reviewer360Nodes.value.length > 0 && reviewer360Nodes.value.every(node => node.status === 'not_started'))
+const reviewer360Sources = computed(() => reviewer360Nodes.value
   .map(node => ({ project_id: node.project_id!, node_id: node.node_id, project_name: overview.value?.projects.find(project => project.project_id === node.project_id)?.project_name || '', node_name: node.node_name })))
 const visibleCategories = computed(() => projectCategories.value.map(category => {
   const nodes: ReviewNavigationNode[] = []

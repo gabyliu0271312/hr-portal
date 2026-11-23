@@ -5,6 +5,7 @@ import { ElTableColumn } from 'element-plus'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { performanceReview360InviteApi, performanceReview360FeedbackApi, performanceNavigationApi, performanceReviewApi, performanceWorkbenchApi, projectManagementApi, resultViewApi, type PerformanceNavigationContext, type PerformanceReviewOverview } from '@/api/performance'
 import { performanceCalibrationApi, type PerformanceCalibrationTaskScope } from '@/api/performanceCalibration'
+import { api } from '@/api/client'
 import PerformanceCalibrationWorkspace from '@/components/performance/calibration/PerformanceCalibrationWorkspace.vue'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 
@@ -307,6 +308,82 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it.each([
+    ['单来源未开始', ['not_started'], true],
+    ['同项目多来源全部未开始', ['not_started', 'not_started'], true],
+    ['未开始与待完成混合', ['not_started', 'pending'], false],
+    ['未开始与已完成混合', ['not_started', 'completed'], false],
+    ['已开始无任务', ['pending'], false],
+  ] as const)('%s时正确区分360未开始空态与无任务空态', async (_label, statuses, notStarted) => {
+    const scheduled = structuredClone(overview)
+    scheduled.categories = [{ key: 'others', label: '给他人的评估', nodes: statuses.map((status, index) => ({
+      ...overview.categories[1].nodes[0], node_id: `feedback-${index}`, executor_role_code: 'assessment.reviewer_360',
+      task_kind: 'evaluation', status, start_at: '2099-01-01T00:00:00Z',
+    })) }]
+    routeQuery.node = 'feedback-0'
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(scheduled)
+    const list = vi.spyOn(performanceReview360FeedbackApi, 'list').mockResolvedValue({
+      items: [], total: 0, node_id: 'feedback-0', voluntary_evaluation_enabled: true,
+      allow_voluntary_evaluation: false, voluntary_evaluation_disabled_reason: '360°评估尚未开始，无法发起自愿评估',
+    })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.findComponent(PerformanceReview360FeedbackPanel).exists()).toBe(!notStarted)
+    expect(wrapper.find('button[aria-label="自愿评估"]').exists()).toBe(!notStarted)
+    expect(wrapper.find('.primary-button').exists()).toBe(false)
+    if (notStarted) {
+      expect(wrapper.get('.state-illustration img').attributes('src')).toBe('/performance-not-started.svg')
+      expect(wrapper.get('.review-panel').text()).toBe('暂未启动')
+      expect(wrapper.get('.review-body').classes()).not.toContain('review-body--workspace')
+      expect(list).not.toHaveBeenCalled()
+    } else {
+      expect(wrapper.get('.review-panel').text()).toContain('暂无 360° 评估邀请，可以自愿评估其他同事')
+      expect(wrapper.text()).not.toContain('暂未启动')
+      expect(list).toHaveBeenCalled()
+    }
+    wrapper.unmount()
+  })
+
+  it.each(['not_started', 'pending', 'completed'] as const)('跨项目聚合以全部来源而非选中节点判断未开始（另一来源%s）', async status => {
+    const projects = [overview.projects[0], { ...overview.projects[0], project_id: 2, project_name: '第二项目' }]
+    usePerformanceProjectContextStore().setNavigation(navigationOf(1, { review_projects: projects }))
+    routeQuery.node = 'feedback-1'
+    vi.mocked(performanceReviewApi.overview).mockImplementation(async projectId => ({
+      ...structuredClone(overview), projects, active_project: projects[(projectId || 1) - 1],
+      categories: [{ key: 'others', label: '给他人的评估', nodes: [{
+        ...overview.categories[1].nodes[0], node_id: `feedback-${projectId || 1}`, executor_role_code: 'assessment.reviewer_360',
+        status: projectId === 2 ? status : 'not_started',
+      }] }],
+    }))
+    const list = vi.spyOn(performanceReview360FeedbackApi, 'list').mockResolvedValue({ items: [], total: 0, node_id: 'feedback-2', allow_voluntary_evaluation: false })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.getComponent(PerformanceReviewContent).props('node')?.status).toBe('not_started')
+    if (status === 'not_started') {
+      expect(wrapper.get('.review-panel').text()).toBe('暂未启动')
+      expect(list).not.toHaveBeenCalled()
+    } else {
+      expect(wrapper.findComponent(PerformanceReview360FeedbackPanel).exists()).toBe(true)
+      expect(list).toHaveBeenCalledWith(1, undefined, 'feedback-1')
+      expect(list).toHaveBeenCalledWith(2, undefined, 'feedback-2')
+    }
+    wrapper.unmount()
+  })
+
+  it('360从已开始切回未开始时卸载列表和自愿评估按钮', async () => {
+    vi.spyOn(performanceReview360FeedbackApi, 'list').mockResolvedValue({ items: [], total: 0, node_id: 'feedback', voluntary_evaluation_enabled: true, allow_voluntary_evaluation: true })
+    const node = { ...overview.categories[1].nodes[0], executor_role_code: 'assessment.reviewer_360', status: 'pending' as const }
+    const wrapper = mount(PerformanceReviewContent, { props: { loading: false, error: '', templateName: '', projectId: 1, node }, global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(wrapper.find('button[aria-label="自愿评估"]').exists()).toBe(true)
+    await wrapper.setProps({ node: { ...node, status: 'not_started' } })
+    await flushPromises()
+    expect(wrapper.get('.review-panel').text()).toBe('暂未启动')
+    expect(wrapper.findComponent(PerformanceReview360FeedbackPanel).exists()).toBe(false)
+    expect(wrapper.find('button[aria-label="自愿评估"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('aggregates feedback rows and voluntary candidates while retaining their real project and node', async () => {
     const sources = [
       { project_id: 1, node_id: 'first-360', project_name: '项目一', node_name: '360°评估' },
@@ -575,6 +652,7 @@ describe('PerformanceReview', () => {
     vi.spyOn(projectManagementApi, 'calibrationCompletionPreview').mockResolvedValue({ scope_version: 'scope-1', total_count: 2, completed_count: 0, missing_result_count: 1, can_complete: true, completed: false })
     vi.spyOn(projectManagementApi, 'memberReminderTasks').mockResolvedValue({ items: [], total: 0, can_remind: true })
     vi.spyOn(performanceWorkbenchApi, 'taskPeople').mockResolvedValue([])
+    vi.spyOn(performanceWorkbenchApi, 'taskDistributionTips').mockResolvedValue({ enabled: false, total_people: 0, rated_people: 0, rules: [], lines: [] })
   })
 
   it.each(['evaluation', 'calibration', 'result_communication', 'reviewer_360_confirm'])('passes the real %s source and 360 scope to the member dialog', async taskKind => {
@@ -1322,6 +1400,30 @@ describe('PerformanceReview', () => {
     expect(performanceWorkbenchApi.taskPeople).toHaveBeenCalledWith(1, 'manager-review', 'all', undefined, undefined, 1, 50, undefined, undefined)
   })
 
+  it('waits for late column preferences before displaying member rows without a disappearing status paragraph', async () => {
+    let finishPreference!: (value: unknown) => void
+    const request = vi.spyOn(api, 'get').mockImplementation(url => url === '/performance/column-preferences'
+      ? new Promise(resolve => { finishPreference = resolve })
+      : Promise.reject(new Error('unexpected request')))
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue({ items: [{ task_id: 22, employee_no: 'E002', display_name: '已加载员工', status: 'pending' }], total: 1 } as any)
+    const wrapper = mount(ProjectMemberListPanel, {
+      props: { projectId: 1, reviewContext: { nodeId: 'manager-review', state: 'all' }, preferenceScope: { cycle_ref: 1, scene: 'evaluation', project_id: 1, node_id: 'manager-review' } },
+    })
+    try {
+      await flushPromises()
+      expect(wrapper.find('.member-list-panel > p[role="status"]').exists()).toBe(false)
+      expect(wrapper.get('.ui-table__row--loading').text()).toContain('正在加载列设置')
+      expect(wrapper.text()).not.toContain('已加载员工')
+      finishPreference({ data: { column_keys: null } })
+      await flushPromises()
+      expect(wrapper.find('.ui-table__row--loading').exists()).toBe(false)
+      expect(wrapper.text()).toContain('已加载员工')
+    } finally {
+      wrapper.unmount()
+      request.mockRestore()
+    }
+  })
+
   it('renders independent rating columns from task metadata and preserves hidden columns on reload', async () => {
     const row = {
       task_id: 22, employee_no: 'E002', display_name: '已完成员工', status: 'completed', due_at: null,
@@ -1769,7 +1871,7 @@ describe('PerformanceReview', () => {
     await wrapper.findAll('button').find(item => item.text() === '完成校准')!.trigger('click')
     await flushPromises()
     expect(performanceCalibrationApi.preview).toHaveBeenCalledWith(expect.objectContaining({ scope_key: 'scope-rule-2', phase_id: 'phase-2' }))
-    expect(document.body.textContent).toContain('1 名被评估人尚无绩效结果')
+    expect(document.body.textContent).toContain('当前范围有 1 人尚无校准结果')
     wrapper.unmount()
   })
 

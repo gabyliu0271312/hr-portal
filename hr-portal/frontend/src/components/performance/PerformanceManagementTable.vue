@@ -385,6 +385,7 @@ function rowClassName({ row }: { row: any }) {
   display: flex;
   flex-direction: column;
 }
+.is-page-scroll :deep(.ui-table__row--loading > .ui-table__state) { height: var(--ui-table-row-height); }
 .is-fit-height { flex: 1 1 0; overflow: hidden; }
 .is-fit-height > :deep(.ui-table),
 .is-fit-height > .table-scroll,

@@ -1800,8 +1800,8 @@ export const performanceWorkbenchApi = {
       return data
     })
   },
-  async taskDistributionTips(projectId: number, nodeId: string, phaseId?: string | null): Promise<PerformanceDistributionTips> {
-    const { data } = await api.get<PerformanceDistributionTips>(`/performance/workbench/tasks/${encodeURIComponent(nodeId)}/distribution-tips`, { params: { project_id: projectId, ...(phaseId ? { phase_id: phaseId } : {}) } })
+  async taskDistributionTips(projectId: number, nodeId: string, phaseId?: string | null, scopeKey?: string): Promise<PerformanceDistributionTips> {
+    const { data } = await api.get<PerformanceDistributionTips>(`/performance/workbench/tasks/${encodeURIComponent(nodeId)}/distribution-tips`, { params: { project_id: projectId, ...(phaseId ? { phase_id: phaseId } : {}), ...(scopeKey ? { scope_key: scopeKey } : {}) } })
     return data
   },
 }

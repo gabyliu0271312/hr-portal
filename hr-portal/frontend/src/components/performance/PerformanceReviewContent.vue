@@ -14,13 +14,13 @@
         <div class="review-heading-copy">
           <h2>{{ contentTitle || node.node_name }}</h2>
           <template v-if="node.node_type !== 'result_view' && !(shows360Feedback && (feedbackSources?.length || 0) > 1)">
-          <span v-if="node.status === 'not_started' && node.start_at" class="review-deadline">启动时间：{{ formatStartTime(node.start_at) }}</span>
+          <span v-if="isNotStarted && node.start_at" class="review-deadline">启动时间：{{ formatStartTime(node.start_at) }}</span>
           <span v-else-if="node.status !== 'completed' && node.end_at" class="review-deadline">截止时间：{{ formatDeadline(node.end_at) }}</span>
           <span v-else-if="node.status !== 'completed' && templateName" class="review-deadline">{{ templateName }}</span>
           </template>
         </div>
         <slot name="heading-actions" />
-        <div v-if="shows360Feedback && feedbackPanel?.voluntaryEnabled" class="review-heading-actions">
+        <div v-if="shows360Feedback && showsFeedbackTable && feedbackPanel?.voluntaryEnabled" class="review-heading-actions">
           <PerformanceDisabledReason :disabled="!feedbackPanel?.allowVoluntary" :reason="feedbackPanel?.voluntaryDisabledReason">
             <UiButton variant="primary" aria-label="自愿评估" :disabled="!feedbackPanel?.allowVoluntary" @click="feedbackPanel?.openVoluntaryDialog()">自愿评估</UiButton>
           </PerformanceDisabledReason>
@@ -47,7 +47,11 @@
         />
         <template v-else-if="showsEvaluationWorkspace">
           <div class="evaluation-workspace">
-            <PerformanceDistributionTipsPanel v-if="isCalibrationNode && props.projectId && node.node_id" :tips="distributionTips" />
+            <template v-if="isCalibrationNode && props.projectId && node.node_id">
+              <p v-if="distributionLoading" role="status">正在加载分布提示…</p>
+              <p v-else-if="distributionError" role="alert">{{ distributionError }} <UiButton variant="text" @click="loadDistributionTips">重试</UiButton></p>
+              <PerformanceDistributionTipsPanel v-else :tips="distributionTips" />
+            </template>
             <ProjectMemberListPanel
               v-if="displayConfig?.table === 'members' && props.projectId && node.node_id"
               :project-id="props.projectId"
@@ -85,11 +89,11 @@
         </template>
         <template v-else>
         <div class="state-illustration" aria-hidden="true">
-          <img v-if="node.status === 'not_started'" src="/performance-not-started.svg" alt="" width="120" height="121">
+          <img v-if="isNotStarted" src="/performance-not-started.svg" alt="" width="120" height="121">
           <img v-else src="/performance-no-submit.svg" alt="" width="120" height="120">
         </div>
-        <p>{{ node.status === 'not_started' ? '暂未启动' : node.status === 'overdue' ? '该环节已逾期' : '暂未填写' }}</p>
-        <button v-if="node.status !== 'not_started'" type="button" class="primary-button" @click="emit('open-node', node)">去完成</button>
+        <p>{{ isNotStarted ? '暂未启动' : node.status === 'overdue' ? '该环节已逾期' : '暂未填写' }}</p>
+        <button v-if="!isNotStarted" type="button" class="primary-button" @click="emit('open-node', node)">去完成</button>
         </template>
         </div>
       </div>
@@ -98,7 +102,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { employeeSwitchEpoch } from '@/stores/identitySwitch'
 import type { PerformanceColumnPreferenceScope, PerformanceDistributionTips, PerformanceReviewMemberContext, PerformanceReviewNode, PerformanceReview360Source } from '@/api/performance'
 import { performanceWorkbenchApi } from '@/api/performance'
 import PerformanceComparisonNotice from './PerformanceComparisonNotice.vue'
@@ -119,6 +124,7 @@ const props = defineProps<{
   templateName: string
   node: PerformanceReviewNode | null
   feedbackSources?: PerformanceReview360Source[]
+  feedbackState?: 'not_started' | 'started'
   projectId?: number | null
   memberPreferenceScope?: PerformanceColumnPreferenceScope
   contentTitle?: string
@@ -126,7 +132,8 @@ const props = defineProps<{
 }>()
 
 const displayConfig = computed(() => props.node ? performanceReviewDisplay(props.node.node_type) : null)
-const showsFeedbackTable = computed(() => shows360Feedback.value || Boolean((displayConfig.value?.table === 'communication' || displayConfig.value?.table === 'taskPeople') && props.node?.status !== 'not_started'))
+const isNotStarted = computed(() => shows360Feedback.value && props.feedbackState ? props.feedbackState === 'not_started' : props.node?.status === 'not_started')
+const showsFeedbackTable = computed(() => !isNotStarted.value && (shows360Feedback.value || displayConfig.value?.table === 'communication' || displayConfig.value?.table === 'taskPeople'))
 const showsEvaluationWorkspace = computed(() => {
   const node = props.node
   return Boolean(node && node.status !== 'not_started' && (displayConfig.value?.table === 'manager' || displayConfig.value?.table === 'members' || (node.task_kind === 'evaluation' && !isSelfEvaluationNode(node))))
@@ -146,17 +153,24 @@ watch(() => props.node?.node_id, () => { evaluationTab.value = 'members' })
 
 const isCalibrationNode = computed(() => props.node?.node_type === 'calibration')
 const distributionTips = ref<PerformanceDistributionTips | null>(null)
+const distributionLoading = ref(false), distributionError = ref('')
 let distributionRequest = 0
-watch(() => [props.node?.node_type, props.node?.node_id, props.node?.phase_id, props.projectId], () => {
+async function loadDistributionTips() {
+  const request = ++distributionRequest
   const node = props.node
   const projectId = props.projectId
-  distributionTips.value = null
+  distributionTips.value = null; distributionError.value = ''; distributionLoading.value = false
   if (!node || node.node_type !== 'calibration' || !projectId) return
-  const request = ++distributionRequest
-  void performanceWorkbenchApi.taskDistributionTips(Number(projectId), node.node_id, node.phase_id || null)
-    .then(tips => { if (request === distributionRequest) distributionTips.value = tips })
-    .catch(() => { if (request === distributionRequest) distributionTips.value = null })
-})
+  distributionLoading.value = true
+  try {
+    const tips = await performanceWorkbenchApi.taskDistributionTips(Number(projectId), node.node_id, node.phase_id || null, node.scope_key)
+    if (request === distributionRequest) distributionTips.value = tips
+  } catch (cause: any) {
+    if (request === distributionRequest) distributionError.value = cause?.response?.status === 403 ? '无权查看当前任务的分布。' : '分布提示加载失败，请重试。'
+  } finally { if (request === distributionRequest) distributionLoading.value = false }
+}
+watch(() => [props.node?.node_type, props.node?.node_id, props.node?.phase_id, props.node?.scope_key, props.projectId, employeeSwitchEpoch.value], loadDistributionTips, { immediate: true })
+onBeforeUnmount(() => { ++distributionRequest })
 
 const emit = defineEmits<{
   retry: []

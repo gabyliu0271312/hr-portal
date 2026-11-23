@@ -417,12 +417,11 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
       </template>
     </PerformanceListToolbar>
     <PerformanceTableSummary :total="total" :hidden-column-count="hiddenColumnCount" @columns="openColumnDrawer" />
-    <p v-if="preferenceLoading" role="status">正在加载列设置…</p>
-    <p v-else-if="preferenceError" role="alert">{{ preferenceError }} <UiButton variant="text" @click="loadPreference">重试</UiButton></p>
+    <p v-if="preferenceError" role="alert">{{ preferenceError }} <UiButton variant="text" @click="loadPreference">重试</UiButton></p>
     <PerformanceManagementTable
       v-model:selected-keys="selectedKeys"
       :rows="displayRows"
-      :loading="loading"
+      :loading="loading || preferenceLoading"
       loading-text="正在加载成员…"
       :empty-text="error || '暂无成员'"
       table-aria-label="成员列表"
@@ -459,7 +458,7 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
         <span v-else class="table-text">{{ cellValue(row, column.key) }}</span>
       </template>
       <template #empty>
-        <div v-if="loading" class="member-state" role="status">正在加载成员…</div>
+        <div v-if="loading || preferenceLoading" role="status">{{ preferenceLoading ? '正在加载列设置…' : '正在加载成员…' }}</div>
         <div v-else-if="error" class="member-state member-state--error" role="alert">{{ error }} <UiButton variant="text" @click="loadMembers">重试</UiButton></div>
         <slot v-else name="empty"><div class="member-state">暂无成员</div></slot>
       </template>

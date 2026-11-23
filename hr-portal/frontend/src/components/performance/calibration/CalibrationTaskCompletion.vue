@@ -45,7 +45,7 @@ async function confirm() {
   } finally { if (request === sequence) loading.value = false }
 }
 watch(loading, value => emit('busy', value), { flush: 'sync' })
-watch([() => props.scope.scope_key, employeeSwitchEpoch], () => { ++sequence; visible.value = false; loading.value = false; preview.value = null; tips.value = null }, { flush: 'sync' })
+watch([() => props.scope, employeeSwitchEpoch], () => { ++sequence; visible.value = false; loading.value = false; preview.value = null; tips.value = null }, { flush: 'sync' })
 onBeforeUnmount(() => { ++sequence; emit('busy', false) })
 </script>
 <template>

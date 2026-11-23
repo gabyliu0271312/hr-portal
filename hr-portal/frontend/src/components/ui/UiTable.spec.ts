@@ -65,6 +65,21 @@ describe('UiTable', () => {
     custom.unmount()
   })
 
+  it('marks loading separately and keeps rows hidden until ready', async () => {
+    const wrapper = mount(UiTable, { props: { columns, rows: [], loading: true, loadingText: '加载中' } })
+    expect(wrapper.get('tbody tr').classes()).toContain('ui-table__row--loading')
+    expect(wrapper.text()).toContain('加载中')
+    await wrapper.setProps({ rows: [{ name: '已加载成员' }] })
+    expect(wrapper.text()).not.toContain('已加载成员')
+    await wrapper.setProps({ loading: false })
+    expect(wrapper.find('.ui-table__row--state').exists()).toBe(false)
+    expect(wrapper.text()).toContain('已加载成员')
+    await wrapper.setProps({ rows: [] })
+    expect(wrapper.get('tbody tr').classes()).not.toContain('ui-table__row--loading')
+    expect(wrapper.find('.ui-table__state').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('accumulates measured widths for multiple fixed columns and remeasures changed columns', async () => {
     let width = 300
     const measure = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ width } as DOMRect))

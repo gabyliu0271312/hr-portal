@@ -77,6 +77,28 @@ describe('task-scoped calibration completion', () => {
     expect(performanceCalibrationApi.confirm).not.toHaveBeenCalled()
     wrapper.unmount()
   })
+  it('does not report completion when confirmation returns an incomplete task', async () => {
+    const wrapper = mount(CalibrationTaskCompletion, { attachTo: document.body, props: { scope } })
+    await click('完成校准')
+    vi.mocked(performanceCalibrationApi.confirm).mockResolvedValueOnce(preview)
+    await click('确定')
+    expect(wrapper.emitted('completed')).toBeUndefined()
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('任务尚未完成，请重新预检')
+    expect(document.querySelector('.calibration-completion__actions')?.textContent).toContain('重新预检')
+    wrapper.unmount()
+  })
+  it('allows a SOFT violation to confirm and invalidates preview when the same scope is refreshed', async () => {
+    vi.mocked(performanceCalibrationApi.distribution).mockResolvedValueOnce({ ...tips, enabled: true, rules: [{ assessment_item_id: 'grade', assessment_label: '绩效评级', conditions: [{ control_mode: 'SOFT', grades: ['优秀'], operator: 'LTE', value: 25, unit: 'PERCENT', rounding: 'ROUND', target_people: 0, current_people: 1, diff: 1, violated: true }] }] })
+    const wrapper = mount(CalibrationTaskCompletion, { attachTo: document.body, props: { scope } })
+    await click('完成校准')
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === '确定')!
+    expect(confirm.disabled).toBe(false)
+    await wrapper.setProps({ scope: { ...scope, read_only: true } }); await flushPromises()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(wrapper.find('button').attributes('disabled')).toBeDefined()
+    expect(performanceCalibrationApi.confirm).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
   it('ignores previous scope preview while a different task is selected', async () => {
     let resolve: (value: any) => void = () => {}
     vi.mocked(performanceCalibrationApi.preview).mockReturnValueOnce(new Promise(done => { resolve = done }))

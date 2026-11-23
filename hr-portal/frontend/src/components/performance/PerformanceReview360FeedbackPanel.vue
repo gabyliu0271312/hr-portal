@@ -382,7 +382,7 @@ defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVo
         <span v-else>{{ cellValue(row, column.key) }}</span>
       </template>
       <template #empty="{ loading: emptyLoading, text }">
-        <div v-if="emptyLoading" class="feedback-empty feedback-empty--text" role="status">{{ text }}</div>
+        <div v-if="emptyLoading" role="status">{{ text }}</div>
         <div v-else-if="error" class="feedback-empty feedback-empty--text" role="alert">{{ error }}<UiButton variant="secondary" @click="load">重新加载</UiButton></div>
         <div v-else class="feedback-empty" role="status">
           <MetricTemplateEmptyIllustration />
