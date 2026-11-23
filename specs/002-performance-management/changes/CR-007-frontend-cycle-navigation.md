@@ -82,6 +82,14 @@
   - 截图：`CR-007-T02-implemented-task-menus.png`、`CR-007-T02-implemented-management-cycle.png`、`CR-007-T03-implemented-cycle-review-tabs.png`、`CR-007-T03-implemented-cycle-management-tabs.png`。
   - 未执行：真实生产认证/数据库回读、部署、commit或push；无数据库迁移。
 
+### CR-007-F21 绩效页签切换头像稳定性（2026-11-23）
+
+- 用户反馈：在工作台、绩效评估、项目管理三个顶部页签之间切换时，右侧头像区域发生横向抖动。
+- 根因：全局 `html { scrollbar-gutter: stable; }` 与 `Review.vue` 页面级 `html:has(.review-page) { scrollbar-gutter: auto; }` 冲突，绩效评估页切入时改变根节点可用宽度；顶部 `space-between` 布局随之使头像横移约10px。
+- 修复：将 `scrollbar-gutter: auto` 提升到 `PerformanceLayout.vue` 的绩效公共布局作用域，移除 `Review.vue` 页面级覆盖；更新源码回归断言，确保滚动条策略由公共布局统一维护。不涉及 API、权限、数据库、路由信息架构或外部系统，无需新蓝图。
+- 验证：`npm.cmd --prefix hr-portal/frontend test -- src/layouts/PerformanceLayout.spec.ts src/views/performance/Workbench.spec.ts src/views/performance/Review.spec.ts --silent` → **3文件187 passed，exit0**；`npm.cmd --prefix hr-portal/frontend run build` → **vue-tsc + Vite exit0**，仅既有 VueUse PURE 注释提示；`git diff --check`通过。浏览器真实 Vue 路由与隔离 API 数据在1440×900、800×900下反复切换三个页签，`.user-trigger` 的 x/y/right 均保持不变，pageerror=0，业务写请求=0，未匹配API=0。旧规则对照测得头像横移10px。独立截图：`C:/Users/gaby.liu/AppData/Local/Temp/CR-007-T02-avatar-stability-20261123.png`，为合成数据验收，不代表生产像素或真实认证验收。
+- 状态：本地修复与定向验收完成；未部署、未commit、未push。
+
 任务只有在代码、定向回归、构建和实际UI证据齐全后才能勾选。
 
 ## 6.1 工作台入口纠偏（2026-11-09，CR-007-F07）

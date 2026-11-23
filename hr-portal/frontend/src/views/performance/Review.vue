@@ -557,7 +557,6 @@ onMounted(async () => {
 .result-reconsideration-action{margin-top:24px;padding-top:16px;border-top:1px solid var(--color-border)}
 .result-reconsideration-action p{margin:0 0 12px;line-height:22px;color:var(--color-text-secondary)}
 .result-reconsideration-action span{color:var(--color-text-secondary);font-size:14px}
-:global(html:has(.review-page)) { scrollbar-gutter: auto; }
 .review-page { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: var(--performance-page-surface); }
 @media (max-width: 720px) { .review-page { display: block; } }
 </style>

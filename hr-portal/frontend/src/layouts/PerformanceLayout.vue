@@ -226,6 +226,7 @@ onMounted(() => void refreshIdentity())
 </script>
 
 <style scoped>
+:global(html:has(.performance-app)) { scrollbar-gutter: auto; }
 .identity-switch-banner { display: flex; gap: 12px; justify-content: space-between; align-items: center; flex-wrap: wrap; padding: 12px 16px; background: var(--color-warning-light); color: var(--color-text-primary); font-size: 13px; }
 .performance-app {
   height: 100vh;

@@ -507,7 +507,8 @@ describe('PerformanceReview', () => {
 
   it('uses the same outer card width and scrollbar behavior for every node state', () => {
     expect(performanceLayoutSource).toMatch(/\.review-main\s*\{[^}]*scrollbar-gutter:\s*auto/s)
-    expect(reviewSource).toContain(':global(html:has(.review-page)) { scrollbar-gutter: auto; }')
+    expect(performanceLayoutSource).toContain(':global(html:has(.performance-app)) { scrollbar-gutter: auto; }')
+    expect(reviewSource).not.toContain(':global(html:has(.review-page))')
     expect(reviewContentSource).toMatch(/\.review-content\s*\{[^}]*padding:\s*var\(--performance-review-surface-inset\) var\(--performance-review-surface-inset\) 0;[^}]*scrollbar-width:\s*none/s)
     expect(reviewContentSource).toMatch(/\.review-content::-webkit-scrollbar\s*\{[^}]*display:\s*none/s)
     expect(reviewContentSource).not.toMatch(/\.review-content\.is-completed\s*\{/)
