@@ -541,6 +541,8 @@
   - DoD/blockers: 代码/组件DOM与build已验证；实际登录态浏览器、独立PNG和真实API/数据库回读not-run，未部署/commit/push，保持未勾选。不将mock回读称为真实持久化验收。
 
 - [ ] PM-T004-T05-F18 富文本编辑内核与标签输入统一复用及自动换行（2026-10-23 用户确认）
+  - 2026-11-23拼音提示补漏：组合开始立即隐藏提示，取消空输入恢复，确认后按正文显示；组合期间不发布/保存拼音、不重建编辑节点。公共Editor单行展示状态修复，既有Renderer新增三variant回归后56/56通过，Chrome CDP IME 43项通过，独立PNG `../../ui-blueprints/CR-010-F06-implemented-ime-placeholder-20261123.png` 已查看；未执行OS输入法人工/生产验收，不勾整体任务。
+  - 2026-11-23补充：用户授权完成公共富文本稳定性优化，关联CR-010-F06；修复IME混输、精确选区和格式关闭、统一100条undo/redo、粘贴顶层行/末尾换行/单项列表、列表光标及空项退出、可见/跨段链接；共享编辑与readonly清洗、增加可访问语义、按段缓存及选区事件合并。Allowed：公共Editor/ReadonlyAnswer、新增performanceRichTextHtml.ts、既有Renderer/Layers测试及本记录；保持答案/接口/权限/快照/后端不变。Renderer 53/53、任务169/169、抽屉85/85通过；六文件418 passed/7颜色断言failed；build通过，diff检查通过。Chrome组件IME与键盘、粘贴/链接undo-redo、390px和约2.4万字100段性能验证通过（median2.2ms/P95 5ms）。截图 `../../ui-blueprints/CR-010-F06-implemented-rich-text-editing-20261123.png` 已查看。完整证据与未执行边界见 `../../changes/CR-010-result-communication-calibration-display.md` CR-010-F06 2026-11-23补充；非真实业务库/OS输入法/生产验收，不勾整体任务。
   - Goal/UI: 后台配置预览和实际填写共用 PerformanceRichTextEditor；标签题进一步共用 PerformanceTagRichTextInput，均为单外框/顶部共享工具栏/独立标签内容。不能把原代码差异默认视为变体；用户已确认两端标签样式一致。普通工作总结的default/task-entry仅保留已有尺寸场景，宽度跟随父容器，不写死采集491/473/457px，也不将页面100vw宽带入编辑器。
   - Allowed scope: 新增上述两个业务组件；修改既有AssessmentContentLayers、TemplateFieldRenderer、相关既有layers/TemplateRenderer/SelfSummaryTask测试、设计体系和本功能记录；删除局部重复引擎及样式。保留F17描述提示修复与无关dirty，不创建脚本/测试文档，不改API、答案schema、权限、迁移、历史快照、保存生效时机、容器和发布。
   - Shared contract: modelValue/placeholder/readonly/hideToolbar/variant/inputClass；update:modelValue/activate/queue-save；active/rememberSelection/command供共享工具栏调用。输入格式、选区、链接、HTML清洗、回显、换行统一在编辑器内，标签容器维护当前编辑对象；实际输入仍用notes[tag_id]，旧note兼容，预览试填不进入配置payload；默认内容不重置显式空答案。

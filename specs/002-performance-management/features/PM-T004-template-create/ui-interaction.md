@@ -425,11 +425,14 @@
 
 ## 统一富文本内核与标签输入（PM-T004-T05-F18，2026-10-23）
 
+- 2026-11-23拼音占位补漏：组合输入开始即隐藏默认提示，未确认拼音不与提示重叠；组合期间不重建DOM、不发布中间答案；取消后若仍为空恢复提示，确认中文后保持隐藏。default/task-entry/tag共用实现，Renderer 56/56、真实Chrome CDP IME 43项检查通过；截图 `../../ui-blueprints/CR-010-F06-implemented-ime-placeholder-20261123.png` 已查看，非OS输入法/生产人工验收。
+
 - 用户确认配置预览与实际填写的标签样式一致：单外框/顶部共享工具栏/各标签独立紧凑输入区；不是把既有实现差异一律当变体保留。两处统一调用 `PerformanceTagRichTextInput`，工作总结、文本与标签编辑均调用 `PerformanceRichTextEditor`；移除旧局部引擎与员工端execCommand实现。普通文本default/task-entry维持现有尺寸场景，宽度由调用容器决定，不固定采集宽度、不改变实际填写页面宽度。
 - 统一 `pre-wrap/overflow-wrap:anywhere/min-width:0/grid minmax`，中文、英文、数字、链接及列表在容器内自然换行与增高，不用overflow:hidden裁切。提示在空编辑器显示、输入后消失；HTML白名单清洗和语义格式回显共用，旧纯文本/段落/列表兼容。链接使用弹层且限制http/https/mailto。
 - 单一标签工具栏作用于当前焦点/选区的标签，移除后回退有效标签；答案仍按原tags/notes独立存储，兼容旧note，不串题；预览试填仍不进入配置confirm。readonly保留禁写DOM；结果只读展示链路保持原白名单清洗。
 - 浏览器证据：真实Chromium挂载实际组件与现有样式的隔离fixture，55/55检查通过，包含320/491/860宽度与配置弹窗约492px外框，五类长文本、scrollWidth不超过clientWidth、文字不越界、输入节点identity不变、提示不重叠。独立截图 `../../ui-blueprints/PM-T004-T05-F18-implemented-rich-wrap.png` 为实际组件隔离验证，不是登录态业务页面或真实数据库验收。早先fixture选择器误选背景框的失败已修正，仅最终通过结果作为证据。
 - 测试采用真实Teleport验证配置编辑节点稳定；旧Teleport测试替身会导致节点重建，不据此修改业务弹窗。定向回归与最终build结果见F18任务。无API、迁移、权限、历史快照、部署或提交推送。
+- 2026-11-23 用户确认公共编辑稳定性优化：中文组合提交后按真实字符偏移继续输入；局部格式保留选区与选区外格式，关闭格式对后续输入生效；键盘空列表Enter退出列表，列表转换保留光标；粘贴拆成顶层行且保留前后正文、末尾换行和来源单项列表，光标停在粘贴末端；无选区链接用URL作可见文字，跨段链接按行分开。输入、删除、组合、格式、列表、换行、粘贴和链接统一undo/redo，最大100条，HTML字符串及自动保存接口不变。编辑区补多行textbox/只读/可访问名称；编辑与只读共享清洗，旧样式转语义格式。实现、测试失败项、浏览器性能及未执行边界见 [CR-010-F06补充](../../changes/CR-010-result-communication-calibration-display.md#13-cr-010-f06-公共富文本空态换行校验与保存修复2026-11-01)；独立截图 `../../ui-blueprints/CR-010-F06-implemented-rich-text-editing-20261123.png`，既有页面内修复，无新信息架构/新蓝图。
 
 ## 标签题共享业务渲染与员工视角（PM-T004-T05-F19，2026-10-23）
 

@@ -18,6 +18,7 @@ import type { PerformanceTemplateField } from '@/api/performance'
 import PerformanceTagRichTextInput from './PerformanceTagRichTextInput.vue'
 import PerformanceRatingTag from './PerformanceRatingTag.vue'
 import { performanceLevelForeground } from './performanceColorOptions'
+import { sanitizePerformanceRichTextHtml } from './performanceRichTextHtml'
 
 const props = withDefaults(defineProps<{ field: PerformanceTemplateField; value: unknown; emptyAnswerText?: string }>(), { emptyAnswerText: '' })
 const selectedOption = computed(() => props.field.options?.find(option => option.id === String(props.value || '')))
@@ -27,27 +28,7 @@ const ratingForeground = computed(() => selectedOption.value?.foreground || (sel
 function safeText(value: unknown) { return typeof value === 'string' && value.trim() ? value : String(value ?? '') }
 function safeHtml(value: unknown) {
   const template = document.createElement('template')
-  template.innerHTML = String(value || '')
-  template.content.querySelectorAll('script,style,iframe,object,embed').forEach(node => node.remove())
-  const allowed = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'OL', 'UL', 'LI', 'A', 'P', 'DIV', 'BR', 'SPAN'])
-  Array.from(template.content.querySelectorAll('*')).forEach(element => {
-    if (!allowed.has(element.tagName)) { element.replaceWith(...Array.from(element.childNodes)); return }
-    const classes: Record<string, string[]> = { DIV: ['ace-line', 'list-div', 'list-indent1'], OL: ['list-number1', 'r-list', 'r-list-number'], UL: ['list-bullet1', 'r-list', 'r-list-bullet'] }
-    Array.from(element.attributes).forEach(attribute => {
-      const { name, value } = attribute
-      if (name === 'class' && classes[element.tagName]) {
-        const safeClasses = value.split(/\s+/).filter(item => classes[element.tagName].includes(item))
-        if (safeClasses.length) element.setAttribute('class', safeClasses.join(' '))
-        else element.removeAttribute(name)
-      } else if (/^(OL|UL|LI)$/.test(element.tagName) && ['start', 'data-start', 'data-origin-start'].includes(name) && /^[1-9]\d{0,5}$/.test(value)) return
-      else if (element.tagName !== 'A' || name !== 'href') element.removeAttribute(name)
-    })
-    if (element.tagName === 'A') {
-      const href = element.getAttribute('href') || ''
-      if (!/^(https?:|mailto:)/i.test(href)) element.removeAttribute('href')
-      else element.setAttribute('rel', 'noopener noreferrer')
-    }
-  })
+  template.innerHTML = sanitizePerformanceRichTextHtml(value)
   let previousList: Element | null = null
   let nextStart = 1
   template.content.querySelectorAll('ol').forEach(list => {

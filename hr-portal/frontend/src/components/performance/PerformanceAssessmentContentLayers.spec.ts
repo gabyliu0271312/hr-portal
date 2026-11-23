@@ -845,10 +845,10 @@ describe('PerformanceAssessmentContentLayers', () => {
   })
 
   it.each([
-    ['粗体', 'fontWeight', 'bold'],
-    ['斜体', 'fontStyle', 'italic'],
-    ['下划线', 'textDecoration', 'underline'],
-  ])('applies pending %s formatting when typing into an empty editor', async (label, styleProperty, expectedStyle) => {
+    ['粗体', 'strong'],
+    ['斜体', 'em'],
+    ['下划线', 'u'],
+  ])('applies pending %s formatting when typing into an empty editor', async (label, tag) => {
     const wrapper = mountLayers()
     await openType(wrapper, '工作总结')
     const editor = wrapper.get('[contenteditable="true"]').element as HTMLElement
@@ -860,8 +860,8 @@ describe('PerformanceAssessmentContentLayers', () => {
     await wrapper.vm.$nextTick()
     const leaf = editor.querySelector('.ace-line > span:not([data-enter])') as HTMLElement
     expect(leaf.textContent).toBe('Probe')
-    expect(leaf.style[styleProperty as 'fontWeight']).toBe(expectedStyle)
-    if (expectedStyle === 'underline') expect(leaf.classList).toContain('underline')
+    expect(leaf.querySelector(tag)?.textContent).toBe('Probe')
+    expect(leaf.hasAttribute('style')).toBe(false)
     expect(editor.querySelectorAll('[data-enter="true"]')).toHaveLength(1)
     expect(wrapper.get(`[aria-label="${label}"]`).classes()).toContain('active')
   })

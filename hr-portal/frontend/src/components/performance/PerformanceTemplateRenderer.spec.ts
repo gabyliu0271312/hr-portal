@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 import PerformanceRichTextEditor from './PerformanceRichTextEditor.vue'
 import PerformanceReadonlyAnswer from './PerformanceReadonlyAnswer.vue'
+import { sanitizePerformanceRichTextHtml } from './performanceRichTextHtml'
 import PerformanceTagRichTextInput from './PerformanceTagRichTextInput.vue'
 import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
 import PerformanceRatingControl from './PerformanceRatingControl.vue'
@@ -336,6 +337,244 @@ ${'NoBreakText'.repeat(80)}`
     expect(richTextBoxSource).not.toContain('.rich-input[data-placeholder]::before')
     expect(richTextEditorSource).toContain('.next-remix-rich-text-editor-content[data-rich-placeholder]::before){grid-area:1 / 1;')
     expect(richTextEditorSource).toContain('white-space:pre-wrap;overflow-wrap:anywhere;')
+  })
+
+  function selectText(root: Element, start: number, end = start) {
+    ;(root as HTMLElement).focus()
+    const locate = (offset: number): [Node, number] => {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+      let node = walker.nextNode() as Text
+      let last = node
+      while (node) {
+        const length = node.data.replace(/​/g, '').length
+        if (length && offset <= length) return [node, offset + (node.data.startsWith('​') ? 1 : 0)]
+        offset -= length
+        last = node
+        node = walker.nextNode() as Text
+      }
+      return [last, last.length]
+    }
+    const range = document.createRange()
+    range.setStart(...locate(start))
+    range.setEnd(...locate(end))
+    document.getSelection()!.removeAllRanges()
+    document.getSelection()!.addRange(range)
+    root.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+  }
+
+  it.each(['default', 'task-entry', 'tag'] as const)('hides the %s placeholder during unconfirmed IME and restores it on cancellation', async variant => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body, props: { variant, placeholder: '请填写工作总结' } })
+    try {
+      const input = wrapper.get('[contenteditable="true"]')
+      const layout = wrapper.get('.next-remix-rich-text-editor-content')
+      selectText(input.element, 0)
+      const block = input.element.firstChild
+      const leaf = input.element.querySelector('[data-enter]')!
+      const text = leaf.firstChild!
+      expect(layout.attributes('data-rich-placeholder')).toBe('请填写工作总结')
+      await input.trigger('compositionstart')
+      expect(layout.attributes('data-rich-placeholder')).toBeUndefined()
+      expect(input.attributes('data-placeholder')).toBeUndefined()
+      text.textContent = '​gongzuo'
+      selectText(input.element, 7)
+      await input.trigger('input', { isComposing: true })
+      expect(layout.attributes('data-rich-placeholder')).toBeUndefined()
+      expect(input.element.firstChild).toBe(block)
+      expect(leaf.firstChild).toBe(text)
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+      expect(wrapper.emitted('queue-save')).toBeUndefined()
+      text.textContent = '​'
+      selectText(input.element, 0)
+      await input.trigger('compositionend')
+      expect(layout.attributes('data-rich-placeholder')).toBe('请填写工作总结')
+      expect(input.attributes('data-placeholder')).toBe('请填写工作总结')
+      const emittedBeforeCommit = wrapper.emitted('update:modelValue')?.length || 0
+      await input.trigger('compositionstart')
+      input.element.querySelector('[data-enter]')!.textContent = '​工作'
+      selectText(input.element, 2)
+      await input.trigger('input', { isComposing: true })
+      expect(wrapper.emitted('update:modelValue')?.length || 0).toBe(emittedBeforeCommit)
+      await input.trigger('compositionend')
+      expect(layout.attributes('data-rich-placeholder')).toBeUndefined()
+      const saved = String(wrapper.emitted('update:modelValue')?.at(-1)?.[0])
+      expect(saved).toContain('工作')
+      expect(saved).not.toContain('gongzuo')
+      expect(saved).not.toContain('请填写工作总结')
+    } finally { wrapper.unmount() }
+  })
+
+  it.each(['default', 'task-entry', 'tag'] as const)('keeps Chinese followed by ASCII and supports undo/redo in %s', async variant => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body, props: { variant } })
+    try {
+      const input = wrapper.get('[contenteditable="true"]')
+      selectText(input.element, 0)
+      await input.trigger('compositionstart')
+      const leaf = input.element.querySelector('[data-enter]')!
+      leaf.firstChild!.textContent = '​工作总结'
+      selectText(input.element, 4)
+      await input.trigger('input')
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+      await input.trigger('compositionend')
+      for (const character of '123abc!?') input.element.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: character, bubbles: true, cancelable: true }))
+      expect(input.element.textContent?.replace(/​/g, '')).toBe('工作总结123abc!?')
+      const saved = String(wrapper.emitted('update:modelValue')?.at(-1)?.[0])
+      expect(saved).toContain('工作总结123abc!?')
+      await input.trigger('keydown', { key: 'z', ctrlKey: true })
+      expect(input.element.textContent?.replace(/​/g, '')).toBe('工作总结123abc!')
+      await input.trigger('keydown', { key: 'z', ctrlKey: true, shiftKey: true })
+      expect(input.element.textContent?.replace(/​/g, '')).toBe('工作总结123abc!?')
+      expect(input.attributes('role')).toBe('textbox')
+      expect(input.attributes('aria-multiline')).toBe('true')
+      expect(Array.from(input.element.querySelectorAll('[data-enter]')).every(node => !node.textContent?.replace(/​/g, ''))).toBe(true)
+    } finally { wrapper.unmount() }
+  })
+
+  it.each(['粗体', '斜体', '下划线'])('limits partial %s formatting to the selection and restores it through undo', async label => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body, props: { modelValue: '<p>abcdef</p>' } })
+    try {
+      const input = wrapper.get('[contenteditable="true"]')
+      selectText(input.element, 2, 4)
+      await wrapper.get(`[aria-label="${label}"]`).trigger('click')
+      expect(document.getSelection()?.toString()).toBe('cd')
+      expect(input.element.textContent?.replace(/​/g, '')).toBe('abcdef')
+      input.element.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: 'X', bubbles: true, cancelable: true }))
+      expect(input.element.textContent?.replace(/​/g, '')).toBe('abXef')
+      await input.trigger('keydown', { key: 'z', ctrlKey: true })
+      expect(input.element.textContent?.replace(/​/g, '')).toBe('abcdef')
+      expect(document.getSelection()?.toString()).toBe('cd')
+      await wrapper.get(`[aria-label="${label}"]`).trigger('click')
+      expect(input.find('strong,em,u').exists()).toBe(false)
+    } finally { wrapper.unmount() }
+  })
+
+  it('removes only a selected portion of nested formatting and honors disabled pending marks', async () => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body, props: { modelValue: '<p><strong><em>abcdef</em></strong></p>' } })
+    try {
+      const input = wrapper.get('[contenteditable="true"]')
+      selectText(input.element, 2, 4)
+      await wrapper.get('[aria-label="粗体"]').trigger('click')
+      expect(input.findAll('strong').map(node => node.text())).toEqual(['ab', 'ef'])
+      expect(input.findAll('em').map(node => node.text()).join('')).toBe('abcdef')
+      selectText(input.element, 6)
+      await wrapper.get('[aria-label="粗体"]').trigger('click')
+      input.element.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: 'X', bubbles: true, cancelable: true }))
+      expect(input.element.textContent?.replace(/​/g, '')).toBe('abcdefX')
+      expect(input.findAll('strong').map(node => node.text()).join('')).toBe('abef')
+    } finally { wrapper.unmount() }
+  })
+
+  it('applies pending marks to an IME commit without publishing intermediate text', async () => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body })
+    try {
+      const input = wrapper.get('[contenteditable="true"]')
+      selectText(input.element, 0)
+      await wrapper.get('[aria-label="粗体"]').trigger('click')
+      await input.trigger('compositionstart')
+      input.element.querySelector('[data-enter]')!.textContent = '​中文'
+      selectText(input.element, 2)
+      await input.trigger('input')
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+      await input.trigger('compositionend')
+      expect(input.get('strong').text()).toBe('中文')
+      await input.trigger('keydown', { key: 'z', ctrlKey: true })
+      expect(input.element.textContent?.replace(/​/g, '')).toBe('')
+    } finally { wrapper.unmount() }
+  })
+
+  it('pastes paragraphs at the caret, preserves the suffix and supports a single undo', async () => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body, props: { modelValue: '<p>abc</p><p>def</p>' } })
+    try {
+      const input = wrapper.get('[contenteditable="true"]')
+      selectText(input.element, 1)
+      await input.trigger('paste', { clipboardData: { getData: (type: string) => type === 'text/html' ? '<p><strong>X</strong></p><p>Y</p>' : 'X\nY' } })
+      expect(Array.from(input.element.children).map(node => node.textContent?.replace(/​/g, ''))).toEqual(['aX', 'Ybc', 'def'])
+      expect(input.find('.ace-line .ace-line,.ace-line p').exists()).toBe(false)
+      input.element.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: 'Z', bubbles: true, cancelable: true }))
+      expect(Array.from(input.element.children).map(node => node.textContent?.replace(/​/g, ''))).toEqual(['aX', 'YZbc', 'def'])
+      await input.trigger('keydown', { key: 'z', ctrlKey: true })
+      await input.trigger('keydown', { key: 'z', ctrlKey: true })
+      expect(Array.from(input.element.children).map(node => node.textContent)).toEqual(['abc', 'def'])
+    } finally { wrapper.unmount() }
+  })
+
+  it('keeps the caret when toggling lists, exits an empty list at Enter and undoes line splitting', async () => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body, props: { modelValue: '<p>abcdef</p>' } })
+    try {
+      const input = wrapper.get('[contenteditable="true"]')
+      selectText(input.element, 2)
+      await wrapper.get('[aria-label="有序列表"]').trigger('click')
+      input.element.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: 'X', bubbles: true, cancelable: true }))
+      expect(input.get('li').text().replace(/​/g, '')).toBe('abXcdef')
+      await input.trigger('keydown', { key: 'Enter' })
+      await input.trigger('keydown', { key: 'z', ctrlKey: true })
+      expect(input.findAll('li')).toHaveLength(1)
+      await wrapper.setProps({ modelValue: '<ol><li></li></ol>' })
+      selectText(input.element, 0)
+      await input.trigger('keydown', { key: 'Enter' })
+      expect(input.find('ol').exists()).toBe(false)
+    } finally { wrapper.unmount() }
+  })
+
+  it('creates visible links at a caret and separate links across paragraphs without nested blocks', async () => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body, props: { modelValue: '<p>abc</p><p>def</p>' } })
+    try {
+      const input = wrapper.get('[contenteditable="true"]')
+      selectText(input.element, 0, 6)
+      await wrapper.get('[aria-label="超链接"]').trigger('click')
+      await wrapper.get('[aria-label="链接地址"]').setValue('https://example.com')
+      await wrapper.get('.link-popover button').trigger('click')
+      expect(input.findAll('a').map(node => node.text())).toEqual(['abc', 'def'])
+      expect(input.find('a .ace-line').exists()).toBe(false)
+      await input.trigger('keydown', { key: 'z', ctrlKey: true })
+      selectText(input.element, 3)
+      await wrapper.get('[aria-label="超链接"]').trigger('click')
+      await wrapper.get('[aria-label="链接地址"]').setValue('https://example.com')
+      await wrapper.get('.link-popover button').trigger('click')
+      expect(input.get('a').text()).toBe('https://example.com')
+      await input.trigger('keydown', { key: 'z', ctrlKey: true })
+      expect(input.element.textContent).toBe('abcdef')
+      expect(input.find('a').exists()).toBe(false)
+    } finally { wrapper.unmount() }
+  })
+
+  it.each(['第一行\n', '第一行\n\n', '第一行<br>'])('preserves trailing line breaks when pasting %s', async text => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body })
+    try {
+      const input = wrapper.get('[contenteditable="true"]')
+      selectText(input.element, 0)
+      await input.trigger('paste', { clipboardData: { getData: (type: string) => text.includes('<br>') ? type === 'text/html' ? text : '' : type === 'text/plain' ? text : '' } })
+      input.element.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: '第二行', bubbles: true, cancelable: true }))
+      expect(Array.from(input.element.children).map(node => node.textContent?.replace(/​/g, ''))).toEqual(text === '第一行\n\n' ? ['第一行', '', '第二行'] : ['第一行', '第二行'])
+    } finally { wrapper.unmount() }
+  })
+
+  it.each(['ol', 'ul'])('preserves a single pasted %s item and its insertion point', async type => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body })
+    try {
+      const input = wrapper.get('[contenteditable="true"]')
+      selectText(input.element, 0)
+      await input.trigger('paste', { clipboardData: { getData: (format: string) => format === 'text/html' ? `<${type}><li>事项</li></${type}>` : '事项' } })
+      input.element.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: 'X', bubbles: true, cancelable: true }))
+      expect(input.get(`${type} > li`).text().replace(/​/g, '')).toBe('事项X')
+    } finally { wrapper.unmount() }
+  })
+
+  it('shares idempotent HTML cleaning across edit and readonly while preserving legacy marks', () => {
+    const dirty = '<p><span style="font-weight:700;font-style:italic;text-decoration:underline;color:red" onclick="bad()">正文</span><svg><foreignObject><p>隐藏SVG</p></foreignObject></svg><math><mtext>隐藏Math</mtext></math><a href="java&#x09;script:bad()">无效链接</a></p><ol start="0002" class="list-bullet1 r-list-number injected"><li data-start="-1">列表</li></ol>'
+    const clean = sanitizePerformanceRichTextHtml(dirty)
+    expect(sanitizePerformanceRichTextHtml(clean)).toBe(clean)
+    const root = document.createElement('div')
+    root.innerHTML = clean
+    expect(root.querySelector('strong em u, u em strong, u strong em')).not.toBeNull()
+    expect(root.querySelector('[style],[onclick],svg,math')).toBeNull()
+    expect(root.textContent).not.toContain('隐藏')
+    expect(root.querySelector('a')?.hasAttribute('href')).toBe(false)
+    expect(root.querySelector('ol')?.hasAttribute('start')).toBe(false)
+    expect(root.querySelector('ol')?.className).toBe('r-list-number')
+    const readonly = mount(PerformanceReadonlyAnswer, { props: { field: { id: 'r', label: '正文', type: 'rich_text' }, value: dirty } })
+    expect(readonly.find('strong').text()).toBe('正文')
+    expect(readonly.find('[style],[onclick],svg,math').exists()).toBe(false)
+    readonly.unmount()
   })
 
   it('repairs empty DOM, removes duplicate placeholders and splits retyped content at the caret', async () => {

@@ -23,8 +23,12 @@
           data-zone-container="*"
           data-slate-editor="true"
           :data-placeholder="isBlank ? placeholder : undefined"
+          role="textbox"
+          :aria-label="placeholder || '富文本内容'"
+          aria-multiline="true"
+          :aria-readonly="readonly"
           spellcheck="false"
-          @compositionstart="composing = true"
+          @compositionstart="startComposition"
           @compositionend="finishComposition"
           @beforeinput="insertPendingText"
           @input="emitHtml"
@@ -43,6 +47,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import PerformanceRichTextBox from './PerformanceRichTextBox.vue'
+import { sanitizePerformanceRichTextHtml as sanitizeHtml } from './performanceRichTextHtml'
 
 type CommandKey = 'bold' | 'italic' | 'underline' | 'insertOrderedList' | 'insertUnorderedList' | 'link'
 type MarkKey = 'bold' | 'italic' | 'underline'
@@ -81,68 +86,177 @@ const emptyHtml = '<div class="ace-line" data-node="true" dir="auto"><span data-
 const isBlank = ref(true)
 let composing = false
 
-const allowedTags = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'OL', 'UL', 'LI', 'A', 'P', 'DIV', 'BR', 'SPAN'])
-const dangerousTags = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'SVG', 'MATH'])
+type Position = { block: number; offset: number }
+type Bookmark = { start: Position; end: Position; backward: boolean }
+type InlineRun = { text: string; bold: boolean; italic: boolean; underline: boolean; href: string }
+type HistoryEntry = { html: string; bookmark: Bookmark | null; marks: Record<MarkKey, boolean> }
+const undoStack: HistoryEntry[] = []
+const redoStack: HistoryEntry[] = []
+let beforeEdit: HistoryEntry | null = null
+let committed: HistoryEntry | null = null
+let restoringHistory = false
+let transactionOpen = false
+const serializedBlocks = new WeakMap<Element, { raw: string; safe: string }>()
+let selectionFrame = 0
+let markOverride: string | null = null
+let compositionStart: Bookmark | null = null
+let compositionMarks = { bold: false, italic: false, underline: false }
 
-function sanitizeHtml(value: unknown) {
-  const template = document.createElement('template')
-  template.innerHTML = String(value || '')
-  const clean = document.createElement('div')
-  const visit = (node: Node, parent: HTMLElement) => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      parent.appendChild(document.createTextNode(node.textContent || ''))
-      return
-    }
-    if (!(node instanceof HTMLElement)) return
-    if (dangerousTags.has(node.tagName)) return
-    if (!allowedTags.has(node.tagName)) {
-      Array.from(node.childNodes).forEach(child => visit(child, parent))
-      return
-    }
-    const next = document.createElement(node.tagName.toLowerCase())
-    if (node.tagName === 'A') {
-      const href = node.getAttribute('href') || ''
-      if (/^(https?:|mailto:)/i.test(href)) {
-        next.setAttribute('href', href)
-        next.setAttribute('target', '_blank')
-        next.setAttribute('rel', 'noopener noreferrer')
-      }
-    } else if (node.tagName === 'DIV') {
-      const classes = (node.getAttribute('class') || '').split(/\s+/).filter(value => value === 'ace-line' || value === 'list-div' || value === 'list-indent1')
-      if (classes.length) next.setAttribute('class', classes.join(' '))
-      if (node.getAttribute('data-node') === 'true') next.setAttribute('data-node', 'true')
-      if (node.getAttribute('dir') === 'auto') next.setAttribute('dir', 'auto')
-    } else if (node.tagName === 'SPAN') {
-      for (const attribute of ['data-string', 'data-enter', 'data-leaf']) if (node.getAttribute(attribute) === 'true') next.setAttribute(attribute, 'true')
-      if (node.hasAttribute('style')) next.setAttribute('style', node.getAttribute('style') || '')
-      if (node.classList.contains('underline')) next.classList.add('underline')
-    } else if (node.tagName === 'OL' || node.tagName === 'UL') {
-      const classes = (node.getAttribute('class') || '').split(/\s+/).filter(value => value === 'list-number1' || value === 'list-bullet1' || value === 'r-list' || value === 'r-list-number' || value === 'r-list-bullet')
-      if (classes.length) next.setAttribute('class', classes.join(' '))
-      for (const attribute of ['start', 'data-start', 'data-origin-start']) if (/^[1-9]\d{0,5}$/.test(node.getAttribute(attribute) || '')) next.setAttribute(attribute, node.getAttribute(attribute)!)
-    } else if (node.tagName === 'LI') {
-      for (const attribute of ['start', 'data-start']) if (/^[1-9]\d{0,5}$/.test(node.getAttribute(attribute) || '')) next.setAttribute(attribute, node.getAttribute(attribute)!)
-    }
-    Array.from(node.childNodes).forEach(child => visit(child, next))
-    parent.appendChild(next)
+function contentOf(block: HTMLElement) { return block.querySelector(':scope > ol > li, :scope > ul > li') as HTMLElement || block }
+function visibleText(node: Node) { return (node.textContent || '').replace(/​/g, '') }
+function positionAt(node: Node, offset: number): Position {
+  const root = editor.value!
+  let block = node instanceof Element ? node.closest('.ace-line') : node.parentElement?.closest('.ace-line')
+  while (block?.parentElement !== root && block?.parentElement) block = block.parentElement.closest('.ace-line')
+  if (!block) {
+    const atEnd = offset >= root.childNodes.length
+    const index = atEnd ? root.children.length - 1 : Math.min(offset, root.children.length - 1)
+    return { block: index, offset: atEnd ? visibleText(root.children[index]).length : 0 }
   }
-  Array.from(template.content.childNodes).forEach(node => visit(node, clean))
-  const convertStyles = (root: HTMLElement) => {
-    Array.from(root.querySelectorAll('span')).forEach(span => {
-      const style = span.getAttribute('style') || ''
-      const bold = /(?:^|;)\s*font-weight\s*:\s*(?:bold|[6-9]00)/i.test(style)
-      const italic = /(?:^|;)\s*font-style\s*:\s*italic/i.test(style)
-      const underline = /(?:^|;)\s*text-decoration(?:-line)?\s*:\s*[^;]*underline/i.test(style) || span.classList.contains('underline')
-      for (const tag of [bold ? 'strong' : '', italic ? 'em' : '', underline ? 'u' : ''].filter(Boolean)) {
-        const wrapper = document.createElement(tag)
-        while (span.firstChild) wrapper.appendChild(span.firstChild)
-        span.appendChild(wrapper)
-      }
-    })
-    root.querySelectorAll('[style],.underline').forEach(element => { element.removeAttribute('style'); element.classList.remove('underline'); if (!element.className) element.removeAttribute('class') })
+  const prefix = document.createRange()
+  prefix.selectNodeContents(block)
+  prefix.setEnd(node, offset)
+  return { block: Array.from(root.children).indexOf(block), offset: prefix.toString().replace(/​/g, '').length }
+}
+function bookmark(): Bookmark | null {
+  const current = document.getSelection()
+  if (!editor.value || !current?.rangeCount) return null
+  const range = current.getRangeAt(0)
+  if (!editor.value.contains(range.startContainer) || !editor.value.contains(range.endContainer)) return null
+  return { start: positionAt(range.startContainer, range.startOffset), end: positionAt(range.endContainer, range.endOffset), backward: !range.collapsed && current.anchorNode === range.endContainer && current.anchorOffset === range.endOffset }
+}
+function locatePosition(position: Position): [Node, number] {
+  const root = editor.value!
+  const block = root.children[Math.max(0, Math.min(position.block, root.children.length - 1))] as HTMLElement
+  if (!block) return [root, 0]
+  let remaining = position.offset
+  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT)
+  let node = walker.nextNode() as Text | null
+  let last: Text | null = null
+  while (node) {
+    const length = visibleText(node).length
+    if (length && remaining <= length) {
+      let raw = 0
+      let count = 0
+      while (raw < node.length && count < remaining) { if (node.data[raw] !== '​') count++; raw++ }
+      if (!remaining && node.data[0] === '​') raw = 1
+      return [node, raw]
+    }
+    remaining -= length
+    last = node
+    node = walker.nextNode() as Text | null
   }
-  convertStyles(clean)
-  return clean.innerHTML
+  return last ? [last, last.length] : [block, 0]
+}
+function restoreBookmark(saved: Bookmark | null) {
+  if (!saved || !editor.value) return
+  const range = document.createRange()
+  range.setStart(...locatePosition(saved.start))
+  range.setEnd(...locatePosition(saved.end))
+  const current = document.getSelection()
+  current?.removeAllRanges()
+  current?.addRange(range)
+  if (saved.backward && current?.setBaseAndExtent) current.setBaseAndExtent(range.endContainer, range.endOffset, range.startContainer, range.startOffset)
+  selection.value = range.cloneRange()
+}
+function snapshot(): HistoryEntry { return { html: editor.value?.innerHTML || emptyHtml, bookmark: bookmark(), marks: { ...pendingMarks } } }
+function beginEdit() {
+  if (!restoringHistory && !beforeEdit) beforeEdit = snapshot()
+}
+function recordEdit() {
+  if (restoringHistory || transactionOpen) return
+  const previous = beforeEdit || committed
+  const next = snapshot()
+  if (previous && previous.html !== next.html) {
+    undoStack.push(previous)
+    if (undoStack.length > 100) undoStack.shift()
+    redoStack.length = 0
+  }
+  committed = next
+  beforeEdit = null
+}
+function history(redo = false) {
+  if (props.readonly || composing) return
+  const from = redo ? redoStack : undoStack
+  const target = from.pop()
+  if (!target || !editor.value) return
+  ;(redo ? undoStack : redoStack).push(snapshot())
+  restoringHistory = true
+  editor.value.innerHTML = target.html
+  markOverride = null
+  Object.assign(pendingMarks, target.marks)
+  restoreBookmark(target.bookmark)
+  emitHtml()
+  styleState(selection.value)
+  committed = snapshot()
+  beforeEdit = null
+  restoringHistory = false
+}
+function inlineRuns(content: HTMLElement): InlineRun[] {
+  const runs: InlineRun[] = []
+  const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT)
+  let node = walker.nextNode() as Text | null
+  while (node) {
+    const text = visibleText(node)
+    if (text) runs.push({ text, bold: hasMark(node, 'bold'), italic: hasMark(node, 'italic'), underline: hasMark(node, 'underline'), href: node.parentElement?.closest('a')?.getAttribute('href') || '' })
+    node = walker.nextNode() as Text | null
+  }
+  return runs
+}
+function sliceRuns(runs: InlineRun[], start: number, end = Infinity) {
+  let offset = 0
+  return runs.flatMap(run => {
+    const from = Math.max(0, start - offset)
+    const to = Math.min(run.text.length, end - offset)
+    offset += run.text.length
+    return to > from ? [{ ...run, text: run.text.slice(from, to) }] : []
+  })
+}
+function renderRuns(content: HTMLElement, runs: InlineRun[]) {
+  const fragment = document.createDocumentFragment()
+  const merged: InlineRun[] = []
+  for (const run of runs) {
+    if (!run.text) continue
+    const previous = merged[merged.length - 1]
+    if (previous && previous.bold === run.bold && previous.italic === run.italic && previous.underline === run.underline && previous.href === run.href) previous.text += run.text
+    else merged.push({ ...run })
+  }
+  for (const run of merged) {
+    const leaf = document.createElement('span')
+    leaf.dataset.string = 'true'
+    leaf.dataset.leaf = 'true'
+    let parent: HTMLElement = leaf
+    if (run.href && /^(https?:|mailto:)/i.test(run.href)) {
+      const anchor = document.createElement('a')
+      anchor.setAttribute('href', run.href)
+      anchor.target = '_blank'
+      anchor.rel = 'noopener noreferrer'
+      parent.appendChild(anchor)
+      parent = anchor
+    }
+    for (const tag of [run.bold ? 'strong' : '', run.italic ? 'em' : '', run.underline ? 'u' : ''].filter(Boolean)) {
+      const wrapper = document.createElement(tag)
+      parent.appendChild(wrapper)
+      parent = wrapper
+    }
+    parent.appendChild(document.createTextNode(run.text))
+    fragment.appendChild(leaf)
+  }
+  fragment.appendChild(emptyLeaf())
+  content.replaceChildren(fragment)
+}
+function formatRange(saved: Bookmark, transform: (run: InlineRun) => InlineRun) {
+  for (let index = saved.start.block; index <= saved.end.block; index++) {
+    const block = editor.value?.children[index] as HTMLElement
+    if (!block) continue
+    const content = contentOf(block)
+    const runs = inlineRuns(content)
+    const from = index === saved.start.block ? saved.start.offset : 0
+    const to = index === saved.end.block ? saved.end.offset : visibleText(content).length
+    if (to <= from) continue
+    renderRuns(content, [...sliceRuns(runs, 0, from), ...sliceRuns(runs, from, to).map(transform), ...sliceRuns(runs, to)])
+  }
+  restoreBookmark(saved)
 }
 
 function emptyLeaf() {
@@ -193,49 +307,71 @@ function normalizeHtml(value: unknown) {
   const root = document.createElement('div')
   root.innerHTML = sanitizeHtml(value)
   const blocks: HTMLElement[] = []
-  let inline = document.createDocumentFragment()
-  const flushInline = () => {
-    if (inline.childNodes.length) blocks.push(plainBlock(inline))
-    inline = document.createDocumentFragment()
+  let inline = document.createElement('div')
+  let listType: 'OL' | 'UL' | null = null
+  let indented = false
+  let trailingBreak = false
+  const flush = (force = false) => {
+    if (!inline.hasChildNodes() && !force && !trailingBreak) return
+    trailingBreak = false
+    const block = listType ? blockListWrapper(listType, inline) : plainBlock(inline)
+    if (!listType && indented) block.classList.add('list-indent1')
+    block.querySelectorAll<HTMLElement>('[data-enter]').forEach(leaf => { if (visibleText(leaf)) leaf.removeAttribute('data-enter') })
+    blocks.push(block)
+    inline = document.createElement('div')
   }
-  const addNode = (node: Node) => {
-    if (node instanceof HTMLElement && node.classList.contains('ace-line')) {
-      flushInline()
-      const list = node.querySelector(':scope > ol, :scope > ul') as HTMLElement | null
-      if (list) {
-        const sources = Array.from(list.children).filter((child): child is HTMLElement => child instanceof HTMLElement && child.tagName === 'LI')
-        sources.forEach(source => blocks.push(blockListWrapper(list.tagName as 'OL' | 'UL', source)))
-      } else {
-        const block = plainBlock(node)
-        block.className = node.className || 'ace-line'
-        block.dataset.node = 'true'
-        block.dir = 'auto'
-        blocks.push(block)
-      }
-      return
-    }
+  const visit = (node: Node, wrappers: HTMLElement[] = []) => {
     if (node instanceof HTMLElement && (node.tagName === 'OL' || node.tagName === 'UL')) {
-      flushInline()
-      Array.from(node.children).filter((child): child is HTMLElement => child instanceof HTMLElement && child.tagName === 'LI').forEach(item => blocks.push(blockListWrapper(node.tagName as 'OL' | 'UL', item)))
+      flush()
+      const previousList = listType
+      const previousIndent = indented
+      listType = node.tagName
+      Array.from(node.children).forEach(child => visit(child, wrappers))
+      flush()
+      listType = previousList
+      indented = previousIndent
       return
     }
-    if (node instanceof HTMLElement && (node.tagName === 'P' || node.tagName === 'DIV')) {
-      flushInline()
-      const childBlocks = Array.from(node.children).filter(child => child instanceof HTMLElement && (child.tagName === 'P' || child.tagName === 'DIV' || child.tagName === 'OL' || child.tagName === 'UL'))
-      if (childBlocks.length) {
-        Array.from(node.childNodes).forEach(addNode)
-      } else blocks.push(plainBlock(node))
+    if (node instanceof HTMLElement && node.tagName === 'LI') {
+      const count = blocks.length
+      Array.from(node.childNodes).forEach(child => visit(child, wrappers))
+      flush(blocks.length === count)
       return
     }
-    if (node instanceof HTMLBRElement) {
-      flushInline()
-      blocks.push(plainBlock())
+    if (node instanceof HTMLElement && /^(DIV|P)$/.test(node.tagName)) {
+      flush()
+      const previousIndent = indented
+      if (node.classList.contains('list-indent1')) indented = true
+      const count = blocks.length
+      Array.from(node.childNodes).forEach(child => visit(child, wrappers))
+      flush(blocks.length === count)
+      indented = previousIndent
       return
     }
-    inline.appendChild(node.cloneNode(true))
+    if (node instanceof HTMLBRElement) { flush(true); trailingBreak = true; return }
+    if (node instanceof HTMLElement) {
+      const next = node.cloneNode(false) as HTMLElement
+      if (next.hasAttribute('data-enter') && visibleText(node)) next.removeAttribute('data-enter')
+      Array.from(node.childNodes).forEach(child => visit(child, [...wrappers, next]))
+      return
+    }
+    if (node.nodeType !== Node.TEXT_NODE || !node.textContent) return
+    const parts = node.textContent.split(/\r\n|\r|\n/)
+    parts.forEach((text, index) => {
+      if (index) { flush(true); trailingBreak = true }
+      if (!text) return
+      trailingBreak = false
+      let parent: HTMLElement = inline
+      for (const wrapper of wrappers) {
+        const next = wrapper.cloneNode(false) as HTMLElement
+        parent.appendChild(next)
+        parent = next
+      }
+      parent.appendChild(document.createTextNode(text))
+    })
   }
-  Array.from(root.childNodes).forEach(addNode)
-  flushInline()
+  Array.from(root.childNodes).forEach(node => visit(node))
+  flush()
   return blocks.length ? blocks.map(block => block.outerHTML).join('') : emptyHtml
 }
 
@@ -283,7 +419,10 @@ function styleState(range: Range | null) {
   if (!range || !editor.value || !editor.value.contains(range.startContainer) || !editor.value.contains(range.endContainer)) return
   const textNodes = range.collapsed ? [] : selectedTextNodes(range)
   const caretText = range.collapsed && range.startContainer instanceof Text && range.startContainer.data.replace(/​/g, '').length ? range.startContainer : null
-  if (caretText) {
+  const saved = bookmark()
+  const caretKey = saved && `${saved.start.block}:${saved.start.offset}:${saved.end.block}:${saved.end.offset}`
+  if (markOverride && markOverride !== caretKey) markOverride = null
+  if (caretText && !markOverride) {
     pendingMarks.bold = hasMark(caretText, 'bold')
     pendingMarks.italic = hasMark(caretText, 'italic')
     pendingMarks.underline = hasMark(caretText, 'underline')
@@ -320,7 +459,16 @@ function selectedFragment() {
 }
 
 function serializeEditor() {
-  return sanitizeHtml(editor.value?.innerHTML || '')
+  if (!editor.value) return ''
+  return Array.from(editor.value.childNodes).map(node => {
+    if (!(node instanceof HTMLElement)) return sanitizeHtml(node.textContent || '')
+    const raw = node.outerHTML
+    const cached = serializedBlocks.get(node)
+    if (cached?.raw === raw) return cached.safe
+    const safe = sanitizeHtml(raw)
+    serializedBlocks.set(node, { raw, safe })
+    return safe
+  }).join('')
 }
 
 function repairStructure() {
@@ -389,19 +537,37 @@ function repairStructure() {
 }
 
 function emitHtml() {
-  if (!editor.value || props.readonly || composing) return
+  if (!editor.value || props.readonly || composing || transactionOpen) return
   repairStructure()
+  editor.value.querySelectorAll<HTMLElement>('[data-enter]').forEach(leaf => { if (visibleText(leaf)) leaf.removeAttribute('data-enter') })
   renumberOrderedLists()
   isBlank.value = editor.value.children.length <= 1 && !editor.value.textContent?.replace(/​/g, '').trim()
   const html = serializeEditor()
+  recordEdit()
   if (html !== lastEmitted) {
     lastEmitted = html
     emit('update:modelValue', html)
   }
 }
 
+function startComposition() {
+  beginEdit()
+  compositionStart = bookmark()
+  compositionMarks = { ...pendingMarks }
+  composing = true
+  isBlank.value = false
+}
 function finishComposition() {
   composing = false
+  repairStructure()
+  const end = bookmark()
+  if (compositionStart && end && compositionStart.start.block === end.end.block && end.end.offset > compositionStart.start.offset) {
+    const inserted = { start: compositionStart.start, end: end.end, backward: false }
+    formatRange(inserted, run => ({ ...run, ...compositionMarks }))
+    restoreBookmark(end)
+  }
+  compositionStart = null
+  markOverride = null
   emitHtml()
   rememberSelection()
 }
@@ -430,46 +596,23 @@ function restoreBlockSelection(blocks: HTMLElement[], collapsed: boolean) {
 function toggleMark(tag: 'strong' | 'em' | 'u') {
   const range = selectedFragment()
   if (!range) return
+  const state = tag === 'strong' ? 'bold' : tag === 'em' ? 'italic' : 'underline'
+  const saved = bookmark()
+  if (!saved) return
   if (range.collapsed) {
-    const state = tag === 'strong' ? 'bold' : tag === 'em' ? 'italic' : 'underline'
     pendingMarks[state] = !pendingMarks[state]
     active[state] = pendingMarks[state]
+    markOverride = `${saved.start.block}:${saved.start.offset}:${saved.end.block}:${saved.end.offset}`
     editor.value?.focus({ preventScroll: true })
-    restoreSelection()
+    restoreBookmark(saved)
     return
   }
-  const blocks = selectedBlocks(range)
-  const nodes = selectedTextNodes(range)
-  if (!nodes.length) return
-  const state = tag === 'strong' ? 'bold' : tag === 'em' ? 'italic' : 'underline'
-  const selector = tag === 'strong' ? 'strong,b' : tag === 'em' ? 'em,i' : 'u'
-  const removeMark = nodes.every(node => hasMark(node, state))
-  if (removeMark) {
-    nodes.forEach(node => {
-      const wrapper = node.parentElement?.closest(selector)
-      if (wrapper && editor.value?.contains(wrapper)) { wrapper.replaceWith(...Array.from(wrapper.childNodes)); return }
-      const leaf = node.parentElement
-      if (!leaf || !editor.value?.contains(leaf)) return
-      if (state === 'bold') leaf.style.removeProperty('font-weight')
-      if (state === 'italic') leaf.style.removeProperty('font-style')
-      if (state === 'underline') { leaf.style.removeProperty('text-decoration'); leaf.classList.remove('underline') }
-      if (!leaf.getAttribute('style')) leaf.removeAttribute('style')
-    })
-  } else {
-    nodes.filter(node => !hasMark(node, state)).reverse().forEach(node => {
-      let start = node === range.startContainer ? range.startOffset : 0
-      let end = node === range.endContainer ? range.endOffset : node.length
-      start = Math.max(0, Math.min(start, node.length))
-      end = Math.max(start, Math.min(end, node.length))
-      if (end < node.length) node.splitText(end)
-      const selected = start > 0 ? node.splitText(start) : node
-      const wrapper = document.createElement(tag)
-      selected.parentNode?.insertBefore(wrapper, selected)
-      wrapper.appendChild(selected)
-    })
-  }
-  restoreBlockSelection(blocks, false)
+  beginEdit()
+  const selectedRuns = Array.from(editor.value!.children).flatMap((block, index) => index < saved.start.block || index > saved.end.block ? [] : sliceRuns(inlineRuns(contentOf(block as HTMLElement)), index === saved.start.block ? saved.start.offset : 0, index === saved.end.block ? saved.end.offset : Infinity))
+  const enabled = !selectedRuns.length || !selectedRuns.every(run => run[state])
+  formatRange(saved, run => ({ ...run, [state]: enabled }))
   emitHtml()
+  styleState(selection.value)
 }
 
 function blockListWrapper(type: 'OL' | 'UL', source?: HTMLElement) {
@@ -496,13 +639,11 @@ function renumberOrderedLists() {
     const list = directList(node)
     if (list?.tagName !== 'OL') { start = 0; return }
     start += 1
-    list.setAttribute('start', String(start))
-    list.setAttribute('data-start', String(start))
-    const item = list.querySelector(':scope > li')
-    item?.setAttribute('start', String(start))
-    item?.setAttribute('data-start', String(start))
-    if (start === 1) list.setAttribute('data-origin-start', '1')
-    else list.removeAttribute('data-origin-start')
+    for (const [element, attribute] of [[list, 'start'], [list, 'data-start'], [list.querySelector(':scope > li'), 'start'], [list.querySelector(':scope > li'), 'data-start']] as const) {
+      if (element && element.getAttribute(attribute) !== String(start)) element.setAttribute(attribute, String(start))
+    }
+    if (start === 1) { if (list.getAttribute('data-origin-start') !== '1') list.setAttribute('data-origin-start', '1') }
+    else if (list.hasAttribute('data-origin-start')) list.removeAttribute('data-origin-start')
   })
 }
 
@@ -511,74 +652,54 @@ function toggleList(type: 'OL' | 'UL') {
   if (!range) return
   const blocks = selectedBlocks(range)
   if (!blocks.length) return
-  const collapsed = range.collapsed
+  const saved = bookmark()
+  beginEdit()
   const removeList = blocks.every(block => directList(block)?.tagName === type)
-  const replacements = blocks.map(block => {
+  blocks.forEach(block => {
     const list = directList(block)
     const source = (list?.querySelector(':scope > li') as HTMLElement | null) || block
     const replacement = removeList ? plainBlock(source) : blockListWrapper(type, source)
     block.replaceWith(replacement)
-    return replacement
   })
   renumberOrderedLists()
-  restoreBlockSelection(replacements, collapsed)
+  restoreBookmark(saved)
+  styleState(selection.value)
   emitHtml()
-}
-
-function markStyles(leaf: HTMLElement) {
-  if (pendingMarks.bold) leaf.style.fontWeight = 'bold'
-  if (pendingMarks.italic) leaf.style.fontStyle = 'italic'
-  if (pendingMarks.underline) { leaf.style.textDecoration = 'underline'; leaf.classList.add('underline') }
-}
-
-function leafMatchesPending(leaf: HTMLElement) {
-  const text = leaf.firstChild
-  if (!(text instanceof Text)) return false
-  return hasMark(text, 'bold') === pendingMarks.bold && hasMark(text, 'italic') === pendingMarks.italic && hasMark(text, 'underline') === pendingMarks.underline
 }
 
 function insertPendingText(event: InputEvent) {
   if (props.readonly || composing || event.isComposing) return
+  if (event.inputType === 'historyUndo' || event.inputType === 'historyRedo') { event.preventDefault(); history(event.inputType === 'historyRedo'); return }
   repairStructure()
-  if (event.inputType === 'deleteContentBackward' && downgradeListAtStart()) {
-    event.preventDefault()
-    return
-  }
-  if (event.inputType.startsWith('delete') && editor.value?.children.length === 1 && !editor.value.textContent?.replace(/​/g, '').length) {
-    event.preventDefault()
-    return
-  }
-  if (event.inputType === 'insertParagraph' || event.inputType === 'insertLineBreak') {
-    event.preventDefault()
-    insertLineBreak()
-    return
-  }
+  if (event.inputType === 'deleteContentBackward' && downgradeListAtStart()) { event.preventDefault(); return }
+  if (event.inputType.startsWith('delete') && editor.value?.children.length === 1 && !visibleText(editor.value).length) { event.preventDefault(); return }
+  beginEdit()
+  if (event.inputType === 'insertParagraph' || event.inputType === 'insertLineBreak') { event.preventDefault(); insertLineBreak(); return }
   if (event.inputType !== 'insertText' || !event.data) return
-  const currentSelection = document.getSelection()
-  const range = currentSelection?.rangeCount ? currentSelection.getRangeAt(0) : null
-  if (!range || !range.collapsed || !editor.value?.contains(range.startContainer)) return
-  const currentElement = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement
-  const currentLeaf = currentElement?.closest('[data-leaf="true"]') as HTMLElement | null
-  const hasPendingMark = pendingMarks.bold || pendingMarks.italic || pendingMarks.underline
-  if (!hasPendingMark && !currentLeaf?.dataset.enter) return
-  if (currentLeaf && !currentLeaf.dataset.enter && leafMatchesPending(currentLeaf)) return
+  const saved = bookmark()
+  if (!saved) return
   event.preventDefault()
-  const leaf = document.createElement('span')
-  leaf.dataset.string = 'true'
-  leaf.dataset.leaf = 'true'
-  leaf.textContent = event.data
-  markStyles(leaf)
-  const endLeaf = currentLeaf?.dataset.enter === 'true' ? currentLeaf : null
-  if (endLeaf) endLeaf.before(leaf)
-  else range.insertNode(leaf)
-  const nextRange = document.createRange()
-  nextRange.setStart(leaf.firstChild!, event.data.length)
-  nextRange.collapse(true)
-  currentSelection?.removeAllRanges()
-  currentSelection?.addRange(nextRange)
-  selection.value = nextRange.cloneRange()
+  replaceSelectionWithText(event.data, saved)
+}
+
+function replaceSelectionWithText(text: string, saved = bookmark()) {
+  if (!saved || !editor.value) return
+  beginEdit()
+  const first = editor.value.children[saved.start.block] as HTMLElement
+  const last = editor.value.children[saved.end.block] as HTMLElement
+  if (!first || !last) return
+  const prefix = sliceRuns(inlineRuns(contentOf(first)), 0, saved.start.offset)
+  const suffix = sliceRuns(inlineRuns(contentOf(last)), saved.end.offset)
+  const range = document.getSelection()?.rangeCount ? document.getSelection()!.getRangeAt(0) : null
+  const element = range?.startContainer instanceof Element ? range.startContainer : range?.startContainer.parentElement
+  const href = element?.closest('a')?.getAttribute('href') || ''
+  renderRuns(contentOf(first), [...prefix, { text, ...pendingMarks, href }, ...suffix])
+  for (let i = saved.end.block; i > saved.start.block; i--) editor.value.children[i].remove()
+  const point = { block: saved.start.block, offset: saved.start.offset + text.length }
+  markOverride = null
+  restoreBookmark({ start: point, end: point, backward: false })
   emitHtml()
-  styleState(nextRange)
+  styleState(selection.value)
 }
 
 function insertLineBreak() {
@@ -657,6 +778,7 @@ function downgradeListAtStart() {
   prefix.selectNodeContents(source)
   prefix.setEnd(range.startContainer, range.startOffset)
   if (prefix.toString().replace(/​/g, '').length) return false
+  beginEdit()
   const caretNode = range.startContainer
   const caretOffset = range.startOffset
   const replacement = plainBlock(source)
@@ -680,6 +802,14 @@ function downgradeListAtStart() {
 
 function keyHandler(event: KeyboardEvent) {
   if (props.readonly || composing || event.isComposing || event.keyCode === 229) return
+  const modified = event.ctrlKey || event.metaKey
+  const key = event.key.toLowerCase()
+  if (modified && (key === 'z' || key === 'y')) { event.preventDefault(); history(key === 'y' || event.shiftKey); return }
+  if (modified && ['b', 'i', 'u', 'k'].includes(key)) {
+    event.preventDefault()
+    command(key === 'b' ? 'bold' : key === 'i' ? 'italic' : key === 'u' ? 'underline' : 'link')
+    return
+  }
   repairStructure()
   rememberSelection()
   if (event.key === 'Backspace' && !event.ctrlKey && !event.metaKey && !event.altKey && downgradeListAtStart()) {
@@ -692,23 +822,37 @@ function keyHandler(event: KeyboardEvent) {
   }
   if (event.key === 'Enter') {
     event.preventDefault()
-    insertLineBreak()
+    beginEdit()
+    const saved = bookmark()
+    const block = saved && editor.value?.children[saved.start.block] as HTMLElement | undefined
+    if (block && directList(block) && !visibleText(block)) {
+      const replacement = plainBlock()
+      block.replaceWith(replacement)
+      restoreBookmark(saved)
+      emitHtml()
+      styleState(selection.value)
+    } else insertLineBreak()
   }
 }
 
 function applyLink() {
   const value = url.value.trim()
   const range = selectedFragment()
-  if (!range || !value || !/^(https?:|mailto:)/i.test(value)) return
-  const anchor = document.createElement('a')
-  anchor.href = value
-  anchor.target = '_blank'
-  anchor.rel = 'noopener noreferrer'
-  anchor.appendChild(range.extractContents())
-  range.insertNode(anchor)
+  if (props.readonly || !range || !value || !/^(https?:|mailto:)/i.test(value)) return
+  beginEdit()
+  let saved = bookmark()
+  if (!saved) return
+  if (range.collapsed) {
+    const point = { ...saved.start }
+    transactionOpen = true
+    replaceSelectionWithText(value, saved)
+    transactionOpen = false
+    saved = { start: point, end: { ...point, offset: point.offset + value.length }, backward: false }
+  }
+  formatRange(saved, run => ({ ...run, href: value }))
+  restoreBookmark({ start: saved.end, end: saved.end, backward: false })
   linkOpen.value = false
   url.value = ''
-  selection.value = range.cloneRange()
   emitHtml()
   editor.value?.focus({ preventScroll: true })
 }
@@ -735,32 +879,63 @@ function command(cmd: CommandKey) {
 
 function paste(event: ClipboardEvent) {
   event.preventDefault()
-  if (props.readonly || !editor.value) return
+  if (props.readonly || composing || !editor.value) return
   rememberSelection()
-  const range = selectedFragment()
-  if (!range) return
+  const saved = bookmark()
+  if (!saved) return
+  beginEdit()
   const html = event.clipboardData?.getData('text/html') || ''
-  const fragment = document.createElement('template')
-  if (html) fragment.innerHTML = sanitizeHtml(html)
-  else fragment.content.appendChild(document.createTextNode(event.clipboardData?.getData('text/plain') || ''))
-  range.deleteContents()
-  range.insertNode(fragment.content)
-  editor.value.innerHTML = normalizeHtml(editor.value.innerHTML)
-  renumberOrderedLists()
-  const blocks = Array.from(editor.value.children).filter((node): node is HTMLElement => node instanceof HTMLElement)
-  restoreBlockSelection(blocks.slice(-1), true)
+  const source = document.createElement('div')
+  source.textContent = event.clipboardData?.getData('text/plain') || ''
+  const normalized = document.createElement('div')
+  normalized.innerHTML = normalizeHtml(html || source.innerHTML)
+  const incoming = Array.from(normalized.children) as HTMLElement[]
+  const first = editor.value.children[saved.start.block] as HTMLElement
+  const last = editor.value.children[saved.end.block] as HTMLElement
+  const prefix = document.createRange()
+  prefix.selectNodeContents(contentOf(first))
+  prefix.setEnd(...locatePosition(saved.start))
+  const suffix = document.createRange()
+  suffix.selectNodeContents(contentOf(last))
+  suffix.setStart(...locatePosition(saved.end))
+  const before = prefix.cloneContents()
+  const after = suffix.cloneContents()
+  const lastIncomingLength = visibleText(incoming[incoming.length - 1]).length
+  const replacements = incoming.map((block, index) => {
+    const content = contentOf(block)
+    const startFragment = index === 0 ? before : null
+    const endFragment = index === incoming.length - 1 ? after : null
+    if (startFragment) content.prepend(startFragment)
+    if (endFragment) content.appendChild(endFragment)
+    if (!directList(block) && (incoming.length === 1 || directList(first))) {
+      const list = directList(first)
+      return list ? blockListWrapper(list.tagName as 'OL' | 'UL', content) : plainBlock(content)
+    }
+    return block
+  })
+  for (let index = saved.end.block; index > saved.start.block; index--) editor.value.children[index].remove()
+  first.replaceWith(...replacements)
+  const point = { block: saved.start.block + replacements.length - 1, offset: lastIncomingLength + (replacements.length === 1 ? saved.start.offset : 0) }
+  restoreBookmark({ start: point, end: point, backward: false })
   emitHtml()
+  rememberSelection()
 }
 
 function syncEditor(value: string) {
-  if (!editor.value || value === lastEmitted || (editor.value.hasChildNodes() && value === serializeEditor())) return
+  if (!editor.value || composing || value === lastEmitted || (editor.value.hasChildNodes() && value === serializeEditor())) return
   const normalized = normalizeHtml(value)
   if (editor.value.innerHTML !== normalized) editor.value.innerHTML = normalized
   isBlank.value = editor.value.children.length <= 1 && !editor.value.textContent?.replace(/​/g, '').trim()
   lastEmitted = undefined
   renumberOrderedLists()
   selection.value = null
+  markOverride = null
+  Object.assign(pendingMarks, { bold: false, italic: false, underline: false })
   syncStateFromContent()
+  undoStack.length = 0
+  redoStack.length = 0
+  beforeEdit = null
+  committed = snapshot()
 }
 
 function syncStateFromContent() {
@@ -787,12 +962,21 @@ watch(() => props.readonly, value => {
   if (value) linkOpen.value = false
 })
 
+function handleSelectionChange() {
+  if (composing || selectionFrame || !editor.value) return
+  const current = document.getSelection()
+  if (!current?.anchorNode || !editor.value.contains(current.anchorNode)) return
+  selectionFrame = requestAnimationFrame(() => { selectionFrame = 0; rememberSelection() })
+}
 onMounted(() => {
   syncEditor(props.modelValue)
-  document.addEventListener('selectionchange', rememberSelection)
+  document.addEventListener('selectionchange', handleSelectionChange)
 })
 
-onBeforeUnmount(() => document.removeEventListener('selectionchange', rememberSelection))
+onBeforeUnmount(() => {
+  document.removeEventListener('selectionchange', handleSelectionChange)
+  if (selectionFrame) cancelAnimationFrame(selectionFrame)
+})
 
 defineExpose({ active, rememberSelection, command })
 </script>

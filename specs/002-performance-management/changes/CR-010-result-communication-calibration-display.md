@@ -165,6 +165,20 @@
 
 ## 13. CR-010-F06 公共富文本空态、换行、校验与保存修复（2026-11-01）
 
+### 2026-11-23 公共编辑稳定性补充（用户确认“完成上述全部优化”）
+
+- 拼音未确认提示重叠补漏（用户确认“完成修复”）：`startComposition` 在开启组合状态时立即隐藏占位提示，只更新展示状态；组合期间仍不修复/重建正文DOM、不发布中间答案。取消后由既有compositionend空态计算恢复提示，确认非空中文后保持隐藏。三variant新增回归覆盖未确认拼音、节点identity、无中间emit/queue-save、取消恢复及确认答案不含拼音/提示；Renderer 56/56通过。真实Chrome CDP IME三variant共43项检查通过，提示伪元素在未确认时为none，取消后恢复，pageerror=0；截图 `ui-blueprints/CR-010-F06-implemented-ime-placeholder-20261123.png` 已查看。非OS输入法人工/生产验收。
+
+- 关联 PM-T004-T05-F18，沿原组件与信息架构，无新蓝图；本轮仅修改公共编辑器、只读展示、新增 `performanceRichTextHtml.ts` 生产工具以及既有 Renderer/Layers 测试。HTML 字符串、tags/notes/旧 note、API、草稿版本、权限、快照不变；未修改后端、迁移或生产数据，保留并行工作区改动。
+- 输入/选区：正文不再保留 `data-enter` 占位身份；普通字符按段落/可见字符偏移插入。局部格式只作用选区并恢复精确边界；关闭格式后可继续输入普通文本；组合期间不重建 DOM/发布中间答案，结束后应用预选格式。列表切换保留偏移，键盘 Enter 在空列表项退出列表。
+- 事务：输入、删除、组合提交、格式、换行、列表、粘贴、链接共用本地撤销/重做栈，最多100条；Ctrl/Cmd+Z、Ctrl/Cmd+Shift+Z、Ctrl+Y及 historyUndo/historyRedo；恢复内容和选区，不改变原自动保存协议。
+- 粘贴/链接：拆为顶层行，保留插入点前后正文和末尾换行，保留单项列表，光标回到粘贴末端；折叠选区插入可见URL，跨段链接按行创建，不嵌套行块。编辑/只读共用白名单清洗，旧粗斜下划线样式转语义标签，输出无任意style/事件属性，移除SVG/Math子树、非法协议及非法列表属性；只读历史OL续号仍保留。
+- 可访问性/性能：编辑区增加 textbox、多行、只读与可访问名称；段落级清洗缓存；非当前编辑器跳过选区事件，当前编辑器按动画帧合并事件；列表属性值未变不重复写。仍按原HTML字符串同步，未声称大型文档常数时间。
+- 可执行回归：`npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceTemplateRenderer.spec.ts src/components/performance/PerformanceAssessmentContentLayers.spec.ts src/components/performance/PerformanceResultReconsideration.spec.ts src/views/performance/SelfSummaryTask.spec.js src/components/performance/PerformanceContentRenderer.spec.ts src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts`：418 passed / 7 failed；Renderer 53/53、SelfSummaryTask 169/169、EvaluationDrawer 85/85。新增17项覆盖混输/局部格式/IME/粘贴/末尾换行/单项列表/链接/undo-redo/白名单幂等。7项失败为未改颜色路径（提示背景或图标CSS变量6项、评级文字色1项），未隐藏或改写断言，不宣称全量通过。
+- 浏览器：本地Vite实际Vue组件，通过Chrome CDP IME与键盘验证三variant×普通/OL/UL混输与v-model、undo/redo；另验证局部格式、关闭格式、跨段替换、删除撤销、列表降级撤销、链接与粘贴。末轮补充12项全部通过；100段约24221字符连续30次输入，处理耗时median 2.2ms / P95 5ms（本机单次测量，非生产SLA）。390px无横向滚动、pageerror=0；截图 `ui-blueprints/CR-010-F06-implemented-rich-text-editing-20261123.png` 已查看，为隔离组件证据，不冒称真实业务页面。
+- 构建：`npm --prefix hr-portal/frontend run build` 最终vue-tsc+Vite通过，Vite 47.01s；仅既有VueUse PURE注释提示。中间编辑器类型错误已修正，后续曾被并行Workbench中间态阻塞，最终构建exit0。本轮文件 `git diff --check` 通过。
+- 未执行：OS中文输入法人工端到端、多浏览器/移动系统输入法、真实登录业务页与业务数据库保存重开、生产压测、部署、commit/push。PM-T004-T05-F18原有整体任务保持未勾选；本轮代码与本地回归完成不替代其生产/完整验收。
+
 - 目标：按REA采集机制修复填写富文本五个问题：光标与首字提示错位、清空后额外退格双提示、空必填提交误弹工具栏提示、清空重填后Enter失效、退格中自动保存积压。复用公共编辑器，不新增表单引擎。
 - 采集依据：`ev_60b2e5fee8435e142f78e4a87e5f046878fa6d33061368f6f7c6e594e723db4f`、`ev_23bee1170d971267bda4f6cde52ed52357e5ff9f46f4235b8d9d85f4e7dcc30a`，飞书Editor Kit的模型空态占位/选区换行及草稿合并机制。未取得完整可复用SDK，不声称内部源码100%相同；未复制或运行捕获生产脚本。
 - 范围：`PerformanceRichTextEditor.vue`、`PerformanceRichTextBox.vue`、`PerformanceTemplateRenderer.vue`、`SelfSummaryTask.vue`及已有配置预览/公共渲染/填写测试；保留HTML字符串答案、API、版本和字段权限。无后端/迁移/业务权限修改，不动并行CR-011抽屉工作。
