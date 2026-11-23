@@ -6623,6 +6623,161 @@ async def test_department_completion_roots_at_company_org(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["team", "focus"])
+async def test_result_department_completion_uses_result_scope_and_six_nodes(monkeypatch, kind):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes, result_view_scope
+    from app.performance.models import PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceResultOpening
+
+    project = SimpleNamespace(id=3, cycle_ref="C1")
+    scope = result_view_scope.ResultViewScope(cycle=SimpleNamespace(id=1), actor_ref="M1", projects=[project], scopes={3: {"DIRECT", "INDIRECT", "UNASSIGNED"}})
+    resolver = AsyncMock(return_value=scope)
+    monkeypatch.setattr(result_view_scope, "resolve_result_view_scope", resolver)
+    managed = AsyncMock(side_effect=AssertionError("结果视图不能使用管理范围"))
+    monkeypatch.setattr(routes, "_managed_completion_projects", managed)
+    nodes = [SimpleNamespace(id=index, node_type=node_type, node_id=str(index), name=str(index), config=config)
+        for index, (node_type, config) in enumerate([
+            ("work_summary", {}), ("evaluation", {"template": {"executor_role_code": "assessment.reviewee"}}),
+            ("evaluation", {"template": {"executor_role_code": "assessment.reviewer_360"}}),
+            ("evaluation", {"template": {"executor_role_code": "assessment.line_manager"}}),
+            ("result_communication", {}), ("result_view", {}), ("calibration", {}), ("result_reconsideration", {}),
+        ], 1)]
+    values = {
+        PerformanceProjectMember: [SimpleNamespace(employee_no=no, company_org="集团" if no != "UNASSIGNED" else None,
+            department="研发" if no != "UNASSIGNED" else None, department_2="平台" if no == "INDIRECT" else "隐藏部门" if no == "HIDDEN" else None)
+            for no in ("DIRECT", "INDIRECT", "HIDDEN", "UNASSIGNED")],
+        PerformanceProjectNodeSnapshot: nodes,
+        PerformanceNodeTask: [SimpleNamespace(node_snapshot_id=node.id, target_employee_no=no, status="completed" if no in {"INDIRECT", "HIDDEN"} else "pending")
+            for node in nodes for no in ("DIRECT", "INDIRECT", "HIDDEN", "UNASSIGNED")],
+        PerformanceResultOpening: ["INDIRECT", "HIDDEN"],
+    }
+    class Db:
+        async def scalar(self, query): return 10
+        async def execute(self, query):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values[query.column_descriptions[0]["entity"]]))
+    db = Db()
+    result = await routes.project_management_department_completion(1, context(), db, result_kind=kind)
+    assert {column["key"] for column in result["columns"]} == routes._TEAM_COMPLETION_NODE_KEYS
+    roots = {row["department"]: row for row in result["rows"]}
+    assert set(roots) == {"集团", "未分配部门"}
+    assert roots["集团"]["metrics"]["work-summary"] == {"completed_count": 1, "total_count": 2, "completion_rate": 50.0}
+    assert roots["集团"]["metrics"]["view-result"]["total_count"] == 2
+    assert roots["集团"]["children"][0]["children"][0]["department"] == "平台"
+    assert "隐藏部门" not in str(result)
+    resolver.assert_awaited_once_with(db, context(), cycle_id=1, kind=kind)
+    managed.assert_not_awaited()
+    scope.scopes = {3: {"MISSING"}}
+    assert (await routes.project_management_department_completion(1, context(), db, result_kind=kind))["rows"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["team", "focus"])
+@pytest.mark.parametrize("endpoint", ["department", "members"])
+@pytest.mark.parametrize("denial", ["missing_cycle", "empty_scope", "management"])
+async def test_result_reads_reject_missing_empty_and_management_scope(monkeypatch, kind, endpoint, denial):
+    from dataclasses import replace
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    from app.performance import projects_router as routes, result_view_scope
+
+    scope = result_view_scope.ResultViewScope(cycle=None if denial == "missing_cycle" else SimpleNamespace(id=1), actor_ref="M1")
+    resolver = AsyncMock(return_value=scope)
+    monkeypatch.setattr(result_view_scope, "resolve_result_view_scope", resolver)
+    account = replace(context(), management_role="hrbp") if denial == "management" else context()
+    with pytest.raises(HTTPException) as error:
+        if endpoint == "department":
+            await routes.project_management_department_completion(1, account, object(), result_kind=kind)
+        else:
+            await routes.result_view_members(kind, 1, None, 1, 50, None, None, account, object())
+    expected = {"missing_cycle": (404, "CYCLE_NOT_FOUND"), "empty_scope": (403, "RESULT_VIEW_FORBIDDEN"), "management": (422, "MANAGEMENT_RESULT_SCOPE_CONFLICT")}
+    assert (error.value.status_code, error.value.detail) == expected[denial]
+    if denial == "management":
+        resolver.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_result_member_schema_and_rows_use_leader_permissions_and_isolated_cache(management_member_data, monkeypatch):
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    from app.performance import result_view_scope
+
+    data = management_member_data
+    data.db.info = {}
+    rules = {"leader": ["department"], "hrbp": ["employee_type", "position_level"], "activity_manager": ["employee_type"]}
+    monkeypatch.setattr(data.routes, "load_subject_visibility_rules", AsyncMock(return_value=rules))
+    monkeypatch.setattr(data.routes, "_previous_published_position_levels", AsyncMock(return_value={}))
+    monkeypatch.setattr(data.routes, "hydrate_project_member_rows", AsyncMock())
+    for member in data.members:
+        member.department, member.employee_type, member.position_level = "研发", "保密类型", "保密职级"
+    scope = result_view_scope.ResultViewScope(cycle=SimpleNamespace(id=1), actor_ref="M1", projects=[data.project], scopes={1: {"E1", "E2"}})
+    monkeypatch.setattr(result_view_scope, "resolve_result_view_scope", AsyncMock(return_value=scope))
+    data.routes._enable_member_read_reuse(data.db)
+    management_schema = await data.routes._management_member_schema(context(), data.db, authorized=[(data.project, {"E1", "E2"})])
+    assert "employee_type" in management_schema["allowed_column_keys"] and "department" not in management_schema["allowed_column_keys"]
+    page = await data.routes.result_view_members("team", 1, None, 1, 1, "completion", "asc", context(), data.db)
+    assert page.total == 2 and len(page.items) == 1
+    assert page.columns and page.default_column_keys and page.locked_column_keys == ["name"]
+    assert {column["key"] for column in page.columns} == set(page.allowed_column_keys) == set(page.sort_keys)
+    assert "department" in page.allowed_column_keys and "employee_type" not in page.allowed_column_keys and "position_level" not in page.allowed_column_keys
+    item = page.items[0]
+    assert item.department == "研发" and item.employee_type is None and item.position_level is None
+    assert item.visible_profile_fields == ["department"]
+    assert "employee_type" not in item.column_values and "position_level" not in item.column_values
+    assert item.task_id is None and not item.can_authorize and not item.can_remind and item.task_map == []
+    for key in ("employee_type", "rating:missing"):
+        with pytest.raises(HTTPException) as error:
+            await data.routes.result_view_members("team", 1, None, 1, 1, key, "asc", context(), data.db)
+        assert (error.value.status_code, error.value.detail) == (422, "INVALID_MEMBER_SORT_KEY")
+    empty = await data.routes.result_view_members("team", 1, None, 99, 1, "completion", "asc", context(), data.db)
+    assert empty.items == [] and empty.columns == page.columns and empty.sort_keys == page.sort_keys
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["team", "focus"])
+@pytest.mark.parametrize("sort_by,sort_order,page", [(None, None, 1), ("name", "asc", 2), ("name", "desc", 1), ("name", "desc", 9), ("completion", "desc", 1), ("rating:p1", "asc", 1)])
+async def test_result_member_paging_filters_latest_snapshot_before_enrichment(cycle_adjustment_sqlite, monkeypatch, kind, sort_by, sort_order, page):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes, result_view_scope
+    from app.performance.member_columns_service import column_schema
+
+    data = cycle_adjustment_sqlite
+    pm, session = data.pm, data.session
+    session.connection().connection.driver_connection.create_collation("C", lambda left, right: (left > right) - (left < right))
+    session.add(pm.PerformanceProjectMemberSnapshot(id=10, project_id=1, cycle_ref=data.cycle.cycle_ref, snapshot_version=2, source_snapshot_id=100))
+    session.add_all([pm.PerformanceProjectMember(id=100 + index, snapshot_id=10 if index < 2 else 2,
+        employee_no=no, display_name=name) for index, (no, name) in enumerate([("A", "Zulu"), ("DIRECT", "Beta"), ("INDIRECT", "Alpha")])])
+    session.flush()
+    scope = result_view_scope.ResultViewScope(cycle=SimpleNamespace(id=1), actor_ref="M1", projects=data.projects, scopes={1: {"A", "DIRECT"}, 2: {"INDIRECT"}})
+    monkeypatch.setattr(result_view_scope, "resolve_result_view_scope", AsyncMock(return_value=scope))
+    async def schema(project, *_args, **kwargs):
+        assert kwargs["readonly"] is True
+        return column_schema([{"key": f"rating:p{project.id}", "label": f"项目{project.id}"}], [])
+    monkeypatch.setattr(routes, "_project_member_column_schema", schema)
+    monkeypatch.setattr(routes, "hydrate_project_member_rows", AsyncMock())
+    monkeypatch.setattr(routes, "_project_data_scope", AsyncMock(side_effect=AssertionError("不能使用管理权限")))
+    enriched = []
+    async def rows(project, employee_scope, keyword, _sort_by, _sort_order, _context, _db, *, employee_nos=None, readonly=False):
+        assert readonly and employee_scope == scope.scopes[project.id]
+        selected = [member for member in session.query(pm.PerformanceProjectMember).all()
+            if member.snapshot_id == (10 if project.id == 1 else 2) and member.employee_no in employee_scope
+            and (employee_nos is None or member.employee_no in employee_nos) and (not keyword or keyword in member.display_name)]
+        enriched.extend(member.employee_no for member in selected)
+        return [routes.ProjectMemberResponse(id=member.id, root_review_id=member.id, project_id=project.id, employee_no=member.employee_no,
+            display_name=member.display_name, column_values={"completion": "1/1" if member.employee_no == "A" else "0/1",
+                "rating:p1": {"label": member.display_name}}) for member in selected], []
+    monkeypatch.setattr(routes, "_project_member_rows", rows)
+    result = await routes.result_view_members(kind, 1, None, page, 1, sort_by, sort_order, context(), data.db)
+    expected = [] if page == 9 else ["A"] if sort_order == "desc" else ["DIRECT"] if page == 2 else ["INDIRECT"]
+    assert result.total == 3 and [item.employee_no for item in result.items] == expected
+    assert {column.key for column in result.rating_columns} == {"rating:p1", "rating:p2"}
+    assert result.columns and result.locked_column_keys == ["name"]
+    assert set(enriched) == (set(expected) if sort_by in {None, "name"} else {"A", "DIRECT", "INDIRECT"})
+    searched = await routes.result_view_members(kind, 1, "Beta", 1, 1, "name", "asc", context(), data.db)
+    assert searched.total == 1 and [item.employee_no for item in searched.items] == ["DIRECT"]
+    assert searched.allowed_column_keys == result.allowed_column_keys
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("locked", [False, True])
 async def test_evaluator_options_and_counts_use_existing_draft_or_locked_snapshot(monkeypatch, locked):
     from datetime import date

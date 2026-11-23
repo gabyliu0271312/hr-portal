@@ -3449,11 +3449,11 @@ def _member_stage_values(tasks, nodes, project):
     return result
 
 
-async def _project_member_column_schema(project, scope, context, db, *, nodes=None, rating_columns=None, members=None, actor_ref=None, rules=None):
+async def _project_member_column_schema(project, scope, context, db, *, nodes=None, rating_columns=None, members=None, actor_ref=None, rules=None, readonly=False):
     from app.performance.member_columns_service import column_schema, SNAPSHOT_PROFILE_FIELDS
     info = getattr(db, "info", None)
     cache = info.get("performance_member_read_columns") if isinstance(info, dict) else None
-    key = (context, project.id, None if scope is None else frozenset(scope))
+    key = (context, project.id, None if scope is None else frozenset(scope), readonly)
     if isinstance(cache, dict) and key in cache:
         return cache[key]["schema"]
     if nodes is None:
@@ -3466,7 +3466,9 @@ async def _project_member_column_schema(project, scope, context, db, *, nodes=No
         rating_metadata = _task_rating_metadata(await _matrix_node_schema(final, project, db)) if final else []
         rating_columns = rating_metadata
     rules = rules or await load_subject_visibility_rules(db)
-    if not _is_cycle_manager(context):
+    if readonly:
+        fields = set(rules["leader"])
+    elif not _is_cycle_manager(context):
         fields = set(rules["hrbp" if scope is not None else "activity_manager"])
     else:
         if members is None:
@@ -3489,10 +3491,10 @@ async def _project_member_column_schema(project, scope, context, db, *, nodes=No
     return schema
 
 
-async def _management_member_schema(context, db, *, project=None, scope=None, cycle_id=None, authorized=None):
+async def _management_member_schema(context, db, *, project=None, scope=None, cycle_id=None, authorized=None, readonly=False):
     from app.performance.member_columns_service import SCHEMA_KEYS
     if project is not None:
-        return await _project_member_column_schema(project, scope, context, db)
+        return await _project_member_column_schema(project, scope, context, db, readonly=readonly)
     if authorized is None:
         if context.management_role:
             from app.performance.management_scope import management_projects
@@ -3512,7 +3514,7 @@ async def _management_member_schema(context, db, *, project=None, scope=None, cy
                 authorized.append((candidate, candidate_scope))
     merged = {key: [] for key in SCHEMA_KEYS}
     for candidate, candidate_scope in authorized:
-        schema = await _project_member_column_schema(candidate, candidate_scope, context, db)
+        schema = await _project_member_column_schema(candidate, candidate_scope, context, db, readonly=readonly)
         for key in SCHEMA_KEYS:
             existing = {column["key"] for column in merged[key]} if key == "columns" else set(merged[key])
             for value in schema[key]:
@@ -3585,6 +3587,10 @@ async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db
     merged_schema = await _management_member_schema(context, db, authorized=authorized)
     if schema_out is not None:
         schema_out.update(merged_schema)
+    return await _authorized_member_rows(authorized, keyword, sort_by, sort_order, context, db, merged_schema, export=export, page=page, page_size=page_size)
+
+
+async def _authorized_member_rows(authorized, keyword, sort_by, sort_order, context, db, merged_schema, *, export=False, page=None, page_size=50, readonly=False):
     _sort_member_rows([], sort_by, sort_order, [], merged_schema)
     columns = {column["key"]: {"key": column["key"], "label": column["label"]}
                for column in merged_schema.get("columns", []) if column["key"].startswith("rating:")}
@@ -3616,7 +3622,7 @@ async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db
             employee_nos = selected_by_project.get(project.id)
             if not employee_nos:
                 continue
-            project_items, project_columns = await _project_member_rows(project, scope, keyword, None, None, context, db, employee_nos=employee_nos)
+            project_items, project_columns = await _project_member_rows(project, scope, keyword, None, None, context, db, employee_nos=employee_nos, **({"readonly": True} if readonly else {}))
             items.extend(project_items)
             for column in project_columns:
                 columns.setdefault(column["key"], column)
@@ -3624,7 +3630,7 @@ async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db
         items.sort(key=lambda item: order.get((item.employee_no, item.project_id), len(order)))
     else:
         for project, scope in authorized:
-            project_items, project_columns = await _project_member_rows(project, scope, keyword, None, None, context, db)
+            project_items, project_columns = await _project_member_rows(project, scope, keyword, None, None, context, db, **({"readonly": True} if readonly else {}))
             items.extend(project_items)
             for column in project_columns:
                 columns.setdefault(column["key"], column)
@@ -3636,6 +3642,22 @@ async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db
     return items, rating_columns, total
 
 
+_TEAM_COMPLETION_NODE_KEYS = {"work-summary", "self-review", "review-360", "manager-review", "communicate", "view-result"}
+
+
+async def _result_view_scope(kind, cycle_id, context, db):
+    from app.performance.result_view_scope import resolve_result_view_scope
+
+    if context.management_role:
+        raise HTTPException(422, "MANAGEMENT_RESULT_SCOPE_CONFLICT")
+    scope = await resolve_result_view_scope(db, context, cycle_id=cycle_id, kind=kind)
+    if scope.cycle is None:
+        raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
+    if not scope.employee_nos:
+        raise HTTPException(status_code=403, detail="RESULT_VIEW_FORBIDDEN")
+    return scope
+
+
 @router.get("/result-views/{kind}/overview")
 async def result_view_overview(
     kind: Literal["team", "focus"],
@@ -3643,18 +3665,13 @@ async def result_view_overview(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    from app.performance.result_view_scope import TEAM_RESULT_KIND, resolve_result_view_scope
+    from app.performance.result_view_scope import TEAM_RESULT_KIND
 
-    scope = await resolve_result_view_scope(db, context, cycle_id=cycle_id, kind=kind)
-    if scope.cycle is None:
-        raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
-    if not scope.employee_nos:
-        raise HTTPException(status_code=403, detail="RESULT_VIEW_FORBIDDEN")
+    scope = await _result_view_scope(kind, cycle_id, context, db)
     completion_nodes = []
     if kind == TEAM_RESULT_KIND:
         completion_nodes = await _project_completion_nodes(scope.projects, db, scopes=scope.scopes)
-        allowed = {"work-summary", "self-review", "review-360", "manager-review", "communicate", "view-result"}
-        completion_nodes = [item for item in completion_nodes if item["key"] in allowed and item.get("configured") is not False]
+        completion_nodes = [item for item in completion_nodes if item["key"] in _TEAM_COMPLETION_NODE_KEYS and item.get("configured") is not False]
     return {
         "kind": kind,
         "cycle": cycle_payload(scope.cycle),
@@ -3664,26 +3681,18 @@ async def result_view_overview(
     }
 
 
-async def _result_view_member_rows(kind, cycle_id, keyword, sort_by, sort_order, context, db):
-    from app.performance.result_view_scope import resolve_result_view_scope
-
-    scope = await resolve_result_view_scope(db, context, cycle_id=cycle_id, kind=kind)
-    if scope.cycle is None:
-        raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
-    if not scope.employee_nos:
-        raise HTTPException(status_code=403, detail="RESULT_VIEW_FORBIDDEN")
-    items, columns = [], {}
-    for project in scope.projects:
-        project_items, project_columns = await _project_member_rows(
-            project, scope.scopes[project.id], keyword, None, None, context, db, readonly=True,
-        )
-        items.extend(project_items)
-        for column in project_columns:
-            columns.setdefault(column["key"], column)
-    items.sort(key=lambda item: (item.display_name, item.employee_no, item.project_id or 0, item.id))
-    rating_columns = list(columns.values())
-    _sort_member_rows(items, sort_by, sort_order, rating_columns)
-    return scope, items, rating_columns
+async def _result_view_member_rows(kind, cycle_id, keyword, sort_by, sort_order, context, db, *, page=None, page_size=50, schema_out=None):
+    _enable_member_read_reuse(db)
+    scope = await _result_view_scope(kind, cycle_id, context, db)
+    authorized = [(project, scope.scopes[project.id]) for project in scope.projects]
+    schema = await _management_member_schema(context, db, authorized=authorized, readonly=True)
+    if schema_out is not None:
+        schema_out.update(schema)
+    items, columns, total = await _authorized_member_rows(
+        authorized, keyword, sort_by, sort_order, context, db, schema,
+        page=page, page_size=page_size, readonly=True,
+    )
+    return scope, items, columns, total
 
 
 @router.get("/result-views/{kind}/members", response_model=ProjectMemberPage)
@@ -3698,11 +3707,12 @@ async def result_view_members(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    _scope, items, columns = await _result_view_member_rows(kind, cycle_id, keyword, sort_by, sort_order, context, db)
-    total = len(items)
-    items = items[(page - 1) * page_size:page * page_size]
+    schema = {}
+    _scope, items, columns, total = await _result_view_member_rows(kind, cycle_id, keyword, sort_by, sort_order, context, db, page=page, page_size=page_size, schema_out=schema)
+    if sort_by not in {None, "name"}:
+        items = items[(page - 1) * page_size:page * page_size]
     await hydrate_project_member_rows(db, items, context=context, verified_view=True)
-    return ProjectMemberPage(items=items, total=total, page=page, page_size=page_size, rating_columns=columns)
+    return ProjectMemberPage(items=items, total=total, page=page, page_size=page_size, rating_columns=columns, **schema)
 
 
 @router.get("/result-views/{kind}/matrix", response_model=ProjectMatrixResponse)
@@ -3902,11 +3912,11 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
     supervisor_names = await _snapshot_supervisor_names(db, members)
     info = getattr(db, "info", None)
     column_cache = info.get("performance_member_read_columns", {}) if isinstance(info, dict) else {}
-    cached = column_cache.get((context, project.id, None if scope is None else frozenset(scope)))
+    cached = column_cache.get((context, project.id, None if scope is None else frozenset(scope), readonly))
     visibility_rules = cached["rules"] if cached else await load_subject_visibility_rules(db)
     visible_fields_by_member: dict[int, list[str]] = {}
     for member in members:
-        role = await _member_visibility_role(context, project, member, scope, actor_ref, db)
+        role = "leader" if readonly else await _member_visibility_role(context, project, member, scope, actor_ref, db)
         visible_fields_by_member[member.id] = visibility_rules[role]
 
     nodes = cached["nodes"] if cached else list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
@@ -3917,7 +3927,7 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
     if metadata is None:
         metadata = _task_rating_metadata(await _matrix_node_schema(final_node, project, db)) if final_node is not None else []
     rating_columns = [{"key": item["key"], "label": item["label"]} for item in metadata]
-    column_schema = await _project_member_column_schema(project, scope, context, db, nodes=nodes, rating_columns=rating_columns, actor_ref=actor_ref, rules=visibility_rules)
+    column_schema = await _project_member_column_schema(project, scope, context, db, nodes=nodes, rating_columns=rating_columns, actor_ref=actor_ref, rules=visibility_rules, readonly=readonly)
     if sort_by is not None and sort_by not in column_schema["sort_keys"]:
         raise HTTPException(status_code=422, detail="INVALID_MEMBER_SORT_KEY")
     previous_levels = await _previous_published_position_levels(db, project, {member.employee_no for member in members}) if members and "previous_position_level" in column_schema["allowed_column_keys"] else {}
@@ -6661,8 +6671,18 @@ async def project_management_department_completion(
     cycle_id: int = Query(..., ge=1),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    result_kind: Literal["team", "focus"] | None = Query(default=None),
 ):
-    projects = await _managed_completion_projects(cycle_id, context, db)
+    result_kind = result_kind if result_kind in {"team", "focus"} else None
+    if result_kind is not None:
+        scope = await _result_view_scope(result_kind, cycle_id, context, db)
+        projects = [(project, scope.scopes[project.id]) for project in scope.projects]
+    else:
+        projects = await _managed_completion_projects(cycle_id, context, db)
+    return await _department_completion_rows(projects, db, allowed_keys=_TEAM_COMPLETION_NODE_KEYS if result_kind is not None else None)
+
+
+async def _department_completion_rows(projects, db, *, allowed_keys=None):
     totals = {}
     titles = {}
     for project, scope in projects:
@@ -6690,7 +6710,7 @@ async def project_management_department_completion(
                 tasks_by_department_node.setdefault((path, task.node_snapshot_id), []).append(task)
         for node in nodes:
             key = _completion_node_key(node)
-            if key is None:
+            if key is None or allowed_keys is not None and key not in allowed_keys:
                 continue
             titles.setdefault(key, node.name)
             for path, employee_nos in departments.items():

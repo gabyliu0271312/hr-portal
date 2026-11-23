@@ -322,15 +322,27 @@ const tableColumns = computed<PerformanceTableColumn[]>(() => visibleColumns.val
   fixed: column.key === 'name',
 })))
 
+async function exportProviderRows() {
+  const provider = props.provider!
+  const query = { keyword: keyword.value.trim() || undefined, pageSize: 100, sortBy: sortBy.value || undefined, sortOrder: sortOrder.value || undefined }
+  const rows: MemberRow[] = []
+  for (let page = 1; ; page++) {
+    const result = await provider({ ...query, page })
+    rows.push(...result.items)
+    if (rows.length >= result.total) return rows
+    if (!result.items.length) throw new Error('INCOMPLETE_MEMBER_EXPORT')
+  }
+}
+
 async function exportRows() {
   const context = props.reviewContext
   const result = props.provider
-    ? await props.provider({ keyword: keyword.value.trim() || undefined, page: 1, pageSize: 100, sortBy: sortBy.value || undefined, sortOrder: sortOrder.value || undefined })
+    ? await exportProviderRows()
     : context
     ? await performanceWorkbenchApi.taskPeople(Number(props.projectId), context.nodeId, context.state, keyword.value.trim() || undefined, context.phaseId)
     : null
   const rows: MemberRow[] = props.provider
-    ? (result as { items: MemberRow[] }).items
+    ? result as MemberRow[]
     : context
       ? sortPerformanceRows((Array.isArray(result) ? result : ((result as { items?: PerformanceWorkbenchTaskPerson[] } | null)?.items || [])) as MemberRow[], sortBy.value, sortOrder.value, memberSortValue)
       : (props.cycleId

@@ -6,7 +6,7 @@
       <PerformancePageTitle :title="title" />
       <PerformanceLineTabs class="result-view-tabs" :model-value="activeTab" sticky :tabs="tabs" @update:model-value="selectTab">
         <PerformanceSurfaceCard class="result-view-surface">
-          <CompletionRatePanel v-if="activeTab === 'overview'" :embedded="true" :nodes="completionNodes" @action="handleCompletionAction" />
+          <CompletionRatePanel v-if="activeTab === 'overview'" :embedded="true" :nodes="completionNodes" :cycle-id="cycleId" v-model:view-mode="completionViewMode" :department-provider="departmentProvider" @action="handleCompletionAction" />
           <ProjectMemberListPanel v-else-if="activeTab === 'members'" variant="review" :project-id="0" :cycle-id="cycleId" readonly :provider="memberProvider" @select-member="openMember" />
           <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" embedded :project-id="0" :cycle-name="overview.cycle.cycle_name" readonly :provider="matrixProvider" @open-member="openMember" />
           <ProjectStatisticsReportPanel v-else embedded :cycle-id="cycleId" :cycle-name="overview.cycle.cycle_name" :provider="statisticsProvider" :self-final-provider="selfFinalProvider" :comparison-provider="comparisonProvider" />
@@ -55,6 +55,8 @@ const route = useRoute()
 const overview = ref<PerformanceResultViewOverview | null>(null)
 const loading = ref(false)
 const error = ref('')
+const completionViewMode = ref('by-person')
+const departmentProvider = (cycleId: number) => resultViewApi.departmentCompletion(props.kind, cycleId)
 const activeTab = computed(() => tabs.value.some(tab => tab.key === route.query.tab) ? String(route.query.tab) : props.kind === 'team' ? 'overview' : 'members')
 function selectTab(tab: string) {
   if (!tabs.value.some(item => item.key === tab)) return
@@ -177,7 +179,7 @@ function handleCompletionAction(payload: { action: 'remind' | 'enable-result'; n
   if (payload.action !== 'remind') return
   void router.push({ name: 'PerformanceProjectReminder', query: { cycle_id: String(props.cycleId), node_key: payload.nodeKey, department: payload.departmentPath || '', source: 'team-results' } })
 }
-watch(() => [props.kind, props.cycleId], () => { drawerOpen.value = false; drawerMember.value = null; void load() })
+watch(() => [props.kind, props.cycleId], () => { completionViewMode.value = 'by-person'; drawerOpen.value = false; drawerMember.value = null; void load() })
 onBeforeUnmount(() => { ++request })
 onMounted(load)
 </script>

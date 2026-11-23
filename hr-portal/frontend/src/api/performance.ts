@@ -1314,6 +1314,10 @@ export interface PerformanceResultViewOverview {
 }
 
 export const resultViewApi = {
+  async departmentCompletion(kind: 'team' | 'focus', cycleId: number): Promise<ProjectManagementDepartmentCompletion> {
+    const { data } = await api.get<ProjectManagementDepartmentCompletion>('/performance/project-management/department-completion', { params: { cycle_id: cycleId, result_kind: kind } })
+    return data
+  },
   async overview(kind: 'team' | 'focus', cycleId: number): Promise<PerformanceResultViewOverview> {
     const { data } = await api.get<PerformanceResultViewOverview>(`/performance/result-views/${kind}/overview`, { params: { cycle_id: cycleId } })
     return data
