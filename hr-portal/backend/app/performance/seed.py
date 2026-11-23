@@ -153,14 +153,6 @@ async def _ensure_roles(db: AsyncSession) -> dict[str, PerformanceRole]:
             await db.flush()
             existing[role.code] = role
             logger.info("[seed] performance role created: %s", role.code)
-        elif role.is_system and definition["code"] in {
-            PERFORMANCE_ADMIN_ROLE_CODE,
-            PERFORMANCE_PROJECT_ADMIN_ROLE_CODE,
-            PERFORMANCE_HRBP_ROLE_CODE,
-        }:
-            role.name = definition["name"]
-            role.description = definition["description"]
-            role.function_permission_keys = list(definition.get("function_permission_keys", ()))
     return existing
 
 

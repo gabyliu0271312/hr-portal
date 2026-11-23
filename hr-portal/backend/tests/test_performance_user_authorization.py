@@ -14,6 +14,8 @@ from app.core.db import Base, get_session
 from app.performance import role_configuration_router as roles, projects_router as projects
 from app.performance.auth_context import PerformanceAccessContext, PerformanceRoleGrant, get_performance_access_context, load_active_authorization
 from app.performance.models import PerformanceAuditEvent, PerformanceIdentityLink, PerformancePermission, PerformanceRole, PerformanceRoleAssignment, PerformanceRolePermission, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceProject, PerformanceProjectNodeSnapshot, PerformanceProjectMemberSnapshot, PerformanceProjectMember, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherSetting
+from app.performance import seed as performance_seed
+from app.performance.models import PerformanceSystemAccount
 from app.users.models import Menu, Role, RoleMenu, User, UserRole
 
 
@@ -53,7 +55,7 @@ def api(monkeypatch):
     connection = engine.raw_connection()
     connection.create_function('jsonb_typeof', 1, lambda value: 'array' if isinstance(json.loads(value), list) else 'object')
     connection.close()
-    tables = [model.__table__ for model in (User, Role, Menu, RoleMenu, UserRole, PerformanceCycle, PerformanceSubjectVisibilitySetting, PerformanceRole, PerformancePermission, PerformanceRolePermission, PerformanceRoleAssignment, PerformanceIdentityLink, PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceProject, PerformanceProjectNodeSnapshot, PerformanceProjectMemberSnapshot, PerformanceProjectMember, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherSetting)]
+    tables = [model.__table__ for model in (User, Role, Menu, RoleMenu, UserRole, PerformanceCycle, PerformanceSubjectVisibilitySetting, PerformanceRole, PerformancePermission, PerformanceRolePermission, PerformanceRoleAssignment, PerformanceSystemAccount, PerformanceIdentityLink, PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceProject, PerformanceProjectNodeSnapshot, PerformanceProjectMemberSnapshot, PerformanceProjectMember, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherSetting)]
     Base.metadata.create_all(engine, tables=tables)
     session = Session(engine, expire_on_commit=False)
     now = datetime.now(UTC)
@@ -92,6 +94,60 @@ def api(monkeypatch):
 
 
 PATH = '/api/v1/performance/permission-settings/roles/user-authorizations'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('role_code', ['performance.admin', 'performance.project_admin', 'performance.hrbp', 'custom.admin'])
+async def test_role_api_permissions_survive_seed_and_fresh_sql_reads(api, monkeypatch, role_code):
+    client, db, session, app = api
+    monkeypatch.setattr(performance_seed, 'verify_password', lambda *_args: False)
+    session.add(PerformanceSystemAccount(
+        username='seed-regression', display_name='初始化测试账号', password_hash='unused',
+        account_type='PERFORMANCE_SUPER_ADMIN', is_active=True,
+    ))
+    session.commit()
+    await performance_seed.seed_performance_authorization_defaults(db)
+    if role_code.startswith('custom.'):
+        session.add(PerformanceRole(
+            code=role_code, name='自定义管理员', role_type='MANAGEMENT', is_system=False,
+            is_active=True, function_permission_keys=[],
+        ))
+        session.commit()
+    role_id = session.scalar(select(PerformanceRole.id).where(PerformanceRole.code == role_code))
+    role_path = f'/api/v1/performance/permission-settings/roles/{role_id}'
+    keys = list(performance_seed.TASK_AUTHORIZATION_FUNCTION_KEYS)
+
+    for saved_keys in (keys, [keys[1]], []):
+        response = client.patch(role_path, json={
+            'description': '已保存的配置', 'function_permission_keys': saved_keys,
+        })
+        assert response.status_code == 200, response.text
+        assert response.json()['function_permission_keys'] == saved_keys
+        audit_count = len(session.scalars(select(PerformanceAuditEvent)).all())
+
+        for _ in range(2):
+            await performance_seed.seed_performance_authorization_defaults(db)
+            session.expunge_all()
+            stored = session.get(PerformanceRole, role_id)
+            assert stored.function_permission_keys == saved_keys
+            assert stored.description == '已保存的配置'
+            reopened = client.get(role_path)
+            assert reopened.status_code == 200, reopened.text
+            assert reopened.json()['function_permission_keys'] == saved_keys
+            assert len(session.scalars(select(PerformanceAuditEvent)).all()) == audit_count
+
+    events = session.scalars(select(PerformanceAuditEvent).where(
+        PerformanceAuditEvent.event_type == 'PERFORMANCE_ROLE_UPDATED',
+        PerformanceAuditEvent.subject_ref == str(role_id),
+    ).order_by(PerformanceAuditEvent.id)).all()
+    assert [event.after_state['function_permission_keys'] for event in events] == [keys, [keys[1]], []]
+    app.dependency_overrides[get_performance_access_context] = lambda: PerformanceAccessContext(
+        'PORTAL_USER', 8, '无权限用户', None, (), (), (),
+    )
+    denied = client.patch(role_path, json={'function_permission_keys': keys})
+    assert denied.status_code == 403
+    session.expunge_all()
+    assert session.get(PerformanceRole, role_id).function_permission_keys == []
 
 
 @pytest.mark.asyncio

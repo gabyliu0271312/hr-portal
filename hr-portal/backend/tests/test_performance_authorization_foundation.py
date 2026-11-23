@@ -173,6 +173,29 @@ async def test_performance_seed_is_idempotent_and_limits_super_admin_permissions
         "PERFORMANCE_SUPER_ADMIN_ROLE_GRANTED",
     ]
     assert db.commits == 2
+    for definition in ROLE_DEFAULTS:
+        role = next(role for role in db.rows[models.PerformanceRole] if role.code == definition["code"])
+        assert role.function_permission_keys == list(definition.get("function_permission_keys", ()))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role_code", ["performance.admin", "performance.project_admin", "performance.hrbp"])
+@pytest.mark.parametrize("keys", [list(performance_seed.TASK_AUTHORIZATION_FUNCTION_KEYS), []])
+async def test_repeated_seed_preserves_saved_system_role_configuration(monkeypatch, role_code, keys):
+    monkeypatch.setattr(performance_seed.settings, "PERFORMANCE_SUPER_ADMIN_INIT_PASSWORD", "SecurePerformanceRoot@2026")
+    db = _SeedDb()
+    await seed_performance_authorization_defaults(db)
+    role = next(role for role in db.rows[models.PerformanceRole] if role.code == role_code)
+    role.name = "已保存的角色名称"
+    role.description = "已保存的角色描述"
+    role.function_permission_keys = list(keys)
+
+    await seed_performance_authorization_defaults(db)
+    await seed_performance_authorization_defaults(db)
+
+    assert role.name == "已保存的角色名称"
+    assert role.description == "已保存的角色描述"
+    assert role.function_permission_keys == keys
 
 
 def test_performance_bootstrap_password_rejects_legacy_default(monkeypatch):

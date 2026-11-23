@@ -128,7 +128,8 @@ function rolePermissionPolicy(role: PerformanceRoleListItem) {
     selected: role.function_permission_keys || [],
     disabled: BACKEND_KEYS.filter(key => key !== 'performance.backend.people-groups.project'),
   }
-  return { selected: role.code === 'performance.admin' ? ALL_KEYS : (role.function_permission_keys || []), disabled: ALL_KEYS }
+  if (role.code === 'performance.admin') return { selected: role.function_permission_keys || [], disabled: BACKEND_KEYS }
+  return { selected: role.function_permission_keys || [], disabled: ALL_KEYS }
 }
 
 async function loadRole() {

@@ -168,3 +168,18 @@ PM-001-T02 + PM-001-T03 -> PM-001-T04 -> PM-001-T05
   - 迁移：0295_pm_hrbp_invisible_rules 接 0294_pm_person_info_guard，upgrade/downgrade SQL 与链头检查通过；未执行真实 DDL。真实本地 PostgreSQL 连接拒绝，额外 identity-switch 数据库闭环测试因此失败（同次运行其余 536 passed、6 skipped），不算通过。
   - 阻塞：org_tree.path 有同步，但组织同步链未填充 OrgNode.manager；通用开关仅对已有有效 manager 数据生效，空值/重名不猜测。负责人权威源字段需明确，禁止以直属上级冒充部门负责人。真实数据库迁移、真实 API/SQL 读回、负责人源数据及生产验收未完成，因此不勾选。
   - 非范围：无确认映射的飞书序列/序列职级/角色/人员名单等不伪造接入，不改现有职位族/职位类含义；不扩建组织同步链，不改历史快照、不操作生产、不提交推送。停止方式仅撤销本卡差异，不整包回滚。
+
+## PM-001-T12 管理角色权限持久化修复（2026-11-23用户批准）
+
+- [ ] PM-001-T12（代码、定向测试及受控浏览器验证完成；完整构建与生产验收分别记录）
+  - Goal/type：修复启动seed覆盖已保存管理角色功能权限，以及绩效管理员编辑页强制全选；既有后端/前端Bug修复。
+  - Prerequisites/reading：根与HR Portal规则、002启动入口/基线/PM001 spec与交互/T09/T11、ADR001、execution-contract/task-card-template/acceptance-evidence；012 START_HERE/spec/A01/A02/A05/N000/N00、UI交互/实施守则及测试验收。最新用户明确批准全部修复覆盖此前只定位边界。
+  - Allowed/shared：backend/app/performance/seed.py、既有tests/test_performance_authorization_foundation.py/test_performance_user_authorization.py；frontend/src/views/performance/PerformanceRoleCreate.vue/.spec.ts；本目录spec/ui-interaction/atomic-tasks和独立实现PNG。文件串行局部编辑，保留其他会话所有变更；不新增脚本、报告或测试文档。
+  - Contract：默认值仅用于缺失角色INSERT；重复seed不改既有名称/描述/function_permission_keys，[]及主动撤权必须保留。新角色默认不变、不批量恢复存量授权、不补回主动删除key；评估角色编码占用校验保留。既有GET/PATCH角色API、DTO/状态码及PERFORMANCE_ROLE_UPDATED同事务审计不变，写入仍需performance.authorization.manage。
+  - UI：原角色编辑路由、树/checkbox、保存和错误反馈均复用；绩效管理员真实回显且前台可编辑，后台及名称继续禁用，项目管理员/HRBP/其他系统角色限制不变。小范围既有页面修复，无新信息架构、不需新完整蓝图；012数仓专属N02-N10不适用。独立PNG：../../ui-blueprints/PM-001-T12-role-permissions-reopen-20261123.png。
+  - Given/When/Then：内置admin/project_admin/hrbp或自定义角色保存两项任务授权、单独撤销评估项、清空；重复完整绩效seed两次并expunge_all后，真实SQL与GET仍与保存值一致，描述保留，无额外角色更新审计；无权PATCH403且数据库不变。前端从接口读取未选→勾选保存→重开已选→撤销→重开未选，不凭角色名假全选。
+  - Baseline/red：原后端foundation/role_configuration/user_authorization三文件35 passed；新增重复seed用例修复前6 failed（已有名称被重置），新增前端四角色保存重开用例修复前admin失败（数据库未选但页面强制选中）。修复后再次运行全部通过。
+  - Backend evidence：仓库根`python -m pytest hr-portal/backend/tests/test_performance_authorization_foundation.py hr-portal/backend/tests/test_performance_role_configuration.py hr-portal/backend/tests/test_performance_user_authorization.py hr-portal/backend/tests/test_performance_auth_context.py -q --tb=short -p no:cacheprovider`：74 passed，保留python_multipart弃用警告。新增4个隔离SQLite真实FastAPI/SQL参数用例含完整seed、提交、缓存清理、读取和403；6个内存seed用例覆盖名称/描述/权限及空数组；未连接生产。
+  - Frontend evidence：`npm.cmd --prefix hr-portal/frontend run test -- src/views/performance/PerformanceRoleCreate.spec.ts src/views/performance/PerformanceRoleConfiguration.spec.ts`：2文件12 passed。真实Vite源码组件+独立Chromium隔离API验证admin/project_admin/hrbp三类保存、刷新重开、撤销再重开，6次真实前端PATCH，pageErrors=[]；已生成并查看独立截图。仅组件运行及受控API，非真实登录/生产联调。
+  - Build/limitations：首次`npm.cmd --prefix hr-portal/frontend run build`在其他会话修改中的PerformanceRichTextEditor.vue:348报TS2741（HTMLElement缺少HTMLDivElement.align）；最终重跑exit2，当前阻塞转为并行工作台组件WorkbenchLocalizedField.vue:28的emit重载TS2769，以及WorkbenchSettingEditor.vue:180/213的TS2322/TS2769（visibility_role不在payload类型中）。本卡未修改上述文件，不能宣称完整构建通过。最终定向后端74 passed、前端12 passed再次确认，前端断言补充系统角色名称及后台功能仍禁用。真实PostgreSQL及生产重启验收未运行，不把SQLite等同PostgreSQL。无模型/迁移/快照/任务/答案/对象鉴权/外部通知变更；本卡git diff --check通过（LF/CRLF提示）。
+  - Stop/release：仅撤回本卡局部差异即可停止；不整包回滚。未commit/push/deploy；发布后已被旧代码清掉的授权需管理员在原角色页重新勾选保存，不从默认值猜测恢复。整卡完整证据齐全后主线程才勾选，不提升T09/T11或其他阶段状态。
