@@ -24,52 +24,17 @@
           <strong>{{ keyword ? '没有找到匹配周期' : '暂无周期' }}</strong>
           <button v-if="keyword" class="outline-button" type="button" @click="clearSearch">清除筛选</button>
         </div>
-        <div
+        <PerformanceCycleListItem
           v-for="cycle in cycles"
           :key="cycle.id"
-          class="cycle-item"
-          :class="{ active: selected?.id === cycle.id }"
-          role="button"
-          tabindex="0"
-          @click="selectCycle(cycle)"
-          @keydown.enter.prevent="selectCycle(cycle)"
-          @keydown.space.prevent="selectCycle(cycle)"
-          @mouseenter="cancelCycleMenuClose"
-          @mouseleave="scheduleCycleMenuClose(cycle.id)"
-        >
-          <span class="truncate">{{ cycle.name }}</span>
-          <button
-            v-if="canManageCycles"
-            :ref="element => setCycleMoreButton(cycle.id, element)"
-            class="cycle-more"
-            :class="{ 'is-open': activeCycleMenuId === cycle.id }"
-            type="button"
-            aria-label="更多操作"
-            aria-haspopup="menu"
-            :aria-expanded="activeCycleMenuId === cycle.id"
-            @click.stop="toggleCycleMenu(cycle.id)"
-            @mouseenter.stop="openCycleMenu(cycle.id)"
-            @focus="openCycleMenu(cycle.id)"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5.5 11.75a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0Zm8.225 0a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 1 1 3.5 0Zm8.275 0a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 1 1-3.5 0Z" fill="currentColor" /></svg>
-          </button>
-          <Teleport to="body">
-            <ul
-              v-if="canManageCycles && activeCycleMenuId === cycle.id"
-              ref="cycleMenuRef"
-              class="cycle-action-menu"
-              role="menu"
-              aria-label="周期操作"
-              :style="cycleMenuStyle"
-              @mouseenter="cancelCycleMenuClose"
-              @mouseleave="scheduleCycleMenuClose(cycle.id)"
-              @keydown.esc.prevent="closeCycleMenu(true)"
-            >
-              <li role="none"><div class="cycle-action-menu__item" role="menuitem" tabindex="0" @click="editCycleFromMenu(cycle)" @keydown.enter.prevent="editCycleFromMenu(cycle)" @keydown.space.prevent="editCycleFromMenu(cycle)"><PerformanceIconButton class="cycle-action-menu__icon" icon="EditOutlined" label="编辑" static /><span>编辑</span></div></li>
-              <li role="none"><div class="cycle-action-menu__item" :class="{ 'is-disabled': hasStartedProjectFor(cycle) }" role="menuitem" :aria-disabled="hasStartedProjectFor(cycle)" :tabindex="hasStartedProjectFor(cycle) ? -1 : 0" @click="!hasStartedProjectFor(cycle) && removeCycleFromMenu(cycle)" @keydown.enter.prevent="!hasStartedProjectFor(cycle) && removeCycleFromMenu(cycle)" @keydown.space.prevent="!hasStartedProjectFor(cycle) && removeCycleFromMenu(cycle)"><PerformanceIconButton class="cycle-action-menu__icon" icon="DeleteTrashOutlined" label="删除" static :disabled="hasStartedProjectFor(cycle)" /><span>删除</span></div></li>
-            </ul>
-          </Teleport>
-        </div>
+          :name="cycle.name"
+          :selected="selected?.id === cycle.id"
+          :can-manage="canManageCycles"
+          :delete-disabled="hasStartedProjectFor(cycle)"
+          @select="selectCycle(cycle)"
+          @edit="editCycleFromMenu(cycle)"
+          @remove="removeCycleFromMenu(cycle)"
+        />
         <div v-if="total > pageSize" class="cycle-pagination" aria-label="周期分页">
           <button :disabled="page === 1" aria-label="上一页" @click="changePage(page - 1)">‹</button>
           <span>{{ page }} / {{ totalPages }}</span>
@@ -92,7 +57,7 @@
             @confirm="saveOverdueSubmission"
           />
           <h3>基本信息</h3>
-          <div class="metrics"><div><label>人员</label><strong><button v-if="selected" class="metric-link" type="button" @click="openPeopleDepartment('employee')">{{ selected.people_count }}</button><template v-else>--</template></strong></div><div><label>部门</label><strong><button v-if="selected" class="metric-link" type="button" @click="openPeopleDepartment('department')">{{ selected.department_count }}</button><template v-else>--</template></strong></div><div><label>周期起止时间</label><span>{{ selected ? formatRange(selected.start_at, selected.end_at) : '--' }}</span></div><div><label>锁定状态</label><span>{{ selected ? (selected.status === 'LOCKED' ? '已锁定' : '待锁定') : '--' }}</span></div><div><label>离职人员参评</label><span>{{ selected ? (selected.leaver_enabled ? '是' : '否') : '--' }}</span></div></div>
+          <div class="metrics"><div><label>人员</label><strong><button v-if="selected" class="metric-link" type="button" @click="openPeopleDepartment('employee')">{{ selected.people_count }}</button><template v-else>--</template></strong></div><div><label>部门</label><strong><button v-if="selected" class="metric-link" type="button" @click="openPeopleDepartment('department')">{{ selected.department_count }}</button><template v-else>--</template></strong></div><div><label>周期起止时间</label><span>{{ selected ? formatRange(selected.start_at, selected.end_at) : '--' }}</span></div><div><label>周期创建时间</label><span>{{ formatDisplayDateTime(selected?.created_at, '--') }}</span></div><div><label>离职人员可在本周期成为被评估人</label><span>{{ selected ? (selected.leaver_enabled ? '是' : '否') : '--' }}</span></div></div>
           <PerformanceProjectSettings
             :projects="selected?.projects || []"
             :project-count="selected?.project_count || 0"
@@ -276,9 +241,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, type CSSProperties, type ComponentPublicInstance, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, type CSSProperties, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
-import { formatDateTime, shanghaiLocalToUtcIso, utcToShanghaiLocal } from '@/utils/datetime'
+import { formatDisplayDateTime, shanghaiLocalToUtcIso, utcToShanghaiLocal } from '@/utils/datetime'
 import PerformanceProjectSettings from '@/components/performance/PerformanceProjectSettings.vue'
 import PerformanceListPage from '@/components/performance/PerformanceListPage.vue'
 import PerformanceProjectDialog from '@/components/performance/PerformanceProjectDialog.vue'
@@ -294,7 +259,7 @@ import PerformanceInfoPopover from '@/components/performance/PerformanceInfoPopo
 import { PERFORMANCE_INFO_PLACEHOLDER } from '@/components/performance/performanceInfoPlaceholder'
 import PerformanceSearchInput from '@/components/performance/PerformanceSearchInput.vue'
 import PerformanceSelectShell from '@/components/performance/PerformanceSelectShell.vue'
-import PerformanceIconButton from '@/components/performance/PerformanceIconButton.vue'
+import PerformanceCycleListItem from '@/components/performance/PerformanceCycleListItem.vue'
 import PerformanceCycleSettingsMenu from '@/components/performance/PerformanceCycleSettingsMenu.vue'
 import PerformanceCycleOverdueSubmissionDialog from '@/components/performance/PerformanceCycleOverdueSubmissionDialog.vue'
 import PerformanceDisabledReason from '@/components/performance/PerformanceDisabledReason.vue'
@@ -355,7 +320,6 @@ const selectedEvaluationTemplateItems = computed(() => form.evaluation_templates
 const leaveConfirmOpen = ref(false)
 const comparisonDeleting = ref(false)
 const comparisonDeleteError = ref('')
-const activeCycleMenuId = ref<number | null>(null); const cycleMenuStyle = ref<CSSProperties>({}); const cycleMenuRef = ref<HTMLElement | null>(null); const cycleMoreButtons = new Map<number, HTMLButtonElement>(); let cycleMenuCloseTimer: number | undefined
 const canManageCycles = computed(() => accessContext.value?.permission_codes.includes('performance.cycles.manage') ?? false); const canManagePeople = canManageCycles; const canManageProjects = computed(() => canManageCycles.value || accessContext.value?.permission_codes.includes('performance.projects.manage') || false); const managedProjectRefs = computed(() => accessContext.value?.role_grants?.filter(grant => grant.scope_type === 'PROJECT').map(grant => grant.scope_ref) || []); const canManageProjectDialog = computed(() => Boolean(projectDialogCycleId.value && (projectDialogMode.value === 'copy' ? canManageCycles.value : (canManageCycles.value || (projectDialogProject.value && managedProjectRefs.value.includes(projectDialogProject.value.project_ref)))))); const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value))); const dateError = computed(() => Boolean(form.start_at && form.end_at && form.end_at <= form.start_at)); const leaverDateError = computed(() => Boolean(form.leaver_enabled && form.leaver_start_date && form.leaver_end_date && form.leaver_end_date < form.leaver_start_date)); const lockError = computed(() => formMode.value === 'create' && form.lock_rule === 'SCHEDULED' && form.lock_at && (shanghaiLocalToUtcIso(form.lock_at) || '') < new Date(formClock.value + 6 * 60 * 60 * 1000).toISOString()); const hasStartedProject = computed(() => selected.value?.projects.some(project => ['STARTED', '进行中', '已启动'].includes(project.status)) ?? false)
 const formClock = ref(Date.now())
 let formClockTimer: ReturnType<typeof setInterval> | undefined
@@ -428,7 +392,7 @@ function updateInputValidity() {
   if (formSubmitted.value) void nextTick(validateFields)
 }
 watch(form, updateInputValidity, { flush: 'post' })
-function snapshotForm() { initialForm.value = JSON.stringify(form) }; function resetForm() { clearFormErrors(); comparisonDeleteError.value = ''; Object.assign(form, { name: '', period_year: null, period_type: '', period_subtype: null, start_at: '', end_at: '', lock_rule: 'IMMEDIATE', lock_at: '', pre_lock_sync_mode: 'MANUAL', pre_lock_adjust_until: '', leaver_enabled: false, leaver_start_date: '', leaver_end_date: '', leaver_participation_mode: 'CREATE_TASK', allow_delete_360: false, anonymous_360_config: { enable: false, anonymous_object: '', anonymous_low_limit: 0, reviewer_tag_visibility_mode: 'visibleOverLowLimit' }, invitation_out_of_range_tips_config: { enable: false, range_count: 0, tips: { 'zh-CN': '', 'en-US': '' } }, overdue_submission_enabled: true, overdue_submission_scope: 'EVALUATION', evaluation_templates: [], semester_diff_rules: [], comparison_rules_revision: 0 }); formSubmitted.value = false; yearPageStart.value = getDefaultYearPageStart(); yearPickerOpen.value = false; periodTypePickerOpen.value = false; yearPanelStyle.value = {}; periodPanelStyle.value = {}; snapshotForm() }; function changeYearPage(direction: number) { yearPageStart.value = Math.min(2200 - yearPageSize + 1, Math.max(1900, yearPageStart.value + direction * yearPageSize)) }; function positionPanel(trigger: HTMLElement | null, width: number, height: number): CSSProperties { if (!trigger) return { position: 'fixed', top: '0px', left: '0px' }; const rect = trigger.getBoundingClientRect(); const gap = 6; const margin = 16; const below = rect.bottom + gap; const top = below + height <= window.innerHeight - margin ? below : Math.max(margin, rect.top - height - gap); const left = Math.min(Math.max(margin, rect.left), Math.max(margin, window.innerWidth - width - margin)); return { position: 'fixed', top: top + 'px', left: left + 'px' } }; function updatePanelPosition(type: 'year' | 'period') { void nextTick(() => { const trigger = document.getElementById(type === 'year' ? 'cycle-year' : 'cycle-type'); const style = positionPanel(trigger, type === 'year' ? 279 : 385, type === 'year' ? 311 : 364); if (type === 'year') yearPanelStyle.value = style; else periodPanelStyle.value = style }) }; function toggleYearPicker() { periodTypePickerOpen.value = false; yearPickerOpen.value = !yearPickerOpen.value; yearPanelStyle.value = {}; if (yearPickerOpen.value) updatePanelPosition('year') }; function togglePeriodTypePicker() { yearPickerOpen.value = false; periodTypePickerOpen.value = !periodTypePickerOpen.value; periodPanelStyle.value = {}; if (periodTypePickerOpen.value) updatePanelPosition('period') }; function closePickers() { yearPickerOpen.value = false; periodTypePickerOpen.value = false; yearPanelStyle.value = {}; periodPanelStyle.value = {} }; function handlePickerOutsidePointerDown(event: PointerEvent) { if (!yearPickerOpen.value && !periodTypePickerOpen.value) return; const target = event.target; if (!(target instanceof Node)) return; const yearRoot = document.querySelector('.year-picker'); const periodRoot = document.querySelector('.period-type-picker'); if (yearPickerOpen.value && !yearRoot?.contains(target)) closePickers(); if (periodTypePickerOpen.value && !periodRoot?.contains(target)) closePickers() }; function selectYear(year: number) { form.period_year = year; applyPeriodDates() }; function selectPeriodOption(option: PeriodTypeOption) { form.period_type = option.type; form.period_subtype = option.subtype; periodTypePickerOpen.value = false; applyPeriodDates() }; function daysInMonth(year: number, month: number) { return new Date(year, month, 0).getDate() }; function applyPeriodDates() { const year = form.period_year; const subtype = form.period_subtype as string | null; if (!year || form.period_type === 'CUSTOM') return; let startMonth = 1; let endMonth = 12; if (form.period_type === 'HALF_YEAR') { startMonth = subtype === 'H2' ? 7 : 1; endMonth = subtype === 'H2' ? 12 : 6 } else if (form.period_type === 'QUARTER') { const quarter = Number(subtype?.slice(1) || 1); startMonth = (quarter - 1) * 3 + 1; endMonth = startMonth + 2 } else if (form.period_type === 'BIMONTH') { const bimonth = Number(subtype?.slice(1) || 1); startMonth = (bimonth - 1) * 2 + 1; endMonth = startMonth + 1 } else if (form.period_type === 'MONTH') { startMonth = Number(subtype?.slice(1) || 1); endMonth = startMonth } form.start_at = `${year}-${String(startMonth).padStart(2, '0')}-01T00:00`; form.end_at = `${year}-${String(endMonth).padStart(2, '0')}-${daysInMonth(year, endMonth)}T23:59` }; function toLocal(value: string | null) { return utcToShanghaiLocal(value) || '' }; function formatRange(start: string, end: string) { return `${formatDateTime(start)} - ${formatDateTime(end)}` }; function toIso(value: string) { return shanghaiLocalToUtcIso(value) || '' }
+function snapshotForm() { initialForm.value = JSON.stringify(form) }; function resetForm() { clearFormErrors(); comparisonDeleteError.value = ''; Object.assign(form, { name: '', period_year: null, period_type: '', period_subtype: null, start_at: '', end_at: '', lock_rule: 'IMMEDIATE', lock_at: '', pre_lock_sync_mode: 'MANUAL', pre_lock_adjust_until: '', leaver_enabled: false, leaver_start_date: '', leaver_end_date: '', leaver_participation_mode: 'CREATE_TASK', allow_delete_360: false, anonymous_360_config: { enable: false, anonymous_object: '', anonymous_low_limit: 0, reviewer_tag_visibility_mode: 'visibleOverLowLimit' }, invitation_out_of_range_tips_config: { enable: false, range_count: 0, tips: { 'zh-CN': '', 'en-US': '' } }, overdue_submission_enabled: true, overdue_submission_scope: 'EVALUATION', evaluation_templates: [], semester_diff_rules: [], comparison_rules_revision: 0 }); formSubmitted.value = false; yearPageStart.value = getDefaultYearPageStart(); yearPickerOpen.value = false; periodTypePickerOpen.value = false; yearPanelStyle.value = {}; periodPanelStyle.value = {}; snapshotForm() }; function changeYearPage(direction: number) { yearPageStart.value = Math.min(2200 - yearPageSize + 1, Math.max(1900, yearPageStart.value + direction * yearPageSize)) }; function positionPanel(trigger: HTMLElement | null, width: number, height: number): CSSProperties { if (!trigger) return { position: 'fixed', top: '0px', left: '0px' }; const rect = trigger.getBoundingClientRect(); const gap = 6; const margin = 16; const below = rect.bottom + gap; const top = below + height <= window.innerHeight - margin ? below : Math.max(margin, rect.top - height - gap); const left = Math.min(Math.max(margin, rect.left), Math.max(margin, window.innerWidth - width - margin)); return { position: 'fixed', top: top + 'px', left: left + 'px' } }; function updatePanelPosition(type: 'year' | 'period') { void nextTick(() => { const trigger = document.getElementById(type === 'year' ? 'cycle-year' : 'cycle-type'); const style = positionPanel(trigger, type === 'year' ? 279 : 385, type === 'year' ? 311 : 364); if (type === 'year') yearPanelStyle.value = style; else periodPanelStyle.value = style }) }; function toggleYearPicker() { periodTypePickerOpen.value = false; yearPickerOpen.value = !yearPickerOpen.value; yearPanelStyle.value = {}; if (yearPickerOpen.value) updatePanelPosition('year') }; function togglePeriodTypePicker() { yearPickerOpen.value = false; periodTypePickerOpen.value = !periodTypePickerOpen.value; periodPanelStyle.value = {}; if (periodTypePickerOpen.value) updatePanelPosition('period') }; function closePickers() { yearPickerOpen.value = false; periodTypePickerOpen.value = false; yearPanelStyle.value = {}; periodPanelStyle.value = {} }; function handlePickerOutsidePointerDown(event: PointerEvent) { if (!yearPickerOpen.value && !periodTypePickerOpen.value) return; const target = event.target; if (!(target instanceof Node)) return; const yearRoot = document.querySelector('.year-picker'); const periodRoot = document.querySelector('.period-type-picker'); if (yearPickerOpen.value && !yearRoot?.contains(target)) closePickers(); if (periodTypePickerOpen.value && !periodRoot?.contains(target)) closePickers() }; function selectYear(year: number) { form.period_year = year; applyPeriodDates() }; function selectPeriodOption(option: PeriodTypeOption) { form.period_type = option.type; form.period_subtype = option.subtype; periodTypePickerOpen.value = false; applyPeriodDates() }; function daysInMonth(year: number, month: number) { return new Date(year, month, 0).getDate() }; function applyPeriodDates() { const year = form.period_year; const subtype = form.period_subtype as string | null; if (!year || form.period_type === 'CUSTOM') return; let startMonth = 1; let endMonth = 12; if (form.period_type === 'HALF_YEAR') { startMonth = subtype === 'H2' ? 7 : 1; endMonth = subtype === 'H2' ? 12 : 6 } else if (form.period_type === 'QUARTER') { const quarter = Number(subtype?.slice(1) || 1); startMonth = (quarter - 1) * 3 + 1; endMonth = startMonth + 2 } else if (form.period_type === 'BIMONTH') { const bimonth = Number(subtype?.slice(1) || 1); startMonth = (bimonth - 1) * 2 + 1; endMonth = startMonth + 1 } else if (form.period_type === 'MONTH') { startMonth = Number(subtype?.slice(1) || 1); endMonth = startMonth } form.start_at = `${year}-${String(startMonth).padStart(2, '0')}-01T00:00`; form.end_at = `${year}-${String(endMonth).padStart(2, '0')}-${daysInMonth(year, endMonth)}T23:59` }; function toLocal(value: string | null) { return utcToShanghaiLocal(value) || '' }; function formatRange(start: string, end: string) { return `${utcToShanghaiLocal(start)?.slice(0, 10) || '--'} - ${utcToShanghaiLocal(end)?.slice(0, 10) || '--'}` }; function toIso(value: string) { return shanghaiLocalToUtcIso(value) || '' }
 function toPayload(): PerformanceCyclePayload | Partial<PerformanceCyclePayload> { const base = { name: form.name, language: 'zh-CN' as const, anonymous_360_config: { ...form.anonymous_360_config }, invitation_out_of_range_tips_config: { ...form.invitation_out_of_range_tips_config, tips: Object.fromEntries(Object.entries(form.invitation_out_of_range_tips_config.tips).map(([language, text]) => [language, String(text).trim()])) }, period_year: form.period_year, period_type: form.period_type, period_subtype: form.period_subtype, template_ids: form.evaluation_templates.map(Number), start_at: toIso(form.start_at), end_at: toIso(form.end_at), leaver_enabled: form.leaver_enabled, leaver_start_date: !leaverRangeEditable.value ? editBaseline.value?.leaver_start_date : form.leaver_enabled ? form.leaver_start_date : null, leaver_end_date: !leaverRangeEditable.value ? editBaseline.value?.leaver_end_date : form.leaver_enabled ? form.leaver_end_date : null, leaver_participation_mode: form.leaver_participation_mode, allow_delete_360: form.allow_delete_360, overdue_submission_enabled: form.overdue_submission_enabled, overdue_submission_scope: form.overdue_submission_scope, semester_diff_rules: form.semester_diff_rules, comparison_rules_revision: form.comparison_rules_revision }; return formMode.value === 'create' ? { ...base, lock_rule: form.lock_rule, lock_at: form.lock_rule === 'SCHEDULED' ? toIso(form.lock_at) : null, pre_lock_sync_mode: form.lock_rule === 'SCHEDULED' ? form.pre_lock_sync_mode : 'MANUAL', pre_lock_adjust_until: form.lock_rule === 'SCHEDULED' && form.pre_lock_sync_mode === 'AUTO_DAILY' ? toIso(form.pre_lock_adjust_until) : null } : base }
 async function loadCycles() { const version = ++requestVersion.value; loading.value = true; formError.value = ''; try { const [result, otherSettings] = await Promise.all([performanceCycleApi.list(keyword.value, page.value, pageSize.value), performanceOtherSettingsApi.get()]); if (version !== requestVersion.value) return; overdueSubmissionAllowed.value = otherSettings.overdue_single_submission_enabled && otherSettings.cycle_overdue_submission_override_enabled; cycles.value = result.items; total.value = result.total; if (page.value > totalPages.value) { page.value = totalPages.value; return loadCycles() }; if (!selected.value || !cycles.value.some(item => item.id === selected.value?.id)) selected.value = cycles.value[0] || null } catch (error: any) { formError.value = error?.response?.data?.detail || '周期加载失败' } finally { if (version === requestVersion.value) loading.value = false } }
 async function searchCycles() { page.value = 1; await loadCycles() }; function clearSearch() { keyword.value = ''; void searchCycles() }; async function changePage(nextPage: number) { page.value = Math.min(Math.max(1, nextPage), totalPages.value); await loadCycles() }; async function selectCycle(cycle: PerformanceCycle) { selected.value = cycle; if (showPeople.value) await loadPeople() }
@@ -471,64 +435,14 @@ async function saveOverdueSubmission(payload: Pick<PerformanceCyclePayload, 'ove
   }
 }
 
-function setCycleMoreButton(id: number, element: Element | ComponentPublicInstance | null) {
-  if (element instanceof HTMLButtonElement) cycleMoreButtons.set(id, element)
-}
-function cancelCycleMenuClose() {
-  if (cycleMenuCloseTimer) window.clearTimeout(cycleMenuCloseTimer)
-}
-function positionCycleMenu() {
-  const trigger = activeCycleMenuId.value === null ? null : cycleMoreButtons.get(activeCycleMenuId.value)
-  if (!trigger) return
-  const rect = trigger.getBoundingClientRect()
-  const width = 160
-  const height = 80
-  const margin = 16
-  const left = Math.min(Math.max(margin, rect.right - width), Math.max(margin, window.innerWidth - width - margin))
-  const top = rect.bottom + height <= window.innerHeight - margin ? rect.bottom + 4 : Math.max(margin, rect.top - height - 4)
-  cycleMenuStyle.value = { position: 'fixed', left: `${left}px`, top: `${top}px` }
-}
-function openCycleMenu(id: number) {
-  cancelCycleMenuClose()
-  activeCycleMenuId.value = id
-  cycleMenuStyle.value = { visibility: 'hidden' }
-  void nextTick(positionCycleMenu)
-}
-function scheduleCycleMenuClose(id: number) {
-  cancelCycleMenuClose()
-  cycleMenuCloseTimer = window.setTimeout(() => {
-    if (activeCycleMenuId.value === id) closeCycleMenu()
-  }, 120)
-}
-function closeCycleMenu(restoreFocus = false) {
-  cancelCycleMenuClose()
-  activeCycleMenuId.value = null
-  cycleMenuStyle.value = {}
-  if (restoreFocus) void nextTick(() => cycleMoreButtons.get(selected.value?.id || 0)?.focus())
-}
-function handleCycleMenuOutsidePointerDown(event: PointerEvent) {
-  if (activeCycleMenuId.value === null) return
-  const target = event.target
-  if (!(target instanceof Node)) return
-  const trigger = cycleMoreButtons.get(activeCycleMenuId.value)
-  const menu = cycleMenuRef.value as HTMLElement | HTMLElement[] | null
-  const menuElement = Array.isArray(menu) ? menu[0] : menu
-  if (!trigger?.contains(target) && !menuElement?.contains(target)) closeCycleMenu()
-}
-function toggleCycleMenu(id: number) {
-  if (activeCycleMenuId.value === id) closeCycleMenu()
-  else openCycleMenu(id)
-}
 function hasStartedProjectFor(cycle: PerformanceCycle) {
   return cycle.projects.some(project => ['STARTED', '进行中', '已启动'].includes(project.status))
 }
 function editCycleFromMenu(cycle: PerformanceCycle) {
-  closeCycleMenu()
   selected.value = cycle
   void startEdit()
 }
 function removeCycleFromMenu(cycle: PerformanceCycle) {
-  closeCycleMenu()
   selected.value = cycle
   removeSelected()
 }
@@ -640,7 +554,7 @@ async function removeProject(project: PerformanceCycleProjectShell) { projectRem
 async function confirmRemoveProject() { const project = projectRemoveTarget.value; if (!project) return; projectRemoving.value = true; try { await performanceProjectApi.remove(project.id); projectRemoveOpen.value = false; projectRemoveTarget.value = null; projectActionSuccess.value = '项目已删除'; await reloadSelectedCycle() } catch (error: any) { formError.value = error?.response?.data?.detail || '项目删除失败' } finally { projectRemoving.value = false } }
 async function syncRoute() { if (route.name === 'PerformanceCycleCreate') { if (!editing.value) startCreate(); return }; if (route.name === 'PerformanceCycleEdit' && route.params.id) { if (selected.value?.id !== Number(route.params.id) || !editing.value) await enterEdit(Number(route.params.id)); return }; if (!editing.value && !cycles.value.length) await loadCycles() }
 function observeAnchors() { anchorObserver.value?.disconnect(); if (typeof IntersectionObserver === 'undefined') return; anchorObserver.value = new IntersectionObserver((entries) => { const visible = entries.filter(entry => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]; if (visible) activeAnchor.value = (visible.target as HTMLElement).id }, { threshold: [0.25, 0.5, 0.75], rootMargin: '-10% 0px -65% 0px' }); anchorItems.forEach(item => { const section = document.getElementById(item.id); if (section) anchorObserver.value?.observe(section) }) }
-watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(editing, value => { if (value) void nextTick(observeAnchors); else anchorObserver.value?.disconnect() }); onBeforeRouteLeave(() => { if (!isDirty.value) return true; leaveConfirmOpen.value = true; return false }); onBeforeRouteUpdate(() => { if (!isDirty.value) return true; leaveConfirmOpen.value = true; return false }); onMounted(async () => { formClockTimer = setInterval(() => { formClock.value = Date.now() }, 1000); document.addEventListener('pointerdown', handlePickerOutsidePointerDown); document.addEventListener('pointerdown', handleCycleMenuOutsidePointerDown);  try { accessContext.value = await performanceApi.getAccessContext(); await loadEvaluationTemplates(); if (route.name === 'PerformanceCycleEdit') await syncRoute(); else { await loadCycles(); await syncRoute() } } catch (error: any) { formError.value = error?.response?.data?.detail || '权限加载失败' } }); onUnmounted(() => { if (formClockTimer) clearInterval(formClockTimer); anchorObserver.value?.disconnect(); document.removeEventListener('pointerdown', handlePickerOutsidePointerDown); document.removeEventListener('pointerdown', handleCycleMenuOutsidePointerDown); cancelCycleMenuClose(); cycleMoreButtons.clear() })
+watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(editing, value => { if (value) void nextTick(observeAnchors); else anchorObserver.value?.disconnect() }); onBeforeRouteLeave(() => { if (!isDirty.value) return true; leaveConfirmOpen.value = true; return false }); onBeforeRouteUpdate(() => { if (!isDirty.value) return true; leaveConfirmOpen.value = true; return false }); onMounted(async () => { formClockTimer = setInterval(() => { formClock.value = Date.now() }, 1000); document.addEventListener('pointerdown', handlePickerOutsidePointerDown);  try { accessContext.value = await performanceApi.getAccessContext(); await loadEvaluationTemplates(); if (route.name === 'PerformanceCycleEdit') await syncRoute(); else { await loadCycles(); await syncRoute() } } catch (error: any) { formError.value = error?.response?.data?.detail || '权限加载失败' } }); onUnmounted(() => { if (formClockTimer) clearInterval(formClockTimer); anchorObserver.value?.disconnect(); document.removeEventListener('pointerdown', handlePickerOutsidePointerDown) })
 </script>
 
 <style scoped>
@@ -1333,26 +1247,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 .cycle-search-row .filter-button { display: none; }
 .cycle-search-row .icon-button { display: grid; width: 32px; height: 32px; margin-left: 9px; place-items: center; padding: 0; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #1f2329; font-size: 22px; line-height: 22px; cursor: pointer; }
 .cycle-search-row .icon-button:hover { background: #f5f6f7; }
-.cycle-item { display: flex; align-items: center; justify-content: space-between; width: 208px; min-height: 41px; box-sizing: border-box; padding: 8px 12px; border: 0; border-radius: 6px; background: transparent; color: #1f2329; font: inherit; font-size: 14px; line-height: 22px; text-align: left; cursor: pointer; }
-.cycle-item:hover { background: rgba(31,35,41,.08); }
-.cycle-item.active { background: rgba(51,112,255,.08); color: #3370ff; font-weight: 600; }
-.cycle-item .truncate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cycle-more { display: flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center; margin-left: 12px; padding: 4px; border: 0; border-radius: 4px; background: transparent; color: inherit; cursor: pointer; opacity: 0; pointer-events: none; }
-.cycle-item:hover .cycle-more, .cycle-more:focus-visible, .cycle-more.is-open { opacity: 1; pointer-events: auto; }
-.cycle-more:hover { background: rgba(31,35,41,.1); }
-.cycle-more:focus-visible { outline: 2px solid rgba(51,112,255,.35); outline-offset: 1px; }
-.cycle-more svg { display: block; width: 16px; height: 16px; }
-.cycle-action-menu { position: fixed; z-index: 1050; width: 160px; margin: 0; padding: 4px; box-sizing: border-box; border: 1px solid #dee0e3; border-radius: 6px; background: #fff; box-shadow: 0 8px 24px rgba(31,35,41,.12); list-style: none; }
-.cycle-action-menu li { margin: 0; padding: 0; }
-.cycle-action-menu button { display: block; width: 100%; height: 32px; padding: 5px 8px; border: 0; border-radius: 4px; background: transparent; color: #1f2329; font: inherit; font-size: 14px; line-height: 22px; text-align: left; cursor: pointer; }
-.cycle-action-menu button:hover, .cycle-action-menu button:focus-visible { outline: 0; background: rgba(31,35,41,.08); }
-.cycle-action-menu__item { display: flex; width: 100%; height: 32px; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 4px; color: #1f2329; font-size: 14px; line-height: 22px; cursor: pointer; }
-.cycle-action-menu__item:hover, .cycle-action-menu__item:focus-visible { outline: 0; background: rgba(31,35,41,.08); }
-.cycle-action-menu__item.is-disabled { color: #bbbfc4; cursor: not-allowed; }
-.cycle-action-menu__icon { flex: 0 0 24px; }
-.cycle-action-menu__icon :deep(.performance-icon-button) { color: inherit; }
-.cycle-action-menu__icon :deep(.performance-icon-button:hover), .cycle-action-menu__icon :deep(.performance-icon-button:focus-visible) { background: transparent; color: inherit; }
-.cycle-action-menu__item.is-disabled .cycle-action-menu__icon { pointer-events: none; }
+.detail-heading .truncate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cycle-detail-panel { flex: 1 1 0; min-width: 0; }
 .detail-content { min-width: 0; padding-left: 20px; color: #1f2329; }
 .detail-heading { display: flex; align-items: flex-start; justify-content: space-between; height: 40px; margin-bottom: 0; }
@@ -1360,18 +1255,16 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 .detail-actions { display: flex; align-items: center; gap: 8px; }
 .detail-actions .danger-button { display: none; }
 .project-settings :deep(.project-tools) { margin-bottom: 16px; }
-.project-settings :deep(.project-tools .toolbar-spacer) { display: none; }
-.project-settings :deep(.project-tools .search-input) { margin-left: 0; }
 .detail-content > h3 { margin: 0 0 14px; font-size: 16px; font-weight: 600; line-height: 24px; }
-.metrics { display: flex; align-items: flex-start; gap: 40px; min-width: 0; margin-bottom: 32px; }
+.metrics { display: flex; align-items: flex-start; gap: var(--performance-cycle-summary-gap); min-width: 0; margin-bottom: var(--spacing-7); }
 .metrics > div { display: flex; min-width: 0; flex-direction: column; gap: 4px; color: #1f2329; font-size: 14px; line-height: 22px; white-space: nowrap; }
 .metrics label { color: #646a73; }
 .metrics strong { color: #3370ff; font-size: 14px; font-weight: 400; }
 .metric-link { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; line-height: inherit; cursor: pointer; }
 .metric-link:hover { text-decoration: underline; }
-.metrics > div:nth-child(3) { min-width: 156px; }.metrics > div:nth-child(4) { min-width: 108px; }.metrics > div:nth-child(5) { min-width: 210px; }
+.metrics > div:nth-child(3) { min-width: var(--performance-cycle-summary-date-width); }.metrics > div:nth-child(4) { min-width: var(--performance-cycle-summary-created-width); }
 .state-success, .state-error { margin: 0 0 12px; }.state-error { color: #f04438; }
-@media (max-width: 1280px) { .metrics { gap: 24px; } }
+@media (max-width: 768px) { .metrics { flex-wrap: wrap; } }
 </style>
 
 

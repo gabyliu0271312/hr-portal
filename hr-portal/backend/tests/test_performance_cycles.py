@@ -1708,8 +1708,10 @@ async def test_leaver_edit_uses_locked_original_start_and_rejects_same_request_d
 
 def test_cycle_summary_reports_real_template_references_and_start_boundary():
     from app.performance.cycles_router import _summary
-    cycle = SimpleNamespace(**PerformanceCycleService._normalize_payload(_payload()), id=1, cycle_ref="cycle:test", language="zh-CN", status="LOCKED", lock_at=None, leaver_start_date=None, leaver_end_date=None)
+    cycle = SimpleNamespace(**PerformanceCycleService._normalize_payload(_payload()), id=1, cycle_ref="cycle:test", language="zh-CN", status="LOCKED", lock_at=None, leaver_start_date=None, leaver_end_date=None, created_at=datetime(2026, 11, 18, 9, 56, 9, tzinfo=timezone.utc))
     summary = _summary(cycle, 1, 1, [{"template_id": 9, "status": "DRAFT"}, {"template_id": 7, "status": "STARTED"}, {"template_id": 9, "status": "ENDED"}])
+    assert summary.created_at == cycle.created_at
+    assert summary.model_dump(mode="json")["created_at"] == "2026-11-18T09:56:09Z"
     assert summary.used_template_ids == [7, 9]
     assert summary.leaver_range_editable is False
     assert "已开始" in summary.leaver_range_editable_reason

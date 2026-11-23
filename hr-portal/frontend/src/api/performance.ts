@@ -2829,6 +2829,7 @@ export interface PerformanceCycle {
   leaver_range_editable_reason?: string | null
   start_at: string
   end_at: string
+  created_at?: string | null
   lock_rule: PerformanceCycleLockRule
   lock_at: string | null
   pre_lock_sync_mode: PerformanceCycleSyncMode
@@ -2854,7 +2855,7 @@ export interface PerformanceCyclePage {
   page_size: number
 }
 
-export type PerformanceCyclePayload = Omit<PerformanceCycle, 'id' | 'cycle_ref' | 'status' | 'people_count' | 'department_count' | 'project_count' | 'projects' | 'comparison_rules_editable' | 'comparison_rules_editable_reason'>
+export type PerformanceCyclePayload = Omit<PerformanceCycle, 'id' | 'cycle_ref' | 'created_at' | 'status' | 'people_count' | 'department_count' | 'project_count' | 'projects' | 'comparison_rules_editable' | 'comparison_rules_editable_reason'>
 
 export const performanceCycleApi = {
   async comparisonOptions(payload: PerformanceComparisonCandidatesPayload): Promise<PerformanceComparisonCandidates> {

@@ -6,6 +6,7 @@ import PerformancePermissionButton from './PerformancePermissionButton.vue'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceProjectActions from './PerformanceProjectActions.vue'
+import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
 
 const props = withDefaults(defineProps<{
   projects?: PerformanceCycleProjectShell[]
@@ -54,7 +55,7 @@ function projectStatus(project: PerformanceCycleProjectShell) {
     <div class="project-heading">
       <h3 id="project-settings-title">项目设置</h3>
     </div>
-    <PerformanceListToolbar class="project-tools" :keyword="keyword" search-placeholder="通过项目名称搜索" @update:keyword="keyword = $event" @filter="filterOpen = !filterOpen">
+    <PerformanceListToolbar class="project-tools" :keyword="keyword" search-width="var(--performance-project-search-width)" search-placeholder="通过项目名称搜索" @update:keyword="keyword = $event" @filter="filterOpen = !filterOpen">
       <template #left>
         <PerformancePermissionButton op="C" :allowed="canCreate" variant="primary" class="project-create primary-button" aria-label="新建项目" @click="emit('create')">
           <span aria-hidden="true">＋</span> 新建
@@ -76,8 +77,13 @@ function projectStatus(project: PerformanceCycleProjectShell) {
         <el-table-column prop="description" label="描述" min-width="251">
           <template #default="{ row }">{{ row.description || '--' }}</template>
         </el-table-column>
-        <el-table-column label="项目管理员" min-width="120">
-          <template #default="{ row }">{{ row.administrators.join('、') || '--' }}</template>
+        <el-table-column label="项目管理员" min-width="120" class-name="project-administrators-cell">
+          <template #default="{ row }">
+            <div v-if="row.administrators.length" class="project-administrators">
+              <PerformanceMemberIdentity v-for="(name, index) in row.administrators" :key="index" :display-name="name" size="sm" tag />
+            </div>
+            <span v-else>--</span>
+          </template>
         </el-table-column>
         <el-table-column label="状态" min-width="110">
           <template #default="{ row }"><span class="project-status" :style="{ '--project-status-color': projectStatus(projectRow(row)).color }"><i />{{ projectStatus(projectRow(row)).label }}</span></template>
@@ -110,7 +116,10 @@ function projectStatus(project: PerformanceCycleProjectShell) {
 .project-heading h3 { margin: 0 0 16px; color: #1f2329; font-size: 18px; font-weight: 600; line-height: 26px; }
 .project-tools { margin-bottom: 16px; }
 .project-tools :deep(.list-toolbar) { margin-bottom: 0; }
-.project-tools :deep(.search-input) { width: 224px; }
+.project-table-wrap :deep(td.project-administrators-cell) { padding-block: var(--spacing-3); }
+.project-administrators { display: flex; flex-direction: column; align-items: flex-start; gap: var(--performance-project-administrator-gap); }
+.project-administrators :deep(.member-identity) { max-width: 100%; min-height: var(--performance-icon-button-size); color: var(--color-text-primary); }
+.project-administrators :deep(.member-name) { max-width: var(--performance-project-administrator-name-width); color: inherit; }
 .project-create { width: 80px; }
 .project-filter-panel { margin: -8px 0 16px; padding: 10px 12px; border: 1px solid #d0d3d6; border-radius: 6px; color: #646a73; background: #fff; font-size: 14px; line-height: 22px; }
 .project-table-wrap { min-width: 0; }

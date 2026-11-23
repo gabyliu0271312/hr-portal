@@ -379,6 +379,48 @@ describe('CycleManagement', () => {
     mocks.listEvaluatorOptions.mockResolvedValue({ organization_tree: [{ value: '集团/研发', label: '研发', level: 2, children: [] }], people: [{ value: 'E001', label: '员工（E001）' }], employee_types: [] })
   })
 
+  it('按北京时间显示起止日期和真实创建时间，缺失创建时间不伪造', async () => {
+    mocks.list.mockResolvedValue({ items: [{ ...cycle, start_at: '2025-12-31T16:00:00Z', created_at: '2026-11-18T09:56:09Z' }], total: 1, page: 1, page_size: 20 })
+    const wrapper = await mountView()
+    expect(wrapper.get('.metrics').text()).toContain('2026-01-01 - 2026-12-31')
+    expect(wrapper.get('.metrics').text()).toContain('周期创建时间2026-11-18 17:56')
+    expect(wrapper.get('.metrics').text()).not.toContain('09:00')
+    wrapper.unmount()
+    mocks.list.mockResolvedValue({ items: [cycle], total: 1, page: 1, page_size: 20 })
+    const empty = await mountView()
+    expect(empty.get('.metrics').text()).toContain('周期创建时间--')
+    empty.unmount()
+  })
+
+  it('项目管理员逐人渲染共享身份组件并保留搜索过滤', async () => {
+    mocks.list.mockResolvedValue({ items: [{ ...cycle, projects: [{ ...project, administrators: ['管理员甲', '管理员乙'] }] }], total: 1, page: 1, page_size: 20 })
+    const wrapper = await mountView()
+    expect(wrapper.findAll('.project-administrators .member-name').map(item => item.text())).toEqual(['管理员甲', '管理员乙'])
+    const search = wrapper.get('.project-tools input')
+    await search.setValue('不存在的项目')
+    await flushPromises()
+    expect(wrapper.find('.project-administrators').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('周期更多菜单保留删除禁用和键盘关闭行为', async () => {
+    mocks.list.mockResolvedValue({ items: [{ ...cycle, projects: [{ ...project, status: 'STARTED' }] }], total: 1, page: 1, page_size: 20 })
+    const wrapper = await mountView()
+    await wrapper.get('.cycle-more').trigger('click')
+    await flushPromises()
+    const menu = document.body.querySelector<HTMLElement>('[aria-label="周期操作"]')!
+    const remove = menu.querySelector<HTMLElement>('[aria-disabled="true"]')!
+    expect(remove.textContent).toContain('删除')
+    remove.click()
+    await flushPromises()
+    expect(wrapper.findComponent(PerformanceConfirmDialog).props('modelValue')).toBe(false)
+    expect(mocks.remove).not.toHaveBeenCalled()
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushPromises()
+    expect(document.body.querySelector('[aria-label="周期操作"]')).toBeNull()
+    wrapper.unmount()
+  })
+
   it.each([
     { completed: true, blocked: '', label: '待启动', disabled: false },
     { completed: false, blocked: '', label: '待完成配置', disabled: true },

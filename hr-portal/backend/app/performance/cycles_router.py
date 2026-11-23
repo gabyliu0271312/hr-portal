@@ -398,6 +398,7 @@ class CycleSummary(BaseModel):
     leaver_range_editable_reason: str | None = None
     start_at: datetime
     end_at: datetime
+    created_at: datetime | None = None
     lock_rule: str
     lock_at: datetime | None
     pre_lock_sync_mode: str

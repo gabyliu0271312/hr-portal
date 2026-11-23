@@ -516,6 +516,27 @@
   --performance-member-scope-shadow: 0 4px 16px 4px rgba(31,35,41,.03), 0 4px 8px rgba(31,35,41,.02), 0 2px 4px -4px rgba(31,35,41,.02);
   --performance-member-scope-shadow-hover: 0 6px 18px 6px rgba(31,35,41,.03), 0 3px 6px -6px rgba(31,35,41,.05), 0 4px 8px rgba(31,35,41,.03);
 
+  --performance-cycle-item-width: 208px;
+  --performance-cycle-item-height: 40px;
+  --performance-cycle-item-padding: 8px 12px;
+  --performance-cycle-item-radius: var(--radius-sm);
+  --performance-cycle-item-hover-background: rgba(31, 35, 41, .08);
+  --performance-cycle-item-selected-background: rgba(51, 112, 255, .08);
+  --performance-cycle-more-gap: 6px;
+  --performance-cycle-more-icon-size: 16px;
+  --performance-cycle-menu-width: 124px;
+  --performance-cycle-menu-padding: 2px 0;
+  --performance-cycle-menu-item-margin: 1px 3px;
+  --performance-cycle-menu-item-padding: 4px 8px;
+  --performance-cycle-menu-icon-gap: 8px;
+  --performance-cycle-menu-close-delay: 120;
+  --performance-cycle-summary-gap: 40px;
+  --performance-cycle-summary-date-width: 156px;
+  --performance-cycle-summary-created-width: 108px;
+  --performance-project-search-width: 227px;
+  --performance-project-administrator-gap: 8px;
+  --performance-project-administrator-name-width: 100px;
+
   /* Shared performance prompt menu and display tokens. */
   --performance-menu-width: 65px;
   --performance-menu-height: 69px;

@@ -67,6 +67,9 @@
   - 验收标准：展示周期基本信息和项目列表字段；操作列固定、横向滚动条可见；已启动项目时周期删除按钮置灰，其他情况可进入二次确认。
   - 完成证据：测试结果、浏览器截图和 API 响应。
   - 完成定义：前后端权限和页面状态均通过验收。
+  - 局部修复（2026-11-23）：本轮五项差异已实现：北京时间起止日期、真实周期创建时间、项目管理员共享身份标签逐人分行、搜索筛选右对齐、周期更多入口对齐及多态。新增组件 `PerformanceCycleListItem.vue`，复用共享图标按钮/人员身份/工具栏；新增外观参数集中 `tokens.css`。服务与响应 Schema 输出只读 `created_at`，无迁移、无权限或快照语义变更。交互和 REA 证据见本目录 `ui-interaction.md`“周期详情局部校准”。
+  - 本轮测试：后端 `.venv/Scripts/python.exe -m pytest tests/test_performance_cycles.py -q --tb=short`：98 passed、1 skipped（保留既有 PostgreSQL 验收跳过）、1 项 multipart 弃用警告；前端 `npm run test -- src/views/performance/CycleManagement.spec.ts src/components/performance/PerformanceMemberIdentity.spec.ts`：2 文件74 passed，含北京时间跨日、创建时间缺失占位、多人管理员、删除禁用和Esc关闭；保留既有 Vue 浮层属性与 sourceCycle 警告。`npm run build`：vue-tsc及Vite通过，保留既有VueUse PURE注释警告。Windows换行检查 `git -c core.whitespace=cr-at-eol diff --check` 通过。
+  - 本轮浏览器证据：Chrome+隔离模拟 API，1280/1534视口验证默认隐藏/悬浮/按下/展开/删除禁用/Esc/搜索空态，按钮24×24、图标16、行高40、菜单124×69；管理员24px标签/8px行间距，筛选贴齐工具栏右侧，外层横向溢出0，pageerror0。独立PNG：`../../ui-blueprints/PM-T003-I01-cycle-detail-{default,active,menu,empty,wide}-implemented-20261123.png`（5张均已查看）。目标菜单当前缩放约123.33×69.52，记录子像素偏差；更多触发器无目标禁用实采，头像为共享占位，不宣称整页100%一致。真实后端鉴权/SQL回读、部署和生产验收未执行，I01整体继续 `[ ]`。停止方式为仅撤销本轮局部差异，不回滚其他工作。
 
 - [ ] PM-T003-I02 实现新建与编辑周期表单
   - 前置任务：PM-T003-I01
