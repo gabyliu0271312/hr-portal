@@ -6998,7 +6998,7 @@ def test_evaluator_rules_reject_invalid_hire_date_values():
 @pytest.mark.asyncio
 async def test_start_project_filters_locked_snapshot_by_hire_date_before_workflow_validation():
     from datetime import date
-    from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycleProjectManager, PerformanceProjectMember
+    from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycleProjectManager, PerformanceProjectMember, PerformanceProject
     from app.performance.project_service import PerformanceProjectService
 
     person = SimpleNamespace(
@@ -7032,7 +7032,7 @@ async def test_start_project_filters_locked_snapshot_by_hire_date_before_workflo
             model = query.column_descriptions[0]["entity"]
             if model is PerformanceAuthorizationSnapshotPerson:
                 return Result([person])
-            if model in {PerformanceCycleProjectManager, PerformanceProjectMember}:
+            if model in {PerformanceCycleProjectManager, PerformanceProjectMember, PerformanceProject}:
                 return Result([])
             raise AssertionError(model)
 
@@ -12505,7 +12505,7 @@ async def test_reporting_filter_preview_start_share_unchanged_cycle_snapshot(mon
         async def execute(self, statement):
             entity = statement.column_descriptions[0]["entity"]
             assert entity in {models.PerformanceAuthorizationSnapshotPerson, models.PerformanceProjectMember,
-                              models.PerformanceCycleProjectManager, models.PerformanceRole}
+                              models.PerformanceCycleProjectManager, models.PerformanceRole, models.PerformanceProject}
             values = people if entity is models.PerformanceAuthorizationSnapshotPerson else []
             if entity is models.PerformanceRole:
                 values = [SimpleNamespace(code="assessment.reviewee", role_type="ASSESSMENT", is_system=True, is_active=True)]
@@ -14128,7 +14128,8 @@ async def test_evaluator_conflicts_sql_shared_preview_scope_archive_and_dedup(cy
 
 
 @pytest.mark.asyncio
-async def test_evaluator_conflicts_http_contract_full_exclusion_and_permissions(cycle_adjustment_sqlite, monkeypatch):
+@pytest.mark.parametrize("owner_status", ["DRAFT", "ARCHIVED"])
+async def test_evaluator_conflicts_http_contract_full_exclusion_and_permissions(cycle_adjustment_sqlite, monkeypatch, owner_status):
     from copy import deepcopy
     import httpx
     from fastapi import FastAPI
@@ -14137,7 +14138,9 @@ async def test_evaluator_conflicts_http_contract_full_exclusion_and_permissions(
     target = data.projects[0]
     target.status = "DRAFT"
     archived = data.projects[1]
-    archived.status = "ARCHIVED"
+    archived.status = owner_status
+    if owner_status == "DRAFT":
+        archived.settings = {"evaluator_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["B", "KEEP2", "REPORT"]}]}]}}
     data.session.add(data.pm.PerformanceProjectMember(snapshot_id=2, employee_no="REPORT", display_name="其他项目姓名"))
     data.session.flush()
     data.writes.clear()
@@ -14214,7 +14217,8 @@ async def test_evaluator_conflicts_http_contract_full_exclusion_and_permissions(
     {"scope_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["B"]}]}]}},
     {"configuration_completed": True}, {"configuration_completed": False},
 ])
-async def test_evaluator_conflicts_draft_save_rejects_under_cycle_lock(cycle_adjustment_sqlite, monkeypatch, payload):
+@pytest.mark.parametrize("owner_status", ["DRAFT", "ARCHIVED"])
+async def test_evaluator_conflicts_draft_save_rejects_under_cycle_lock(cycle_adjustment_sqlite, monkeypatch, payload, owner_status):
     from unittest.mock import AsyncMock
     from copy import deepcopy
     from fastapi import HTTPException
@@ -14223,7 +14227,9 @@ async def test_evaluator_conflicts_draft_save_rejects_under_cycle_lock(cycle_adj
     data = cycle_adjustment_sqlite
     target = data.projects[0]
     target.status = "DRAFT"
-    data.projects[1].status = "ARCHIVED"
+    data.projects[1].status = owner_status
+    if owner_status == "DRAFT":
+        data.projects[1].settings = {"evaluator_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["B"]}]}]}}
     before = deepcopy(target.settings)
     lock_queries = []
     async def scalar(statement):
@@ -14252,12 +14258,15 @@ async def test_evaluator_conflicts_draft_save_rejects_under_cycle_lock(cycle_adj
 
 
 @pytest.mark.asyncio
-async def test_evaluator_conflicts_start_and_member_add_reject_archived_owner(cycle_adjustment_sqlite):
+@pytest.mark.parametrize("owner_status", ["DRAFT", "ARCHIVED"])
+async def test_evaluator_conflicts_start_and_member_add_reject_other_owner(cycle_adjustment_sqlite, owner_status):
     from fastapi import HTTPException
     from sqlalchemy import select
     from app.performance.member_service import add_member
     data = cycle_adjustment_sqlite
-    data.projects[1].status = "ARCHIVED"
+    data.projects[1].status = owner_status
+    if owner_status == "DRAFT":
+        data.projects[1].settings = {"evaluator_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["B"]}]}]}}
     snapshot = data.session.scalar(select(data.pm.PerformanceAuthorizationSnapshot))
     snapshot.status = "LOCKED"
     data.session.flush()
@@ -14337,10 +14346,39 @@ async def test_evaluator_conflicts_reviewee_search_and_single_check_share_occupa
     check = await routes.check_project_reviewee_conflict(1, routes.RevieweeAddPayload(employee_no="B"), account, db)
     assert [item.stage_key for item in check.conflicts] == ["other_project"]
     data.projects[1].status = "DRAFT"
+    data.projects[1].settings = {"evaluator_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["B"]}]}]}}
     data.session.flush()
     data.writes.clear()
     check = await routes.check_project_reviewee_conflict(1, routes.RevieweeAddPayload(employee_no="B"), account, db)
-    assert check.conflicts == []
+    assert [item.stage_key for item in check.conflicts] == ["other_project"]
+    assert not data.writes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner_status", ["DRAFT", "STARTED", "ARCHIVED"])
+async def test_evaluator_conflicts_all_project_states_use_saved_audience(cycle_adjustment_sqlite, owner_status):
+    data = cycle_adjustment_sqlite
+    target, owner = data.projects
+    target.status = "DRAFT"
+    owner.status = owner_status
+    rules = {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["B", "REPORT", "NEW"]}]}]}
+    owner.settings = {"evaluator_rules": rules, "scope_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["B", "REPORT"]}]}]}}
+    if owner_status != "DRAFT":
+        data.session.add(data.pm.PerformanceProjectMember(snapshot_id=2, employee_no="REPORT", display_name="历史姓名"))
+    data.session.flush()
+    data.writes.clear()
+    service = PerformanceProjectService(data.db)
+    settings = {"evaluator_rules": rules}
+    conflicts, reports = await service.evaluator_conflicts(data.cycle, settings, project_id=target.id)
+    assert [person.employee_no for person in conflicts] == ["B", "REPORT"]
+    assert reports == {"REPORT"}
+    assert await service.occupied_employee_nos(data.cycle.cycle_ref, ["NEW"], project_id=target.id) == set()
+    corrected = service.adjust_evaluator_rules(rules, exclude=[person.employee_no for person in conflicts])
+    assert (await service.evaluator_conflicts(data.cycle, {"evaluator_rules": corrected}, project_id=target.id))[0] == []
+    owner.cycle_ref = "other-cycle"
+    data.session.flush()
+    data.writes.clear()
+    assert (await service.evaluator_conflicts(data.cycle, settings, project_id=target.id))[0] == []
     assert not data.writes
 
 
@@ -14386,7 +14424,10 @@ def cycle_adjustment_sqlite():
                     if isinstance(row, (pm.PerformanceProjectMember, pm.PerformanceNodeTask)):
                         orm_mutations.append(getattr(row, "employee_no", None) or row.target_employee_no)
             class Db:
-                async def scalar(self, statement): return session.scalar(statement)
+                async def scalar(self, statement):
+                    if statement.column_descriptions[0]["entity"] is pm.PerformanceCycle:
+                        return cycle
+                    return session.scalar(statement)
                 async def execute(self, statement): return session.execute(statement)
                 async def delete(self, row): session.delete(row)
                 def add(self, row): session.add(row)

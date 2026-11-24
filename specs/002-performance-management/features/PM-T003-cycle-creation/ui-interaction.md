@@ -3,6 +3,7 @@
 ## PM-T003-I07-F05 被评估人重复提示与排除（2026-11-24）
 
 - 入口仍为周期与项目→项目编辑→项目信息→被评估人，属于既有页面局部交互增强，无新页面或完整蓝图。用户确认：同周期重复显示错误提示；蓝色人数打开既有全屏表格，返回恢复编辑页；移除追加排除条件，提示消失；有错误时下一步不跳转。
+- 用户补充纠正：重复检测与项目状态无关。配置另一个未启动项目且其已保存规则存在重叠，也必须提示并阻断下一步；草稿名单按周期人员快照结合已保存规则/限定范围计算，已启动/结束按实际成员。接口及UI不变，count/people/exclude/保存/启动/加人统一口径；已保存的两个重叠草稿重新打开任一个都能查出冲突，未保存于其他页面的草稿不作为服务端数据。
 - 复用`PerformancePromptNotice(type="error", multiline)`及其错误底/图标token。业务内容纵排：第一行“有 N 人已在本周期的其他项目进行绩效评估，需移除他们。”，下方“移除人员”；两按钮复用`PerformanceTextButton`，不在页面复制四态。
 - 实采默认蓝色`#1456f0`、透明底；hover底`rgba(20,86,240,.1)`；active底`rgba(20,86,240,.2)`；disabled字`#bbbfc4`、透明底、not-allowed。全局`--performance-button-text-active-background`由`.32`统一为`.2`，影响所有共享文字按钮；错误条底`#fef0f0`已与现有token一致。
 - 名单使用独立重复人员provider，复用`PerformanceTaskOverlay`、`PerformanceReminderPanel(mode="preview")`、`PerformanceManagementTable`全屏/返回/搜索/分页/列配置/导出；不调用催办API。加载/失败分别显示状态及重试，旧响应失效，不冒用上次人数。请求中阻重复操作；规则改变关闭旧名单。

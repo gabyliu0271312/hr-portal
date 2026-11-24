@@ -293,13 +293,30 @@ class PerformanceProjectService:
             .join(PerformanceProject, PerformanceProject.id == PerformanceProjectMemberSnapshot.project_id)
             .where(
                 PerformanceProject.cycle_ref == cycle_ref,
-                PerformanceProject.status.in_([PROJECT_STATUS_STARTED, "ARCHIVED"]),
+                PerformanceProject.status != PROJECT_STATUS_DRAFT,
                 PerformanceProjectMember.employee_no.in_(employee_nos),
             )
         )
         if project_id is not None:
             statement = statement.where(PerformanceProject.id != project_id)
-        return set((await self.db.execute(statement)).scalars().all())
+        occupied = set((await self.db.execute(statement)).scalars().all())
+        draft_statement = select(PerformanceProject).where(
+            PerformanceProject.cycle_ref == cycle_ref,
+            PerformanceProject.status == PROJECT_STATUS_DRAFT,
+        )
+        if project_id is not None:
+            draft_statement = draft_statement.where(PerformanceProject.id != project_id)
+        drafts = list((await self.db.execute(draft_statement)).scalars().all())
+        if drafts:
+            cycle = await self.db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == cycle_ref))
+            if cycle is None:
+                raise ProjectValidationError("绩效周期不存在")
+            _, people = await self._cycle_snapshot_people(cycle)
+            candidates = set(employee_nos)
+            for draft in drafts:
+                task_people, report_only = self._classify_people(people, draft.settings or {}, cycle)
+                occupied.update(person.employee_no for person in [*task_people, *report_only] if person.employee_no in candidates)
+        return occupied
 
     async def evaluator_conflicts(self, cycle, settings, *, project_id=None):
         settings = {**settings,
