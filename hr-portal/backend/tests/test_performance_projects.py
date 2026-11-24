@@ -1835,7 +1835,8 @@ async def test_reviewee_add_syncs_rules_members_tasks_and_classification(monkeyp
                 return 99 if scenario == "duplicate" else "E2" if scenario == "other_project" and "JOIN performance_projects" in str(stmt) else None
             return None
         async def execute(self, stmt):
-            values = nodes if stmt.column_descriptions[0]["entity"] is PerformanceProjectNodeSnapshot else []
+            entity = stmt.column_descriptions[0]["entity"]
+            values = nodes if entity is PerformanceProjectNodeSnapshot else ["E2"] if entity is PerformanceProjectMember and scenario == "other_project" else []
             return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values))
         def add(self, row): self.rows.append(row)
         async def commit(self): self.commits += 1
@@ -6997,7 +6998,7 @@ def test_evaluator_rules_reject_invalid_hire_date_values():
 @pytest.mark.asyncio
 async def test_start_project_filters_locked_snapshot_by_hire_date_before_workflow_validation():
     from datetime import date
-    from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycleProjectManager
+    from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycleProjectManager, PerformanceProjectMember
     from app.performance.project_service import PerformanceProjectService
 
     person = SimpleNamespace(
@@ -7031,7 +7032,7 @@ async def test_start_project_filters_locked_snapshot_by_hire_date_before_workflo
             model = query.column_descriptions[0]["entity"]
             if model is PerformanceAuthorizationSnapshotPerson:
                 return Result([person])
-            if model is PerformanceCycleProjectManager:
+            if model in {PerformanceCycleProjectManager, PerformanceProjectMember}:
                 return Result([])
             raise AssertionError(model)
 
@@ -14090,6 +14091,257 @@ async def test_task_delegation_idempotency_key_returns_existing_without_new_reco
     assert len(data.db.records) == 1 and len(data.db.events) == 1 and data.db.commits == 1
     other = await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action="TRANSFER", recipient_employee_no="RECIPIENT", reason="", idempotency_key="idem-2"), context(), data.db)
     assert other["idempotent"] is not True and other["id"] == 2 and len(data.db.records) == 2 and len(data.db.events) == 2 and data.db.commits == 2
+
+
+@pytest.mark.asyncio
+async def test_evaluator_conflicts_sql_shared_preview_scope_archive_and_dedup(cycle_adjustment_sqlite):
+    from sqlalchemy import select
+    data = cycle_adjustment_sqlite
+    pm, session = data.pm, data.session
+    for project_id, state, cycle_ref, numbers in [
+        (3, "ARCHIVED", data.cycle.cycle_ref, ["REPORT", "B"]),
+        (4, "DRAFT", data.cycle.cycle_ref, ["NEW"]),
+        (5, "STARTED", "other-cycle", ["OUT"]),
+    ]:
+        session.add(pm.PerformanceProject(id=project_id, project_ref=f"P{project_id}", cycle_ref=cycle_ref, status=state))
+        session.add(pm.PerformanceProjectMemberSnapshot(id=project_id, project_id=project_id, cycle_ref=cycle_ref))
+        for no in numbers:
+            session.add(pm.PerformanceProjectMember(snapshot_id=project_id, employee_no=no, display_name="其他项目的私有姓名"))
+    session.flush()
+    data.writes.clear()
+    rules = {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["A", "B", "REPORT", "OUT", "NEW"]}]}]}
+    settings = {"evaluator_rules": rules, "scope_rules": {"groups": []}}
+    service = PerformanceProjectService(data.db)
+    conflicts, reports = await service.evaluator_conflicts(data.cycle, settings, project_id=1)
+    assert [person.employee_no for person in conflicts] == ["B", "REPORT"]
+    assert [person.display_name for person in conflicts] == ["B", "REPORT"]
+    assert reports == {"REPORT"}
+    preview, tasks, report_only = await service.preview_people(data.cycle, settings, project_id=1)
+    assert [person.employee_no for person in preview] == ["A", "NEW", "OUT"]
+    assert report_only == [] and preview == sorted(tasks, key=lambda person: (person.display_name, person.employee_no))
+    restricted = {**settings, "scope_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["REPORT"]}]}]}}
+    assert [person.employee_no for person in (await service.evaluator_conflicts(data.cycle, restricted, project_id=1))[0]] == ["REPORT"]
+    assert await service.occupied_employee_nos(data.cycle.cycle_ref, ["A"], project_id=1) == set()
+    assert {person.employee_no for person in (await service.evaluator_conflicts(data.cycle, settings))[0]} == {"A", "B", "REPORT"}
+    assert not data.writes
+    assert session.scalar(select(pm.PerformanceNodeTask.answer_version).limit(1)) == 7
+
+
+@pytest.mark.asyncio
+async def test_evaluator_conflicts_http_contract_full_exclusion_and_permissions(cycle_adjustment_sqlite, monkeypatch):
+    from copy import deepcopy
+    import httpx
+    from fastapi import FastAPI
+    from app.performance import projects_router as routes
+    data = cycle_adjustment_sqlite
+    target = data.projects[0]
+    target.status = "DRAFT"
+    archived = data.projects[1]
+    archived.status = "ARCHIVED"
+    data.session.add(data.pm.PerformanceProjectMember(snapshot_id=2, employee_no="REPORT", display_name="其他项目姓名"))
+    data.session.flush()
+    data.writes.clear()
+    monkeypatch.setattr(routes, "_get_cycle", lambda *args: _resolved(data.cycle))
+    monkeypatch.setattr(routes, "_get_project", lambda *args: _resolved(target))
+    app = FastAPI()
+    app.include_router(routes.router, prefix="/api/v1")
+    app.dependency_overrides[routes.get_session] = lambda: data.db
+    app.dependency_overrides[routes.get_performance_access_context] = lambda: context("performance.cycles.manage")
+    rules = {"groups": [
+        {"conditions": [{"field": "employee", "operator": "include", "values": ["B", "NEW", "REPORT"]}, {"field": "employee", "operator": "exclude", "values": ["OLD", "OLD"]}]},
+        {"conditions": [{"field": "department", "operator": "include", "values": ["latest"]}]},
+    ]}
+    original = deepcopy(rules)
+    payload = {"project_id": 1, "evaluator_rules": rules, "group_index": 99, "list_kind": "task"}
+    base = "/api/v1/performance/cycles/1/evaluator-conflicts"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        assert (await client.post(base, json=payload)).json() == {"total": 3}
+        page = await client.post(base + "/people?page=2&page_size=1", json=payload)
+        assert page.status_code == 200 and page.json()["total"] == 3
+        assert page.json()["items"][0]["employee_no"] == "KEEP2"
+        found = (await client.post(base + "/people?keyword=%20report%20", json=payload)).json()
+        assert found["total"] == 1 and found["items"][0]["report_only"]
+        assert found["items"][0]["display_name"] == "REPORT"
+        assert (await client.post(base + "/people?page=9&page_size=1", json=payload)).json()["items"] == []
+        from sqlalchemy import select
+        named = data.session.scalar(select(data.pm.PerformanceAuthorizationSnapshotPerson).where(data.pm.PerformanceAuthorizationSnapshotPerson.employee_no == "REPORT"))
+        named.display_name = "离职员工"
+        by_name = (await client.post(base + "/people", params={"keyword": "离职"}, json=payload)).json()
+        assert by_name["total"] == 1 and by_name["items"][0]["employee_no"] == "REPORT"
+        named.display_name = "REPORT"
+        excluded = await client.post(base + "/exclude", json=payload)
+        assert excluded.status_code == 200
+        result = excluded.json()
+        assert set(result) == {"evaluator_rules", "excluded_count", "people"}
+        assert result["excluded_count"] == 3
+        assert result["people"] == [{"value": no, "label": no} for no in ["B", "KEEP2", "REPORT"]]
+        assert rules == original
+        for index, group in enumerate(result["evaluator_rules"]["groups"]):
+            condition = next(item for item in group["conditions"] if item["operator"] == "exclude")
+            assert condition["values"] == (["OLD"] if index == 0 else []) + ["B", "KEEP2", "REPORT"]
+        corrected = {**payload, "evaluator_rules": result["evaluator_rules"]}
+        assert (await client.post(base, json=corrected)).json() == {"total": 0}
+        assert (await client.post(base + "/exclude", json=corrected)).json()["excluded_count"] == 0
+        assert not data.writes and target.settings["evaluator_rules"] != result["evaluator_rules"]
+        for suffix in ["", "/people", "/exclude"]:
+            assert (await client.post(base + suffix, json={**payload, "evaluator_rules": {"groups": [{"conditions": []}]}})).status_code == 422
+            assert (await client.post(base + suffix, json={**payload, "scope_rules": {"groups": [{"conditions": []}]}})).status_code == 422
+        for state in ["STARTED", "ARCHIVED"]:
+            target.status = state
+            for suffix in ["", "/people", "/exclude"]:
+                denied = await client.post(base + suffix, json=payload)
+                assert denied.status_code == 409 and denied.json()["detail"]["code"] == "PROJECT_AUDIENCE_LOCKED"
+        target.status = "DRAFT"
+        for account in [context(), context("performance.projects.manage", refs=("unrelated",))]:
+            app.dependency_overrides[routes.get_performance_access_context] = lambda: account
+            for suffix in ["", "/people", "/exclude"]:
+                assert (await client.post(base + suffix, json=payload)).status_code == 403
+        account = context("performance.projects.manage", refs=(target.project_ref,))
+        app.dependency_overrides[routes.get_performance_access_context] = lambda: account
+        assert (await client.post(base, json=payload)).status_code == 200
+        for suffix in ["", "/people", "/exclude"]:
+            assert (await client.post(base + suffix, json={**payload, "project_id": None})).status_code == 403
+        for suffix in ["/evaluator-preview", "/evaluator-preview/people"]:
+            assert (await client.post("/api/v1/performance/cycles/1" + suffix, json={**payload, "project_id": None})).status_code == 403
+        target.cycle_ref = "other-cycle"
+        for suffix in ["", "/people", "/exclude"]:
+            assert (await client.post(base + suffix, json=payload)).status_code == 403
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [
+    {"evaluator_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["B"]}]}]}},
+    {"scope_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["B"]}]}]}},
+    {"configuration_completed": True}, {"configuration_completed": False},
+])
+async def test_evaluator_conflicts_draft_save_rejects_under_cycle_lock(cycle_adjustment_sqlite, monkeypatch, payload):
+    from unittest.mock import AsyncMock
+    from copy import deepcopy
+    from fastapi import HTTPException
+    from app.performance import projects_router as routes
+    from app.performance.models import PerformanceCycle
+    data = cycle_adjustment_sqlite
+    target = data.projects[0]
+    target.status = "DRAFT"
+    data.projects[1].status = "ARCHIVED"
+    before = deepcopy(target.settings)
+    lock_queries = []
+    async def scalar(statement):
+        if statement.column_descriptions[0]["entity"] is PerformanceCycle:
+            if statement._for_update_arg is not None:
+                lock_queries.append(statement)
+            return data.cycle
+        return await data.db.scalar(statement)
+    db = SimpleNamespace(scalar=scalar, execute=data.db.execute, refresh=AsyncMock(), add=data.db.add, commit=AsyncMock(), rollback=AsyncMock())
+    monkeypatch.setattr(routes, "_get_project", lambda *args: _resolved(target))
+    monkeypatch.setattr(PerformanceProjectService, "_validate_manual_opening_policy", AsyncMock())
+    monkeypatch.setattr(PerformanceProjectService, "_validate_configuration", AsyncMock())
+    with pytest.raises(HTTPException) as rejected:
+        await routes.update_project(target.id, routes.ProjectPatchPayload(**payload), context("performance.cycles.manage"), db)
+    assert rejected.value.status_code == 422 and "排除重复人员" in rejected.value.detail
+    assert lock_queries and target.settings == before
+    db.commit.assert_not_awaited()
+    db.rollback.assert_awaited_once()
+    assert not data.writes
+    await PerformanceProjectService(db).update_project(target, {"description": "只改说明"}, actor_type="PORTAL_USER", actor_id=1)
+    db.commit.assert_awaited_once()
+    assert target.description == "只改说明" and target.settings["evaluator_rules"] == before["evaluator_rules"]
+    target.status = "ARCHIVED"
+    await PerformanceProjectService(db).update_project(target, {"evaluator_rules": before["evaluator_rules"]}, actor_type="PORTAL_USER", actor_id=1)
+    assert db.commit.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_evaluator_conflicts_start_and_member_add_reject_archived_owner(cycle_adjustment_sqlite):
+    from fastapi import HTTPException
+    from sqlalchemy import select
+    from app.performance.member_service import add_member
+    data = cycle_adjustment_sqlite
+    data.projects[1].status = "ARCHIVED"
+    snapshot = data.session.scalar(select(data.pm.PerformanceAuthorizationSnapshot))
+    snapshot.status = "LOCKED"
+    data.session.flush()
+    data.writes.clear()
+    async def scalar(statement):
+        if statement.column_descriptions[0]["entity"] is PerformanceCycle:
+            return data.cycle
+        return await data.db.scalar(statement)
+    from unittest.mock import AsyncMock
+    db = SimpleNamespace(scalar=scalar, execute=data.db.execute, refresh=AsyncMock())
+    target = data.projects[0]
+    target.status = "DRAFT"
+    with pytest.raises(ProjectValidationError, match="已参加本周期其他项目"):
+        await PerformanceProjectService(db).start_project(target, actor_type="PORTAL_USER", actor_id=1)
+    target.status = "STARTED"
+    _, people = await PerformanceProjectService(db)._cycle_snapshot_people(data.cycle)
+    with pytest.raises(HTTPException) as rejected:
+        await add_member(db, target, data.cycle, people, "B", actor_type="PORTAL_USER", actor_id=1)
+    assert rejected.value.status_code == 409 and "已参加本周期其他项目" in rejected.value.detail
+    assert not data.writes and not data.orm_mutations
+
+
+@pytest.mark.asyncio
+async def test_evaluator_conflicts_excluded_rules_save_and_missing_snapshot(cycle_adjustment_sqlite, monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    from fastapi import HTTPException
+    data = cycle_adjustment_sqlite
+    target = data.projects[0]
+    target.status = "DRAFT"
+    async def scalar(statement):
+        if statement.column_descriptions[0]["entity"] is PerformanceCycle:
+            assert statement._for_update_arg is not None
+            return data.cycle
+        return await data.db.scalar(statement)
+    db = SimpleNamespace(scalar=scalar, execute=data.db.execute, refresh=AsyncMock(), add=data.db.add, commit=AsyncMock())
+    service = PerformanceProjectService(db)
+    conflicts, _ = await service.evaluator_conflicts(data.cycle, target.settings, project_id=target.id)
+    corrected = service.adjust_evaluator_rules(target.settings["evaluator_rules"], exclude=[person.employee_no for person in conflicts])
+    monkeypatch.setattr(service, "_validate_manual_opening_policy", AsyncMock())
+    await service.update_project(target, {"evaluator_rules": corrected}, actor_type="PORTAL_USER", actor_id=1)
+    assert target.settings["evaluator_rules"] == corrected
+    db.commit.assert_awaited_once()
+    monkeypatch.setattr(routes, "_get_cycle", lambda *args: _resolved(data.cycle))
+    missing_db = SimpleNamespace(scalar=AsyncMock(return_value=None), execute=AsyncMock())
+    payload = routes.EvaluatorPreviewPayload(evaluator_rules=corrected)
+    for endpoint in [routes.evaluator_conflicts, routes.evaluator_conflicts_exclude]:
+        with pytest.raises(HTTPException) as rejected:
+            await endpoint(1, payload, context("performance.cycles.manage"), missing_db)
+        assert rejected.value.status_code == 422 and "快照不存在" in rejected.value.detail
+    missing_db.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_evaluator_conflicts_reviewee_search_and_single_check_share_occupancy(cycle_adjustment_sqlite, monkeypatch):
+    from app.performance import projects_router as routes
+    from unittest.mock import AsyncMock
+    data = cycle_adjustment_sqlite
+    target = data.projects[0]
+    data.projects[1].status = "ARCHIVED"
+    data.session.query(data.pm.PerformanceAuthorizationSnapshot).one().status = "LOCKED"
+    data.session.flush()
+    data.writes.clear()
+    async def scalar(statement):
+        if statement.column_descriptions[0]["entity"] is PerformanceCycle:
+            return data.cycle
+        return await data.db.scalar(statement)
+    db = SimpleNamespace(scalar=scalar, execute=data.db.execute)
+    monkeypatch.setattr(routes, "_project_started", AsyncMock(return_value=target))
+    monkeypatch.setattr(routes, "_can_manage_project_like_overview", AsyncMock(return_value=True))
+    monkeypatch.setattr(routes, "_reviewee_management_scope", AsyncMock(return_value=None))
+    account = context("performance.cycles.manage")
+    search = await routes.search_project_reviewees(1, "", account, db)
+    by_no = {person.value: person for person in search.items}
+    assert not by_no["B"].is_permitted and by_no["B"].reason == "已在其他项目中"
+    assert by_no["NEW"].is_permitted
+    check = await routes.check_project_reviewee_conflict(1, routes.RevieweeAddPayload(employee_no="B"), account, db)
+    assert [item.stage_key for item in check.conflicts] == ["other_project"]
+    data.projects[1].status = "DRAFT"
+    data.session.flush()
+    data.writes.clear()
+    check = await routes.check_project_reviewee_conflict(1, routes.RevieweeAddPayload(employee_no="B"), account, db)
+    assert check.conflicts == []
+    assert not data.writes
 
 
 @pytest.fixture

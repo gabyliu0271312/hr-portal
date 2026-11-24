@@ -2987,6 +2987,18 @@ export interface PerformanceEvaluatorPreviewPeoplePage {
 }
 
 export const performanceProjectApi = {
+  async evaluatorConflicts(cycleId: number, payload: PerformanceEvaluatorPreviewPayload): Promise<{ total: number }> {
+    const { data } = await api.post(`/performance/cycles/${cycleId}/evaluator-conflicts`, payload)
+    return data
+  },
+  async evaluatorConflictPeople(cycleId: number, payload: PerformanceEvaluatorPreviewPayload, keyword = '', page = 1, pageSize = 50): Promise<PerformanceEvaluatorPreviewPeoplePage> {
+    const { data } = await api.post(`/performance/cycles/${cycleId}/evaluator-conflicts/people`, payload, { params: { ...(keyword ? { keyword } : {}), page, page_size: pageSize } })
+    return data
+  },
+  async excludeEvaluatorConflicts(cycleId: number, payload: PerformanceEvaluatorPreviewPayload): Promise<{ evaluator_rules: PerformanceAudienceRules; excluded_count: number; people: Array<{ value: string; label: string }> }> {
+    const { data } = await api.post(`/performance/cycles/${cycleId}/evaluator-conflicts/exclude`, payload)
+    return data
+  },
   async previewEvaluators(cycleId: number, payload: PerformanceEvaluatorPreviewPayload): Promise<PerformanceEvaluatorPreviewSummary> {
     const { data } = await api.post<PerformanceEvaluatorPreviewSummary>(`/performance/cycles/${cycleId}/evaluator-preview`, payload)
     return data

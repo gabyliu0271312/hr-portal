@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   get: vi.fn(), listTemplates: vi.fn(), getTemplateWorkflow: vi.fn(), push: vi.fn(), leaveGuard: vi.fn(), success: vi.fn(),
   listEvaluatorOptions: vi.fn(), previewEvaluators: vi.fn(), previewEvaluatorPeople: vi.fn(), update: vi.fn(), otherSettings: vi.fn(),
+  evaluatorConflicts: vi.fn(), evaluatorConflictPeople: vi.fn(), excludeEvaluatorConflicts: vi.fn(),
 }))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { cycleId: '1', id: '2' } }),
@@ -64,11 +65,136 @@ beforeEach(() => {
   mocks.getTemplateWorkflow.mockResolvedValue({ nodes: [] })
   mocks.previewEvaluators.mockResolvedValue({ matched_count: 5, task_generation_count: 4, report_count: 5, report_only_count: 1, group_counts: [5] })
   mocks.previewEvaluatorPeople.mockResolvedValue({ items: [{ employee_no: 'E1', display_name: '员工一', direct_supervisor: '经理', company_org: '集团', department: '研发', department_2: '平台', department_3: '后端', job_family: '技术', job_category: '研发', standard_position: '软件工程师', status: 'task', report_only: false }], total: 1, page: 1, page_size: 50 })
+  mocks.evaluatorConflicts.mockResolvedValue({ total: 0 })
+  mocks.evaluatorConflictPeople.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 50 })
   mocks.otherSettings.mockResolvedValue({ manual_result_opening_enabled: true })
   mocks.listEvaluatorOptions.mockResolvedValue({
     organization_tree: [],
     people: [{ value: 'E001', label: '张三（E001）' }, { value: 'E002', label: '李四（E002）' }],
     employee_types: [],
+  })
+})
+
+describe('duplicate reviewees', () => {
+  async function draft() {
+    mocks.get.mockResolvedValue({ ...await mocks.get(), template_id: 11 })
+  }
+
+  it('blocks next with a conflict and opens the existing people table through an independent provider', async () => {
+    await draft()
+    mocks.evaluatorConflicts.mockResolvedValue({ total: 4 })
+    mocks.evaluatorConflictPeople.mockResolvedValue(await mocks.previewEvaluatorPeople())
+    const wrapper = page()
+    await flushPromises()
+    await button(wrapper, '下一步').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.audience-conflicts').text()).toContain('有 4 人已在本周期的其他项目')
+    expect(wrapper.find('#project-info-title').exists()).toBe(true)
+    expect(mocks.update).not.toHaveBeenCalled()
+    await wrapper.get('[aria-label="查看重复人员"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.performance-management-table').exists()).toBe(true)
+    expect(mocks.evaluatorConflictPeople).toHaveBeenCalledWith(1, expect.objectContaining({ project_id: 2 }), '', 1, 50)
+    expect(mocks.previewEvaluatorPeople).toHaveBeenCalledTimes(1)
+    await wrapper.get('.performance-task-overlay button').trigger('click')
+    expect(wrapper.find('.performance-task-overlay').exists()).toBe(false)
+    expect(wrapper.get('.audience-conflicts').text()).toContain('移除人员')
+    wrapper.unmount()
+  })
+
+  it('applies the server full-set exclusion to all branches without saving until next', async () => {
+    await draft()
+    mocks.evaluatorConflicts.mockResolvedValue({ total: 140 })
+    const groups = [
+      { conditions: [{ field: 'department', operator: 'include', values: ['研发'] }, { field: 'employee', operator: 'exclude', values: ['E0', 'E1', 'E2'] }] },
+      { conditions: [{ field: 'employee_type', operator: 'include', values: ['正式'] }, { field: 'employee', operator: 'exclude', values: ['E1', 'E2'] }] },
+    ]
+    mocks.excludeEvaluatorConflicts.mockResolvedValue({ evaluator_rules: { groups }, excluded_count: 140, people: [{ value: 'E2', label: '员工二' }] })
+    const wrapper = page()
+    await flushPromises()
+    await button(wrapper, '下一步').trigger('click')
+    await flushPromises()
+    mocks.evaluatorConflicts.mockResolvedValue({ total: 0 })
+    await button(wrapper, '移除人员').trigger('click')
+    await flushPromises()
+    expect(mocks.excludeEvaluatorConflicts).toHaveBeenCalledWith(1, expect.objectContaining({ project_id: 2 }))
+    expect(wrapper.getComponent(PerformanceAudienceRuleEditor).props('modelValue')).toEqual(groups)
+    expect(wrapper.getComponent(PerformanceAudienceRuleEditor).props('snapshotOptions')?.people).toContainEqual({ value: 'E2', label: '员工二' })
+    expect(wrapper.find('.audience-conflicts').exists()).toBe(false)
+    expect(mocks.update).not.toHaveBeenCalled()
+    await button(wrapper, '下一步').trigger('click')
+    await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(2, expect.objectContaining({ evaluator_rules: { groups } }))
+    expect(wrapper.find('#project-info-title').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps the draft on failure and retries the conflict check', async () => {
+    await draft()
+    mocks.evaluatorConflicts.mockRejectedValue(new Error('network'))
+    const wrapper = page()
+    await flushPromises()
+    await button(wrapper, '下一步').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('重复人员检查失败，请重试')
+    expect(mocks.update).not.toHaveBeenCalled()
+    mocks.evaluatorConflicts.mockResolvedValue({ total: 4 })
+    await button(wrapper, '重试检查').trigger('click')
+    await flushPromises()
+    mocks.excludeEvaluatorConflicts.mockRejectedValue(new Error('network'))
+    const before = wrapper.getComponent(PerformanceAudienceRuleEditor).props('modelValue')
+    await button(wrapper, '移除人员').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('移除重复人员失败，请重试')
+    expect(wrapper.getComponent(PerformanceAudienceRuleEditor).props('modelValue')).toEqual(before)
+    expect(wrapper.get('.audience-conflicts').text()).toContain('有 4 人')
+    wrapper.unmount()
+  })
+
+  it('does not accept an old conflict response or advance while rules change', async () => {
+    await draft()
+    let resolve!: (value: { total: number }) => void
+    mocks.evaluatorConflicts.mockReturnValue(new Promise(done => { resolve = done }))
+    const wrapper = page()
+    await flushPromises()
+    await button(wrapper, '下一步').trigger('click')
+    wrapper.getComponent(PerformanceAudienceRuleEditor).vm.$emit('update:modelValue', [{ conditions: [{ field: 'employee', operator: 'include', values: ['E2'] }] }])
+    resolve({ total: 4 })
+    await flushPromises()
+    expect(wrapper.getComponent(PerformanceAudienceRuleEditor).props('modelValue')[0].conditions[0].values).toEqual(['E1'])
+    expect(wrapper.text()).toContain('有 4 人')
+    expect(mocks.update).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('ignores a response for rules that have been replaced before the check finishes', async () => {
+    await draft()
+    let resolve!: (value: { total: number }) => void
+    mocks.evaluatorConflicts.mockReturnValueOnce(new Promise(done => { resolve = done }))
+    const wrapper = page()
+    await flushPromises()
+    wrapper.getComponent(PerformanceAudienceRuleEditor).vm.$emit('update:modelValue', [{ conditions: [{ field: 'employee', operator: 'include', values: ['E2'] }] }])
+    await wrapper.vm.$nextTick()
+    resolve({ total: 99 })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('有 99 人')
+    mocks.evaluatorConflicts.mockResolvedValue({ total: 0 })
+    await button(wrapper, '下一步').trigger('click')
+    await flushPromises()
+    expect(mocks.evaluatorConflicts).toHaveBeenLastCalledWith(1, expect.objectContaining({ evaluator_rules: { groups: [{ conditions: [{ field: 'employee', operator: 'include', values: ['E2'] }] }] } }))
+    expect(wrapper.find('#project-info-title').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each(['STARTED', 'ARCHIVED'])('does not check or allow exclusion on locked %s projects', async status => {
+    mocks.get.mockResolvedValue({ ...await mocks.get(), template_id: 11, status })
+    const wrapper = page()
+    await flushPromises()
+    await button(wrapper, '下一步').trigger('click')
+    await flushPromises()
+    expect(mocks.evaluatorConflicts).not.toHaveBeenCalled()
+    expect(wrapper.find('.audience-conflicts').exists()).toBe(false)
+    wrapper.unmount()
   })
 })
 

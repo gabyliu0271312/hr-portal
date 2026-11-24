@@ -1,5 +1,5 @@
 <template>
-  <button class="text-button" :class="{ 'icon-only': !label }" type="button" :aria-label="label || ariaLabel" :aria-expanded="ariaExpanded" :disabled="disabled" @click="!disabled && emit('click')">
+  <button class="text-button" :class="{ 'icon-only': !label }" type="button" :aria-label="ariaLabel || label" :aria-expanded="ariaExpanded" :disabled="disabled" @click="!disabled && emit('click')">
     <span v-if="$slots.icon" class="text-button-icon"><slot name="icon" /></span>
     <span v-if="label">{{ label }}</span>
   </button>

@@ -39,19 +39,9 @@ async def add_member(db, project, cycle, people, employee_no, *, actor_type, act
     ))
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="被评估人已在项目中")
-    owned_elsewhere = await db.scalar(
-        select(PerformanceProjectMember.employee_no)
-        .join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id)
-        .join(PerformanceProject, PerformanceProject.id == PerformanceProjectMemberSnapshot.project_id)
-        .where(
-            PerformanceProject.cycle_ref == project.cycle_ref,
-            PerformanceProject.id != project.id,
-            PerformanceProject.status == PROJECT_STATUS_STARTED,
-            PerformanceProjectMember.employee_no == employee_no,
-        ).limit(1)
-    )
-    if owned_elsewhere is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"被评估人 {owned_elsewhere} 已参加本周期其他项目")
+    owned_elsewhere = await service.occupied_employee_nos(project.cycle_ref, [employee_no], project_id=project.id)
+    if owned_elsewhere:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"被评估人 {employee_no} 已参加本周期其他项目")
     project_manager_rows = (await db.execute(select(PerformanceCycleProjectManager).where(
         PerformanceCycleProjectManager.cycle_ref == project.cycle_ref,
     ))).scalars().all()

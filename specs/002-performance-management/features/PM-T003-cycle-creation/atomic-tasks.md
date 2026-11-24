@@ -6,6 +6,17 @@
 
 ## 任务清单
 
+- [ ] PM-T003-I07-F05 重复被评估人提示、独立名单和自动排除（2026-11-24）
+  - Authority/reading：用户明确授权完成REA交互及全局token统一；已读Spec002基线/ADR-001/PM-T003、执行/验收契约、Spec012通用UI门禁N000/N00/N11。既有页面局部增强无新信息架构，采用本轮确认DOM和交互，不建独立报告/脚本/测试文档。
+  - Scope：前端ProjectSettingsPage、共享ConflictNotice组合及conflict composable、TextButton aria-label优先级、api/performance.ts、tokens.css及既有页面测试；后端project_service/projects_router/member_service及既有projects测试；本功能规格/交互/任务及open-questions。前后端按文件独占，不覆盖其他变更。
+  - Contracts：spec同日期条款；3个POST evaluator-conflicts/count(根路径)/people/exclude，输入当前草稿规则及限定范围；按周期快照，其他STARTED/ARCHIVED实际成员占用，当前项目和DRAFT不占用，含report-only。权限403、非法422、锁定409；exclude无写库/成员删除/任务修改/通知。草稿保存变更及显式完成/启动/加人锁内重验。无迁移/权限扩张/UCP/生产/commit/push/deploy。
+  - UI：error PromptNotice两行、数字/移除TextButton；现有全屏TaskOverlay+ReminderPanel preview独立provider，加载/失败/重试及旧请求失效；下一步重复/检查失败不推进，不因校验未完成漏保存。全局active底由.32改.2，其他三态保持实采值。PNG `../../ui-blueprints/PM-T003-I07-F05-duplicate-reviewees-implemented.png`。
+  - Tests：重复去重、跨周期/自身排除、ARCHIVED占用、限定范围/report-only、多OR全部排除/合并去重、分页搜索、权限拒绝、保存校验；前端提示/独立名单/返回/失败保留与重试/过期响应/锁定/完整exclude再PATCH。真实PostgreSQL并发/鉴权API→SQL回读未验收前不勾卡。
+  - Frontend evidence：第一轮新增用例与旧预览共5项失败，已修正aria-label优先级与同步失效防抖；随后56 passed。首轮build因测试可选snapshotOptions未判空TS2532失败，已修正并重跑；最终结果待补。实际Vite页面组件+隔离API验证：有重复点击下一步零PATCH；4行全屏独立名单/返回；移除在途disabled；成功两个OR分支各追加4人exclude，原条件保留，零立即PATCH；下一步单次PATCH后进入流程，捕获组件error=0。初次挂载错用不同Vue模块为空白，改为实际Vite同版模块后验证通过；不以夹具代表真实后台。
+  - Final frontend/UI：项目编辑57、共享人员名单42、导出按钮2项联合共101 passed；`npm --prefix hr-portal/frontend run build`已通过vue-tsc+Vite（既有VueUse PURE警告）。隔离实际Vue浏览器四态稳定采样与目标一致：默认蓝字透明底、hover .1、active .2、disabled #bbbfc4透明底/not-allowed；两行上下布局已核对、最终PNG已查看。首次伪类采样受后台页动画刷新滞后，显式计算样式后稳定采样确认，不以中间帧作为验收；首次截图为旧布局，已更新同卡独立路径。
+  - Backend evidence：服务/接口与统一占用查询已实现。首次projects/cycles/member_reminders三文件1418 passed、6 skipped、1 warning；补齐单人conflict-check/reviewees search统一查询后，最终聚焦`test_performance_projects.py -k 'evaluator_conflicts or reviewee'`29 passed。最终projects+member_identity联合1224 passed、5 failed、5 skipped，项目测试全部通过；5项失败位于未改member_identity的列schema、催办selectable、360提示及scheduler probe替身，未经过occupancy，本轮不扩修。仅适配本轮引入的2个项目测试替身；补前1418结果不冒充最终整套复跑。不以跳过及SQLite/替身测试代替真实PostgreSQL并发锁/事务/API→数据库回读验收。
+  - Status：本地开发、前端101项自动化/构建及隔离浏览器验证已完成；后端聚焦及项目测试通过，扩大回归5项失败已保留报告。真实鉴权API→SQL及PostgreSQL并发未执行，保持本卡及I07整卡未勾选，无迁移/生产/commit/push/deploy。
+
 - [ ] PM-T003-I03-F01 锁定UI及项目名单每日调整闭环（2026-11-21）
   - Goal/authority：用户明确按本轮REA评估开发UI和业务，自动移出清除当前项目本周期评估数据并保留审计，覆盖旧I03仅周期名单及锁后启动限制。
   - Reading：Spec002基线、PM-T003、CR-013、执行/迁移/验收契约；Spec012通用UI门禁。既有页面局部修订无新完整蓝图，目标以已采集DOM为准。

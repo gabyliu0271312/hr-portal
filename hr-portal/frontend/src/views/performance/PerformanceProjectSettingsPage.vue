@@ -4,8 +4,8 @@
       <template #subtitle><span v-if="savedView" class="project-status-badge">{{ savedStatusLabel }}</span></template>
       <template #actions>
         <UiStepFlow :steps="steps" :current-step="currentStep" aria-label="项目设置步骤" />
-        <UiButton v-if="currentStep > 0" variant="secondary" :disabled="saving || basicDialogSaving || flowSaving" @click="currentStep--">上一步</UiButton>
-        <UiButton variant="primary" :disabled="saving || basicDialogSaving || flowSaving" @click="nextStep">{{ currentStep === steps.length - 1 ? '完成' : '下一步' }}</UiButton>
+        <UiButton v-if="currentStep > 0" variant="secondary" :disabled="saving || basicDialogSaving || flowSaving || checkingNext || conflicts.removing.value" @click="currentStep--">上一步</UiButton>
+        <UiButton variant="primary" :disabled="saving || basicDialogSaving || flowSaving || checkingNext || conflicts.removing.value" @click="nextStep">{{ currentStep === steps.length - 1 ? '完成' : '下一步' }}</UiButton>
       </template>
     </UiPageHeader>
 
@@ -39,6 +39,7 @@
           <p><button type="button" :disabled="previewLoading" @click="openAudiencePreview('task')">{{ previewSummary.task_generation_count }}</button>名人员生成评估任务，并纳入报表统计<span v-if="previewSummary.report_only_count">；<button type="button" :disabled="previewLoading" @click="openAudiencePreview('report_only')">{{ previewSummary.report_only_count }}</button>名离职人员不生成评估任务，仅纳入报表统计</span></p>
         </div>
         <p v-if="audienceLocked" class="hint" role="status">项目已启动，被评估人条件不可修改。如需调整人员，请前往前台「项目管理」。</p>
+        <PerformanceAudienceConflictNotice v-if="!audienceLocked" :total="conflicts.total.value" :loading="conflicts.loading.value" :removing="conflicts.removing.value" :error="conflicts.error.value" :disabled="saving || basicDialogSaving || checkingNext" @view="openConflictPreview" @remove="removeConflicts" @retry="conflicts.check()" />
         <PerformanceAudienceRuleEditor
           :model-value="form.evaluator_rules.groups"
           @update:model-value="updateAudienceGroups"
@@ -48,7 +49,7 @@
           :person-options="evaluatorOptions.people"
           :employee-type-options="evaluatorOptions.employee_types"
           :hire-date-range="evaluatorOptions.hire_date_range"
-          :disabled="saving || audienceLocked"
+          :disabled="saving || audienceLocked || conflicts.removing.value || checkingNext"
           :highlight-invalid="infoSubmitted && !audienceLocked"
           :error="infoErrors.audience"
           group-delete-outside
@@ -147,6 +148,8 @@ import PerformanceSelectTag from '@/components/performance/PerformanceSelectTag.
 import UiStepFlow from '@/components/ui/UiStepFlow.vue'
 import PerformanceProjectDialog from '@/components/performance/PerformanceProjectDialog.vue'
 import PerformanceContentSurface from '@/components/performance/PerformanceContentSurface.vue'
+import PerformanceAudienceConflictNotice from '@/components/performance/PerformanceAudienceConflictNotice.vue'
+import { usePerformanceAudienceConflicts } from '@/components/performance/usePerformanceAudienceConflicts'
 import PerformanceAudienceRuleEditor from '@/components/performance/PerformanceAudienceRuleEditor.vue'
 import PerformanceProjectTemplateField from '@/components/performance/PerformanceProjectTemplateField.vue'
 import { REVIEWEE_CONDITION_FIELDS, isDateConditionField, validHireDateCondition } from '@/components/performance/performanceConditionFields'
@@ -169,7 +172,9 @@ const evaluatorOptionsLoading = ref(false)
 const previewLoading = ref(false)
 const previewSummary = ref<PerformanceEvaluatorPreviewSummary>({ matched_count: 0, task_generation_count: 0, report_count: 0, report_only_count: 0, group_counts: [] })
 const audiencePreviewOpen = ref(false)
-const audiencePreviewKind = ref<'matched' | 'task' | 'report_only'>('matched')
+const audiencePreviewKind = ref<'matched' | 'task' | 'report_only' | 'conflicts'>('matched')
+const checkingNext = ref(false)
+let previewRevision = 0
 const audiencePreviewGroup = ref<number | null>(null)
 const audiencePreviewTotal = ref(0)
 const savedView = ref(false); const currentStep = ref(0); const saving = ref(false); const notice = ref(''); const validationError = ref(''); const templateLoading = ref(false); const templates = ref<PerformanceProjectTemplate[]>([]); const basicDialogOpen = ref(false); const basicDialogSaving = ref(false); const basicDialogProject = ref<PerformanceCycleProjectShell | null>(null)
@@ -200,18 +205,19 @@ const administratorsText = computed({ get: () => form.administrators.join('、')
 const dataManagerTags = computed(() => (basicDialogProject.value?.data_managers ?? []).map(value => ({ value, label: value === 'PROJECT_ADMIN' ? '项目管理员' : 'HRBP' })))
 const projectName = computed(() => form.name)
 const audienceLocked = computed(() => projectStatus.value === 'STARTED' || projectStatus.value === 'ARCHIVED')
+const conflicts = usePerformanceAudienceConflicts(() => cycleId.value && form.template_id && !audienceLocked.value && previewRulesValid() ? { cycleId: cycleId.value, payload: previewPayload() } : null)
 function updateAudienceGroups(groups: typeof form.evaluator_rules.groups) {
-  if (!saving.value && !audienceLocked.value) form.evaluator_rules.groups = groups
+  if (!saving.value && !audienceLocked.value && !conflicts.removing.value && !checkingNext.value) form.evaluator_rules.groups = groups
 }
 const savedStatusLabel = computed(() => projectStatus.value === 'STARTED' ? '已启动' : projectStatus.value === 'ARCHIVED' ? '已结束' : '待启动')
-const audiencePreviewTitle = computed(() => audiencePreviewGroup.value == null ? '符合条件的员工' : `范围 ${audiencePreviewGroup.value + 1} 符合条件的员工`)
-const audiencePreviewDescription = computed(() => `${audiencePreviewKind.value === 'task' ? '生成评估任务并纳入报表统计' : audiencePreviewKind.value === 'report_only' ? '不生成评估任务，仅纳入报表统计' : '符合当前筛选条件'}，共计 ${audiencePreviewTotal.value} 人`)
+const audiencePreviewTitle = computed(() => audiencePreviewKind.value === 'conflicts' ? '重复参与绩效评估的员工' : audiencePreviewGroup.value == null ? '符合条件的员工' : `范围 ${audiencePreviewGroup.value + 1} 符合条件的员工`)
+const audiencePreviewDescription = computed(() => `${audiencePreviewKind.value === 'conflicts' ? '已在本周期其他项目参与绩效评估' : audiencePreviewKind.value === 'task' ? '生成评估任务并纳入报表统计' : audiencePreviewKind.value === 'report_only' ? '不生成评估任务，仅纳入报表统计' : '符合当前筛选条件'}，共计 ${audiencePreviewTotal.value} 人`)
 const audiencePreviewContext = computed(() => ({ projectId: projectId.value || 0, cycleId: cycleId.value || 0, nodeId: 'evaluator-preview', nodeType: 'preview', reviewType: 'evaluator_preview', title: audiencePreviewTitle.value, sectionTitle: audiencePreviewTitle.value }))
 const dateError = computed(() => Boolean(form.start_at && form.end_at && form.end_at <= form.start_at))
 function workflowNodeKey(node: PerformanceWorkflowNode) { return node.node_id || `${node.node_type}-${node.order}` }
 watch(() => form.flow_settings, settings => { ensureCalibrationPhaseIds(settings.node_settings); syncCalibrationPhaseTimes(settings.node_settings, settings.node_times) }, { deep: true })
 let previewTimer: ReturnType<typeof setTimeout> | undefined
-watch(() => form.evaluator_rules, () => { if (previewTimer) clearTimeout(previewTimer); previewTimer = setTimeout(() => { void loadAudiencePreview() }, 200) }, { deep: true })
+watch(() => JSON.stringify([cycleId.value, projectId.value, form.evaluator_rules, basicDialogProject.value?.scope_rules]), () => { ++previewRevision; audiencePreviewOpen.value = false; if (previewTimer) clearTimeout(previewTimer); previewTimer = setTimeout(() => { void loadAudiencePreview() }, 200) }, { flush: 'sync' })
 const timeValidationSubmitted = ref(false)
 function openBasicEditor() { if (!projectId.value) return; basicDialogProject.value = { ...basicDialogProject.value, id: projectId.value, project_ref: basicDialogProject.value?.project_ref || '', name: form.name, description: form.description || null, administrators: [...form.administrators], status: projectStatus.value, evaluated_count: evaluatedCount.value }; basicDialogOpen.value = true }
 async function saveBasicInfo(value: PerformanceProjectPayload) {
@@ -289,11 +295,30 @@ function previewRulesValid() {
   return Boolean(cycleId.value && form.evaluator_rules.groups.length && form.evaluator_rules.groups.every(group => group.conditions.length && group.conditions.every(condition => condition.field && condition.values.length && (!isDateConditionField(condition.field) || validHireDateCondition(condition.operator, condition.values)))))
 }
 async function loadAudiencePreview() {
-  if (!cycleId.value || (!audienceLocked.value && !previewRulesValid())) { previewSummary.value = { matched_count: 0, task_generation_count: 0, report_count: 0, report_only_count: 0, group_counts: [] }; return }
+  const request = ++previewRevision
+  if (!cycleId.value || (!audienceLocked.value && !previewRulesValid())) { previewLoading.value = false; previewSummary.value = { matched_count: 0, task_generation_count: 0, report_count: 0, report_only_count: 0, group_counts: [] }; return }
   previewLoading.value = true
-  try { previewSummary.value = await performanceProjectApi.previewEvaluators(cycleId.value, previewPayload()) }
-  catch (error: any) { notice.value = error?.response?.data?.detail || '被评估人人数加载失败，请稍后重试' }
-  finally { previewLoading.value = false }
+  try { const summary = await performanceProjectApi.previewEvaluators(cycleId.value, previewPayload()); if (request === previewRevision) previewSummary.value = summary }
+  catch (error: any) { if (request === previewRevision) notice.value = error?.response?.data?.detail || '被评估人人数加载失败，请稍后重试' }
+  finally { if (request === previewRevision) previewLoading.value = false }
+}
+function openConflictPreview() {
+  if (conflicts.loading.value || conflicts.removing.value || !conflicts.total.value) return
+  audiencePreviewKind.value = 'conflicts'
+  audiencePreviewGroup.value = null
+  audiencePreviewTotal.value = conflicts.total.value
+  audiencePreviewOpen.value = true
+}
+async function removeConflicts() {
+  if (audienceLocked.value || saving.value || checkingNext.value) return
+  const result = await conflicts.exclude()
+  if (!result) return
+  const people = new Map(evaluatorOptions.value.people.map(person => [person.value, person]))
+  result.people.forEach(person => people.set(person.value, person))
+  evaluatorOptions.value = { ...evaluatorOptions.value, people: [...people.values()] }
+  form.evaluator_rules = result.evaluator_rules
+  await conflicts.check()
+  await loadAudiencePreview()
 }
 function openAudiencePreview(kind: 'matched' | 'task' | 'report_only', groupIndex: number | null = null) {
   audiencePreviewKind.value = kind
@@ -303,7 +328,9 @@ function openAudiencePreview(kind: 'matched' | 'task' | 'report_only', groupInde
 }
 const audiencePreviewProvider: ReminderProvider = async query => {
   if (!cycleId.value) return { items: [], total: 0, columns: [], capabilities: { canRemind: false, canAuthorize: false, canTransfer: false, canExport: false } }
-  const result = await performanceProjectApi.previewEvaluatorPeople(cycleId.value, previewPayload(audiencePreviewKind.value, audiencePreviewGroup.value), query.keyword.trim(), query.page, query.pageSize)
+  const result = audiencePreviewKind.value === 'conflicts'
+    ? await performanceProjectApi.evaluatorConflictPeople(cycleId.value, previewPayload(), query.keyword.trim(), query.page, query.pageSize)
+    : await performanceProjectApi.previewEvaluatorPeople(cycleId.value, previewPayload(audiencePreviewKind.value, audiencePreviewGroup.value), query.keyword.trim(), query.page, query.pageSize)
   return {
     items: result.items.map(person => ({ ...person, task_id: person.employee_no, job_sequence: null, position_level: null, hire_date: null, department: person.department, employee_type: null, employment_status: person.live_employment_status ?? person.employment_status ?? null, due_at: null, selectable: false })),
     total: result.total,
@@ -375,7 +402,9 @@ async function loadProject() {
       )))
     if (project.template_id && (hasSavedPeople || Object.values(form.flow_settings.node_settings).some(setting => Boolean((setting as any).result_reconsideration?.handler_employee_nos?.length || (setting as any).result_reconsideration?.handler)))) await loadEvaluatorOptions()
     savedView.value = true
+    if (previewTimer) clearTimeout(previewTimer)
     await loadAudiencePreview()
+    if (!audienceLocked.value && form.template_id && previewRulesValid()) void conflicts.check()
   } catch (error: any) { notice.value = error?.response?.data?.detail?.message || error?.response?.data?.detail || '项目加载失败' }
 }
 function flowSaved(project: ProjectSettingsResponse, submitted?: ProjectFlowSettings) {
@@ -417,7 +446,13 @@ async function saveDraft(finalize = false) {
 }
 async function nextStep() {
   if (currentStep.value === 0 && !validate()) return
-  if (saving.value || basicDialogSaving.value || flowSaving.value) return
+  if (saving.value || basicDialogSaving.value || flowSaving.value || checkingNext.value || conflicts.removing.value) return
+  if (currentStep.value === 0 && !audienceLocked.value) {
+    checkingNext.value = true
+    const clear = await conflicts.check()
+    checkingNext.value = false
+    if (!clear) return
+  }
   if (currentStep.value === 1) {
     flowValidationSubmitted.value = true
     if (calibrationMissing()) return
@@ -463,7 +498,7 @@ onBeforeRouteLeave((to) => {
   return false
 })
 onMounted(async () => { document.body.style.overflow = 'hidden'; window.addEventListener('beforeunload', warnUnsaved); await Promise.all([loadManualOpeningSetting(), loadTemplates()]); await loadProject(); await loadTemplateWorkflow(); displayBaseline.value = JSON.parse(JSON.stringify(payload())) })
-onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); window.removeEventListener('beforeunload', warnUnsaved); document.body.style.overflow = '' })
+onBeforeUnmount(() => { ++previewRevision; if (previewTimer) clearTimeout(previewTimer); window.removeEventListener('beforeunload', warnUnsaved); document.body.style.overflow = '' })
 </script>
 
 <style scoped>

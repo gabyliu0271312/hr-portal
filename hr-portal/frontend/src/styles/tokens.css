@@ -604,7 +604,7 @@
   --performance-button-text-color: var(--color-primary-hover);
   --performance-button-link-disabled-color: #bbbfc4;
   --performance-button-text-hover-background: rgba(20, 86, 240, 0.1);
-  --performance-button-text-active-background: rgba(20, 86, 240, 0.32);
+  --performance-button-text-active-background: rgba(20, 86, 240, 0.2);
   --performance-button-text-neutral-hover-background: rgba(31, 35, 41, 0.1);
 
   /* Shared feedback / notice tokens (REA 绩效线 ud__notice / 弹窗实测):

@@ -1,5 +1,15 @@
 # PM-T003 周期创建最小交互说明
 
+## PM-T003-I07-F05 被评估人重复提示与排除（2026-11-24）
+
+- 入口仍为周期与项目→项目编辑→项目信息→被评估人，属于既有页面局部交互增强，无新页面或完整蓝图。用户确认：同周期重复显示错误提示；蓝色人数打开既有全屏表格，返回恢复编辑页；移除追加排除条件，提示消失；有错误时下一步不跳转。
+- 复用`PerformancePromptNotice(type="error", multiline)`及其错误底/图标token。业务内容纵排：第一行“有 N 人已在本周期的其他项目进行绩效评估，需移除他们。”，下方“移除人员”；两按钮复用`PerformanceTextButton`，不在页面复制四态。
+- 实采默认蓝色`#1456f0`、透明底；hover底`rgba(20,86,240,.1)`；active底`rgba(20,86,240,.2)`；disabled字`#bbbfc4`、透明底、not-allowed。全局`--performance-button-text-active-background`由`.32`统一为`.2`，影响所有共享文字按钮；错误条底`#fef0f0`已与现有token一致。
+- 名单使用独立重复人员provider，复用`PerformanceTaskOverlay`、`PerformanceReminderPanel(mode="preview")`、`PerformanceManagementTable`全屏/返回/搜索/分页/列配置/导出；不调用催办API。加载/失败分别显示状态及重试，旧响应失效，不冒用上次人数。请求中阻重复操作；规则改变关闭旧名单。
+- 下一步保持源站业务门禁：点击等待本轮检查，重复或失败不保存、不推进；执行移除和本轮校验期间禁用步骤切换/规则编辑。exclude只更改当前草稿，所有OR分支合并完整重复集合，不以第一页作排除；重算0后隐藏提示，下一步沿原PATCH保存。
+- 目标接口实采：名单打开POST `/perf/api/review/snapshot/simple`（userIds/semesterId），并非独立重复集合请求；移除后POST `/perf/api/review/v2/scopes/resolve-scope`（specific_group_scopes等）轮询重算，GET `/perf/api/review/activities/reviewee/scopes_state`。本地接口是已冻结的独立设计，不冒充源站同名接口。
+- 独立实现PNG：`../../ui-blueprints/PM-T003-I07-F05-duplicate-reviewees-implemented.png`。本地实际Vue+隔离API的浏览器/自动化与真实鉴权API→数据库验收分别记录，不据模拟验收宣称生产通过。
+
 ## 锁定设置目标DOM对齐（2026-11-21，PM-T003-I03）
 
 用户已明确实施本轮REA采集结果；既有页面局部字段及布局调整，无新页面/向导，不另建完整蓝图。入口仍为新建/编辑周期→人员和部门信息设置，角色沿周期管理权限。

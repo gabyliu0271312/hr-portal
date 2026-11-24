@@ -4937,6 +4937,71 @@ async def evaluator_options(
     except ProjectValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+async def _evaluator_preview_context(db, cycle_id, payload, context):
+    cycle = await _get_cycle(db, cycle_id)
+    if payload.project_id is None:
+        if not _is_cycle_manager(context):
+            raise HTTPException(status_code=403, detail="仅周期管理员可预览新项目被评估人")
+        return cycle, None
+    project = await _get_project(db, payload.project_id)
+    if project.cycle_ref != cycle.cycle_ref or not _can_manage_project(context, project):
+        raise HTTPException(status_code=403, detail="无权预览当前项目被评估人")
+    return cycle, project
+
+
+async def _evaluator_conflict_people(db, cycle_id, payload, context):
+    cycle, project = await _evaluator_preview_context(db, cycle_id, payload, context)
+    if project is not None and project.status != "DRAFT":
+        raise HTTPException(status_code=409, detail={"code": "PROJECT_AUDIENCE_LOCKED", "message": "项目已启动，被评估人范围只能通过前台项目管理调整"})
+    try:
+        return await PerformanceProjectService(db).evaluator_conflicts(
+            cycle, {"evaluator_rules": payload.evaluator_rules, "scope_rules": payload.scope_rules}, project_id=payload.project_id,
+        )
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/cycles/{cycle_id}/evaluator-conflicts")
+async def evaluator_conflicts(
+    cycle_id: int,
+    payload: EvaluatorPreviewPayload,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    people, _reports = await _evaluator_conflict_people(db, cycle_id, payload, context)
+    return {"total": len(people)}
+
+
+@router.post("/cycles/{cycle_id}/evaluator-conflicts/people", response_model=EvaluatorPreviewPeoplePage)
+async def evaluator_conflicts_people(
+    cycle_id: int,
+    payload: EvaluatorPreviewPayload,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=100),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    people, report_nos = await _evaluator_conflict_people(db, cycle_id, payload, context)
+    if keyword and keyword.strip():
+        needle = keyword.strip().casefold()
+        people = [person for person in people if needle in f"{person.display_name} {person.employee_no}".casefold()]
+    start = (page - 1) * page_size
+    return EvaluatorPreviewPeoplePage(items=[_preview_person(person, report_nos) for person in people[start:start + page_size]], total=len(people), page=page, page_size=page_size)
+
+
+@router.post("/cycles/{cycle_id}/evaluator-conflicts/exclude")
+async def evaluator_conflicts_exclude(
+    cycle_id: int,
+    payload: EvaluatorPreviewPayload,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    people, _reports = await _evaluator_conflict_people(db, cycle_id, payload, context)
+    rules = PerformanceProjectService.adjust_evaluator_rules(payload.evaluator_rules, exclude=[person.employee_no for person in people])
+    return {"evaluator_rules": rules, "excluded_count": len(people), "people": [{"value": person.employee_no, "label": person.display_name} for person in people]}
+
+
 @router.post("/cycles/{cycle_id}/evaluator-preview", response_model=EvaluatorPreviewResponse)
 async def evaluator_preview(
     cycle_id: int,
@@ -4944,12 +5009,7 @@ async def evaluator_preview(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    cycle = await _get_cycle(db, cycle_id)
-    await _assert_cycle_project_view(db, cycle, context)
-    if payload.project_id is not None:
-        project = await _get_project(db, payload.project_id)
-        if project.cycle_ref != cycle.cycle_ref or not _can_manage_project(context, project):
-            raise HTTPException(status_code=403, detail="无权预览当前项目被评估人")
+    cycle, project = await _evaluator_preview_context(db, cycle_id, payload, context)
     try:
         rules = PerformanceProjectService._validate_rules(payload.evaluator_rules)
         scope_rules = PerformanceProjectService._validate_scope_rules(payload.scope_rules)
@@ -5008,12 +5068,7 @@ async def evaluator_preview_people(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    cycle = await _get_cycle(db, cycle_id)
-    await _assert_cycle_project_view(db, cycle, context)
-    if payload.project_id is not None:
-        project = await _get_project(db, payload.project_id)
-        if project.cycle_ref != cycle.cycle_ref or not _can_manage_project(context, project):
-            raise HTTPException(status_code=403, detail="无权预览当前项目被评估人")
+    cycle, project = await _evaluator_preview_context(db, cycle_id, payload, context)
     try:
         rules = PerformanceProjectService._validate_rules(payload.evaluator_rules)
         scope_rules = PerformanceProjectService._validate_scope_rules(payload.scope_rules)
@@ -8564,18 +8619,8 @@ async def search_project_reviewees(
     current_members = set((await db.execute(select(PerformanceProjectMember.employee_no).where(
         PerformanceProjectMember.snapshot_id == member_snapshot_id,
     ))).scalars().all())
-    occupied = set((await db.execute(
-        select(PerformanceProjectMember.employee_no)
-        .join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id)
-        .join(PerformanceProject, PerformanceProject.id == PerformanceProjectMemberSnapshot.project_id)
-        .where(
-            PerformanceProjectMemberSnapshot.cycle_ref == project.cycle_ref,
-            PerformanceProject.status == PROJECT_STATUS_STARTED,
-            PerformanceProjectMemberSnapshot.project_id != project_id,
-            PerformanceProjectMember.employee_no.not_in(current_members) if current_members else True,
-        )
-    )).scalars().all())
     service = PerformanceProjectService(db)
+    occupied = await service.occupied_employee_nos(project.cycle_ref, [person.employee_no for person in people], project_id=project_id)
     eligible_nos = {person.employee_no for person in service._cycle_eligible_people(people, cycle)}
     scope_groups = (project.settings or {}).get("scope_rules") or {"groups": []}
     scope_settings = {"scope_rules": scope_groups, "evaluator_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": [person.employee_no for person in people]}]}]}}
@@ -8631,16 +8676,8 @@ async def check_project_reviewee_conflict(
     conflicts: list[RevieweeConflictStage] = []
     if already is not None:
         conflicts.append(RevieweeConflictStage(stage_key="member", stage_label="已在当前项目中"))
-    owned_elsewhere = await db.scalar(
-        select(PerformanceProjectMember.employee_no)
-        .join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id)
-        .where(
-            PerformanceProjectMemberSnapshot.cycle_ref == project.cycle_ref,
-            PerformanceProjectMemberSnapshot.project_id != project_id,
-            PerformanceProjectMember.employee_no == payload.employee_no,
-        ).limit(1)
-    )
-    if owned_elsewhere is not None:
+    owned_elsewhere = await PerformanceProjectService(db).occupied_employee_nos(project.cycle_ref, [payload.employee_no], project_id=project_id)
+    if owned_elsewhere:
         conflicts.append(RevieweeConflictStage(stage_key="other_project", stage_label="已参加本周期其他项目"))
     return RevieweeConflictResult(employee_no=payload.employee_no, conflicts=conflicts)
 

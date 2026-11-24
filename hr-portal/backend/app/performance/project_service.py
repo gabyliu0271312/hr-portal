@@ -277,25 +277,49 @@ class PerformanceProjectService:
     async def preview_people(self, cycle: PerformanceCycle, settings: dict[str, Any], *, group_index: int | None = None, project_id: int | None = None, exclude_occupied: bool = True) -> tuple[list[Any], list[Any], list[Any]]:
         _, people = await self._cycle_snapshot_people(cycle)
         task_people, report_only = self._classify_people(people, settings, cycle, group_index=group_index)
-        candidate_numbers = [person.employee_no for person in [*task_people, *report_only]]
-        if exclude_occupied and candidate_numbers:
-            occupied_statement = (
-                select(PerformanceProjectMember.employee_no)
-                .join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id)
-                .join(PerformanceProject, PerformanceProject.id == PerformanceProjectMemberSnapshot.project_id)
-                .where(
-                    PerformanceProject.cycle_ref == cycle.cycle_ref,
-                    PerformanceProject.status == PROJECT_STATUS_STARTED,
-                    PerformanceProjectMember.employee_no.in_(candidate_numbers),
-                )
-            )
-            if project_id is not None:
-                occupied_statement = occupied_statement.where(PerformanceProject.id != project_id)
-            occupied = set((await self.db.execute(occupied_statement)).scalars().all())
+        if exclude_occupied:
+            occupied = await self.occupied_employee_nos(cycle.cycle_ref, [person.employee_no for person in [*task_people, *report_only]], project_id=project_id)
             task_people = [person for person in task_people if person.employee_no not in occupied]
             report_only = [person for person in report_only if person.employee_no not in occupied]
         matched = sorted([*task_people, *report_only], key=lambda person: (person.display_name, person.employee_no))
         return matched, task_people, report_only
+
+    async def occupied_employee_nos(self, cycle_ref, employee_nos, *, project_id=None):
+        if not employee_nos:
+            return set()
+        statement = (
+            select(PerformanceProjectMember.employee_no)
+            .join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id)
+            .join(PerformanceProject, PerformanceProject.id == PerformanceProjectMemberSnapshot.project_id)
+            .where(
+                PerformanceProject.cycle_ref == cycle_ref,
+                PerformanceProject.status.in_([PROJECT_STATUS_STARTED, "ARCHIVED"]),
+                PerformanceProjectMember.employee_no.in_(employee_nos),
+            )
+        )
+        if project_id is not None:
+            statement = statement.where(PerformanceProject.id != project_id)
+        return set((await self.db.execute(statement)).scalars().all())
+
+    async def evaluator_conflicts(self, cycle, settings, *, project_id=None):
+        settings = {**settings,
+                    "evaluator_rules": self._validate_rules(settings.get("evaluator_rules")),
+                    "scope_rules": self._validate_scope_rules(settings.get("scope_rules"))}
+        matched, _tasks, report_only = await self.preview_people(cycle, settings, project_id=project_id, exclude_occupied=False)
+        occupied = await self.occupied_employee_nos(cycle.cycle_ref, [person.employee_no for person in matched], project_id=project_id)
+        people = {person.employee_no: person for person in matched if person.employee_no in occupied}
+        conflicts = sorted(people.values(), key=lambda person: (person.display_name, person.employee_no))
+        return conflicts, {person.employee_no for person in report_only if person.employee_no in occupied}
+
+    async def _validate_draft_conflicts(self, cycle_ref, settings, *, project_id=None):
+        cycle = await self.db.scalar(select(PerformanceCycle).where(
+            PerformanceCycle.cycle_ref == cycle_ref,
+        ).with_for_update().execution_options(populate_existing=True))
+        if cycle is None:
+            raise ProjectValidationError("绩效周期不存在")
+        conflicts, _reports = await self.evaluator_conflicts(cycle, settings, project_id=project_id)
+        if conflicts:
+            raise ProjectValidationError(f"有 {len(conflicts)} 名被评估人已参加本周期其他项目，请先排除重复人员后保存")
 
     @classmethod
     def adjust_evaluator_rules(cls, rules, *, include=(), exclude=()):
@@ -1088,6 +1112,8 @@ class PerformanceProjectService:
         await self.validate_template(cycle_ref, settings.get("template_id"))
         await self._validate_distribution_template_options(settings.get("template_id"), settings["flow_settings"])
         await self._validate_manual_opening_policy(settings["flow_settings"])
+        if settings.get("evaluator_rules", {}).get("groups") or payload.get("configuration_completed") is not None:
+            await self._validate_draft_conflicts(cycle_ref, settings)
         project = PerformanceProject(
             project_ref=f"project:{uuid4().hex}",
             cycle_ref=cycle_ref,
@@ -1134,6 +1160,12 @@ class PerformanceProjectService:
             if project.status == PROJECT_STATUS_STARTED:
                 raise ProjectValidationError("已启动项目不能更换绩效模板")
             await self.validate_template(project.cycle_ref, settings.get("template_id"))
+        audience_keys = ("evaluator_rules", "scope_rules", "scope_limited", "scope_employee_nos")
+        if project.status == PROJECT_STATUS_DRAFT and (
+            any(key in payload and settings.get(key) != (project.settings or {}).get(key) for key in audience_keys)
+            or payload.get("configuration_completed") is not None
+        ):
+            await self._validate_draft_conflicts(project.cycle_ref, settings, project_id=project.id)
         await self._validate_distribution_template_options(settings.get("template_id"), settings["flow_settings"])
         await self._validate_manual_opening_policy(settings["flow_settings"], project.settings or {})
         self._validate_schedule(project.status, old_flow, settings["flow_settings"])
@@ -1455,19 +1487,9 @@ class PerformanceProjectService:
         selected = sorted([*task_people, *report_only], key=lambda person: (getattr(person, "display_name", ""), person.employee_no))
         if not selected:
             raise ProjectValidationError("项目没有可用的被评估人")
-        owned_elsewhere = await self.db.scalar(
-            select(PerformanceProjectMember.employee_no)
-            .join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id)
-            .join(PerformanceProject, PerformanceProject.id == PerformanceProjectMemberSnapshot.project_id)
-            .where(
-                PerformanceProject.cycle_ref == project.cycle_ref,
-                PerformanceProject.id != project.id,
-                PerformanceProject.status == PROJECT_STATUS_STARTED,
-                PerformanceProjectMember.employee_no.in_([person.employee_no for person in selected]),
-            ).limit(1)
-        )
+        owned_elsewhere = await self.occupied_employee_nos(project.cycle_ref, [person.employee_no for person in selected], project_id=project.id)
         if owned_elsewhere:
-            raise ProjectValidationError(f"被评估人 {owned_elsewhere} 已参加本周期其他项目")
+            raise ProjectValidationError(f"被评估人 {sorted(owned_elsewhere)[0]} 已参加本周期其他项目")
         workflow = None
         template_id = (project.settings or {}).get("template_id")
         if template_id:

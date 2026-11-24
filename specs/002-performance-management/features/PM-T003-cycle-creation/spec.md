@@ -6,6 +6,15 @@
 - 前置规格：Spec 002、PM-001、PM-T002 绩效后台入口与设置壳
 - 需求边界：本规格覆盖周期创建、周期详情外层页面和项目列表 UI 壳；项目具体配置与业务操作另行确认
 
+## 2026-11-24 被评估人重复检查与排除（PM-T003-I07-F05）
+
+用户明确授权完成REA已确认交互及全局token统一。此节覆盖旧基线“员工可以参与多个项目”在同周期绩效评估范围内的含义，不新增项目评价权重算法。
+
+- 同一工号在同周期只能参与一个实际项目。占用集合为其他STARTED/ARCHIVED项目实际成员（含仅报表人员），排除当前项目；DRAFT规则不预占名额。候选匹配使用周期人员快照和当前草稿限定范围，不回退实时花名册，不通过提示泄露其他项目详情。
+- 新增三个只读POST：`/performance/cycles/{id}/evaluator-conflicts`返回`{total}`；`/evaluator-conflicts/people`返回既有人员分页DTO、支持姓名/工号搜索；`/evaluator-conflicts/exclude`返回`{evaluator_rules, excluded_count, people:[{value,label}]}`。请求复用EvaluatorPreviewPayload，按当前完整规则计算，不受group_index/list_kind影响。携带project_id须属于周期且有manage权限；不携带时仅周期管理员可用。已启动/结束项目不得通过这些接口改范围，返回409/PROJECT_AUDIENCE_LOCKED；缺快照/规则非法422，权限403。
+- exclude重算完整重复集合，复用adjust_evaluator_rules，在每个OR组内部追加/合并去重员工exclude，保留原条件；不落库、不删除成员、不改任务/快照、不通知。正式保存沿项目PATCH；规则范围变更/显式配置完成锁周期重验，仍有重复返回422，不得靠绕过前端跳过。启动/加人复用统一占用查询和已有周期锁。
+- 提示加载/失败/重试/旧响应失效、蓝色人数独立名单provider、移除禁用、下一步门禁及全局token详见ui-interaction同日期条款。无迁移、生产操作或新信息架构；真实PostgreSQL并发及鉴权API→数据库验收单独记录。
+
 ## 2026-11-21 锁定规则与项目名单调整修订（PM-T003-I03）
 
 用户在REA评估后明确要求完成UI及业务对齐，并明确自动移出与手动删除一致：清除该人在当前项目本周期的评估数据、保留审计。本节覆盖下文旧“锁前仅周期名单同步”“项目一律锁后启动”的冲突条款；不扩大项目管理员对周期全局快照的权限。
