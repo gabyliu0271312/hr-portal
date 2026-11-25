@@ -63,7 +63,7 @@ watch(() => props.cycleId, () => {
 
 <template>
   <div class="department-panel">
-    <UiSurface class="department-surface">
+    <UiSurface class="department-surface" min-width="0">
       <div class="department-toolbar">
         <PerformanceSearchInput v-model="keyword" placeholder="搜索部门名称" @search="onSearch" @clear="onSearch" />
       </div>
@@ -109,9 +109,13 @@ watch(() => props.cycleId, () => {
 .department-panel {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
-.department-surface { margin-bottom: 12px; }
+.department-surface { flex: 0 0 auto; margin-bottom: 12px; }
 .department-toolbar {
   display: flex;
   align-items: center;
@@ -122,6 +126,8 @@ watch(() => props.cycleId, () => {
 .department-action-placeholder { color: var(--ui-table-placeholder-color); }
 .department-footer {
   display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: var(--ui-pagination-group-gap);

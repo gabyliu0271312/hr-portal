@@ -1260,7 +1260,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 .metrics label { color: #646a73; }
 .metrics strong { color: #3370ff; font-size: 14px; font-weight: 400; }
 .metric-link { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; line-height: inherit; cursor: pointer; }
-.metric-link:hover { text-decoration: underline; }
+.metric-link:hover { text-decoration: none; }
 .metrics > div:nth-child(3) { min-width: var(--performance-cycle-summary-date-width); }.metrics > div:nth-child(4) { min-width: var(--performance-cycle-summary-created-width); }
 .state-success, .state-error { margin: 0 0 12px; }.state-error { color: #f04438; }
 @media (max-width: 768px) { .metrics { flex-wrap: wrap; } }

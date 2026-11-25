@@ -70,7 +70,7 @@ watch(groupId, () => {
   <UiFullScreenModal :title="`人员组管理`" :show-footer="false" @back="goBack">
     <div class="focus-group-detail-page">
       <p v-if="error" class="focus-group-detail-error" role="alert">{{ error }}</p>
-      <FocusGroupDetailInfo v-if="group" :group="group" :is-project="isProject">
+      <FocusGroupDetailInfo v-if="group" :cycle-id="cycleId" :group="group" :is-project="isProject">
         <template #header-action>
           <UiButton v-if="!loading" variant="secondary" class="focus-group-detail-edit" :disabled="error !== ''" @click="goEdit">编辑</UiButton>
         </template>

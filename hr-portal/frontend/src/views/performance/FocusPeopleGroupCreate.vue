@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { performanceFocusGroupApi, hasCompleteScopeRule, toFeishuScopes } from '@/api/performance'
-import type { PerformanceAudienceGroup, PerformanceEvaluatorOptions, PerformanceHrbpOrganizationNode } from '@/api/performance'
+import type { PerformanceAudienceGroup, PerformanceFocusGroupOptions, PerformanceHrbpOrganizationNode } from '@/api/performance'
 import type { PerformanceSearchSelectOption } from '@/components/performance/PerformanceSearchSelect.vue'
 import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
 import UiButton from '@/components/ui/UiButton.vue'
@@ -49,8 +49,11 @@ const descriptionEn = ref('')
 const nameHasEnglish = ref(false)
 const descriptionHasEnglish = ref(false)
 const followeeIds = ref<string[]>([])
-const followeeOptions = ref<PerformanceSearchSelectOption[]>([])
-const rulePersonOptions = ref<PerformanceSearchSelectOption[]>([])
+const searchOptions = ref<PerformanceSearchSelectOption[]>([])
+const followeeOptions = computed(() => personOptions(followeeIds.value))
+const rulePersonOptions = computed(() => personOptions(scopeGroups.value.flatMap(group => group.conditions
+  .filter(condition => ['employee', 'directLeader', 'superior'].includes(condition.field))
+  .flatMap(condition => condition.values))))
 const viewPermission = ref('1')
 const scopeSettingMode = ref('0')
 const showGroupTag = ref(false)
@@ -60,7 +63,7 @@ const startClock = ref('')
 const endDate = ref('')
 const endClock = ref('')
 const roles = ref({ leader: false, hrbp: false, activity_manager: false })
-const options = ref<PerformanceEvaluatorOptions | null>(null)
+const options = ref<PerformanceFocusGroupOptions | null>(null)
 const loadingOptions = ref(false)
 const apiDocumentUrl = ref('')
 const communicationEnabled = ref(false)
@@ -97,6 +100,17 @@ function setRole(key: keyof typeof roles.value, value: boolean) {
   roles.value[key] = value
 }
 
+function personOptions(selectedValues: string[]) {
+  const selected = new Set(selectedValues)
+  const people = new Map(searchOptions.value.map(person => [person.value, person]))
+  for (const person of options.value?.people || []) {
+    if (selected.has(person.value)) people.set(person.value, {
+      value: person.value, label: person.label, subLabel: person.sub_label || undefined,
+    })
+  }
+  return [...people.values()]
+}
+
 function searchPeople(keyword: string) {
   const query = keyword.trim()
   if (!query || !cycleId.value) return
@@ -106,13 +120,10 @@ function searchPeople(keyword: string) {
     try {
       const result = await performanceFocusGroupApi.searchPeople(cycleId.value!, query)
       if (version !== peopleSearchVersion) return
-      const mapped = result.map(person => ({ value: person.value, label: person.label, subLabel: person.sub_label || undefined }))
-      followeeOptions.value = mapped
-      rulePersonOptions.value = mapped
+      searchOptions.value = result.map(person => ({ value: person.value, label: person.label, subLabel: person.sub_label || undefined }))
     } catch {
       if (version === peopleSearchVersion) {
-        followeeOptions.value = []
-        rulePersonOptions.value = []
+        searchOptions.value = []
       }
     }
   }, 250)
@@ -124,8 +135,6 @@ async function loadOptions() {
   try {
     const loaded = await performanceFocusGroupApi.options(cycleId.value)
     options.value = loaded
-    followeeOptions.value = []
-    rulePersonOptions.value = []
     apiDocumentUrl.value = loaded.api_document_url || ''
     communicationEnabled.value = loaded.communication_enabled
   } catch (error: any) {
@@ -146,7 +155,6 @@ async function loadDetail() {
     descriptionEn.value = group.description['en-US'] || ''
     descriptionHasEnglish.value = Boolean(descriptionEn.value)
     followeeIds.value = group.followee_user_ids
-    followeeOptions.value = group.followee_user_ids.map(value => ({ value, label: value }))
     viewPermission.value = String(group.view_permission === 2 ? 0 : group.view_permission)
     scopeSettingMode.value = String(group.scope_setting_mode)
     showGroupTag.value = group.show_group_tag

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { performanceUserAuthorizationApi, type PerformanceFocusGroup } from '@/api/performance'
+import { performanceFocusGroupApi, type PerformanceFocusGroup } from '@/api/performance'
 import PerformanceFormItem from '@/components/performance/PerformanceFormItem.vue'
 import PerformanceReadOnlySettingRow from '@/components/performance/PerformanceReadOnlySettingRow.vue'
 
 const props = defineProps<{
   group: PerformanceFocusGroup
+  cycleId: number | null
   isProject: boolean
 }>()
 
@@ -30,7 +31,7 @@ const roleLabels: Record<string, string> = {
 
 const nameZh = computed(() => props.group.name)
 const descriptionZh = computed(() => props.group.description?.['zh-CN'] || '')
-const followeeNames = computed(() => props.group.followee_user_ids.map(value => userNames.value[value] || value))
+const followeeNames = computed(() => props.group.followee_user_ids.map(value => userNames.value[value] || '人员信息不可用'))
 const selectedRoles = computed(() => (props.group.roles_of_managing_scope || []).map(role => roleLabels[role] || role))
 const isManualScope = computed(() => props.group.scope_setting_mode === 1)
 const communicateTimeText = computed(() => {
@@ -43,18 +44,21 @@ const communicateTimeText = computed(() => {
 })
 const projectName = computed(() => props.group.activity_names?.join('、') || props.group.project_ref || '--')
 
-watch(() => props.group.followee_user_ids, async ids => {
-  if (!ids?.length) { userNames.value = {}; return }
+watch([() => props.cycleId, () => props.group.followee_user_ids, () => props.isProject], async ([cycleId, ids, isProject], _, onCleanup) => {
+  let cancelled = false
+  onCleanup(() => { cancelled = true })
+  userNames.value = {}
+  loadingUsers.value = false
+  if (!cycleId || isProject || !ids?.length) return
   loadingUsers.value = true
   try {
-    const result = await performanceUserAuthorizationApi.options()
-    const map: Record<string, string> = {}
-    for (const user of result.users) map[user.value] = user.label.replace(/（.+）/g, '')
-    userNames.value = map
+    const result = await performanceFocusGroupApi.options(cycleId)
+    if (cancelled) return
+    userNames.value = Object.fromEntries(result.people.map(person => [person.value, person.label]))
   } catch {
-    userNames.value = {}
+    if (!cancelled) userNames.value = {}
   } finally {
-    loadingUsers.value = false
+    if (!cancelled) loadingUsers.value = false
   }
 }, { immediate: true })
 </script>
@@ -87,7 +91,7 @@ watch(() => props.group.followee_user_ids, async ids => {
         <template v-else>
           <PerformanceFormItem label="关注人">
             <dd class="focus-group-detail-info__value">
-              <template v-if="loadingUsers && !followeeNames.length">…</template>
+              <template v-if="loadingUsers">…</template>
               <template v-else-if="followeeNames.length">{{ followeeNames.join('、') }}</template>
               <template v-else>--</template>
             </dd>

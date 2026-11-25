@@ -70,6 +70,7 @@
   - 部署：仅替换 frontend；镜像 `sha256:82c52f4efb60f52e2b94363b213c0defce46618b1afce009a3e46d69f6ac8f91`，2026-10-15 08:44:19 UTC 启动，HTTP 200，`nginx -t` 通过。I01 整体仍需完整业务验收，不据此勾选。
 
 - [ ] PM-T003-I01 实现周期列表与周期详情
+  - 摘要数字局部修复（2026-11-25）：人员、部门数字 hover 下划线已取消，保留既有路由、蓝色、按钮焦点与 Enter 操作。Chrome 实际页面＋隔离 API 验证两个数字计算样式 `text-decoration-line: none`、部门点击跳转和人员 Enter 跳转通过。与 I03 同轮定向回归共3文件80项通过，完整 `npm --prefix hr-portal/frontend run build`（vue-tsc＋Vite）通过；仅既有 Vue 属性及 VueUse PURE 注释警告。无后端／权限／快照修改，未提交、推送或部署；I01 整体不因本次局部修复勾选。
   - 前置任务：PM-T003 规格与 UI 蓝图确认
   - 功能范围：周期搜索、选择、详情摘要、项目列表 UI 壳、编辑入口、删除入口及按钮状态。
   - 代码交付物：前端页面、路由视图、列表/详情 API 对接。
@@ -102,6 +103,8 @@
   - 完成定义：表单字段、校验、保存和编辑均通过验收。
 
 - [ ] PM-T003-I03 实现周期锁定与周期人员快照
+  - 部门列表滚动局部修复（2026-11-25）：部门面板补齐剩余高度、可收缩高度和纵向 auto 滚动；UiSurface 最小宽度归零，白卡／分页禁止压缩，分页窄屏允许换行。复用现有 UiTable 横向滚动与固定列，不改人员面板、共享 Tabs 和全屏外壳。实际 Chrome＋隔离 API 验证1280×650、1280×900、375×667；每页10/20/50/100条均可通过真实滚轮到达分页，0/1/10条、搜索空态及单条结果、下一页和人员／部门切换通过；窄屏横向滚轮后操作列x保持55px，页面横溢出0、pageerror=0、写请求0。首轮浏览器夹具误拦截源码API模块、后续误用button选择tab导致验收超时，修正夹具及role选择后通过，不计为产品失败。截图位于本机临时目录 `C:/Users/gaby.liu/AppData/Local/Temp/pm-department-scroll-20261125.png`、`pm-department-narrow-20261125.png`，均已查看，不作为持久化仓库附件。当前交互合同见 ui-interaction.md 同日期条目，覆盖历史部门EP表格／600px上限描述。
+  - 定向回归：`npm --prefix hr-portal/frontend run test -- src/views/performance/CycleManagement.spec.ts src/components/performance/PerformanceLineTabs.spec.ts src/components/performance/FullScreenModal.spec.ts` 实际执行2文件76项通过；旧 FullScreenModal 测试路径已不存在，补跑 `npm --prefix hr-portal/frontend run test -- src/components/ui/UiFullScreenModal.spec.ts`，1文件4项通过，共3文件80项。完整 `npm --prefix hr-portal/frontend run build` 通过（vue-tsc＋Vite），保留既有Vue属性／VueUse PURE注释警告；`git -c core.whitespace=cr-at-eol diff --check`通过。本轮无后端／数据库迁移／权限／快照改动，真实后端及生产验收未执行，未提交／推送／部署；I03整体仍保持未勾选。
   - 前置任务：PM-T003-I02
   - 功能范围：立即锁定、定时锁定、周期级手动/自动名单规则、锁定执行和快照展示。
   - 代码交付物：锁定业务服务、定时执行器、快照写入和状态查询。
@@ -304,7 +307,10 @@
   - Non-scope：人员身份/权限/历史快照变更、全系统其他业务重构、生产回填、commit/push/deploy。
   - Evidence（2026-11-09本地）：共享SearchSelect/PersonSelect、AudienceRuleEditor、RevieweeAddDialog、ProjectSettingsPage、ProjectFlowSettings、HRBP、IdentitySwitch、MultiExecutor、CalibrationConditionGroup及人员组相关11文件169 passed。包含真实条件编辑器STARTED只读姓名回显、旧姓名（工号）兼容、工号搜索/提交、重复姓名不同value、候选替换后保留姓名及历史管理员姓名回显。后端evaluator_options与历史校准时间/添加回归20 passed，1项python_multipart弃用警告。npm.cmd --prefix hr-portal/frontend run build → vue-tsc+Vite exit0，仅既有VueUse PURE注释警告。
   - 校准选人回归修复（2026-11-18，本轮用户授权）：允许补改 `PerformanceCalibrationRuleDrawer.vue` 的校准人 `open-options` 转发，项目设置页预加载判断覆盖全部校准阶段/规则的 `subject_groups`、`scope_groups` 非空员工条件；复用 `loadEvaluatorOptions` 和周期快照接口，不修改后端/API/权限/历史数据，不新增组件或脚本。既有 `PerformanceProjectSettingsPage.spec.ts` 新增4项完整页面组件回归：首次打开调用人员API并选择姓名/复用缓存、失败重开重试并保留描述、后续阶段及条件组的校准人/范围保存重开姓名回显、全程不自动PATCH。修复前4项均因接口0调用失败，修复后4项通过；`npm.cmd test -- src/views/performance/PerformanceProjectSettingsPage.spec.ts src/components/performance/PerformanceCalibrationConditionGroup.spec.ts src/components/performance/PerformanceProjectFlowSettings.spec.ts src/components/performance/PerformanceSearchSelect.spec.ts` → 4文件124 passed。`npm.cmd run build` → vue-tsc及Vite生产构建通过（3769模块，Vite 41.67s），仅既有VueUse PURE注释警告；`git -c core.whitespace=cr-at-eol diff --check` 本次5文件通过。UI结构/Token不变，已读Spec012 UI门禁且无新增禁止项；不以组件模拟API当作真实鉴权或生产验收。
-  - Not-run/Definition of done：尚未完成真实登录API/数据库/浏览器PNG验收，整卡保持未勾选；无生产写入/迁移，未commit/push/deploy。
+  - 人员组重开补修（2026-11-25，本轮用户明确授权）：允许精确修改 `frontend/src/views/performance/FocusPeopleGroupCreate.vue`、`FocusGroupManagementDetail.vue`、`components/performance/focus-group/FocusGroupDetailInfo.vue` 及既有 `FocusPeopleGroupCreate.spec.ts`、本任务与ui-interaction。入口为后台周期与项目→设置→人员组新建/编辑/详情，复用现有focus-groups/options周期快照与PersonSelect；无新组件/脚本/报告/测试文档、新API/DTO/权限/迁移/生产操作，不改共享选择器或后端。成功为两种加载顺序及保存销毁重开后显示姓名、提交原工号；缺名/接口失败提示不可用但保留规则，空输入无候选，详情旧请求失效。回退仅撤销本卡前端增量，不改历史数据；保留并行CycleManagement/PerformanceDepartmentListPanel修改。
+  - 本轮证据：既有FocusPeopleGroupCreate.spec.ts新增8项（总18项），含真实人员选择器/规则编辑器的options先回与detail先回、创建→销毁→重开、同名不同工号、搜索替换/失败、缺失人员、选项失败、真实详情父页周期传参、周期切换旧响应、空关注人和项目版跳过姓名请求。`npm.cmd --prefix hr-portal/frontend test -- src/views/performance/FocusPeopleGroupCreate.spec.ts src/components/performance/PerformanceSearchSelect.spec.ts src/components/performance/PerformanceAudienceRuleEditor.spec.ts src/components/performance/focus-group/FocusGroupMembersPanel.spec.ts --silent --maxWorkers=2 --minWorkers=1` → 4文件69 passed，exit0；首轮5项失败为测试把字段/操作符标签混入姓名断言，修正取值范围后全量复跑通过。`npm.cmd --prefix hr-portal/frontend run build` → vue-tsc及Vite exit0，3860模块，仅既有VueUse PURE注释警告。
+  - 本轮UI：localhost:5173实际Vue+隔离API验证编辑→保存PATCH→详情→再次编辑、关注人及三类人员条件快照姓名、空关键词候选0、工号payload不变，pageerror0；独立实现图 `../../ui-blueprints/PM-T003-I07-F07-focus-group-reopen-names-implemented.png` 已查看。浏览器入口曾因不同Vite版本查询串导致Vue实例不一致，统一依赖地址后复验通过；没有创建驱动脚本文件。真实业务鉴权API/PostgreSQL持久化/生产未运行，不以隔离数据替代；主卡不勾选，不commit/push/deploy。
+  - Not-run/Definition of done：真实登录API/业务数据库验收仍未完成；本轮隔离API浏览器PNG已取得并查看，整卡保持未勾选。无生产写入/迁移，未commit/push/deploy。
 
 - [ ] PM-T003-I07-F03 被评估人人数统计与人员预览
   - Goal/Type：在项目信息被评估人区域展示真实总人数、任务人数、仅报表离职人数及每组人数，并复用去催办人员弹层查看明细；既有 UI/API/快照增强。
