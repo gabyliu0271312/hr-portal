@@ -1816,6 +1816,8 @@ class PerformanceProjectService:
             "description": project.description,
             "administrators": list(project.administrators or []),
             **(payload or {}),
+            "evaluator_rules": {"groups": []},
+            "configuration_completed": False,
         }
         name, description, administrators, settings = self._validate_payload(values, source_settings)
         await self.validate_template(cycle_ref, settings.get("template_id"))

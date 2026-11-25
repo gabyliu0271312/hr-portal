@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, shallowRef, watch } from 'vue'
 import { employeeSwitchEpoch, employeeSwitchSession } from './identitySwitch'
 import { getToken } from '@/api/client'
-import { performanceNavigationApi, clearPerformanceInFlightRequests, type ProjectManagementOverview, type ProjectManagementDepartmentCompletion, type PerformanceCycleNavigationItem, type PerformanceNavigationContext, type PerformanceReviewOverview, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup, type PerformanceWorkbenchTimelineNode } from '@/api/performance'
+import { performanceNavigationApi, clearPerformanceInFlightRequests, type ProjectManagementOverview, type ProjectManagementDepartmentCompletion, type PerformanceCycleNavigationItem, type PerformanceNavigationContext, type PerformanceProjectPayload, type PerformanceReviewOverview, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup, type PerformanceWorkbenchTimelineNode } from '@/api/performance'
 
 const STORAGE_KEY = 'performance.active-cycle-id'
 
@@ -65,8 +65,18 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
     return cached && cached.expiresAt > Date.now() && cached.key === managementReturnKey(cycleId, role, projectId) ? cached.value : null
   }
   function clearManagementReturn() { managementReturn = null }
+  let projectCopyAudience: { key: string; rules: NonNullable<PerformanceProjectPayload['evaluator_rules']> } | null = null
+  function saveProjectCopyAudience(cycleId: number, projectId: number, rules: NonNullable<PerformanceProjectPayload['evaluator_rules']>) {
+    projectCopyAudience = { key: managementReturnKey(cycleId, 'project-copy', projectId), rules: JSON.parse(JSON.stringify(rules)) }
+  }
+  function takeProjectCopyAudience(cycleId: number, projectId: number) {
+    const cached = projectCopyAudience
+    projectCopyAudience = null
+    return cached?.key === managementReturnKey(cycleId, 'project-copy', projectId) ? cached.rules : null
+  }
   function invalidate() {
     clearManagementReturn()
+    projectCopyAudience = null
     clearPerformanceInFlightRequests()
     cacheVersion.value += 1
     drawerDetails.clear()
@@ -203,6 +213,8 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
     workbenchSnapshots.value = {}
   }
   return {
+    saveProjectCopyAudience,
+    takeProjectCopyAudience,
     saveManagementReturn,
     takeManagementReturn,
     clearManagementReturn,

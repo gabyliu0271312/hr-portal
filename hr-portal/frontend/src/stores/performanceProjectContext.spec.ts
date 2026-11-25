@@ -43,6 +43,28 @@ describe('performance cycle context', () => {
     expect(store.takeManagementReturn(1, 'hrbp', 3)).toBeNull()
   })
 
+  it('consumes copied audience once and isolates project, cycle and identity', () => {
+    const store = usePerformanceProjectContextStore()
+    const rules = { groups: [{ conditions: [{ field: 'employee' as const, operator: 'include' as const, values: ['E1'] }] }] }
+    store.saveProjectCopyAudience(1, 2, rules)
+    rules.groups[0].conditions[0].values.push('E2')
+    expect(store.takeProjectCopyAudience(1, 2)?.groups[0].conditions[0].values).toEqual(['E1'])
+    expect(store.takeProjectCopyAudience(1, 2)).toBeNull()
+    store.saveProjectCopyAudience(1, 2, rules)
+    expect(store.takeProjectCopyAudience(2, 2)).toBeNull()
+    store.saveProjectCopyAudience(1, 2, rules)
+    expect(store.takeProjectCopyAudience(1, 3)).toBeNull()
+    store.saveProjectCopyAudience(1, 2, rules)
+    clearEmployeeSwitch()
+    expect(store.takeProjectCopyAudience(1, 2)).toBeNull()
+    store.saveProjectCopyAudience(1, 2, rules)
+    localStorage.setItem('hr_portal.token', 'another-login')
+    expect(store.takeProjectCopyAudience(1, 2)).toBeNull()
+    store.saveProjectCopyAudience(1, 2, rules)
+    store.invalidate()
+    expect(store.takeProjectCopyAudience(1, 2)).toBeNull()
+  })
+
   it('persists the shared cycle instead of a page-specific project', () => {
     const store = usePerformanceProjectContextStore()
     store.setNavigation(context(2))

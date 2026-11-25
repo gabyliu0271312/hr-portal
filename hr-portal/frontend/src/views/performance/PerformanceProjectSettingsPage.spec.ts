@@ -1,5 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(), listTemplates: vi.fn(), getTemplateWorkflow: vi.fn(), push: vi.fn(), leaveGuard: vi.fn(), success: vi.fn(),
@@ -51,6 +53,7 @@ function button(wrapper: ReturnType<typeof page>, label: string) {
 }
 
 beforeEach(() => {
+  setActivePinia(createPinia())
   Object.values(mocks).forEach(mock => mock.mockReset())
   mocks.get.mockResolvedValue({
     id: 2, name: '新疆项目', description: '', administrators: [], data_managers: ['HRBP'], template_id: null,
@@ -72,6 +75,143 @@ beforeEach(() => {
     organization_tree: [],
     people: [{ value: 'E001', label: '张三（E001）' }, { value: 'E002', label: '李四（E002）' }],
     employee_types: [],
+  })
+})
+
+describe('copied project configuration', () => {
+  const rules = { groups: [{ conditions: [{ field: 'employee' as const, operator: 'include' as const, values: ['E1'] }] }] }
+
+  async function copiedProject() {
+    const project = { ...await mocks.get(), template_id: 11, configuration_completed: false, evaluator_rules: { groups: [] } }
+    mocks.get.mockResolvedValue(project)
+    usePerformanceProjectContextStore().saveProjectCopyAudience(1, 2, rules)
+    return project
+  }
+
+  it('discards conflicting one-time prefill on leave and reopens the empty saved audience', async () => {
+    await copiedProject()
+    mocks.evaluatorConflicts.mockResolvedValue({ total: 1 })
+    const wrapper = page()
+    await flushPromises()
+    expect(wrapper.get('.project-status-badge').text()).toBe('待完成配置')
+    expect(wrapper.getComponent(PerformanceAudienceRuleEditor).props('modelValue')).toEqual(rules.groups)
+    await button(wrapper, '下一步').trigger('click')
+    await flushPromises()
+    expect(mocks.update).not.toHaveBeenCalled()
+    await button(wrapper, '返回').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('修改尚未保存，确定离开此页面吗？')
+    await button(wrapper, '离开').trigger('click')
+    await flushPromises()
+    expect(mocks.push).toHaveBeenCalledWith({ name: 'PerformanceCycles' })
+    wrapper.unmount()
+
+    const reopened = page()
+    await flushPromises()
+    const groups = reopened.getComponent(PerformanceAudienceRuleEditor).props('modelValue')
+    expect(groups.every((group: any) => group.conditions.every((condition: any) => !condition.field && !condition.values.length))).toBe(true)
+    expect(reopened.get('.project-status-badge').text()).toBe('待完成配置')
+    expect(mocks.update).not.toHaveBeenCalled()
+    reopened.unmount()
+  })
+
+  it('persists unchanged copied rules on next and retains them when reopened', async () => {
+    const project = await copiedProject()
+    mocks.update.mockImplementation(async (_id, patch) => {
+      const saved = { ...project, ...patch }
+      mocks.get.mockResolvedValue(saved)
+      return saved
+    })
+    const wrapper = page()
+    await flushPromises()
+    await button(wrapper, '下一步').trigger('click')
+    await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(2, expect.objectContaining({ evaluator_rules: rules }))
+    expect(wrapper.get('.project-status-badge').text()).toBe('待完成配置')
+    await button(wrapper, '返回').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('修改尚未保存，确定离开此页面吗？')
+    wrapper.unmount()
+    const reopened = page()
+    await flushPromises()
+    expect(reopened.getComponent(PerformanceAudienceRuleEditor).props('modelValue')).toEqual(rules.groups)
+    reopened.unmount()
+  })
+
+  it('keeps copied rules unsaved after a failed save and allows retry', async () => {
+    const project = await copiedProject()
+    mocks.update.mockRejectedValueOnce(new Error('network')).mockResolvedValueOnce({ ...project, evaluator_rules: rules })
+    const wrapper = page()
+    await flushPromises()
+    await button(wrapper, '下一步').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('#project-info-title').exists()).toBe(true)
+    expect(wrapper.getComponent(PerformanceAudienceRuleEditor).props('modelValue')).toEqual(rules.groups)
+    await button(wrapper, '下一步').trigger('click')
+    await flushPromises()
+    expect(mocks.update).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('#project-info-title').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps the unsaved copied audience when basic information is saved independently', async () => {
+    const project = await copiedProject()
+    mocks.update.mockImplementation(async (_id, patch) => {
+      const saved = { ...project, ...patch }
+      mocks.get.mockResolvedValue(saved)
+      return saved
+    })
+    const wrapper = page()
+    await flushPromises()
+    await wrapper.get('[aria-label="编辑基本信息"]').trigger('click')
+    wrapper.getComponent(PerformanceProjectDialog).vm.$emit('submit', { name: '新的副本名称' })
+    await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(2, { name: '新的副本名称' })
+    expect(wrapper.getComponent(PerformanceAudienceRuleEditor).props('modelValue')).toEqual(rules.groups)
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    expect(mocks.update).toHaveBeenLastCalledWith(2, expect.objectContaining({ evaluator_rules: rules }))
+    wrapper.unmount()
+  })
+
+  it('switches to ready only after successful final completion and reopens ready', async () => {
+    const project = await copiedProject()
+    const flow_settings = {
+      node_settings: { result: { result_view: { automatic_enabled: true, manual_enabled: false, automatic_rule: 'PREVIOUS_AND_START' } } },
+      node_times: { result: { start_at: '2099-01-01T01:00:00Z', end_at: '2099-01-03T01:00:00Z', appeal_deadline: '2099-01-02T01:00:00Z' } },
+    }
+    let saved = { ...project, flow_settings }
+    mocks.get.mockImplementation(async () => saved)
+    mocks.update.mockImplementation(async (_id, patch) => { saved = { ...saved, ...patch }; return saved })
+    mocks.getTemplateWorkflow.mockResolvedValue({ nodes: [{ node_id: 'result', node_type: 'result_view', name: '结果查看', order: 1 }] })
+    const wrapper = page(false, true)
+    await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    expect(wrapper.get('.project-status-badge').text()).toBe('待完成配置')
+    mocks.update.mockRejectedValueOnce(new Error('network'))
+    await button(wrapper, '完成').trigger('click'); await flushPromises()
+    expect(wrapper.get('.project-status-badge').text()).toBe('待完成配置')
+    expect(mocks.push).not.toHaveBeenCalled()
+    await button(wrapper, '完成').trigger('click'); await flushPromises()
+    expect(mocks.update).toHaveBeenLastCalledWith(2, expect.objectContaining({ configuration_completed: true }))
+    expect(wrapper.get('.project-status-badge').text()).toBe('待启动')
+    expect(mocks.push).toHaveBeenCalledWith({ name: 'PerformanceCycles' })
+    wrapper.unmount()
+    const reopened = page()
+    await flushPromises()
+    expect(reopened.get('.project-status-badge').text()).toBe('待启动')
+    expect(reopened.getComponent(PerformanceAudienceRuleEditor).props('modelValue')).toEqual(rules.groups)
+    reopened.unmount()
+  })
+
+  it.each([
+    [false, '待完成配置'], [undefined, '待完成配置'], [true, '待启动'],
+  ])('shows the draft completion state %s as %s', async (configuration_completed, label) => {
+    mocks.get.mockResolvedValue({ ...await mocks.get(), configuration_completed })
+    const wrapper = page()
+    await flushPromises()
+    expect(wrapper.get('.project-status-badge').text()).toBe(label)
+    wrapper.unmount()
   })
 })
 

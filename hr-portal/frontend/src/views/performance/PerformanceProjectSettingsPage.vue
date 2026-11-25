@@ -139,6 +139,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceFormItem from '@/components/performance/PerformanceFormItem.vue'
 import UiPageHeader from '@/components/ui/UiPageHeader.vue'
@@ -180,6 +181,8 @@ const audiencePreviewTotal = ref(0)
 const savedView = ref(false); const currentStep = ref(0); const saving = ref(false); const notice = ref(''); const validationError = ref(''); const templateLoading = ref(false); const templates = ref<PerformanceProjectTemplate[]>([]); const basicDialogOpen = ref(false); const basicDialogSaving = ref(false); const basicDialogProject = ref<PerformanceCycleProjectShell | null>(null)
 const templateError = ref('')
 const workflowNodes = ref<PerformanceWorkflowNode[]>([]); const distributionAssessmentOptions = ref<PerformanceDistributionAssessmentOption[]>([]); const flowLoading = ref(false); const flowError = ref(''); const openingError = ref(false); const evaluatedCount = ref(0); const projectStatus = ref('DRAFT'); const savedNodeTimeKeys = ref(new Set<string>()); const manualResultOpeningEnabled = ref(true); const manualOpeningSettingLoaded = ref(false); const manualOpeningError = ref('')
+const configurationCompleted = ref(false)
+const copyAudience = cycleId.value && projectId.value ? usePerformanceProjectContextStore().takeProjectCopyAudience(cycleId.value, projectId.value) : null
 const rawBaseline = ref<PerformanceProjectPayload | null>(null)
 const displayBaseline = ref<PerformanceProjectPayload | null>(null)
 const editingPolicy = ref<ProjectSettingsResponse['editing_policy']>()
@@ -209,7 +212,7 @@ const conflicts = usePerformanceAudienceConflicts(() => cycleId.value && form.te
 function updateAudienceGroups(groups: typeof form.evaluator_rules.groups) {
   if (!saving.value && !audienceLocked.value && !conflicts.removing.value && !checkingNext.value) form.evaluator_rules.groups = groups
 }
-const savedStatusLabel = computed(() => projectStatus.value === 'STARTED' ? '已启动' : projectStatus.value === 'ARCHIVED' ? '已结束' : '待启动')
+const savedStatusLabel = computed(() => projectStatus.value === 'STARTED' ? '已启动' : projectStatus.value === 'ARCHIVED' ? '已结束' : configurationCompleted.value ? '待启动' : '待完成配置')
 const audiencePreviewTitle = computed(() => audiencePreviewKind.value === 'conflicts' ? '重复参与绩效评估的员工' : audiencePreviewGroup.value == null ? '符合条件的员工' : `范围 ${audiencePreviewGroup.value + 1} 符合条件的员工`)
 const audiencePreviewDescription = computed(() => `${audiencePreviewKind.value === 'conflicts' ? '已在本周期其他项目参与绩效评估' : audiencePreviewKind.value === 'task' ? '生成评估任务并纳入报表统计' : audiencePreviewKind.value === 'report_only' ? '不生成评估任务，仅纳入报表统计' : '符合当前筛选条件'}，共计 ${audiencePreviewTotal.value} 人`)
 const audiencePreviewContext = computed(() => ({ projectId: projectId.value || 0, cycleId: cycleId.value || 0, nodeId: 'evaluator-preview', nodeType: 'preview', reviewType: 'evaluator_preview', title: audiencePreviewTitle.value, sectionTitle: audiencePreviewTitle.value }))
@@ -228,10 +231,12 @@ async function saveBasicInfo(value: PerformanceProjectPayload) {
   basicDialogSaving.value = true
   try {
     await performanceProjectApi.update(projectId.value, patch)
+    const pendingAudience = !projectSettingsEqual(displayBaseline.value?.evaluator_rules, payload().evaluator_rules) ? JSON.parse(JSON.stringify(form.evaluator_rules)) : null
     basicDialogOpen.value = false
     await loadProject()
     if (workflowNodes.value.length) initializeProjectFlow(workflowNodes.value, form.flow_settings)
     displayBaseline.value = JSON.parse(JSON.stringify(payload()))
+    if (pendingAudience) form.evaluator_rules = pendingAudience
   } catch (error: any) { notice.value = error?.response?.data?.detail?.message || error?.response?.data?.detail || '基本信息保存失败' }
   finally { basicDialogSaving.value = false }
 }
@@ -387,11 +392,12 @@ async function loadProject() {
     form.name = project.name; form.description = project.description || ''; form.administrators = [...project.administrators]
     form.template_id = project.template_id; form.start_at = toInputTime(project.start_at); form.end_at = toInputTime(project.end_at)
     evaluatedCount.value = project.evaluated_count; projectStatus.value = project.status
+    configurationCompleted.value = project.configuration_completed === true
     const savedFlow = JSON.parse(JSON.stringify(project.flow_settings || { node_settings: {}, node_times: {} }))
     savedFlow.node_settings ||= {}; savedFlow.node_times ||= {}
     form.flow_settings = { ...savedFlow, node_times: toLocalNodeTimes(savedFlow.node_times) }
     savedNodeTimeKeys.value = new Set(Object.keys(form.flow_settings.node_times))
-    if (project.evaluator_rules?.groups?.length) form.evaluator_rules = JSON.parse(JSON.stringify(project.evaluator_rules))
+    form.evaluator_rules = JSON.parse(JSON.stringify(project.evaluator_rules?.groups?.length ? project.evaluator_rules : { groups: [{ conditions: [{ field: '', operator: 'include', values: [] }] }] }))
     rawBaseline.value = { ...payload(), flow_settings: savedFlow }
     displayBaseline.value = JSON.parse(JSON.stringify(payload()))
     editingPolicy.value = project.editing_policy; calibrationBaseDigest.value = project.calibration_base_digest
@@ -436,6 +442,8 @@ async function saveDraft(finalize = false) {
   saving.value = true
   try {
     const project: ProjectSettingsResponse | undefined = await performanceProjectApi.update(projectId.value, patch)
+    if (project?.configuration_completed !== undefined) configurationCompleted.value = project.configuration_completed
+    else if (patch.configuration_completed !== undefined) configurationCompleted.value = patch.configuration_completed
     rawBaseline.value = { ...rawBaseline.value, ...patch }
     displayBaseline.value = JSON.parse(JSON.stringify(current))
     if (patch.flow_settings) flowSaved(project || {} as ProjectSettingsResponse, patch.flow_settings)
@@ -497,7 +505,20 @@ onBeforeRouteLeave((to) => {
   leaveConfirmOpen.value = true
   return false
 })
-onMounted(async () => { document.body.style.overflow = 'hidden'; window.addEventListener('beforeunload', warnUnsaved); await Promise.all([loadManualOpeningSetting(), loadTemplates()]); await loadProject(); await loadTemplateWorkflow(); displayBaseline.value = JSON.parse(JSON.stringify(payload())) })
+onMounted(async () => {
+  document.body.style.overflow = 'hidden'
+  window.addEventListener('beforeunload', warnUnsaved)
+  await Promise.all([loadManualOpeningSetting(), loadTemplates()])
+  await loadProject()
+  await loadTemplateWorkflow()
+  displayBaseline.value = JSON.parse(JSON.stringify(payload()))
+  if (copyAudience?.groups.length && !audienceLocked.value && !basicDialogProject.value?.evaluator_rules?.groups?.length && displayBaseline.value) {
+    form.evaluator_rules = JSON.parse(JSON.stringify(copyAudience))
+    await loadEvaluatorOptions()
+    await loadAudiencePreview()
+    if (previewRulesValid()) void conflicts.check()
+  }
+})
 onBeforeUnmount(() => { ++previewRevision; if (previewTimer) clearTimeout(previewTimer); window.removeEventListener('beforeunload', warnUnsaved); document.body.style.overflow = '' })
 </script>
 

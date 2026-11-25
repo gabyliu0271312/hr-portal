@@ -2591,7 +2591,12 @@ def test_project_scope_permissions_are_limited_to_granted_project():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("with_payload", [False, True])
-async def test_copy_project_preserves_configuration_and_resets_history_in_one_commit(with_payload):
+@pytest.mark.parametrize("audience_payload", [
+    {},
+    {"evaluator_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["E2"]}]}]}, "configuration_completed": True},
+    {"evaluator_rules": {"groups": "invalid"}, "configuration_completed": True},
+])
+async def test_copy_project_preserves_configuration_and_resets_history_in_one_commit(with_payload, audience_payload):
     from copy import deepcopy
     from unittest.mock import AsyncMock, Mock
     from app.performance.models import PerformanceProject
@@ -2606,6 +2611,8 @@ async def test_copy_project_preserves_configuration_and_resets_history_in_one_co
         "evaluator_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["E1"]}]}]},
         "flow_settings": {"node_settings": {"summary": {"work_summary": {"review_enabled": True}}}, "node_times": {"summary": {"start_at": "2026-01-01T00:00:00Z", "end_at": "2026-01-02T00:00:00Z"}}},
         "extra_configuration": {"values": ["keep"]},
+        "configuration_completed": True,
+        "comparison_rules_snapshot": {"version": 1, "rules": []},
         "anonymous_360_snapshot": {"version": 1, "config": {"enable": True, "anonymous_object": "all"}},
     })
     before = deepcopy(source.settings)
@@ -2615,6 +2622,9 @@ async def test_copy_project_preserves_configuration_and_resets_history_in_one_co
     service.validate_template = AsyncMock()
     service._validate_distribution_template_options = AsyncMock()
     payload = {"name": "复制名称", "description": None, "administrators": ["E2", "E2"], "data_managers": ["PROJECT_ADMIN"], "scope_limited": False, "scope_rules": {"groups": []}} if with_payload else None
+    if audience_payload:
+        payload = {**(payload or {}), **deepcopy(audience_payload)}
+    payload_before = deepcopy(payload)
     copied = await service.copy_project(source, payload, target_cycle_ref="cycle:target" if with_payload else None, actor_type="PORTAL_USER", actor_id=1)
 
     assert copied.cycle_ref == ("cycle:target" if with_payload else source.cycle_ref)
@@ -2628,7 +2638,10 @@ async def test_copy_project_preserves_configuration_and_resets_history_in_one_co
     assert copied.status == "DRAFT" and copied.evaluated_count == 0
     assert copied.settings["template_id"] == 7
     assert "anonymous_360_snapshot" not in copied.settings
-    assert copied.settings["evaluator_rules"] == before["evaluator_rules"]
+    assert "comparison_rules_snapshot" not in copied.settings
+    assert copied.settings["evaluator_rules"] == {"groups": []}
+    assert copied.settings["configuration_completed"] is False
+    assert payload == payload_before
     assert copied.settings["flow_settings"]["node_times"]["summary"]["end_at"] == "2026-01-02T00:00:00Z"
     service.validate_template.assert_awaited_once_with(copied.cycle_ref, 7)
     service._validate_distribution_template_options.assert_awaited_once_with(7, copied.settings["flow_settings"])
@@ -2640,6 +2653,56 @@ async def test_copy_project_preserves_configuration_and_resets_history_in_one_co
     assert event.after_state["name"] == copied.name
     copied.settings["extra_configuration"]["values"].append("copy-only")
     assert source.settings == before and source.status == "STARTED" and source.evaluated_count == 123
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source_status", ["DRAFT", "STARTED", "ARCHIVED"])
+@pytest.mark.parametrize("cross_cycle", [False, True])
+async def test_copy_project_empty_audience_does_not_occupy_source_and_normal_save_checks_conflicts(cycle_adjustment_sqlite, source_status, cross_cycle):
+    from copy import deepcopy
+    from unittest.mock import AsyncMock
+    from sqlalchemy import select
+
+    data = cycle_adjustment_sqlite
+    source = data.projects[0]
+    source.status = source_status
+    source.settings = {**source.settings,
+                       "evaluator_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["A", "KEEP1", "REPORT"]}]}]},
+                       "configuration_completed": True}
+    data.session.flush()
+    before = deepcopy(source.settings)
+    db = SimpleNamespace(scalar=data.db.scalar, execute=data.db.execute, add=data.db.add,
+                         flush=data.db.flush, get=AsyncMock(return_value=None),
+                         commit=AsyncMock(side_effect=data.session.flush),
+                         refresh=AsyncMock(side_effect=lambda row, **kwargs: data.session.refresh(row)))
+    service = PerformanceProjectService(db)
+    copied = await service.copy_project(source, target_cycle_ref="other-cycle" if cross_cycle else None,
+                                        actor_type="PORTAL_USER", actor_id=1)
+    data.session.expire(copied)
+    data.session.refresh(copied)
+    assert copied.settings["evaluator_rules"] == {"groups": []}
+    assert copied.settings["configuration_completed"] is False
+    assert copied.status == "DRAFT" and copied.evaluated_count == 0
+    assert await service.occupied_employee_nos(source.cycle_ref, ["A", "KEEP1", "REPORT"], project_id=source.id) == set()
+    assert await service.occupied_employee_nos(copied.cycle_ref, ["A", "KEEP1", "REPORT"], project_id=source.id) == set()
+    for model in (data.pm.PerformanceProjectMemberSnapshot, data.pm.PerformanceProjectNodeSnapshot, data.pm.PerformanceNodeTask):
+        assert data.session.scalar(select(model).where(model.project_id == copied.id)) is None
+    assert not data.orm_mutations
+    assert source.settings == before
+    db.commit.assert_awaited_once()
+
+    if not cross_cycle:
+        rules = {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["NEW"]}]}]}
+        await service.update_project(copied, {"evaluator_rules": rules}, actor_type="PORTAL_USER", actor_id=1)
+        data.session.expire(copied)
+        data.session.refresh(copied)
+        assert copied.settings["evaluator_rules"] == rules
+        assert copied.settings["configuration_completed"] is False
+        assert await service.occupied_employee_nos(source.cycle_ref, ["NEW"], project_id=source.id) == {"NEW"}
+        with pytest.raises(ProjectValidationError, match="排除重复人员"):
+            await service.update_project(copied, {"evaluator_rules": before["evaluator_rules"]}, actor_type="PORTAL_USER", actor_id=1)
+        assert copied.settings["evaluator_rules"] == rules and source.settings == before
+        assert db.commit.await_count == 2
 
 
 @pytest.mark.asyncio

@@ -247,6 +247,7 @@ import { formatDisplayDateTime, shanghaiLocalToUtcIso, utcToShanghaiLocal } from
 import PerformanceProjectSettings from '@/components/performance/PerformanceProjectSettings.vue'
 import PerformanceListPage from '@/components/performance/PerformanceListPage.vue'
 import PerformanceProjectDialog from '@/components/performance/PerformanceProjectDialog.vue'
+import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 import PerformanceProjectCopyDialog from '@/components/performance/PerformanceProjectCopyDialog.vue'
 import PerformanceCycle360Settings from '@/components/performance/PerformanceCycle360Settings.vue'
 import { ASSESSMENT_ROLE_CODES, nodeRoleCode } from '@/components/performance/performanceExecutorOptions'
@@ -507,6 +508,7 @@ async function saveProject(payload: PerformanceProjectPayload) {
       : projectDialogMode.value === 'create'
         ? await performanceProjectApi.create(cycleId, payload)
         : await performanceProjectApi.update(projectDialogProject.value!.id, payload)
+    if (projectDialogMode.value === 'copy') usePerformanceProjectContextStore().saveProjectCopyAudience(cycleId, project.id, projectDialogProject.value?.evaluator_rules || { groups: [] })
     projectDialogOpen.value = false
     projectActionSuccess.value = projectDialogMode.value === 'copy' ? '项目已复制' : projectDialogMode.value === 'create' ? '项目已创建' : '项目已保存'
     await router.push({ name: 'PerformanceProjectEdit', params: { cycleId, id: project.id } })

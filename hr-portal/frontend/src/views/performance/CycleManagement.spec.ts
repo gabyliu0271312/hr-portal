@@ -2,6 +2,7 @@
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia, setActivePinia } from 'pinia'
 import { useUserStore } from '@/stores/user'
+import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ElTableColumn } from 'element-plus'
 import CycleManagement from './CycleManagement.vue'
@@ -518,7 +519,8 @@ describe('CycleManagement', () => {
   it('selects the source cycle, stages a copy and writes only the edited final form to the target cycle', async () => {
     const target = { ...cycle, id: 2, cycle_ref: 'cycle:2', name: '目标周期' }
     mocks.list.mockResolvedValue({ items: [{ ...cycle, projects: [project] }, target], total: 2, page: 1, page_size: 100 })
-    mocks.projectGet.mockResolvedValue({ ...project, data_managers: ['HRBP'], scope_limited: false })
+    const evaluator_rules = { groups: [{ conditions: [{ field: 'employee', operator: 'include', values: ['E1'] }] }] }
+    mocks.projectGet.mockResolvedValue({ ...project, data_managers: ['HRBP'], scope_limited: false, evaluator_rules })
     mocks.projectCopy.mockRejectedValueOnce({ response: { data: { detail: '目标周期不允许此模板' } } }).mockResolvedValueOnce({ ...project, id: 22 })
     const wrapper = await mountView()
     wrapper.getComponent({ name: 'PerformanceProjectSettings' }).vm.$emit('copy', project)
@@ -551,6 +553,10 @@ describe('CycleManagement', () => {
     submit.click()
     await flushPromises()
     expect(mocks.projectCopy).toHaveBeenCalledTimes(2)
+    expect(mocks.projectCopy.mock.calls[1][1]).not.toHaveProperty('evaluator_rules')
+    const context = usePerformanceProjectContextStore()
+    expect(context.takeProjectCopyAudience(2, 22)).toEqual(evaluator_rules)
+    expect(context.takeProjectCopyAudience(2, 22)).toBeNull()
     wrapper.unmount()
   })
 
