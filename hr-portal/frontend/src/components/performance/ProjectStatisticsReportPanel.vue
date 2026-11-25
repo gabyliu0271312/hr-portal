@@ -26,7 +26,6 @@
                   <p v-if="loadingDimensions[section.key]" class="report-placeholder" role="status">正在加载{{ section.label }}…</p>
                   <div v-else-if="errors[section.key]" class="report-state" role="alert"><p>{{ errors[section.key] }}</p><button type="button" @click="loadDimension(section.key)">重新加载</button></div>
                   <template v-else-if="reports[section.key]">
-                    <p v-if="section.key === 'level'" class="report-source-notice">数据来源：统计 API（项目快照岗位职级、项目快照人员）</p>
                     <p v-if="section.key === 'tenure'" class="report-source-notice">数据来源：统计 API（入职日期，按当前日期计算）</p>
                     <ProjectReportMatrix :report="reports[section.key]!" @indicator-change="changeIndicator(section.key, $event)" />
                   </template>

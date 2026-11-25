@@ -27,7 +27,6 @@
         </div>
       </div>
       <Teleport to="body"><div v-if="activeRating" ref="tooltip" class="chart-tooltip" role="tooltip" :style="tooltipStyle"><div class="tooltip-title">{{ indicatorLabel }}（终评）<PerformanceRatingTag :label="activeRating.label" :color="activeRating.color" /></div><div class="tooltip-group-title">我的团队数据</div><div v-for="item in series" :key="item.key" class="tooltip-row"><span class="tooltip-dot" :style="seriesStyle(item)" aria-hidden="true" /><span>{{ item.label }}</span><span class="tooltip-row-value">{{ share(item, activeRating.key) }}% ({{ item.counts[activeRating.key] ?? 0 }} 人)</span></div></div></Teleport>
-      <details class="distribution-table"><summary>查看数据表</summary><table><caption>占比按各组已评估人数计算</caption><thead><tr><th>分组</th><th v-for="rating in report.ratings" :key="rating.key">{{ rating.label }}</th></tr></thead><tbody><tr v-for="item in series" :key="item.key"><th>{{ item.label }}</th><td v-for="rating in report.ratings" :key="rating.key">{{ share(item, rating.key) }}% ({{ item.counts[rating.key] ?? 0 }} 人)</td></tr></tbody></table></details>
     </figure>
   </div>
 </template>
@@ -136,6 +135,5 @@ watch(() => props.report, hideTooltip)
 .chart-tooltip { position: fixed; z-index: 9999999; min-width: min(280px, calc(100vw - 24px)); max-width: calc(100vw - 24px); box-sizing: border-box; padding: 16px; background: #fff; border: 1px solid #fff; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.16); color: #666; font-size: 14px; line-height: 22px; pointer-events: none; }
 .tooltip-title { display: flex; align-items: center; gap: 16px; font-weight: 500; }.tooltip-group-title { margin-top: 8px; }.tooltip-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }.tooltip-dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; }.tooltip-row-value { margin-left: auto; text-align: right; font-variant-numeric: tabular-nums; }
 .distribution-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: #8f959e; pointer-events: none; }.distribution-empty :deep(svg) { max-width: 80%; }
-.distribution-table { margin-top: 16px; overflow-x: auto; color: #646a73; font-size: 12px; }.distribution-table summary { cursor: pointer; }.distribution-table table { margin-top: 8px; border-collapse: collapse; white-space: nowrap; }.distribution-table th, .distribution-table td { padding: 8px 12px; border: 1px solid #dee0e3; text-align: right; }.distribution-table th { font-weight: 500; }
 @media (forced-colors: active) { .chart-bar { background: CanvasText !important; border: 1px solid Canvas; forced-color-adjust: none; }.series-legend { color: CanvasText; border: 1px solid CanvasText; } }
 </style>

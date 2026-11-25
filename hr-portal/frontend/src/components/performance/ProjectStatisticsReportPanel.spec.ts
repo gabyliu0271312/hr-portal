@@ -181,7 +181,7 @@ describe('ProjectStatisticsReportPanel', () => {
     wrapper.unmount()
   })
 
-  it('requests the real level API and renders its notice alongside the matrix only in that section', async () => {
+  it('requests the real level API without displaying a source notice', async () => {
     const get = vi.spyOn(api, 'get')
       .mockResolvedValueOnce({ data: apiReport(await mockProjectReportProvider({ cycleId: 7 })) })
       .mockResolvedValueOnce({ data: levelReport() })
@@ -193,7 +193,8 @@ describe('ProjectStatisticsReportPanel', () => {
     await flushPromises()
     expect(get).toHaveBeenCalledWith('/performance/project-management/statistics', { params: { cycle_id: 7, dimension: 'level' } })
     const section = wrapper.get('[data-report-section="level"]')
-    expect(section.text()).toContain('项目快照岗位职级')
+    expect(section.text()).not.toContain('数据来源')
+    expect(section.find('.report-source-notice').exists()).toBe(false)
     expect(section.findComponent(ProjectReportMatrix).props('report')).toMatchObject(levelReport())
     expect(section.find('.report-placeholder').exists()).toBe(false)
     expect(wrapper.get('[data-report-section="overview"]').text()).toContain('总人数：124')

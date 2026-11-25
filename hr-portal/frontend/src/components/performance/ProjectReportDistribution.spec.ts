@@ -28,6 +28,8 @@ describe('ProjectReportDistribution', () => {
     expect(wrapper.text()).toContain('总人数：124')
     expect(wrapper.text()).toContain('已评估人数：120')
     expect(wrapper.findAll('.chart-column')).toHaveLength(7)
+    expect(wrapper.text()).not.toContain('查看数据表')
+    expect(wrapper.find('.distribution-table').exists()).toBe(false)
     expect(wrapper.findAll('.chart-column')[3].attributes('aria-label')).toBe('3星：47人，占比39.2%')
     expect(wrapper.findAll('.chart-bar')[0].attributes('style')).toContain('height: 0%')
     expect(wrapper.get('.chart-bar').attributes('style')).toContain('rgb(78, 131, 253)')
@@ -155,7 +157,7 @@ describe('ProjectReportDistribution', () => {
     await flushPromises()
     expect(wrapper.findAll('.chart-bar')).toHaveLength(21)
     expect(wrapper.find('.chart-legend').exists()).toBe(false)
-    expect(wrapper.get('.distribution-table').attributes()).not.toHaveProperty('open')
+    expect(wrapper.find('.distribution-table').exists()).toBe(false)
     wrapper.unmount()
   })
 
@@ -183,7 +185,7 @@ describe('ProjectReportDistribution', () => {
     await flushPromises()
     expect(wrapper.findAll('.series-legend')).toHaveLength(10)
     expect(wrapper.get('.series-legend:last-child').attributes('style')).not.toContain('undefined')
-    expect(wrapper.get('.distribution-table').attributes()).not.toHaveProperty('open')
+    expect(wrapper.find('.distribution-table').exists()).toBe(false)
     wrapper.unmount()
   })
 

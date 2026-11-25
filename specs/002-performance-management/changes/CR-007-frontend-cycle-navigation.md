@@ -635,6 +635,11 @@
 - 本地证据：后端既有 `tests/test_performance_projects.py` 全跑1199 passed、5 skipped、1 warning，41.63s；新增10项包含SQLite真实存储/回读/清空防ABA/身份及入口范围隔离/权限与伪造owner/并发CAS/迁移upgrade-downgrade，PostgreSQL语句与DDL仅编译，未真实运行。前端六文件Panel/Matrix/Distribution/Navigation/ProjectManagement/API context复跑141 passed、33.27s；初轮3失败（两处空态回归及旧选择器断言）已修正。两轮类型检查及构建exit0，最终Vite 3865模块、39.02s，仅既有VueUse PURE注释提示。
 - 未完成：真实浏览器UI验收及独立PNG，真实JWT→API→PostgreSQL回读及PG迁移。浏览器隔离夹具先遇到Vue/Pinia重复运行时，调整后的页仍未正常呈现，停止尝试，不伪称UI通过；相关临时服务器已关闭。B03任务保持未勾选，不作生产就绪结论。没有commit/push/deploy或真实数据操作。
 
+### F20 展示精简（2026-11-25）
+
+- 用户明确要求移除结果总览“查看数据表”功能和级别统计“数据来源”说明；删除对应DOM及数据表专属样式，保留柱图/tooltip、个人备注、司龄说明与全部统计接口。属于既有页面小范围移除，无新蓝图、token、后端或迁移。
+- 对应Distribution/Panel既有测试更新为不展示断言；首轮两项残留数据表断言失败，修正后两文件30 passed、13.56s，git diff --check通过。未运行完整构建或浏览器验收；未提交推送、部署或操作生产。
+
 ## CR-007-F19 多项目时间轴与评估菜单修复（2026-11-19）
 
 ### F19-T02 未开始空态修复（2026-11-23）
