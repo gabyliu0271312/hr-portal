@@ -49,6 +49,27 @@ class PerformanceSystemAccount(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
+class PerformanceReportNote(Base):
+    __tablename__ = "performance_report_notes"
+    __table_args__ = (
+        UniqueConstraint("owner_type", "owner_ref", "cycle_id", "entry_key", "project_scope", "section", name="uq_performance_report_note_scope"),
+        CheckConstraint("version >= 1", name="ck_performance_report_note_version"),
+        CheckConstraint("length(content) <= 2000", name="ck_performance_report_note_content"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), Identity(), primary_key=True)
+    owner_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    owner_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    cycle_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("performance_cycles.id", ondelete="CASCADE"), nullable=False)
+    entry_key: Mapped[str] = mapped_column(String(32), nullable=False)
+    project_scope: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    section: Mapped[str] = mapped_column(String(32), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
 class PerformanceWorkbenchSetting(Base):
     __tablename__ = "performance_workbench_settings"
 

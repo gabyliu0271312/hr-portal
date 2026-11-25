@@ -49,7 +49,7 @@
             </template>
             <ProjectMemberListPanel v-else-if="activeTab === 'members'" :key="contentKey" :cycle-id="selectedProject ? undefined : activeCycle.cycle_id" :project-id="memberProjectId" :preference-scope="{ cycle_ref: activeCycle.cycle_id, scene: 'management', project_id: selectedProject?.project_id, role_key: managementRole }" @filter="emit('member-filter')" @authorize-selected="openDelegation('AUTHORIZE', $event)" @transfer-selected="openDelegation('TRANSFER', $event)" @select-member="openMember" @remind-evaluate="handleEvaluateRemind" />
             <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :key="contentKey" :project-id="memberProjectId" :cycle-id="selectedProject ? undefined : activeCycle.cycle_id" :scope-key="scopeKey" :provider="matrixProvider" :cycle-name="activeCycle.cycle_name" @open-member="openMatrixMember" />
-            <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :key="contentKey" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" :provider="statisticsProvider" :self-final-provider="selfFinalProvider" :comparison-provider="comparisonProvider" />
+            <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :key="contentKey" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" :provider="statisticsProvider" :self-final-provider="selfFinalProvider" :comparison-provider="comparisonProvider" :note-scope="managementScope" />
             <p v-else class="pane-hint">该页签内容将在后续迭代中开发</p>
           </PerformanceLineTabs>
         </div>

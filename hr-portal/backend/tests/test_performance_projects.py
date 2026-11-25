@@ -15147,3 +15147,316 @@ async def test_delegation_virtual_reconsideration_rejects_missing_appeal_or_exis
         await data.routes.create_task_delegation(3, -12, payload, context(), data.db)
     assert error.value.status_code == 404
     assert not data.db.records and not data.db.commits
+
+
+@pytest.fixture
+def report_note_sqlite(monkeypatch):
+    from dataclasses import replace
+    from unittest.mock import AsyncMock
+    from sqlalchemy import CheckConstraint, Integer, JSON, MetaData, create_engine
+    from sqlalchemy.dialects.postgresql import JSONB
+    from sqlalchemy.orm import Session
+    from sqlalchemy.schema import CreateTable
+    from app.performance import models as pm, projects_router as routes
+
+    from sqlalchemy.pool import StaticPool
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    metadata = MetaData()
+    with engine.begin() as connection:
+        for model in (pm.PerformanceCycle, pm.PerformanceProject, pm.PerformanceReportNote):
+            table = model.__table__.to_metadata(metadata)
+            if model is not pm.PerformanceReportNote:
+                for constraint in list(table.constraints):
+                    if isinstance(constraint, CheckConstraint):
+                        table.constraints.remove(constraint)
+                for column in table.columns:
+                    if isinstance(column.type, JSONB):
+                        column.type = JSON()
+                    if column.primary_key:
+                        column.type = Integer()
+                    else:
+                        column.nullable = True
+            connection.execute(CreateTable(table, include_foreign_key_constraints=[]))
+        for cycle_id in (1, 2):
+            connection.execute(metadata.tables["performance_cycles"].insert().values(
+                id=cycle_id, cycle_ref=f"C{cycle_id}", name=f"周期{cycle_id}"))
+        for project_id, cycle_id in ((11, 1), (12, 1), (21, 2)):
+            connection.execute(metadata.tables["performance_projects"].insert().values(
+                id=project_id, cycle_ref=f"C{cycle_id}", name=f"项目{project_id}", project_ref=f"P{project_id}", status="STARTED"))
+    session = Session(engine)
+    statements = []
+
+    class Db:
+        async def scalar(self, statement): return session.scalar(statement)
+        async def execute(self, statement):
+            statements.append(statement)
+            return session.execute(statement)
+        async def get(self, model, key): return session.get(model, key)
+        async def commit(self): session.commit()
+        def get_bind(self): return session.get_bind()
+
+    db = Db()
+    actor = replace(context(), effective_employee_no="E1", switch_session_id="switch1")
+    scope = AsyncMock(return_value=None)
+    monkeypatch.setattr(routes, "_project_data_scope", scope)
+
+    async def read(**kwargs):
+        return await routes.get_project_management_report_note(**{
+            "cycle_id": 1, "section": "overview", "result_kind": None, "project_id": None,
+            "context": actor, "db": db, **kwargs})
+
+    async def write(content="备注", version=0, **kwargs):
+        return await routes.put_project_management_report_note(routes.ReportNotePayload(content=content, version=version), **{
+            "cycle_id": 1, "section": "overview", "result_kind": None, "project_id": None,
+            "context": actor, "db": db, **kwargs})
+
+    yield SimpleNamespace(db=db, session=session, routes=routes, pm=pm, actor=actor, read=read, write=write,
+                          scope=scope, statements=statements, engine=engine)
+    session.close()
+    engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_report_note_real_store_reopen_clear_and_stale_versions(report_note_sqlite):
+    from fastapi import HTTPException
+    from sqlalchemy import select
+    data = report_note_sqlite
+    assert (await data.read()).model_dump() == {"content": "", "version": 0}
+    assert (await data.write("  第一版  ")).model_dump() == {"content": "第一版", "version": 1}
+    data.session.expunge_all()
+    assert (await data.read()).content == "第一版"
+    for version in (0, 2):
+        with pytest.raises(HTTPException) as conflict:
+            await data.write("覆盖", version)
+        assert (conflict.value.status_code, conflict.value.detail) == (409, "REPORT_NOTE_CONFLICT")
+        data.session.rollback()
+    assert (await data.write(" \n\t ", 1)).model_dump() == {"content": "", "version": 2}
+    data.session.expunge_all()
+    assert (await data.read()).model_dump() == {"content": "", "version": 2}
+    with pytest.raises(HTTPException) as conflict:
+        await data.write("旧版首次创建", 0)
+    assert conflict.value.status_code == 409
+    data.session.rollback()
+    assert (await data.write("再写入", 2)).version == 3
+    rows = data.session.scalars(select(data.pm.PerformanceReportNote)).all()
+    assert len(rows) == 1 and rows[0].content == "再写入" and rows[0].version == 3
+    assert (rows[0].owner_type, rows[0].owner_ref) == ("EMPLOYEE", "E1")
+    assert rows[0].created_at is not None and rows[0].updated_at is not None
+
+
+@pytest.mark.asyncio
+async def test_report_note_real_store_identity_and_scope_isolation(report_note_sqlite, monkeypatch):
+    from dataclasses import replace
+    from unittest.mock import AsyncMock
+    from sqlalchemy import select
+    from app.performance import management_scope, result_view_scope
+    data = report_note_sqlite
+    projects = [SimpleNamespace(id=p.id) for p in data.session.scalars(select(data.pm.PerformanceProject).where(data.pm.PerformanceProject.cycle_ref == "C1")).all()]
+    monkeypatch.setattr(management_scope, "management_projects", AsyncMock(return_value=[(p, None) for p in projects]))
+    monkeypatch.setattr(result_view_scope, "resolve_result_view_scope", AsyncMock(return_value=SimpleNamespace(
+        employee_nos={"E1"}, scopes={p.id: None for p in projects}, projects=projects)))
+    await data.write("基准")
+    variants = [
+        {"context": replace(data.actor, effective_employee_no="E2")},
+        {"context": replace(data.actor, subject_type="SYSTEM_ACCOUNT", effective_employee_no=None)},
+        {"cycle_id": 2}, {"section": "history"}, {"section": "dimension"},
+        {"project_id": 11}, {"project_id": 12},
+        {"context": replace(data.actor, management_role="hrbp")},
+        {"context": replace(data.actor, management_role="project_admin")},
+        {"result_kind": "team"}, {"result_kind": "focus"},
+    ]
+    for index, args in enumerate(variants):
+        assert (await data.read(**args)).version == 0
+        assert (await data.write(f"隔离{index}", **args)).version == 1
+    data.session.expunge_all()
+    for index, args in enumerate(variants):
+        assert (await data.read(**args)).content == f"隔离{index}"
+    assert (await data.read()).content == "基准"
+    same_employee = replace(data.actor, subject_id=999, operator_user_id=999, switch_session_id="new-session")
+    assert (await data.read(context=same_employee)).content == "基准"
+    assert len(data.session.scalars(select(data.pm.PerformanceReportNote)).all()) == len(variants) + 1
+    scoped = replace(data.actor, management_role="hrbp", management_project_id=11)
+    await data.write("管理项目", context=scoped)
+    assert (await data.read(context=replace(scoped, management_project_id=None), project_id=11)).content == "管理项目"
+    assert (await data.read(context=scoped, project_id=11)).content == "管理项目"
+    assert (await data.read(context=replace(scoped, management_project_id=12))).version == 0
+
+
+@pytest.mark.asyncio
+async def test_report_note_denies_access_before_any_note_read_or_write(report_note_sqlite):
+    from dataclasses import replace
+    from fastapi import HTTPException
+    from sqlalchemy import func, select
+    data = report_note_sqlite
+    await data.write("私密")
+    data.statements.clear()
+    data.scope.side_effect = HTTPException(403, "PROJECT_DATA_FORBIDDEN")
+    for operation in (data.read, data.write):
+        with pytest.raises(HTTPException) as error:
+            await operation()
+        assert error.value.status_code == 404
+    assert not any("performance_report_notes" in str(s) for s in data.statements)
+    data.scope.side_effect = None
+    for args in (
+        {"cycle_id": 999}, {"project_id": 21}, {"project_id": 999},
+        {"context": replace(data.actor, management_role="hrbp", management_project_id=11), "project_id": 12},
+        {"context": replace(data.actor, management_role="hrbp"), "result_kind": "team"},
+    ):
+        for operation in (data.read, data.write):
+            with pytest.raises(HTTPException):
+                await operation(**args)
+    assert data.session.scalar(select(func.count()).select_from(data.pm.PerformanceReportNote)) == 1
+    assert (await data.read()).content == "私密"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["hrbp", "project_admin"])
+async def test_report_note_management_uses_real_report_scope_and_denies_revoked_access(report_note_sqlite, role):
+    from dataclasses import replace
+    from fastapi import HTTPException
+    data = report_note_sqlite
+    actor = replace(data.actor, management_role=role, management_cycle_id=1, management_project_id=11)
+    assert (await data.write(context=actor)).version == 1
+    assert (await data.read(context=actor)).content == "备注"
+    assert all(call.args[-1] == "performance.frontend.data-view" for call in data.scope.await_args_list)
+    data.scope.side_effect = HTTPException(403, "PROJECT_DATA_FORBIDDEN")
+    for operation in (data.read, data.write):
+        with pytest.raises(HTTPException) as denied:
+            await operation(context=actor)
+        assert (denied.value.status_code, denied.value.detail) == (403, "PROJECT_DATA_FORBIDDEN")
+    data.scope.side_effect = None
+    with pytest.raises(HTTPException) as mismatch:
+        await data.read(context=replace(actor, management_cycle_id=2))
+    assert mismatch.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_report_note_postgresql_cas_statements_compile(report_note_sqlite):
+    from sqlalchemy.dialects import postgresql
+    data = report_note_sqlite
+    data.db.get_bind = lambda: SimpleNamespace(dialect=postgresql.dialect())
+    await data.write()
+    await data.write("新版", 1)
+    insert = next(s for s in data.statements if s.is_insert)
+    update = next(s for s in data.statements if s.is_update)
+    insert_sql = str(insert.compile(dialect=postgresql.dialect()))
+    update_sql = str(update.compile(dialect=postgresql.dialect()))
+    assert "ON CONFLICT (owner_type, owner_ref, cycle_id, entry_key, project_scope, section) DO NOTHING" in insert_sql
+    assert "RETURNING performance_report_notes.version" in insert_sql
+    assert "performance_report_notes.version =" in update_sql and "RETURNING" in update_sql
+    assert (await data.read()).model_dump() == {"content": "新版", "version": 2}
+
+
+def test_report_note_http_contract_rejects_forged_owner_and_invalid_inputs(report_note_sqlite):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.core.db import get_session
+    from app.performance.auth_context import get_performance_access_context
+    data = report_note_sqlite
+    app = FastAPI()
+    app.include_router(data.routes.router)
+    app.dependency_overrides[get_performance_access_context] = lambda: data.actor
+    app.dependency_overrides[get_session] = lambda: data.db
+    with TestClient(app) as client:
+        path = "/performance/project-management/report-note?cycle_id=1&section=overview"
+        for body in ({"content": "伪造", "version": 0, "owner_ref": "E2"},
+                     {"content": "伪造", "version": 0, "owner_type": "SYSTEM_ACCOUNT"},
+                     {"content": "x" * 2001, "version": 0}, {"content": "a", "version": -1}):
+            assert client.put(path, json=body).status_code == 422
+        for query in ("cycle_id=0&section=overview", "cycle_id=1&section=unknown", "cycle_id=1&section=overview&result_kind=other", "cycle_id=1&section=overview&project_id=0"):
+            assert client.get("/performance/project-management/report-note?" + query).status_code == 422
+    assert data.session.query(data.pm.PerformanceReportNote).count() == 0
+    with TestClient(app) as client:
+        assert client.put(path + "&owner_ref=E2&owner_type=SYSTEM_ACCOUNT", json={"content": "真实身份", "version": 0}).json() == {"content": "真实身份", "version": 1}
+        assert client.get(path + "&indicator_key=another&history_cycle_ids=2").json() == {"content": "真实身份", "version": 1}
+    row = data.session.query(data.pm.PerformanceReportNote).one()
+    assert (row.owner_type, row.owner_ref) == ("EMPLOYEE", "E1")
+
+
+@pytest.mark.parametrize("version", [0, 1])
+def test_report_note_concurrent_cas_only_one_writer(tmp_path, monkeypatch, version):
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    from dataclasses import replace
+    from threading import Barrier
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import Session
+    from sqlalchemy.schema import CreateTable
+    from app.performance import projects_router as routes
+    from app.performance.models import PerformanceReportNote
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'report-note.db'}", connect_args={"timeout": 10})
+    with engine.begin() as connection:
+        connection.execute(CreateTable(PerformanceReportNote.__table__, include_foreign_key_constraints=[]))
+        if version:
+            connection.execute(PerformanceReportNote.__table__.insert().values(
+                owner_type="EMPLOYEE", owner_ref="E1", cycle_id=1, entry_key="management:default", project_scope=0,
+                section="overview", content="初版", version=1))
+    monkeypatch.setattr(routes, "_report_note_scope", AsyncMock(return_value=(SimpleNamespace(id=1, cycle_ref="C1"), 0, [])))
+    barrier = Barrier(2)
+
+    def writer(content):
+        with Session(engine) as session:
+            class Db:
+                def get_bind(self): return session.get_bind()
+                async def execute(self, statement):
+                    barrier.wait(timeout=10)
+                    return session.execute(statement)
+                async def commit(self): session.commit()
+            try:
+                result = asyncio.run(routes.put_project_management_report_note(
+                    routes.ReportNotePayload(content=content, version=version), cycle_id=1, section="overview",
+                    result_kind=None, project_id=None, context=replace(context(), effective_employee_no="E1"), db=Db()))
+                return result.version
+            except HTTPException as error:
+                assert error.detail == "REPORT_NOTE_CONFLICT"
+                return error.status_code
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(writer, ["writer-a", "writer-b"]))
+        assert sorted(results) == [version + 1, 409]
+        with Session(engine) as session:
+            rows = session.scalars(select(PerformanceReportNote)).all()
+            assert len(rows) == 1 and rows[0].version == version + 1 and rows[0].content in {"writer-a", "writer-b"}
+    finally:
+        engine.dispose()
+
+
+def test_report_note_migration_upgrade_downgrade_and_postgresql_ddl():
+    import importlib.util
+    from pathlib import Path
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import create_engine, inspect
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.schema import CreateTable
+    from app.performance.models import PerformanceReportNote
+
+    path = Path(__file__).parents[1] / "alembic/versions/0325_performance_report_notes.py"
+    spec = importlib.util.spec_from_file_location("report_note_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.down_revision == "0324_feishu_user_document_grants"
+    engine = create_engine("sqlite://")
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql("CREATE TABLE performance_cycles (id BIGINT PRIMARY KEY)")
+            connection.exec_driver_sql("INSERT INTO performance_cycles VALUES (1)")
+            with Operations.context(MigrationContext.configure(connection)):
+                migration.upgrade()
+                inspector = inspect(connection)
+                assert "performance_report_notes" in inspector.get_table_names()
+                assert inspector.get_unique_constraints("performance_report_notes")[0]["column_names"] == ["owner_type", "owner_ref", "cycle_id", "entry_key", "project_scope", "section"]
+                connection.exec_driver_sql("INSERT INTO performance_report_notes (owner_type, owner_ref, cycle_id, entry_key, project_scope, section, content, version) VALUES ('EMPLOYEE', 'E1', 1, 'management:default', 0, 'overview', '', 1)")
+                migration.downgrade()
+                assert "performance_report_notes" not in inspect(connection).get_table_names()
+                assert connection.exec_driver_sql("SELECT id FROM performance_cycles").scalar_one() == 1
+                migration.upgrade()
+                assert connection.exec_driver_sql("SELECT count(*) FROM performance_report_notes").scalar_one() == 0
+        ddl = str(CreateTable(PerformanceReportNote.__table__).compile(dialect=postgresql.dialect()))
+        assert "GENERATED BY DEFAULT AS IDENTITY" in ddl and "TIMESTAMP WITH TIME ZONE" in ddl
+        assert "ON DELETE CASCADE" in ddl and "uq_performance_report_note_scope" in ddl
+    finally:
+        engine.dispose()

@@ -611,6 +611,16 @@
 - 验证：本地真实Vue组件、合成数据浏览器验证了十组彩色标签、10/10禁用打开、提示文字、删除恢复汇总；前端 `ProjectReportDistribution.spec.ts` 与 `ProjectStatisticsReportPanel.spec.ts` **25 passed、24.18s、exit0**；配色实采数据经 palette validator 检查，原色中亮色对白底对比度有 WARN，使用白字标签、tooltip和数据表提供辅助识别；build **Vite exit0、1m12s**，仅既有VueUse PURE提示。
 - 文件边界：仅报表组件、既有测试、验收记录及本实现PNG；未改后端、数据库、权限、生产或通知。用户已明确授权本轮在 main 提交并推送代码、测试、验收记录及 `ui-blueprints/CR-007-F20-B02-ten-comparisons-20261119.png`，不部署。
 
+### CR-007-F20-B03 历史层级选择与个人图表备注（2026-11-25）
+
+- 授权：用户明确要求完成专项采集所列全部开发，并确认备注按当前有效身份＋报表入口/项目范围＋当前周期＋图表保存，切换指标、历史周期及筛选不拆备注。本轮不提交推送、不部署、不操作生产；保持九个章节及原矩阵信息架构，无需新整页蓝图，交互依据本轮 REA 菜单/备注展开证据。012 N000/N0005：沿用全局 token、共享输入/按钮/浮层，包含空/错/权限反馈。
+- [ ] B03-T01 历史轴周期→评估项两级菜单，本期轴当前周期→评估项。复用 comparison provider 懒加载每个历史周期的 xOptions，双方沿现有权限/快照过滤；选叶子一次提交 historyCycleId+xKey，不先切换后清空。候选加载失败显示重试，不显示假数据。只改 frontend performance 报表/Matrix/选择器及既有测试，不改计数、分母、历史候选规则。
+- [ ] B03-T02 私有备注后端。GET/PUT `/performance/project-management/report-note`，query cycle_id/section/result_kind?/project_id?及既有management scope；PUT {content(≤2000),version(≥0)}，extra forbid；响应{content,version}，缺省空/0，并发冲突409 REPORT_NOTE_CONFLICT。复用报表scope并从认证上下文解析owner，禁止客户端指定owner。唯一键身份/周期/入口/项目/图表；空内容保留版本防并发覆盖。新迁移0325前置0324，不改历史迁移。允许 models/projects_router、新迁移和既有后端test_performance_projects.py；禁止改原统计权限或结果快照。
+- [ ] B03-T03 九个章节统一原位备注组件：入口→输入框＋取消/确定；保存后纯文本展示可编辑，取消不保存，空白确定清空；长度2000、提交禁重入、加载/错误/冲突/重试反馈。复用 PerformanceTextField/UiButton 及全局 token。入口覆盖management、team、focus，不随图内查询串用、不使用localStorage。只改报表组件/入口props/备注API与既有测试。
+- 验收：前端菜单懒加载/叶子原子提交/候选失败、备注取消/保存/清空/刷新回读/旧响应丢弃；后端身份隔离/图表周期入口项目隔离/拒绝访问/伪造owner/并发CAS；迁移upgrade/read/downgrade隔离验证，构建及独立UI截图。尚未运行的验收不得计通过，生产/真实JWT验收单列。停止仅撤回本轮增量。
+- 本地证据：后端既有 `tests/test_performance_projects.py` 全跑1199 passed、5 skipped、1 warning，41.63s；新增10项包含SQLite真实存储/回读/清空防ABA/身份及入口范围隔离/权限与伪造owner/并发CAS/迁移upgrade-downgrade，PostgreSQL语句与DDL仅编译，未真实运行。前端六文件Panel/Matrix/Distribution/Navigation/ProjectManagement/API context复跑141 passed、33.27s；初轮3失败（两处空态回归及旧选择器断言）已修正。两轮类型检查及构建exit0，最终Vite 3865模块、39.02s，仅既有VueUse PURE注释提示。
+- 未完成：真实浏览器UI验收及独立PNG，真实JWT→API→PostgreSQL回读及PG迁移。浏览器隔离夹具先遇到Vue/Pinia重复运行时，调整后的页仍未正常呈现，停止尝试，不伪称UI通过；相关临时服务器已关闭。B03任务保持未勾选，不作生产就绪结论。没有commit/push/deploy或真实数据操作。
+
 ## CR-007-F19 多项目时间轴与评估菜单修复（2026-11-19）
 
 ### F19-T02 未开始空态修复（2026-11-23）

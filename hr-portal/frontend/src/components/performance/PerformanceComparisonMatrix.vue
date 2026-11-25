@@ -4,12 +4,12 @@
       <div class="comparison-axis comparison-axis-y">
         <div class="comparison-corner" aria-hidden="true" />
         <div class="y-axis-body" :style="bodyStyle">
-          <PerformanceComparisonDimensionSelector :model-value="selectedRow" axis="y" :label-prefix="rowLabelPrefix" :options="rowDimensionOptions" @update:model-value="changeDimension('y', $event)" />
+          <slot name="row-selector"><PerformanceComparisonDimensionSelector :model-value="selectedRow" axis="y" :label-prefix="rowLabelPrefix" :options="rowDimensionOptions" @update:model-value="changeDimension('y', $event)" /></slot>
           <div class="row-labels"><div v-for="row in rows" :key="row.value" class="row-label"><PerformanceRatingTag :label="row.label" :color="row.color" /></div><div v-if="!rows.length" class="row-label comparison-axis-missing">{{ rowMissingLabel }}</div></div>
         </div>
       </div>
       <div class="comparison-axis comparison-axis-x" :style="{ minWidth: `${columns.length ? columns.length * 132 : 200}px` }">
-        <PerformanceComparisonDimensionSelector :model-value="selectedColumn" axis="x" :label-prefix="columnLabelPrefix" :options="columnDimensionOptions" @update:model-value="changeDimension('x', $event)" />
+        <slot name="column-selector"><PerformanceComparisonDimensionSelector :model-value="selectedColumn" axis="x" :label-prefix="columnLabelPrefix" :options="columnDimensionOptions" @update:model-value="changeDimension('x', $event)" /></slot>
         <div class="column-labels" :style="gridStyle"><div v-for="column in columns" :key="column.value" class="column-label"><PerformanceRatingTag :label="column.label" :color="column.color" /></div><div v-if="!columns.length" class="column-label comparison-axis-missing">{{ columnMissingLabel }}</div></div>
         <div class="matrix-body" :style="bodyStyle">
           <div v-if="hasAxes" class="matrix-grid" :style="gridStyle">

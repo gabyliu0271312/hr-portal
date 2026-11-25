@@ -35,9 +35,10 @@
                 <template v-else-if="isComparison(section.key)">
                   <p v-if="comparisonLoading[section.key]" class="report-placeholder" role="status">正在加载{{ section.label }}…</p>
                   <div v-else-if="comparisonErrors[section.key]" class="report-state" role="alert"><p>{{ comparisonErrors[section.key] }}</p><button type="button" @click="loadComparison(section.key)">重新加载</button></div>
-                  <ProjectReportComparison v-else-if="comparisons[section.key]" :kind="section.key" :comparison="comparisons[section.key]!" :allow-examples="allowExamples" @change="changeComparison(section.key, $event)" />
+                  <ProjectReportComparison v-else-if="comparisons[section.key]" :kind="section.key" :cycle-name="cycleName" :comparison="comparisons[section.key]!" :load-history="loadHistoryOptions" :allow-examples="allowExamples" @change="changeComparison(section.key, $event)" />
                   <p v-else class="report-placeholder">{{ section.label }}数据尚未加载</p>
                 </template>
+                <PerformanceReportCommentButton :cycle-id="cycleId" :section="section.key" :scope="noteScope" :identity-key="String(reportStore.cacheVersion)" />
               </section>
             </template>
           </div>
@@ -57,12 +58,14 @@ import ProjectReportNavigation from './ProjectReportNavigation.vue'
 import ProjectReportDistribution from './ProjectReportDistribution.vue'
 import ProjectReportComparison from './ProjectReportComparison.vue'
 import ProjectReportMatrix from './ProjectReportMatrix.vue'
+import PerformanceReportCommentButton from './PerformanceReportCommentButton.vue'
+import type { ReportNoteScope } from '@/api/performanceReportNotes'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 import { projectManagementApi } from '@/api/performance'
 import { reportGroups, reportSectionInfo, type ProjectReportComparisonData, type ProjectReportComparisonKind, type ProjectReportComparisonProvider, type ProjectReportComparisonQuery, type ProjectReportDimension, type ProjectReportProvider, type ProjectStatisticsReport } from './projectStatisticsReport'
 import { useProjectReportNavigation } from './useProjectReportNavigation'
 
-const props = withDefaults(defineProps<{ cycleId: number; cycleName?: string; provider?: ProjectReportProvider; selfFinalProvider?: () => Promise<ProjectReportComparisonData>; comparisonProvider?: ProjectReportComparisonProvider; allowExamples?: boolean; embedded?: boolean }>(), { allowExamples: true })
+const props = withDefaults(defineProps<{ cycleId: number; cycleName?: string; provider?: ProjectReportProvider; selfFinalProvider?: () => Promise<ProjectReportComparisonData>; comparisonProvider?: ProjectReportComparisonProvider; allowExamples?: boolean; embedded?: boolean; noteScope?: ReportNoteScope }>(), { allowExamples: true, noteScope: () => ({}) })
 const reportStore = usePerformanceProjectContextStore()
 const emit = defineEmits<{ filter: []; compare: [] }>()
 const root = ref<HTMLElement | null>(null)
@@ -139,9 +142,14 @@ async function loadComparison(kind: ProjectReportComparisonKind) {
     }
   }
 }
+async function loadHistoryOptions(cycleId: number) {
+  const query: ProjectReportComparisonQuery = { kind: 'history', historyCycleId: cycleId }
+  const report = props.comparisonProvider ? await props.comparisonProvider(query) : await projectManagementApi.comparison(props.cycleId, query)
+  return report.xOptions || []
+}
 function changeComparison(kind: ProjectReportComparisonKind, change: Omit<Partial<ProjectReportComparisonQuery>, 'kind'>) {
   const current = comparisons.value[kind]
-  comparisonQueries.value[kind] = { kind, xKey: current?.xKey, yKey: current?.yKey, ...(current?.historyCycleId ? { historyCycleId: current.historyCycleId } : {}), ...change, ...(change.historyCycleId ? { xKey: undefined } : {}) }
+  comparisonQueries.value[kind] = { kind, xKey: current?.xKey, yKey: current?.yKey, ...(current?.historyCycleId ? { historyCycleId: current.historyCycleId } : {}), ...change, ...(change.historyCycleId && change.xKey === undefined ? { xKey: undefined } : {}) }
   void loadComparison(kind)
 }
 async function changeIndicator(dimension: ProjectReportDimension, key: string) {

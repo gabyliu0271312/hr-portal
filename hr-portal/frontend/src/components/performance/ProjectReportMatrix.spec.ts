@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import ProjectReportComparison from './ProjectReportComparison.vue'
 import PerformanceComparisonMatrix from './PerformanceComparisonMatrix.vue'
 import PerformanceComparisonDimensionSelector from './PerformanceComparisonDimensionSelector.vue'
-import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
+import PerformanceReportCycleSelector from './PerformanceReportCycleSelector.vue'
 import { mockProjectReportComparison } from './projectStatisticsReport'
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 import ProjectReportMatrix from './ProjectReportMatrix.vue'
@@ -304,12 +304,11 @@ describe('report comparison matrices', () => {
   it('exposes historical cycle choices and sends numeric historyCycleId', async () => {
     const comparison = { ...mockProjectReportComparison(), historyCycles: [{ id: 3, name: '2025年' }], historyCycleId: 3 }
     const wrapper = mount(ProjectReportComparison, { props: { comparison, kind: 'history' } })
-    const selector = wrapper.findComponent(PerformanceSearchSelect)
-    expect(selector.props('options')).toEqual([{ value: '3', label: '2025年' }])
-    selector.vm.$emit('update:modelValue', '3')
-    expect(wrapper.emitted('change')).toEqual([[{ historyCycleId: 3 }]])
-    expect(wrapper.text()).toContain('本期终评：')
-    expect(wrapper.text()).toContain('历史终评：')
+    const selector = wrapper.findAllComponents(PerformanceReportCycleSelector).find(item => item.props('axis') === 'x')!
+    expect(selector.props('cycles')).toEqual([{ id: 3, name: '2025年' }])
+    selector.vm.$emit('select', 3, 'rating')
+    expect(wrapper.emitted('change')).toEqual([[{ historyCycleId: 3, xKey: 'rating' }]])
+    expect(wrapper.text()).toContain('2025年：')
     wrapper.unmount()
   })
 })

@@ -6,6 +6,9 @@ import ProjectReportComparison from './ProjectReportComparison.vue'
 import ProjectReportMatrix from './ProjectReportMatrix.vue'
 import ProjectStatisticsReportPanel from './ProjectStatisticsReportPanel.vue'
 import ProjectReportNavigation from './ProjectReportNavigation.vue'
+import PerformanceReportCommentButton from './PerformanceReportCommentButton.vue'
+import PerformanceReportCycleSelector from './PerformanceReportCycleSelector.vue'
+import { reportNotesApi } from '@/api/performanceReportNotes'
 import { mockProjectReportComparison, mockProjectReportProvider, type ProjectReportDimension, type ProjectReportProvider, type ProjectStatisticsReport } from './projectStatisticsReport'
 
 const global = { stubs: { ProjectReportMatrix: true } }
@@ -18,10 +21,74 @@ const levelReport = (): ProjectStatisticsReport => ({
     { id: 'level:--', name: '--', counts: { good: 0 } },
   ],
 })
-beforeEach(() => setActivePinia(createPinia()))
+beforeEach(() => { setActivePinia(createPinia()); vi.spyOn(reportNotesApi, 'read').mockResolvedValue({ content: '', version: 0 }) })
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
 
 describe('ProjectStatisticsReportPanel', () => {
+  it('saves private notes, cancels drafts, clears content and reloads persisted content', async () => {
+    const save = vi.spyOn(reportNotesApi, 'save').mockResolvedValueOnce({ content: '个人备注', version: 1 }).mockResolvedValueOnce({ content: '', version: 2 })
+    const wrapper = mount(PerformanceReportCommentButton, { props: { cycleId: 7, section: 'history', scope: { management_role: 'hrbp', project_id: 9 } } })
+    await flushPromises()
+    await wrapper.get('button').trigger('click')
+    await wrapper.get('textarea').setValue('未保存')
+    await wrapper.findAll('button').find(button => button.text() === '取消')!.trigger('click')
+    expect(save).not.toHaveBeenCalled()
+    await wrapper.get('button').trigger('click')
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('')
+    await wrapper.get('textarea').setValue('个人备注')
+    await wrapper.findAll('button').find(button => button.text() === '确定')!.trigger('click')
+    await flushPromises()
+    expect(save).toHaveBeenCalledWith(7, 'history', { management_role: 'hrbp', project_id: 9 }, { content: '个人备注', version: 0 })
+    expect(wrapper.get('.report-note-content').text()).toBe('个人备注')
+    await wrapper.get('button').trigger('click')
+    await wrapper.get('textarea').setValue('   ')
+    await wrapper.findAll('button').find(button => button.text() === '确定')!.trigger('click')
+    await flushPromises()
+    expect(save).toHaveBeenLastCalledWith(7, 'history', expect.anything(), { content: '', version: 1 })
+    expect(wrapper.find('.report-note-content').exists()).toBe(false)
+    vi.mocked(reportNotesApi.read).mockResolvedValue({ content: '回读备注', version: 3 })
+    await wrapper.setProps({ identityKey: 'new-session' })
+    await flushPromises()
+    expect(wrapper.get('.report-note-content').text()).toBe('回读备注')
+    wrapper.unmount()
+  })
+
+  it('preserves note drafts on failure and blocks stale-version overwrite', async () => {
+    const save = vi.spyOn(reportNotesApi, 'save').mockRejectedValue({ response: { status: 409 } })
+    const wrapper = mount(PerformanceReportCommentButton, { props: { cycleId: 1, section: 'overview' } })
+    await flushPromises(); await wrapper.get('button').trigger('click'); await wrapper.get('textarea').setValue('保留草稿')
+    const confirm = () => wrapper.findAll('button').find(button => button.text() === '确定')!
+    await confirm().trigger('click'); await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('其他窗口更新')
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('保留草稿')
+    await confirm().trigger('click'); expect(save).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('renders one note per chapter with the explicit entry scope', async () => {
+    const provider = vi.fn(async query => apiReport(await mockProjectReportProvider(query)))
+    const wrapper = mount(ProjectStatisticsReportPanel, { props: { cycleId: 7, provider, noteScope: { result_kind: 'focus' } }, global })
+    await flushPromises()
+    expect(wrapper.findAllComponents(PerformanceReportCommentButton)).toHaveLength(9)
+    expect(reportNotesApi.read).toHaveBeenCalledWith(7, 'overview', { result_kind: 'focus' })
+    wrapper.unmount()
+  })
+
+  it('loads historical candidates without changing the matrix and submits a complete leaf selection', async () => {
+    const comparisonProvider = vi.fn(async query => ({ ...mockProjectReportComparison(), source: 'api' as const, xKey: 'old', yKey: 'current', xOptions: [{ key: 'old', label: '年度评级' }], yOptions: [{ key: 'current', label: '本期评级' }], historyCycles: [{ id: 3, name: '历史周期' }], historyCycleId: 3 }))
+    const provider = vi.fn(async query => apiReport(await mockProjectReportProvider(query)))
+    const wrapper = mount(ProjectStatisticsReportPanel, { props: { cycleId: 7, provider, comparisonProvider }, global })
+    await flushPromises(); await wrapper.get('[data-key="history"]').trigger('click'); await flushPromises()
+    const comparison = wrapper.findComponent(ProjectReportComparison)
+    const selector = comparison.findAllComponents(PerformanceReportCycleSelector).find(item => item.props('axis') === 'x')!
+    await selector.props('loadOptions')(3)
+    expect(comparisonProvider).toHaveBeenLastCalledWith({ kind: 'history', historyCycleId: 3 })
+    selector.vm.$emit('select', 3, 'chosen')
+    await flushPromises()
+    expect(comparisonProvider).toHaveBeenLastCalledWith({ kind: 'history', historyCycleId: 3, xKey: 'chosen', yKey: 'current' })
+    expect(wrapper.find('.history-cycle-control').exists()).toBe(false)
+    wrapper.unmount()
+  })
   it('does not expose example data for scoped comparisons with missing source data', async () => {
     const wrapper = mount(ProjectReportComparison, {
       props: { kind: 'self-final', allowExamples: false, comparison: { source: 'api', total: 0, ratings: [], counts: [], heatLevels: [], emptyReason: '当前范围未提供自评数据' } },

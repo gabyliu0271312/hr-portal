@@ -10,8 +10,9 @@ from types import SimpleNamespace
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
@@ -20,7 +21,7 @@ from app.performance.authorization_service import AuditEventInput, ObjectAuthori
 from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_DOTTED_MANAGER, ROLE_LINE_MANAGER, ROLE_METRIC_EVALUATOR, ROLE_PROJECT_MANAGER, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code
 from app.performance.calibration_service import calibration_task_scope, calibration_phase_window, distribution_summary, CalibrationConflict, extend_calibration_member
 from app.performance.cycle_service import PerformanceCycleService
-from app.performance.models import PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceCycleProjectManager, PerformanceHrbpPermission, PerformanceIdentityLink, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceResultReconsideration, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, AUTHORIZATION_SNAPSHOT_STATUS_LOCKED, PROJECT_STATUS_STARTED
+from app.performance.models import PerformanceReportNote, PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceCycleProjectManager, PerformanceHrbpPermission, PerformanceIdentityLink, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceResultReconsideration, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, AUTHORIZATION_SNAPSHOT_STATUS_LOCKED, PROJECT_STATUS_STARTED
 from app.integrations.feishu.models import FeishuNotificationLog
 from app.integrations.feishu.notification_service import send_notification
 from app.integrations.feishu.schemas import FixedUsersRule, MessageConfig, NotificationConfig
@@ -7304,6 +7305,84 @@ def _merge_report_indicators(target, incoming):
 
 def _report_heat(count, total):
     return 0 if not count or not total else 3 if count / total > 0.4 else 2 if count / total > 0.3 else 1
+
+
+class ReportNoteResponse(BaseModel):
+    content: str
+    version: int
+
+
+class ReportNotePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    content: str = Field(max_length=2000)
+    version: int = Field(ge=0)
+
+
+def _report_note_entry_key(context, result_kind):
+    if result_kind is not None:
+        return f"result:{result_kind}"
+    return f"management:{context.management_role}" if context.management_role else "management:default"
+
+
+async def _report_note_scope(cycle_id, context, db, result_kind, project_id):
+    if result_kind is not None and context.management_role:
+        raise HTTPException(422, "MANAGEMENT_RESULT_SCOPE_CONFLICT")
+    if project_id is not None and context.management_project_id is not None and project_id != context.management_project_id:
+        raise HTTPException(422, "PROJECT_SCOPE_CONFLICT")
+    cycle, projects, _scopes = await _report_project_scope(cycle_id, context, db, result_kind, context.management_project_id or project_id)
+    effective_project = context.management_project_id or project_id
+    return cycle, (effective_project or 0), projects
+
+
+@router.get("/project-management/report-note", response_model=ReportNoteResponse)
+async def get_project_management_report_note(
+    cycle_id: int = Query(..., ge=1),
+    section: Literal["overview", "department", "team", "sequence", "level", "tenure", "self-final", "dimension", "history"] = Query(...),
+    result_kind: Literal["team", "focus"] | None = Query(default=None),
+    project_id: int | None = Query(default=None, ge=1),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    cycle, project_scope, _ = await _report_note_scope(cycle_id, context, db, result_kind, project_id)
+    actor = await resolve_trusted_performance_actor(db, context, cycle_ref=cycle.cycle_ref)
+    row = await db.scalar(select(PerformanceReportNote).where(
+        PerformanceReportNote.owner_type == actor.actor_type, PerformanceReportNote.owner_ref == actor.actor_ref,
+        PerformanceReportNote.cycle_id == cycle.id, PerformanceReportNote.entry_key == _report_note_entry_key(context, result_kind),
+        PerformanceReportNote.project_scope == project_scope, PerformanceReportNote.section == section,
+    ))
+    return ReportNoteResponse(content=row.content if row else "", version=row.version if row else 0)
+
+
+@router.put("/project-management/report-note", response_model=ReportNoteResponse)
+async def put_project_management_report_note(
+    payload: ReportNotePayload,
+    cycle_id: int = Query(..., ge=1),
+    section: Literal["overview", "department", "team", "sequence", "level", "tenure", "self-final", "dimension", "history"] = Query(...),
+    result_kind: Literal["team", "focus"] | None = Query(default=None),
+    project_id: int | None = Query(default=None, ge=1),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    cycle, project_scope, _ = await _report_note_scope(cycle_id, context, db, result_kind, project_id)
+    actor = await resolve_trusted_performance_actor(db, context, cycle_ref=cycle.cycle_ref)
+    key = dict(owner_type=actor.actor_type, owner_ref=actor.actor_ref, cycle_id=cycle.id,
+               entry_key=_report_note_entry_key(context, result_kind), project_scope=project_scope, section=section)
+    content = payload.content.strip()
+    if payload.version == 0:
+        insert = sqlite_insert if db.get_bind().dialect.name == "sqlite" else pg_insert
+        statement = insert(PerformanceReportNote).values(**key, content=content, version=1).on_conflict_do_nothing(
+            index_elements=list(key),
+        ).returning(PerformanceReportNote.version)
+    else:
+        statement = update(PerformanceReportNote).where(
+            *[getattr(PerformanceReportNote, k) == v for k, v in key.items()],
+            PerformanceReportNote.version == payload.version,
+        ).values(content=content, version=PerformanceReportNote.version + 1, updated_at=func.now()).returning(PerformanceReportNote.version)
+    version = (await db.execute(statement)).scalar_one_or_none()
+    if version is None:
+        raise HTTPException(409, "REPORT_NOTE_CONFLICT")
+    await db.commit()
+    return ReportNoteResponse(content=content, version=version)
 
 
 @router.get("/project-management/statistics", response_model=ProjectStatisticsReportResponse)
