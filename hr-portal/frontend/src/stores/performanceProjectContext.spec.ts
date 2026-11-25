@@ -119,6 +119,30 @@ describe('performance cycle context', () => {
     expect(next).toHaveBeenCalledTimes(3)
   })
 
+  it('shares scoped resources with TTL and drops invalidated inflight results', async () => {
+    const store = usePerformanceProjectContextStore()
+    store.setActiveCycleId(1)
+    let now = 1000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const loader = vi.fn().mockResolvedValue({ total: 2 })
+    expect(await Promise.all([store.loadResource('workbench-summary', loader), store.loadResource('workbench-summary', loader)])).toEqual([{ total: 2 }, { total: 2 }])
+    await store.loadResource('workbench-summary', loader)
+    expect(loader).toHaveBeenCalledOnce()
+    now += 15_001
+    await store.loadResource('workbench-summary', loader)
+    expect(loader).toHaveBeenCalledTimes(2)
+    let resolve!: (value: string) => void
+    const old = store.loadResource('review-navigation', () => new Promise<string>(done => { resolve = done }))
+    store.invalidate()
+    resolve('old')
+    await old
+    const fresh = vi.fn().mockResolvedValue('fresh')
+    expect(await store.loadResource('review-navigation', fresh)).toBe('fresh')
+    store.setActiveCycleId(2)
+    await store.loadResource('review-navigation', fresh)
+    expect(fresh).toHaveBeenCalledTimes(2)
+  })
+
   it('does not restore invalidated inflight drawer results', async () => {
     const store = usePerformanceProjectContextStore()
     let resolve!: (value: string) => void

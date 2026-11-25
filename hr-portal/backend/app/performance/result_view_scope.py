@@ -105,18 +105,16 @@ async def resolve_result_view_scope(
 
     snapshot_service = PerformanceAuthorizationSnapshotService(db)
     identities = (DYNAMIC_IDENTITY_TYPE_DIRECT_MANAGER, DYNAMIC_IDENTITY_TYPE_INDIRECT_MANAGER) if kind == TEAM_RESULT_KIND else _RESULT_READ_IDENTITIES
-    readable = set()
-    for identity in identities:
-        readable.update(
-            scope.target_ref
-            for scope in await snapshot_service.resolve_scopes(
-                cycle.cycle_ref,
-                actor_type=actor.actor_type,
-                actor_ref=actor_ref,
-                identity_type=identity,
-            )
-            if scope.target_type == DYNAMIC_ASSIGNMENT_TARGET_TYPE_EMPLOYEE
-        )
+    scopes_by_identity = await snapshot_service.resolve_scopes_batch(
+        cycle.cycle_ref, actor_type=actor.actor_type,
+        actor_ref=actor_ref, identity_types=identities,
+    )
+    readable = {
+        scope.target_ref
+        for scopes in scopes_by_identity.values()
+        for scope in scopes
+        if scope.target_type == DYNAMIC_ASSIGNMENT_TARGET_TYPE_EMPLOYEE
+    }
     if not readable:
         return ResultViewScope(cycle=cycle, actor_ref=actor_ref)
 

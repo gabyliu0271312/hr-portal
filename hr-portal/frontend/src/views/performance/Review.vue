@@ -84,7 +84,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -104,10 +104,10 @@ import PerformanceTemplateRenderer from '@/components/performance/PerformanceTem
 import PerformanceResultReviewer360Block, { hasVisibleReviewer360Content } from '@/components/performance/PerformanceResultReviewer360Block.vue'
 import PerformanceOkrPanel from '@/components/performance/PerformanceOkrPanel.vue'
 import PerformanceReviewCategorySidebar, { type ReviewNavigationNode } from '@/components/performance/PerformanceReviewCategorySidebar.vue'
-import PerformanceResultScopeView from '@/components/performance/PerformanceResultScopeView.vue'
-import PerformanceCalibrationWorkspace from '@/components/performance/calibration/PerformanceCalibrationWorkspace.vue'
-import CalibrationAllPeople from '@/components/performance/calibration/CalibrationAllPeople.vue'
-import CalibrationScopeAnalysis from '@/components/performance/calibration/CalibrationScopeAnalysis.vue'
+const PerformanceResultScopeView = defineAsyncComponent(() => import('@/components/performance/PerformanceResultScopeView.vue'))
+const PerformanceCalibrationWorkspace = defineAsyncComponent(() => import('@/components/performance/calibration/PerformanceCalibrationWorkspace.vue'))
+const CalibrationAllPeople = defineAsyncComponent(() => import('@/components/performance/calibration/CalibrationAllPeople.vue'))
+const CalibrationScopeAnalysis = defineAsyncComponent(() => import('@/components/performance/calibration/CalibrationScopeAnalysis.vue'))
 import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
 import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
@@ -367,6 +367,16 @@ function routeTaskId() {
 let overviewRequest = 0
 let disposed = false
 onBeforeUnmount(() => { disposed = true; ++overviewRequest })
+async function loadReviewNavigation(cycleId: number) {
+  const cacheVersion = projectContext.cacheVersion
+  const value = await projectContext.loadResource(`review-navigation:${cycleId}`, () => performanceReviewApi.navigation(cycleId))
+  if (disposed || cycleId !== projectContext.activeCycleId || cacheVersion !== projectContext.cacheVersion) return value
+  for (const item of value.overviews) {
+    const projectId = item.active_project?.project_id
+    if (!projectId || !projectContext.reviewOverview(projectId)) projectContext.setReviewOverview(item)
+  }
+  return value
+}
 async function loadOverview(projectId?: number, silent = false) {
   if (disposed) return
   const request = ++overviewRequest
@@ -381,19 +391,9 @@ async function loadOverview(projectId?: number, silent = false) {
     error.value = ''
     applyOverview(loaded)
     if (!silent) loading.value = false
-    await Promise.all(loaded.projects.filter(project => project.project_id !== loaded.active_project?.project_id).map(async project => {
-      try {
-        const value = await performanceReviewApi.overview(project.project_id, undefined, cycleId || undefined)
-        if (current() && value.active_project?.project_id === project.project_id) projectContext.setReviewOverview(value)
-      } catch {
-        if (current()) error.value = '部分项目评估导航加载失败，请重试'
-      }
-    }))
-    if (!current()) return
-    if (projectContext.navigation && projectContext.navigation.can_review !== (loaded.projects.length > 0 || Boolean(projectContext.navigation.can_view_team_results || projectContext.navigation.can_view_focus_results))) {
-      const navigation = await projectContext.refreshNavigation(projectContext.activeCycleId || undefined, true)
-      if (current() && !navigation.can_review) await router.replace('/performance/workbench')
-    }
+    if (!projectContext.navigation || projectContext.navigation.can_review === (loaded.projects.length > 0 || Boolean(projectContext.navigation.can_view_team_results || projectContext.navigation.can_view_focus_results))) return
+    const navigation = await projectContext.refreshNavigation(projectContext.activeCycleId || undefined, true)
+    if (current() && !navigation.can_review) await router.replace('/performance/workbench')
   } catch {
     if (current() && !silent) error.value = '绩效评估加载失败，请稍后重试'
   } finally {
@@ -538,6 +538,10 @@ onMounted(async () => {
       ...(route.query.member_project_id ? { member_project_id: route.query.member_project_id, employee_no: route.query.employee_no, rootReviewId: route.query.rootReviewId, activeTab: route.query.activeTab } : {}),
     } })
   }
+  const cycleId = projectContext.activeCycleId
+  if (cycleId) void loadReviewNavigation(cycleId).catch(() => {
+    if (!disposed) error.value = '部分项目评估导航加载失败，请重试'
+  })
   if (projectContext.navigation && !projectContext.navigation.review_projects.some(project => project.project_id === activeProjectId.value)) {
     if (routeProjectId > 0 && !scopeRoute()) { error.value = '当前项目不存在或无权查看'; loading.value = false; return }
     projectContext.setActiveProjectId(projectContext.navigation.review_projects[0]?.project_id ?? null)

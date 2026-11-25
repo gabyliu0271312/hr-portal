@@ -685,6 +685,23 @@ class PerformanceAuthorizationSnapshotService:
         actor_ref: str,
         identity_type: str,
     ) -> tuple[DynamicIdentityScope, ...]:
+        return (await self.resolve_scopes_batch(
+            cycle_ref, actor_type=actor_type, actor_ref=actor_ref,
+            identity_types=(identity_type,),
+        ))[identity_type]
+
+    async def resolve_scopes_batch(
+        self,
+        cycle_ref: str,
+        *,
+        actor_type: str,
+        actor_ref: str,
+        identity_types: Iterable[str],
+    ) -> dict[str, tuple[DynamicIdentityScope, ...]]:
+        """Load one fresh snapshot view and resolve several identities for one read operation."""
+        identities = tuple(dict.fromkeys(identity_types))
+        if not identities:
+            return {}
         snapshot = await self._get_snapshot(cycle_ref)
         people = (
             await self.db.execute(
@@ -700,8 +717,7 @@ class PerformanceAuthorizationSnapshotService:
                 )
             )
         ).scalars().all()
-        return resolve_identity_scopes(
-            [
+        converted_people = tuple(
                 SnapshotPersonState(
                     employee_no=person.employee_no,
                     display_name=person.display_name,
@@ -723,8 +739,8 @@ class PerformanceAuthorizationSnapshotService:
                     departure_date=person.departure_date,
                 )
                 for person in people
-            ],
-            [
+        )
+        converted_assignments = tuple(
                 DynamicIdentityInput(
                     actor_type=assignment.actor_type,
                     actor_ref=assignment.actor_ref,
@@ -737,11 +753,14 @@ class PerformanceAuthorizationSnapshotService:
                     is_active=assignment.is_active,
                 )
                 for assignment in assignments
-            ],
-            actor_type=actor_type,
-            actor_ref=actor_ref,
-            identity_type=identity_type,
         )
+        return {
+            identity: resolve_identity_scopes(
+                converted_people, converted_assignments,
+                actor_type=actor_type, actor_ref=actor_ref, identity_type=identity,
+            )
+            for identity in identities
+        }
 
     async def _get_snapshot(
         self,

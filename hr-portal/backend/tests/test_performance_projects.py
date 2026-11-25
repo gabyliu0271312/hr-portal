@@ -4888,6 +4888,192 @@ async def test_task_people_preserves_project_node_and_target_scope(monkeypatch, 
 
 
 @pytest.mark.asyncio
+async def test_review_overview_lightweight_reuses_status_and_editability_without_content(monkeypatch):
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+
+    cycle = _pm_cycle(1)
+    project = _pm_project(1, "项目一", 1)
+    project.settings["flow_settings"] = {"node_times": {"future": {"start_at": "2099-01-01T00:00:00Z"}}}
+    completed_node = SimpleNamespace(id=11, node_id="done", node_type="evaluation", name="已完成", config={"template": {"executor_role_code": "assessment.metric_evaluator"}})
+    future_node = SimpleNamespace(id=12, node_id="future", node_type="evaluation", name="未来任务", config={"template": {"executor_role_code": "assessment.metric_evaluator"}})
+    completed = SimpleNamespace(id=21, node_snapshot_id=11, task_kind="evaluation", status="completed", submitted_at=datetime(2026, 9, 20, tzinfo=UTC), phase_id=None, available_at=None, due_at=None)
+    future = SimpleNamespace(id=22, node_snapshot_id=12, task_kind="evaluation", status="pending", submitted_at=None, phase_id=None, available_at=None, due_at=None)
+    access = _frontend_access(cycles=[cycle], review_projects=[(project, cycle)], visible={1: {11, 12}}, tasks={1: {21, 22}})
+    visible_content = AsyncMock(side_effect=AssertionError("轻量模式不得加载答案/表单"))
+    comparison = AsyncMock(side_effect=AssertionError("轻量模式不得计算比较详情"))
+    monkeypatch.setattr(routes, "_task_visible_content", visible_content)
+    monkeypatch.setattr(routes.comparison_service, "evaluate_task", comparison)
+    response = await routes._build_review_overview(
+        project, cycle, [routes.project_payload(project, cycle)], access, [completed_node, future_node],
+        [completed, future], None, None, context(), SimpleNamespace(), include_content=False,
+        overdue_policy=(cycle, SimpleNamespace(overdue_single_submission_enabled=True, cycle_overdue_submission_override_enabled=False)),
+    )
+    menu_nodes = [node for category in response["categories"] for node in category["nodes"]]
+    assert [(node["node_id"], node["status"]) for node in menu_nodes] == [("done", "completed"), ("future", "not_started")]
+    assert all("form_schema" not in node and "answers" not in node and "comparison" not in node and "reviewer_360" not in node for node in menu_nodes)
+    visible_content.assert_not_awaited()
+    comparison.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_review_navigation_batches_all_project_menus(monkeypatch):
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+
+    cycle = _pm_cycle(1)
+    first, second = _pm_project(1, "项目一", 1), _pm_project(2, "项目二", 1)
+    first.settings.update({"template_id": 101, "flow_settings": {}})
+    second.settings.update({"template_id": 102, "flow_settings": {}})
+    first_node = SimpleNamespace(id=11, project_id=1, node_id="review", node_type="evaluation", node_order=1, name="评估", config={"template": {"executor_role_code": "assessment.metric_evaluator"}})
+    second_node = SimpleNamespace(id=12, project_id=2, node_id="summary", node_type="work_summary", node_order=1, name="总结", config={})
+    first_task = SimpleNamespace(id=21, project_id=1, node_snapshot_id=11, task_kind="evaluation", status="completed", submitted_at=datetime(2026, 9, 20, tzinfo=UTC), phase_id=None, available_at=None, due_at=None)
+    second_task = SimpleNamespace(id=22, project_id=2, node_snapshot_id=12, task_kind="work_summary", status="pending", submitted_at=None, phase_id=None, available_at=None, due_at=None)
+    workflows = [SimpleNamespace(template_id=101, nodes=[]), SimpleNamespace(template_id=102, nodes=[])]
+    templates = [SimpleNamespace(id=101, name="模板一"), SimpleNamespace(id=102, name="模板二")]
+    access = _frontend_access(cycles=[cycle], review_projects=[(first, cycle), (second, cycle)], visible={1: {11}, 2: {12}}, tasks={1: {21}, 2: {22}})
+    monkeypatch.setattr(routes, "resolve_frontend_access", AsyncMock(return_value=access))
+    monkeypatch.setattr(routes, "_task_visible_content", AsyncMock(side_effect=AssertionError("导航不得加载重内容")))
+    monkeypatch.setattr(routes.comparison_service, "evaluate_task", AsyncMock(side_effect=AssertionError("导航不得计算比较")))
+
+    class Db:
+        def __init__(self): self.queries = []
+        async def execute(self, statement):
+            self.queries.append(statement)
+            sql = str(statement)
+            if "performance_project_node_snapshots" in sql:
+                values = [first_node, second_node]
+            elif "performance_template_workflows" in sql:
+                values = workflows
+            elif "performance_templates" in sql:
+                values = templates
+            else:
+                values = [first_task, second_task]
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values))
+        async def get(self, model, identity):
+            assert model is routes.PerformanceOtherSetting and identity == 1
+            return SimpleNamespace(overdue_single_submission_enabled=True, cycle_overdue_submission_override_enabled=False)
+
+    db = Db()
+    response = await routes.review_navigation(1, context(), db)
+    assert [item["project_id"] for item in response["projects"]] == [1, 2]
+    assert [(item["active_project"]["project_id"], item["categories"][0]["nodes"][0]["status"]) for item in response["overviews"]] == [(1, "completed"), (2, "pending")]
+    assert all("answers" not in item["categories"][0]["nodes"][0] for item in response["overviews"])
+    assert len(db.queries) == 4
+
+
+@pytest.mark.asyncio
+async def test_workbench_summary_empty_cycle_and_cycle_scope(monkeypatch):
+    from fastapi import HTTPException
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+
+    cycle = _pm_cycle(1)
+    empty_cycle = _pm_cycle(2)
+    project = _pm_project(1, "项目一", 1)
+    access = _frontend_access(cycles=[cycle, empty_cycle], workbench_projects=[(project, cycle)])
+    monkeypatch.setattr(routes, "resolve_frontend_access", AsyncMock(return_value=access))
+    db = SimpleNamespace(execute=AsyncMock(), get=AsyncMock())
+    with pytest.raises(HTTPException) as denied:
+        await routes.workbench_summary(3, context(), db)
+    assert denied.value.status_code == 404 and denied.value.detail == "CYCLE_NOT_FOUND"
+    db.execute.assert_not_awaited()
+    response = await routes.workbench_summary(2, context(), db)
+    assert response == {"projects": [], "snapshots": {}}
+    assert db.execute.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_workbench_summary_batches_projects_timelines_and_task_groups(monkeypatch):
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+
+    cycle = _pm_cycle(1)
+    first, second = _pm_project(1, "项目一", 1), _pm_project(2, "项目二", 1)
+    first.settings.update({"template_id": 101, "flow_settings": {}})
+    second.settings.update({"template_id": 102, "flow_settings": {}})
+    first_node = SimpleNamespace(id=11, project_id=1, node_id="review", node_type="evaluation", node_order=1, name="旧名称", config={})
+    second_node = SimpleNamespace(id=12, project_id=2, node_id="cal", node_type="calibration", node_order=1, name="校准", config={})
+    pending = SimpleNamespace(id=21, project_id=1, status="pending", submitted_at=None, task_kind="evaluation", phase_id=None, available_at=None, due_at=None)
+    completed = SimpleNamespace(id=22, project_id=2, status="completed", submitted_at=datetime(2026, 9, 20, tzinfo=UTC), task_kind="calibration", phase_id=None, available_at=None, due_at=None)
+    workflows = [SimpleNamespace(template_id=101, nodes=[{"node_id": "review", "name": "上级评估"}]), SimpleNamespace(template_id=102, nodes=[])]
+    access = _frontend_access(cycles=[cycle], workbench_projects=[(first, cycle), (second, cycle)])
+    monkeypatch.setattr(routes, "resolve_frontend_access", AsyncMock(return_value=access))
+
+    class Db:
+        def __init__(self): self.queries = []
+        async def execute(self, statement):
+            self.queries.append(statement)
+            sql = str(statement)
+            if "performance_audit_events" in sql:
+                return SimpleNamespace(all=lambda: [])
+            if "performance_result_openings" in sql:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [1]))
+            if "performance_template_workflows" in sql:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: workflows))
+            if "performance_project_node_snapshots" in sql and "performance_node_tasks" not in sql:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [first_node, second_node]))
+            return SimpleNamespace(all=lambda: [(first_node, pending), (second_node, completed)])
+
+    db = Db()
+    response = await routes.workbench_summary(1, context(), db)
+    assert [item["project_id"] for item in response["projects"]] == [1, 2]
+    assert response["projects"][0]["result_published"] and not response["projects"][1]["result_published"]
+    assert response["snapshots"]["1"]["timeline"][0]["node_name"] == "上级评估"
+    assert response["snapshots"]["1"]["pending"][0]["task_id"] == 21
+    assert response["snapshots"]["2"]["completed"][0]["task_id"] == 22
+    task_query = next(query for query in db.queries if "performance_node_tasks" in str(query))
+    task_sql = str(task_query.compile(compile_kwargs={"literal_binds": True}))
+    assert "performance_node_task_authorizations" in task_sql and "TRANSFER" in task_sql
+    assert len(db.queries) == 5
+
+
+@pytest.mark.asyncio
+async def test_batch_navigation_http_requires_positive_cycle_id(monkeypatch):
+    import httpx
+    from fastapi import FastAPI
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+
+    app = FastAPI()
+    app.include_router(routes.router, prefix="/api/v1")
+    app.dependency_overrides[routes.get_session] = lambda: SimpleNamespace()
+    app.dependency_overrides[routes.get_performance_access_context] = lambda: context()
+    monkeypatch.setattr(routes, "resolve_frontend_access", AsyncMock(return_value=_frontend_access(cycles=[_pm_cycle(1)])))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        for path in ["/api/v1/performance/workbench/summary", "/api/v1/performance/review/navigation"]:
+            assert (await client.get(path)).status_code == 422
+            assert (await client.get(path, params={"cycle_id": 0})).status_code == 422
+            response = await client.get(path, params={"cycle_id": 1})
+            assert response.status_code == 200
+            assert response.json()["projects"] == []
+
+
+@pytest.mark.asyncio
+async def test_workbench_task_groups_keep_pending_future_and_calibration_semantics():
+    from datetime import UTC, datetime
+    from app.performance import projects_router as routes
+
+    project = SimpleNamespace(id=1, settings={"flow_settings": {"node_times": {"future": {"start_at": "2099-01-01T00:00:00Z"}}}})
+    open_node = SimpleNamespace(id=10, project_id=1, node_id="open", node_type="evaluation", node_order=1, name="评估", config={})
+    future_node = SimpleNamespace(id=11, project_id=1, node_id="future", node_type="work_summary", node_order=2, name="未来总结", config={})
+    calibration_node = SimpleNamespace(id=12, project_id=1, node_id="cal", node_type="calibration", node_order=3, name="校准", config={})
+    open_task = SimpleNamespace(id=20, project_id=1, status="pending", submitted_at=None, task_kind="evaluation", phase_id=None, available_at=None, due_at=None)
+    future_task = SimpleNamespace(id=21, project_id=1, status="pending", submitted_at=None, task_kind="work_summary", phase_id=None, available_at=None, due_at=None)
+    complete_task = SimpleNamespace(id=22, project_id=1, status="completed", submitted_at=datetime(2026, 9, 20, tzinfo=UTC), task_kind="calibration", phase_id=None, available_at=None, due_at=None, calibration_completed_at=datetime(2026, 9, 20, tzinfo=UTC), calibration_rule_completions=None)
+    rows = [(open_node, open_task), (future_node, future_task), (calibration_node, complete_task)]
+    now = datetime(2026, 9, 20, tzinfo=UTC)
+    pending = routes._workbench_task_groups(rows, "pending", {1: project}, {}, now)
+    completed = routes._workbench_task_groups(rows, "completed", {1: project}, {}, now)
+    assert [item["node_id"] for item in pending] == ["open"]
+    assert [item["node_id"] for item in completed] == ["cal"]
+    assert completed[0]["completed_count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_workbench_projects_uses_employee_identity_and_member_visibility(monkeypatch):
     from app.performance import projects_router
 
@@ -4901,11 +5087,12 @@ async def test_workbench_projects_uses_employee_identity_and_member_visibility(m
         statement = None
 
         async def scalar(self, statement):
-            assert "performance_result_openings" in str(statement)
-            return None
+            raise AssertionError("结果开通状态应批量查询")
 
         async def execute(self, statement):
             self.statement = statement
+            if "performance_result_openings" in str(statement):
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
             return SimpleNamespace(all=lambda: [])
 
     db = Db()
@@ -4946,6 +5133,8 @@ async def test_workbench_projects_first_started_audit_contract(monkeypatch, keyw
     try:
         with engine.begin() as connection:
             connection.execute(text("CREATE TABLE performance_audit_events (cycle_ref TEXT, subject_ref TEXT, event_type TEXT, subject_type TEXT, event_at DATETIME)"))
+            connection.execute(text("CREATE TABLE performance_result_openings (project_id INTEGER, employee_no TEXT)"))
+            connection.execute(text("INSERT INTO performance_result_openings VALUES (1, 'E001')"))
             events = [
                 ("cycle:1", "project:x:1", "PERFORMANCE_PROJECT_STARTED", "PERFORMANCE_PROJECT", "2026-10-03 00:00:00"),
                 ("cycle:1", "project:x:9", "PERFORMANCE_PROJECT_STARTED", "PERFORMANCE_PROJECT", "2026-10-04 00:00:00"),
@@ -4963,22 +5152,27 @@ async def test_workbench_projects_first_started_audit_contract(monkeypatch, keyw
 
             class Db:
                 async def execute(self, statement):
-                    audit_queries.append(statement)
+                    if "performance_result_openings" in str(statement):
+                        opening_queries.append(statement)
+                    else:
+                        audit_queries.append(statement)
                     return connection.execute(statement)
 
                 async def scalar(self, statement):
-                    opening_queries.append(statement)
-                    params = statement.compile().params
-                    assert params["employee_no_1"] == "E001"
-                    return 44 if params["project_id_1"] == 1 else None
+                    raise AssertionError("结果开通状态应批量查询")
 
             result = await projects_router.workbench_projects(keyword, page, page_size, context(), Db(), cycle_id)
             assert [item["project_id"] for item in result] == expected_ids
             expected_times = {1: "2026-10-03T00:00:00", 9: "2026-10-01T00:00:00", 5: None}
             assert [item["project_started_at"] for item in result] == [expected_times[key] for key in expected_ids]
             assert [item["result_published"] for item in result] == [key == 1 for key in expected_ids]
-            assert len(opening_queries) == len(expected_ids)
+            assert len(opening_queries) == int(bool(expected_ids))
             assert len(audit_queries) == int(bool(expected_ids))
+            if opening_queries:
+                opening_sql = str(opening_queries[0].compile(compile_kwargs={"literal_binds": True}))
+                assert "performance_result_openings" in opening_sql
+                for project in projects:
+                    assert (f"project_id = {project.id}" in opening_sql) is (project.id in expected_ids)
             if audit_queries:
                 sql = str(audit_queries[0].compile(compile_kwargs={"literal_binds": True}))
                 assert "min(performance_audit_events.event_at)" in sql

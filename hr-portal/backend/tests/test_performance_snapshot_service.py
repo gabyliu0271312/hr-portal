@@ -491,6 +491,43 @@ def test_live_status_migration_compiles_snapshot_only_backfill_and_downgrade():
 
 
 @pytest.mark.asyncio
+async def test_resolve_scopes_batch_loads_snapshot_rows_once_and_keeps_identity_separation():
+    from types import SimpleNamespace
+    from app.performance import snapshot_service
+    from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceDynamicIdentityAssignment
+
+    snapshot = SimpleNamespace(id=7)
+    manager = SimpleNamespace(employee_no="200", display_name="经理", source_roster_id=None, portal_user_id=None, bu=None, company_org=None, department=None, department_2=None, department_3=None, department_4=None, department_5=None, direct_supervisor_employee_no="100", direct_supervisor_source_value=None, hrbp_employee_no=None, hrbp_source_value=None, employee_type=None, employment_status="在职", job_family=None, job_category=None, standard_position=None, position_level=None, hire_date=None, departure_date=None)
+    employee = SimpleNamespace(employee_no="300", display_name="员工", source_roster_id=None, portal_user_id=None, bu=None, company_org=None, department=None, department_2=None, department_3=None, department_4=None, department_5=None, direct_supervisor_employee_no="200", direct_supervisor_source_value=None, hrbp_employee_no="400", hrbp_source_value=None, employee_type=None, employment_status="在职", job_family=None, job_category=None, standard_position=None, position_level=None, hire_date=None, departure_date=None)
+    assignment = SimpleNamespace(actor_type="EMPLOYEE", actor_ref="200", identity_type="CALIBRATOR", target_type="EMPLOYEE", target_ref="900", source_type="CONFIGURATION", assigned_by_type=None, assigned_by_ref=None, is_active=True)
+    counts = {"snapshot": 0, "people": 0, "assignments": 0}
+
+    class Db:
+        async def execute(self, statement):
+            entity = statement.column_descriptions[0]["entity"]
+            key = "snapshot" if entity is PerformanceAuthorizationSnapshot else "people" if entity is PerformanceAuthorizationSnapshotPerson else "assignments"
+            counts[key] += 1
+            values = {"people": [manager, employee], "assignments": [assignment]}.get(key, [])
+            return SimpleNamespace(scalar_one_or_none=lambda: snapshot, scalars=lambda: SimpleNamespace(all=lambda: values))
+
+    service = snapshot_service.PerformanceAuthorizationSnapshotService(Db())
+    result = await service.resolve_scopes_batch(
+        "C1", actor_type="EMPLOYEE", actor_ref="200",
+        identity_types=(DYNAMIC_IDENTITY_TYPE_DIRECT_MANAGER, DYNAMIC_IDENTITY_TYPE_HRBP, DYNAMIC_IDENTITY_TYPE_CALIBRATOR),
+    )
+    assert counts == {"snapshot": 1, "people": 1, "assignments": 1}
+    assert _scope_refs(result[DYNAMIC_IDENTITY_TYPE_DIRECT_MANAGER]) == {(DYNAMIC_ASSIGNMENT_TARGET_TYPE_EMPLOYEE, "300")}
+    assert _scope_refs(result[DYNAMIC_IDENTITY_TYPE_HRBP]) == set()
+    assert _scope_refs(result[DYNAMIC_IDENTITY_TYPE_CALIBRATOR]) == {(DYNAMIC_ASSIGNMENT_TARGET_TYPE_EMPLOYEE, "900")}
+    assignment.target_ref = "901"
+    fresh = await service.resolve_scopes(
+        "C1", actor_type="EMPLOYEE", actor_ref="200", identity_type=DYNAMIC_IDENTITY_TYPE_CALIBRATOR,
+    )
+    assert _scope_refs(fresh) == {(DYNAMIC_ASSIGNMENT_TARGET_TYPE_EMPLOYEE, "901")}
+    assert counts == {"snapshot": 2, "people": 2, "assignments": 2}
+
+
+@pytest.mark.asyncio
 async def test_live_status_isolated_postgres_migration_upgrade_downgrade():
     import os
     if os.getenv("RUN_PERFORMANCE_DB_TEST") != "1":

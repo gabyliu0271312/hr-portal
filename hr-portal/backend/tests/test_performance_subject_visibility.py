@@ -89,6 +89,31 @@ def test_subject_visibility_rule_normalization_preserves_explicit_empty_role():
     assert rules["other"] == DEFAULT_SUBJECT_VISIBILITY_RULES["other"]
 
 
+@pytest.mark.asyncio
+async def test_subject_read_batch_reuses_only_inside_explicit_batch():
+    from app.performance.subject_visibility_service import load_subject_visibility_rules, subject_read_batch
+    from app.performance.models import PerformanceSubjectVisibilitySetting
+
+    class Db:
+        def __init__(self):
+            self.calls = 0
+            self.fields = ["department"]
+        async def get(self, model, identity):
+            assert model is PerformanceSubjectVisibilitySetting and identity == 1
+            self.calls += 1
+            return SimpleNamespace(rules={"reviewee": list(self.fields)})
+
+    db = Db()
+    with subject_read_batch(db):
+        first = await load_subject_visibility_rules(db)
+        db.fields = ["position_level"]
+        second = await load_subject_visibility_rules(db)
+    fresh = await load_subject_visibility_rules(db)
+    assert first["reviewee"] == second["reviewee"] == ["department"]
+    assert fresh["reviewee"] == ["position_level"]
+    assert db.calls == 2
+
+
 def test_mask_profile_values_removes_hidden_data_before_serialization():
     values = {
         "department": "研发中心",

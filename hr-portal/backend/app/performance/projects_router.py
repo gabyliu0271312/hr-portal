@@ -26,7 +26,7 @@ from app.integrations.feishu.notification_service import send_notification
 from app.integrations.feishu.schemas import FixedUsersRule, MessageConfig, NotificationConfig
 from app.users.models import User
 from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, project_reference_content, project_result_view_contents, result_view_content_sources, project_self_summary_answers, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_instance_unknown, self_summary_value_empty
-from app.performance.subject_visibility_service import load_subject_visibility_rules, mask_profile_values, resolve_subject_visibility_role, subject_profile_items
+from app.performance.subject_visibility_service import load_subject_visibility_rules, mask_profile_values, resolve_subject_visibility_role, subject_profile_items, subject_read_batch
 from app.data.employee_roster_contract import ORGANIZATION_FIELDS, format_job_sequence, organization_leaf, organization_path
 from app.performance.executor_config import normalize_executor_config
 from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time, _resolve_node_handlers
@@ -338,6 +338,10 @@ async def _overdue_submission_allowed(task: PerformanceNodeTask, node: Performan
     if cycle is None:
         return True
     global_setting = await db.get(PerformanceOtherSetting, 1)
+    return _overdue_submission_policy(cycle, node, global_setting)
+
+
+def _overdue_submission_policy(cycle, node, global_setting):
     if global_setting is not None and not getattr(global_setting, "overdue_single_submission_enabled", True):
         return False
     if global_setting is not None and global_setting.cycle_overdue_submission_override_enabled and not getattr(cycle, "overdue_submission_enabled", True):
@@ -4807,6 +4811,14 @@ async def _resolve_project_data_scope(context: PerformanceAccessContext, project
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="PROJECT_DATA_FORBIDDEN")
 
 
+def _workflow_node_names(workflow) -> dict[str, str]:
+    return {
+        str(node.get("node_id")): str(node.get("name"))
+        for node in ((workflow.nodes if workflow else []) or [])
+        if node.get("node_id") and node.get("name")
+    }
+
+
 async def _template_node_names(db: AsyncSession, project: PerformanceProject) -> dict[str, str]:
     """Return the current template names keyed by node id.
 
@@ -4817,11 +4829,7 @@ async def _template_node_names(db: AsyncSession, project: PerformanceProject) ->
     if not template_id:
         return {}
     workflow = await db.get(PerformanceTemplateWorkflow, int(template_id))
-    return {
-        str(node.get("node_id")): str(node.get("name"))
-        for node in ((workflow.nodes if workflow else []) or [])
-        if node.get("node_id") and node.get("name")
-    }
+    return _workflow_node_names(workflow)
 
 
 async def _get_cycle(db: AsyncSession, cycle_id: int) -> PerformanceCycle:
@@ -7661,6 +7669,67 @@ def _review_tasks_status(tasks: list[PerformanceNodeTask], start_at: str | None,
     return _review_node_status(start_at, end_at, current)
 
 
+def _frontend_cycle_rows(access, cycle_id, rows):
+    if not isinstance(cycle_id, int) or cycle_id < 1:
+        raise HTTPException(422, "INVALID_CYCLE_ID")
+    if cycle_id not in access.cycle_ids:
+        raise HTTPException(404, "CYCLE_NOT_FOUND")
+    return [(project, cycle) for project, cycle in rows if cycle.id == cycle_id]
+
+
+async def _frontend_project_data(rows, db, *, include_templates=False, access=None):
+    project_ids = [project.id for project, _cycle in rows]
+    if not project_ids:
+        return {}, {}, {}, {}
+    nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+        PerformanceProjectNodeSnapshot.project_id.in_(project_ids),
+    ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
+    template_ids = {int(project.settings["template_id"]) for project, _cycle in rows if (project.settings or {}).get("template_id")}
+    workflows = {workflow.template_id: workflow for workflow in (await db.execute(select(PerformanceTemplateWorkflow).where(
+        PerformanceTemplateWorkflow.template_id.in_(template_ids),
+    ))).scalars().all()} if template_ids else {}
+    templates = {template.id: template for template in (await db.execute(select(PerformanceTemplate).where(
+        PerformanceTemplate.id.in_(template_ids),
+    ))).scalars().all()} if include_templates and template_ids else {}
+    tasks = []
+    if access is not None:
+        task_ids = set().union(*(access.task_ids_by_project.get(identity, set()) for identity in project_ids))
+        if task_ids:
+            tasks = list((await db.execute(select(PerformanceNodeTask).where(
+                PerformanceNodeTask.project_id.in_(project_ids),
+                PerformanceNodeTask.id.in_(task_ids), PerformanceNodeTask.revoked_at.is_(None),
+            ).order_by(PerformanceNodeTask.id))).scalars().all())
+    nodes_by_project, tasks_by_project = {}, {}
+    for node in nodes:
+        nodes_by_project.setdefault(node.project_id, []).append(node)
+    for task in tasks:
+        if task.id in access.task_ids_by_project.get(task.project_id, set()):
+            tasks_by_project.setdefault(task.project_id, []).append(task)
+    return nodes_by_project, tasks_by_project, workflows, templates
+
+
+@router.get("/review/navigation")
+async def review_navigation(
+    cycle_id: int = Query(..., ge=1),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    access = await resolve_frontend_access(db, context)
+    rows = _frontend_cycle_rows(access, cycle_id, access.review_projects)
+    projects = [project_payload(project, cycle) for project, cycle in rows]
+    nodes, tasks, workflows, templates = await _frontend_project_data(rows, db, include_templates=True, access=access)
+    setting = await db.get(PerformanceOtherSetting, 1) if rows else None
+    overviews = []
+    for project, cycle in rows:
+        template_id = int((project.settings or {}).get("template_id") or 0)
+        overviews.append(await _build_review_overview(
+            project, cycle, projects, access, nodes.get(project.id, []), tasks.get(project.id, []),
+            templates.get(template_id), workflows.get(template_id), context, db,
+            include_content=False, overdue_policy=(cycle, setting),
+        ))
+    return {"projects": projects, "overviews": overviews}
+
+
 @router.get("/review/overview")
 async def review_overview(
     project_id: int | None = Query(default=None, ge=1),
@@ -7668,8 +7737,10 @@ async def review_overview(
     db: AsyncSession = Depends(get_session),
     task_id: int | None = Query(default=None, ge=1),
     cycle_id: int | None = Query(default=None, ge=1),
+    include_content: bool = True,
 ):
     access = await resolve_frontend_access(db, context)
+    project_id = project_id if isinstance(project_id, int) else None
     cycle_id = cycle_id if isinstance(cycle_id, int) else None
     task_id = task_id if isinstance(task_id, int) else None
     if cycle_id is not None and cycle_id not in access.cycle_ids:
@@ -7690,7 +7761,6 @@ async def review_overview(
     template_id = (project.settings or {}).get("template_id")
     template = await db.get(PerformanceTemplate, int(template_id)) if template_id else None
     workflow = await db.get(PerformanceTemplateWorkflow, int(template_id)) if template_id else None
-    template_names = {str(item.get("node_id")): str(item.get("name")) for item in ((workflow.nodes if workflow else []) or []) if item.get("node_id") and item.get("name")}
     snapshots = (
         await db.execute(
             select(PerformanceProjectNodeSnapshot)
@@ -7706,6 +7776,13 @@ async def review_overview(
     )
     tasks = (await db.execute(task_query.order_by(PerformanceNodeTask.id))).scalars().all()
     tasks = [task for task in tasks if task.id in task_ids]
+    return await _build_review_overview(project, cycle, projects, access, snapshots, tasks, template, workflow, context, db,
+        task_id=task_id, include_content=include_content)
+
+
+async def _build_review_overview(project, cycle, projects, access, snapshots, tasks, template, workflow, context, db,
+    *, task_id=None, include_content=True, overdue_policy=None):
+    template_names = {str(item.get("node_id")): str(item.get("name")) for item in ((workflow.nodes if workflow else []) or []) if item.get("node_id") and item.get("name")}
     tasks_by_node = {}
     for task in tasks:
         tasks_by_node.setdefault(task.node_snapshot_id, []).append(task)
@@ -7752,7 +7829,8 @@ async def review_overview(
         }
         if is_template_task and selected_task is not None:
             available_at, due_at = _task_window(selected_task, node, project)
-            overdue_allowed = await _task_overdue_submission_allowed(selected_task, node, db)
+            overdue_allowed = (False if selected_task_kind in {"calibration", "result_reconsideration"}
+                else _overdue_submission_policy(overdue_policy[0], node, overdue_policy[1])) if overdue_policy is not None else await _task_overdue_submission_allowed(selected_task, node, db)
             editable, _ = _self_summary_state(selected_task, available_at, due_at, overdue_allowed)
             if selected_task_kind in {"reviewer_360_invite", "reviewer_360_confirm"}:
                 from app.performance.reviewer_360_task_service import previous_ready
@@ -7762,7 +7840,7 @@ async def review_overview(
                             and not await _final_result_locked(selected_task, node, db))
             node_payload["editable"] = editable
             node_payload["submitted_at"] = selected_task.submitted_at
-            if selected_task.submitted_at is not None:
+            if include_content and selected_task.submitted_at is not None:
                 node_payload["form_schema"], node_payload["answers"] = await _task_visible_content(selected_task, node, db)
                 if selected_task_kind in {"reviewer_360_invite", "reviewer_360_confirm"}:
                     from app.performance import reviewer_360_task_service as reviewer_tasks
@@ -7800,9 +7878,16 @@ async def workbench_projects(
     if cycle_id is not None and cycle_id not in access.cycle_ids:
         raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
     rows = [(project, cycle) for project, cycle in access.workbench_projects if cycle_id is None or cycle.id == cycle_id]
+    keyword = keyword if isinstance(keyword, str) else None
+    page = page if isinstance(page, int) else 1
+    page_size = page_size if isinstance(page_size, int) else 20
     if keyword:
         rows = [row for row in rows if keyword.strip().casefold() in row[0].name.casefold()]
     rows = rows[(page - 1) * page_size:page * page_size]
+    return await _workbench_project_payloads(rows, access, db)
+
+
+async def _workbench_project_payloads(rows, access, db):
     started_at_by_project = {}
     if rows:
         started_events = (await db.execute(select(
@@ -7818,15 +7903,16 @@ async def workbench_projects(
             ) for project, _cycle in rows)),
         ).group_by(PerformanceAuditEvent.cycle_ref, PerformanceAuditEvent.subject_ref))).all()
         started_at_by_project = {(cycle_ref, project_ref): started_at.isoformat() for cycle_ref, project_ref, started_at in started_events}
+    opening_conditions = [and_(PerformanceResultOpening.project_id == project.id,
+        PerformanceResultOpening.employee_no == actor_ref)
+        for project, _cycle in rows
+        if (actor_ref := access.actor_refs_by_cycle.get(project.cycle_ref, access.actor_ref))]
+    opened_projects = set((await db.execute(select(PerformanceResultOpening.project_id).where(
+        or_(*opening_conditions),
+    ))).scalars().all()) if opening_conditions else set()
     result = []
     for project, cycle in rows:
-        actor_ref = access.actor_refs_by_cycle.get(project.cycle_ref, access.actor_ref)
-        opened = False
-        if actor_ref:
-            opened = await db.scalar(select(PerformanceResultOpening.id).where(
-                PerformanceResultOpening.project_id == project.id,
-                PerformanceResultOpening.employee_no == actor_ref,
-            ).limit(1)) is not None
+        opened = project.id in opened_projects
         result.append({"project_id": project.id, "project_name": project.name, "cycle_ref": project.cycle_ref, "cycle_name": cycle.name, "cycle_start_at": cycle.start_at, "cycle_end_at": cycle.end_at, "project_started_at": started_at_by_project.get((project.cycle_ref, project.project_ref)), "project_status": project.status, "result_published": opened, "participation_roles": []})
     return result
 
@@ -7854,6 +7940,10 @@ async def _project_timeline(project, db, *, include_reconsideration=False):
         statement = statement.where(PerformanceProjectNodeSnapshot.node_type.not_in({"result_reconsideration"}))
     nodes = (await db.execute(statement.order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all()
     now = datetime.now(UTC)
+    return _timeline_payload(project, nodes, template_names, now)
+
+
+def _timeline_payload(project, nodes, template_names, now):
     return [{"node_id": node.node_id, "node_name": template_names.get(node.node_id, node.name),
         "node_type": node.node_type, "node_order": node.node_order,
         "executor_label": ((node.config or {}).get("template") or {}).get("executor_label"),
@@ -7871,24 +7961,77 @@ async def workbench_timeline(project_id: int, context: PerformanceAccessContext 
     return await _project_timeline(project, db)
 
 
+def _workbench_task_statement(handler_condition):
+    from app.performance.reconsideration_service import valid_reconsideration_task
+    return select(PerformanceProjectNodeSnapshot, PerformanceNodeTask).join(
+        PerformanceNodeTask, PerformanceNodeTask.node_snapshot_id == PerformanceProjectNodeSnapshot.id,
+    ).join(PerformanceProject, PerformanceProject.id == PerformanceNodeTask.project_id).where(
+        PerformanceProject.status == PROJECT_STATUS_STARTED,
+        PerformanceProjectNodeSnapshot.node_type != "result_view",
+        or_(PerformanceProjectNodeSnapshot.node_type != "result_reconsideration", valid_reconsideration_task()),
+        handler_condition,
+    )
+
+
+@router.get("/workbench/summary")
+async def workbench_summary(
+    cycle_id: int = Query(..., ge=1),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    access = await resolve_frontend_access(db, context)
+    rows = _frontend_cycle_rows(access, cycle_id, access.workbench_projects)
+    projects = await _workbench_project_payloads(rows, access, db)
+    nodes, _tasks, workflows, _templates = await _frontend_project_data(rows, db)
+    handler_conditions = [and_(PerformanceNodeTask.project_id == project.id,
+        PerformanceNodeTask.cycle_ref == project.cycle_ref, task_handler_condition(actor_ref))
+        for project, _cycle in rows
+        if (actor_ref := access.actor_refs_by_cycle.get(project.cycle_ref, access.actor_ref))]
+    task_rows = (await db.execute(_workbench_task_statement(or_(*handler_conditions)).order_by(
+        PerformanceProjectNodeSnapshot.node_order, PerformanceNodeTask.id,
+    ))).all() if handler_conditions else []
+    tasks_by_project = {}
+    for node, task in task_rows:
+        tasks_by_project.setdefault(node.project_id, []).append((node, task))
+    snapshots = {}
+    now = datetime.now(UTC)
+    for project, _cycle in rows:
+        workflow = workflows.get(int((project.settings or {}).get("template_id") or 0))
+        names = _workflow_node_names(workflow)
+        project_tasks = tasks_by_project.get(project.id, [])
+        project_map = {project.id: project}
+        snapshots[str(project.id)] = {
+            "timeline": _timeline_payload(project, [node for node in nodes.get(project.id, []) if node.node_type != "result_reconsideration"], names, now),
+            "pending": _workbench_task_groups(project_tasks, "pending", project_map, names, now),
+            "completed": _workbench_task_groups(project_tasks, "completed", project_map, names, now),
+        }
+    return {"projects": projects, "snapshots": snapshots}
+
+
 @router.get("/workbench/tasks")
 async def workbench_tasks(project_id: int | None = None, state: str = Query(default="pending", pattern="^(pending|completed)$"), context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session)):
     actor = await resolve_trusted_performance_actor(db, context)
     handler = str(actor.actor_ref)
-    is_admin_preview = False
-    from app.performance.reconsideration_service import valid_reconsideration_task
-    stmt = select(PerformanceProjectNodeSnapshot, PerformanceNodeTask).join(PerformanceNodeTask, PerformanceNodeTask.node_snapshot_id == PerformanceProjectNodeSnapshot.id).join(PerformanceProject, PerformanceProject.id == PerformanceNodeTask.project_id).where(PerformanceProject.status == PROJECT_STATUS_STARTED, PerformanceProjectNodeSnapshot.node_type != "result_view", or_(PerformanceProjectNodeSnapshot.node_type != "result_reconsideration", valid_reconsideration_task()))
-    if not is_admin_preview:
-        stmt = stmt.where(task_handler_condition(handler))
+    state = state if isinstance(state, str) else "pending"
+    stmt = _workbench_task_statement(task_handler_condition(handler))
     if project_id is not None:
         stmt = stmt.where(PerformanceNodeTask.project_id == project_id)
     rows = (await db.execute(stmt.order_by(PerformanceProjectNodeSnapshot.node_order, PerformanceNodeTask.id))).all()
     project = await db.get(PerformanceProject, project_id) if project_id is not None else None
     template_names = await _template_node_names(db, project) if project else {}
-    now = datetime.now(UTC)
+    projects = {project_id: project} if project_id is not None else {}
+    missing_ids = {node.project_id for node, _task in rows} - projects.keys()
+    if missing_ids:
+        projects.update({item.id: item for item in (await db.execute(select(PerformanceProject).where(
+            PerformanceProject.id.in_(missing_ids),
+        ))).scalars().all()})
+    return _workbench_task_groups(rows, state, projects, template_names, datetime.now(UTC))
+
+
+def _workbench_task_groups(rows, state, projects, template_names, now):
     grouped: dict[int, tuple[PerformanceProjectNodeSnapshot, list[PerformanceNodeTask]]] = {}
     for node, task in rows:
-        current_project = project if project and project.id == node.project_id else await db.get(PerformanceProject, node.project_id)
+        current_project = projects.get(node.project_id)
         if state == "pending" and not _task_is_available(task, node, current_project, now):
             continue
         if node.id not in grouped:
@@ -7906,7 +8049,7 @@ async def workbench_tasks(project_id: int | None = None, state: str = Query(defa
         if not visible_tasks:
             continue
         first_task = visible_tasks[0]
-        current_project = project if project and project.id == node.project_id else await db.get(PerformanceProject, node.project_id)
+        current_project = projects.get(node.project_id)
         available_at, due_at = _task_window(first_task, node, current_project)
         result.append({"node_id": node.node_id, "node_type": node.node_type, "node_name": template_names.get(node.node_id, node.name), "executor_role_code": node_role_code((node.config or {}).get("template") or {}), "pending_count": len(pending_tasks), "completed_count": len(tasks) - len(pending_tasks), "overdue_count": 0, "task_id": first_task.id, "available_at": available_at, "due_at": due_at, "action_url": f"/performance/review?node={node.node_id}"})
     return result
@@ -8189,9 +8332,13 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
     workbench_nodes = list(dict((node.id, node) for _task, node, _member in schema_rows).values())
     from app.performance.member_columns_service import column_schema as build_column_schema, SNAPSHOT_PROFILE_FIELDS
     schema_fields = set()
-    for _task, schema_node, schema_member in schema_rows:
-        schema_role = await resolve_subject_visibility_role(db, context, handler, schema_member, schema_node, project)
-        schema_fields.update(visibility_rules[schema_role])
+    visibility_roles = {}
+    with subject_read_batch(db):
+        for _task, schema_node, schema_member in schema_rows:
+            role_key = (schema_node.id, getattr(schema_member, "employee_no", None))
+            if role_key not in visibility_roles:
+                visibility_roles[role_key] = await resolve_subject_visibility_role(db, context, handler, schema_member, schema_node, project)
+            schema_fields.update(visibility_rules[visibility_roles[role_key]])
     workbench_schema = build_column_schema(
         communication_metadata or [item for _schema, metadata in rating_metadata.values() for item in metadata],
         schema_fields, workbench_nodes, "evaluation",
@@ -8222,7 +8369,7 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
         await preload_member_reminders(project, reminder_members, context, db)
     result = []
     for task, node, member in rows:
-        visibility_role = await resolve_subject_visibility_role(db, context, handler, member, node, project)
+        visibility_role = visibility_roles[(node.id, getattr(member, "employee_no", None))]
         visible_fields = visibility_rules[visibility_role]
         schema, metadata = rating_metadata[node.id]
         if node.node_type == "result_reconsideration":

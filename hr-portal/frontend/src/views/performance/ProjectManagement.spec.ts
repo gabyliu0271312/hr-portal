@@ -21,7 +21,6 @@ vi.mock('@/api/performance', async () => {
 })
 
 import ProjectManagement from './ProjectManagement.vue'
-import PerformanceMemberReminderDialog from '@/components/performance/PerformanceMemberReminderDialog.vue'
 import ProjectMemberListPanel from '@/components/performance/ProjectMemberListPanel.vue'
 import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
 import sidebarSource from '@/components/performance/PerformanceReviewCategorySidebar.vue?raw'
@@ -180,11 +179,13 @@ describe('ProjectManagement', () => {
   it('keeps member 360 reminders separate from the result-opening overlay and scopes detail reminders', async () => {
     Object.assign(routeQuery, { rootReviewId: '5', member_project_id: '3', employee_no: 'E001' })
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
-    const wrapper = mount(ProjectManagement, { global: { plugins: [pinia], stubs: { PerformanceReviewCategorySidebar: true, PerformanceReviewEvaluationDrawer: { props: ['modelValue', 'taskId', 'detailLoader', 'employeeNo', 'nodeName', 'person', 'activeTab', 'readonly', 'member', 'projectId'], template: '<div />' }, ProjectMemberListPanel: true, PerformanceMemberReminderDialog: true, CompletionRatePanel: true } } })
+    const wrapper = mount(ProjectManagement, { global: { plugins: [pinia], stubs: { PerformanceReviewCategorySidebar: true, PerformanceReviewEvaluationDrawer: { props: ['modelValue', 'taskId', 'detailLoader', 'employeeNo', 'nodeName', 'person', 'activeTab', 'readonly', 'member', 'projectId'], template: '<div />' }, ProjectMemberListPanel: true, CompletionRatePanel: true } } })
     await flushPromises()
     wrapper.getComponent(ProjectMemberListPanel).vm.$emit('remind-evaluate', { member: { project_id: 3, employee_no: 'E001' }, pendingCount: 1 })
+    await vi.dynamicImportSettled()
     await flushPromises()
-    const dialog = wrapper.getComponent(PerformanceMemberReminderDialog)
+    const dialog = wrapper.findComponent({ name: 'PerformanceMemberReminderDialog' })
+    expect(dialog.exists()).toBe(true)
     expect(dialog.props()).toMatchObject({ modelValue: true, context: { projectId: 3, employeeNo: 'E001', targetKind: 'reviewer_360' } })
     expect(wrapper.getComponent({ name: 'PerformanceTaskOverlay' }).props('modelValue')).toBe(false)
     wrapper.getComponent(PerformanceReviewEvaluationDrawer).vm.$emit('remind', { node_id: 'summary', task_id: 77, employee_no: 'E001' })
@@ -413,7 +414,7 @@ describe('ProjectManagement', () => {
     expect(mockedApi.overview).toHaveBeenCalledTimes(count)
   })
 
-  it('restores the reminder return before the refreshed overview resolves and preserves scroll', async () => {
+  it('restores the reminder return and reuses the scoped overview cache', async () => {
     Object.assign(routeQuery, { cycle_id: '1', management_role: 'project_admin', tab: 'overview' })
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({ completion_nodes: [{ key: 'work-summary', title: '填写工作总结', status: 'active', can_remind: true, completion_rate: 25, completed_count: 1, total_count: 4, deadline_at: null }] }))
     const first = mountView()
@@ -421,19 +422,16 @@ describe('ProjectManagement', () => {
     ;(first.get('.management-content').element as HTMLElement).scrollTop = 180
     first.getComponent({ name: 'CompletionRatePanel' }).vm.$emit('action', { action: 'remind', nodeKey: 'work-summary', title: '填写工作总结' })
     await flushPromises()
+    const calls = vi.mocked(mockedApi.overview).mock.calls.length
     first.unmount()
     Object.assign(routeQuery, { from_reminder: '1' })
-    let resolve!: (value: ProjectManagementOverview) => void
-    vi.mocked(mockedApi.overview).mockImplementationOnce(() => new Promise(done => { resolve = done }))
     const returned = mountView()
     await flushPromises()
     expect(returned.text()).toContain('25.00%')
     expect(returned.text()).not.toContain('正在加载项目管理')
     expect(returned.text()).not.toContain('正在加载总览统计')
     expect((returned.get('.management-content').element as HTMLElement).scrollTop).toBe(180)
-    resolve(overviewOf({ completion_nodes: [{ key: 'work-summary', title: '填写工作总结', status: 'active', completion_rate: 50, completed_count: 2, total_count: 4, deadline_at: null }] }))
-    await flushPromises()
-    expect(returned.text()).toContain('50.00%')
+    expect(mockedApi.overview).toHaveBeenCalledTimes(calls)
   })
 
   it('clears restored overview after a forbidden background refresh', async () => {
@@ -473,10 +471,15 @@ describe('ProjectManagement', () => {
   it('loads the return page shell before statistics when no valid return snapshot exists', async () => {
     Object.assign(routeQuery, { cycle_id: '1', management_role: 'project_admin', from_reminder: '1' })
     let resolve!: (value: ProjectManagementOverview) => void
+    const loadResource = vi.spyOn(usePerformanceProjectContextStore(), 'loadResource')
     vi.mocked(mockedApi.overview).mockResolvedValueOnce(overviewOf({ completion_nodes: [] })).mockImplementationOnce(() => new Promise(done => { resolve = done }))
     const wrapper = mountView()
     await flushPromises()
     expect(vi.mocked(mockedApi.overview).mock.calls.map(call => call[2])).toEqual([false, true])
+    expect(loadResource.mock.calls.map(([key, _loader, ttl]) => [JSON.parse(key), ttl])).toEqual([
+      [['management-overview', 1, { management_role: 'project_admin' }, false], 15_000],
+      [['management-overview', 1, { management_role: 'project_admin' }, true], 15_000],
+    ])
     expect(wrapper.findAll('.line-tab')).toHaveLength(4)
     expect(wrapper.text()).not.toContain('正在加载项目管理')
     expect(wrapper.text()).toContain('正在加载总览统计')
@@ -527,7 +530,7 @@ describe('ProjectManagement', () => {
     expect(mockedApi.cycleMembers).toHaveBeenCalledTimes(1)
   })
 
-  it('discards pending statistics when returning to members and requests fresh statistics on reopening', async () => {
+  it('reuses pending statistics when reopening the same scope without applying them on members', async () => {
     Object.assign(routeQuery, { cycle_id: '1', management_role: 'project_admin', tab: 'members' })
     let resolveOld!: (value: ProjectManagementOverview) => void
     vi.mocked(mockedApi.overview).mockResolvedValueOnce(overviewOf({ completion_nodes: [] }))
@@ -545,7 +548,7 @@ describe('ProjectManagement', () => {
     expect(wrapper.findComponent(ProjectMemberListPanel).exists()).toBe(true)
     await wrapper.findAll('.line-tab')[0].trigger('click')
     await flushPromises()
-    expect(mockedApi.overview).toHaveBeenCalledTimes(3)
+    expect(mockedApi.overview).toHaveBeenCalledTimes(2)
     expect(wrapper.findComponent({ name: 'CompletionRatePanel' }).exists()).toBe(true)
   })
 
@@ -571,6 +574,9 @@ describe('ProjectManagement', () => {
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({ completion_nodes: [] }))
     const wrapper = mountView()
     await flushPromises()
+    await wrapper.get('.reviewee-add-trigger').trigger('click')
+    await vi.dynamicImportSettled()
+    await flushPromises()
     wrapper.getComponent({ name: 'RevieweeAddDialog' }).vm.$emit('added')
     await flushPromises()
     expect(mockedApi.overview).toHaveBeenCalledTimes(2)
@@ -582,11 +588,33 @@ describe('ProjectManagement', () => {
     Object.assign(routeQuery, { cycle_id: '1', management_role: 'project_admin', tab: 'matrix' })
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({ completion_nodes: [] }))
     const wrapper = mountView()
+    await vi.dynamicImportSettled()
     await flushPromises()
     expect(mockedApi.overview).toHaveBeenCalledWith(1, { management_role: 'project_admin' }, false)
     expect(mockedApi.managementMatrix).toHaveBeenCalledTimes(1)
     expect(mockedApi.cycleMembers).not.toHaveBeenCalled()
     expect(wrapper.findComponent({ name: 'CompletionRatePanel' }).exists()).toBe(false)
+  })
+
+  it('loads the project timeline in parallel and keeps member entry available when statistics fail', async () => {
+    Object.assign(routeQuery, { cycle_id: '1', management_role: 'hrbp', project_id: '4', tab: 'overview' })
+    let rejectStatistics!: (error: unknown) => void
+    vi.mocked(mockedApi.overview).mockResolvedValueOnce(overviewOf({ active_role: 'hrbp', categories: [{ key: 'hrbp', label: 'HRBP', projects: overviewOf().projects }], completion_nodes: [] }))
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectStatistics = reject }))
+    vi.mocked(mockedApi.timeline).mockResolvedValue([{ node_id: 'appeal', node_name: '结果复议处理', node_type: 'result_reconsideration', node_order: 8, start_at: null, end_at: null, status: 'in_progress' }])
+    const wrapper = mountView()
+    await flushPromises()
+    expect(vi.mocked(mockedApi.overview).mock.calls.map(call => call[2])).toEqual([false, true])
+    expect(mockedApi.timeline).toHaveBeenCalledWith(1, 4, 'hrbp')
+    expect(wrapper.text()).toContain('结果复议处理')
+    rejectStatistics(new Error('offline'))
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('项目管理加载失败')
+    expect(wrapper.text()).toContain('结果复议处理')
+    expect(wrapper.findAll('.line-tab')).toHaveLength(4)
+    await wrapper.findAll('.line-tab')[1].trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(ProjectMemberListPanel).exists()).toBe(true)
   })
 
   it('shares project tabs, uses project members and real timeline, and preserves role on action navigation', async () => {
@@ -600,6 +628,7 @@ describe('ProjectManagement', () => {
     expect(mockedApi.cycleMembers).not.toHaveBeenCalled()
     expect(mockedApi.overview).toHaveBeenCalledWith(1, { management_role: 'hrbp', project_id: 4 }, false)
     await wrapper.findAll('.line-tab')[0].trigger('click')
+    await wrapper.vm.$nextTick()
     await flushPromises()
     expect(mockedApi.timeline).toHaveBeenCalledWith(1, 4, 'hrbp')
     expect(wrapper.getComponent({ name: 'PerformanceWorkbenchTimeline' }).props('nodes')[0]).toMatchObject({ node_name: '结果复议处理', current: true })
@@ -607,6 +636,7 @@ describe('ProjectManagement', () => {
     await flushPromises()
     expect(push).toHaveBeenCalledWith({ name: 'PerformanceAuthorizationRecords', query: { cycle_id: '1', management_role: 'hrbp', project_id: '4' } })
     await wrapper.findAll('.line-tab')[2].trigger('click')
+    await vi.dynamicImportSettled()
     await flushPromises()
     expect(mockedApi.managementMatrix).toHaveBeenCalledWith(1, { management_role: 'hrbp', project_id: 4 })
     expect(mockedApi.matrix).not.toHaveBeenCalled()
@@ -617,6 +647,7 @@ describe('ProjectManagement', () => {
     const categories = [{ key: 'hrbp' as const, label: 'HRBP', projects: overviewOf().projects }, { key: 'project_admin' as const, label: '项目管理员', projects: overviewOf().projects }]
     let resolveOld!: (value: ProjectManagementOverview) => void
     vi.mocked(mockedApi.overview).mockResolvedValueOnce(overviewOf({ active_role: 'hrbp', categories }))
+      .mockResolvedValueOnce(overviewOf({ active_role: 'hrbp', categories }))
       .mockImplementationOnce(() => new Promise(done => { resolveOld = done }))
       .mockResolvedValueOnce(overviewOf({ active_role: 'project_admin', categories, completion_nodes: [] }))
     const wrapper = mountView()
@@ -625,7 +656,7 @@ describe('ProjectManagement', () => {
     const nodes = sidebar.props('categories')
     sidebar.vm.$emit('select-node', nodes[0].nodes[1])
     await flushPromises()
-    expect(wrapper.text()).toContain('正在加载项目管理')
+    expect(route.query.project_id).toBe('3')
     sidebar.vm.$emit('select-node', nodes[1].nodes[0])
     await flushPromises()
     expect(route.query.management_role).toBe('project_admin')
@@ -641,7 +672,8 @@ describe('ProjectManagement', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(mockedApi.overview).toHaveBeenCalledWith(1, {}, true)
+    expect(mockedApi.overview).toHaveBeenNthCalledWith(1, 1, {}, false)
+    expect(mockedApi.overview).toHaveBeenNthCalledWith(2, 1, { management_role: 'project_admin' }, true)
     const labels = wrapper.findAll('.review-node').map(item => item.text())
     expect(labels).toEqual(['周期概览', '产品中心项目', '研发中心项目'])
     const categoryToggle = wrapper.find('.category-toggle')
@@ -892,7 +924,7 @@ describe('ProjectManagement', () => {
     expect(panel.text()).toContain('开通成员')
     expect(panel.find('.selection-bar').exists()).toBe(false)
     expect(people).toHaveBeenCalledTimes(loads)
-    expect(mockedApi.overview).toHaveBeenCalledTimes(1)
+    expect(mockedApi.overview).toHaveBeenCalledTimes(2)
     wrapper.unmount()
     people.mockRestore()
     opening.mockRestore()
@@ -1079,6 +1111,7 @@ describe('ProjectManagement', () => {
     const wrapper = mountView()
     await flushPromises()
     await wrapper.findAll('.line-tab')[3].trigger('click')
+    await vi.dynamicImportSettled()
     await flushPromises()
     const report = wrapper.findComponent({ name: 'ProjectStatisticsReportPanel' })
     expect(report.props('cycleId')).toBe(1)
@@ -1087,8 +1120,9 @@ describe('ProjectManagement', () => {
     expect(wrapper.findAll('[data-report-section]')).toHaveLength(9)
     expect(statistics).toHaveBeenCalledWith(1, 'department', { management_role: 'project_admin' }, undefined)
     expect(mockedApi.members).not.toHaveBeenCalled()
-    expect(mockedApi.overview).toHaveBeenCalledTimes(1)
+    expect(mockedApi.overview).toHaveBeenCalledTimes(2)
     await wrapper.findAll('.line-tab')[2].trigger('click')
+    await vi.dynamicImportSettled()
     await flushPromises()
     expect(wrapper.findComponent({ name: 'ProjectPerformanceMatrix' }).exists()).toBe(true)
     expect(mockedApi.managementMatrix).toHaveBeenCalledWith(1, { management_role: 'project_admin' })
@@ -1155,13 +1189,21 @@ describe('authorization workspaces', () => {
     const { default: Dialog } = await import('@/components/performance/PerformanceTaskDelegationDialog.vue')
     pinia = createPinia(); setActivePinia(pinia)
     usePerformanceProjectContextStore().setNavigation(navigationOf(1))
+    Object.assign(routeQuery, { cycle_id: '1', management_role: 'project_admin' })
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
     const wrapper = mountView()
     await flushPromises()
     push.mockClear()
+    await wrapper.findAll('.line-tab')[1].trigger('click')
+    await flushPromises()
+    wrapper.getComponent(ProjectMemberListPanel).vm.$emit('authorize-selected', [{ project_id: 3, employee_no: 'E1', display_name: '员工', task_id: 11, task_map: [] }])
+    await vi.dynamicImportSettled()
+    await flushPromises()
     wrapper.getComponent(Dialog).vm.$emit('completed', 0, '', undefined, 2)
     await flushPromises()
     expect(push).not.toHaveBeenCalled()
+    wrapper.getComponent(ProjectMemberListPanel).vm.$emit('authorize-selected', [{ project_id: 3, employee_no: 'E1', display_name: '员工', task_id: 11, task_map: [] }])
+    await flushPromises()
     wrapper.getComponent(Dialog).vm.$emit('completed', 1, '', 21, 0)
     await flushPromises()
     expect(push).toHaveBeenCalledWith({ name: 'PerformanceAuthorizationRecords', query: { cycle_id: '1', management_role: 'project_admin', highlight_id: '21', highlight_tab: 'authorization' } })

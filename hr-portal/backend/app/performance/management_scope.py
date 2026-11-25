@@ -3,6 +3,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.performance.auth_context import PerformanceIdentityMappingNotFound, resolve_trusted_performance_actor
+from app.performance.subject_visibility_service import read_subject_reference, subject_read_batch
 from app.performance.models import (
     PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson,
     PerformanceCycle, PerformanceProject, PerformanceProjectMember, PerformanceRole,
@@ -39,33 +40,45 @@ async def named_project_scope(context, project, db, function_key, *, candidates=
     selected = (project.settings or {}).get("data_managers", ["HRBP"])
     if role_key.upper() not in selected:
         raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
-    role = await db.scalar(select(PerformanceRole).where(
+    role = await read_subject_reference(db, ("management_role", role_key), lambda: db.scalar(select(PerformanceRole).where(
         PerformanceRole.code == f"performance.{role_key}",
         PerformanceRole.role_type == "MANAGEMENT", PerformanceRole.is_active.is_(True),
-    ))
+    )))
     if role is None or function_key not in (role.function_permission_keys or []):
         raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
     try:
-        actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
+        actor = await read_subject_reference(db, ("management_actor", context, project.cycle_ref), lambda: resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True))
     except PerformanceIdentityMappingNotFound:
         raise HTTPException(403, "PROJECT_DATA_FORBIDDEN") from None
     if actor.actor_type != "EMPLOYEE":
         raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
     if role_key == "project_admin":
-        people = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson).join(
-            PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshot.id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
-        ).where(PerformanceAuthorizationSnapshot.cycle_ref == project.cycle_ref))).scalars().all())
+        async def load_people():
+            return list((await db.execute(select(PerformanceAuthorizationSnapshotPerson).join(
+                PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshot.id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
+            ).where(PerformanceAuthorizationSnapshot.cycle_ref == project.cycle_ref))).scalars().all())
+        people = await read_subject_reference(db, ("management_people", project.cycle_ref), load_people)
         own = next((person for person in people if person.employee_no == actor.actor_ref), None)
         if own is None or own.display_name not in (project.administrators or []) or sum(person.display_name == own.display_name for person in people) != 1:
             raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
         return None
-    permissions = await shared._person_hrbp_permissions(db, actor.actor_ref, project.cycle_ref)
+    permissions = await read_subject_reference(
+        db, ("hrbp_permissions", actor.actor_ref, project.cycle_ref),
+        lambda: shared._person_hrbp_permissions(db, actor.actor_ref, project.cycle_ref),
+    )
     if not permissions:
         raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
-    invisible = await shared._global_hrbp_invisible_people(db, scopes=[scope for item in permissions for scope in (item.scope or [])])
-    members = candidates if candidates is not None else list((await db.execute(select(PerformanceProjectMember).where(
-        PerformanceProjectMember.snapshot_id == shared._latest_member_snapshot_statement(project.id),
-    ))).scalars().all())
+    invisible = await read_subject_reference(
+        db, ("hrbp_invisible", tuple(scope for item in permissions for scope in (item.scope or []))),
+        lambda: shared._global_hrbp_invisible_people(db, scopes=[scope for item in permissions for scope in (item.scope or [])]),
+    )
+    async def load_members():
+        return list((await db.execute(select(PerformanceProjectMember).where(
+            PerformanceProjectMember.snapshot_id == shared._latest_member_snapshot_statement(project.id),
+        ))).scalars().all())
+    members = candidates if candidates is not None else await read_subject_reference(
+        db, ("project_members", project.id), load_members,
+    )
     scope = {member.employee_no for member in members if member.employee_no not in invisible and any(
         member.employee_no not in (permission.invisible_people or [])
         and shared._organization_in_scope(member.organization_ref, permission.scope or [])
@@ -92,23 +105,24 @@ async def management_projects(cycle_id, context, db, function_keys=MANAGEMENT_FE
         statement = statement.where(PerformanceProject.id == project.id)
     projects = list((await db.execute(statement)).scalars().all())
     result = []
-    for project in projects:
-        visible = set()
-        allowed = False
-        for key in function_keys:
-            try:
-                scope = await shared._project_data_scope(context, project, db, key)
-            except HTTPException as exc:
-                if exc.status_code != 403:
-                    raise
-                continue
-            allowed = True
-            if scope is None:
-                visible = None
-                break
-            visible.update(scope)
-        if allowed:
-            result.append((project, visible))
+    with subject_read_batch(db):
+        for project in projects:
+            visible = set()
+            allowed = False
+            for key in function_keys:
+                try:
+                    scope = await shared._project_data_scope(context, project, db, key)
+                except HTTPException as exc:
+                    if exc.status_code != 403:
+                        raise
+                    continue
+                allowed = True
+                if scope is None:
+                    visible = None
+                    break
+                visible.update(scope)
+            if allowed:
+                result.append((project, visible))
     if not result:
         raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
     return result

@@ -30,10 +30,11 @@
       </div>
 
       <p v-if="error" role="alert">{{ error }} <button type="button" @click="loadCycle">重新加载</button></p>
-      <section v-if="timelineProject" class="timeline-section">
+      <section v-if="timelineProject || loading" class="timeline-section">
         <div class="timeline-card">
           <div class="timeline-card-content">
-            <PerformanceWorkbenchTimeline :nodes="projectNodes(timelineProject.project_id)" />
+            <div v-if="loading && !timelineProject" class="timeline-placeholder" role="status">正在加载绩效流程…</div>
+            <PerformanceWorkbenchTimeline v-else-if="timelineProject" :nodes="projectNodes(timelineProject.project_id)" />
           </div>
         </div>
       </section>
@@ -74,7 +75,7 @@
               <span class="todo-action">{{ todoTab === 'pending' ? '去完成' : '查看' }}</span>
             </a>
           </div>
-          <div v-else class="todo-empty">暂无内容</div>
+          <div v-else class="todo-empty" role="status">{{ loading ? '正在加载待办…' : '暂无内容' }}</div>
         </div>
       </section>
     </section>
@@ -322,7 +323,7 @@ function loadAnnouncements(cycleRef?: string | null, cycleId?: number) {
   return request.then((feed) => {
     if (!current()) return
     announcementEnabled.value = feed.announcement_enabled
-    announcementCycleRef.value = feed.cycle_ref || cycleRef || null
+    announcementCycleRef.value = feed.cycle_ref || cycleRef || projects.value.find(project => project.cycle_ref)?.cycle_ref || null
     announcements.value = feed.announcement_enabled ? [...feed.items].sort((a, b) => a.display_order - b.display_order || a.id - b.id) : []
   }).catch(() => {
     if (!current()) return
@@ -394,28 +395,6 @@ restoreSnapshots()
 
 const disposed = ref(false)
 onBeforeUnmount(() => { disposed.value = true; selectionVersion += 1; resetAnnouncements() })
-async function loadProject(projectId: number) {
-  if (disposed.value) return
-  const cycleId = activeCycleId.value
-  const version = selectionVersion
-  const cacheVersion = projectContext.cacheVersion
-  const current = () => version === selectionVersion && activeCycleId.value === cycleId && cacheVersion === projectContext.cacheVersion
-  const applySection = <K extends keyof PerformanceWorkbenchSnapshot>(key: K, value: PerformanceWorkbenchSnapshot[K]) => {
-    if (!current()) return
-    const cached = projectContext.workbenchSnapshot(projectId)
-    const snapshot = { timeline: [], pending: [], completed: [], ...cached, [key]: value } as PerformanceWorkbenchSnapshot
-    projectContext.setWorkbenchSnapshot(projectId, snapshot)
-    snapshots.value = { ...snapshots.value, [projectId]: snapshot }
-  }
-  const sectionFailed = () => {
-    if (current()) error.value = '部分工作台数据加载失败，请稍后重试'
-  }
-  await Promise.allSettled([
-    performanceWorkbenchApi.timeline(projectId).then(value => applySection('timeline', value)).catch(sectionFailed),
-    performanceWorkbenchApi.tasks(projectId, 'pending').then(value => applySection('pending', value)).catch(sectionFailed),
-    performanceWorkbenchApi.tasks(projectId, 'completed').then(value => applySection('completed', value)).catch(sectionFailed),
-  ])
-}
 function reviewQuery(entry: string, projectId = activeProjectId.value) { return { name: 'PerformanceReview', query: { entry, cycle_id: String(activeCycleId.value || ''), project_id: String(projectId || '') } } }
 function goToResults(projectId?: number) { router.push(reviewQuery('results', projectId)) }
 function openResultScope(kind: 'team' | 'focus') {
@@ -449,22 +428,23 @@ async function loadCycle() {
   loading.value = !projects.value.length
   error.value = ''
   try {
-    const loadedProjects = await performanceWorkbenchApi.listProjects(undefined, cycleId)
+    void loadAnnouncements(undefined, cycleId)
+    const summary = await projectContext.loadResource(`workbench-summary:${cycleId}`, () => performanceWorkbenchApi.summary(cycleId))
+    const loadedProjects = summary.projects
     if (version !== selectionVersion || cycleId !== projectContext.activeCycleId || cacheVersion !== projectContext.cacheVersion) return
     if (disposed.value) return
     projects.value = loadedProjects
     projectContext.setWorkbenchProjects(loadedProjects)
+    snapshots.value = Object.fromEntries(Object.entries(summary.snapshots).map(([projectId, snapshot]) => [Number(projectId), snapshot]))
+    for (const [projectId, snapshot] of Object.entries(summary.snapshots)) projectContext.setWorkbenchSnapshot(Number(projectId), snapshot)
     const preferredId = activeProjectId.value && loadedProjects.some(project => project.project_id === activeProjectId.value)
       ? activeProjectId.value
       : loadedProjects[0]?.project_id || null
     projectContext.setActiveProjectId(preferredId)
     const preferredProject = loadedProjects.find(project => project.project_id === preferredId)
-    restoreSnapshots()
-    void loadAnnouncements(preferredProject?.cycle_ref, cycleId)
+    if (!announcementCycleRef.value && preferredProject?.cycle_ref) announcementCycleRef.value = preferredProject.cycle_ref
     if (!preferredId) return
     if (String(route.query.project_id || '') !== String(preferredId)) await router.replace({ query: { ...route.query, cycle_id: cycleId ? String(cycleId) : undefined, project_id: String(preferredId) } })
-    if (disposed.value || version !== selectionVersion || cycleId !== activeCycleId.value) return
-    await Promise.all(loadedProjects.map(project => loadProject(project.project_id)))
   } catch {
     if (version === selectionVersion) error.value = '工作台数据加载失败，请稍后重试'
   } finally {
@@ -482,7 +462,7 @@ async function selectCycle(rawCycleId: number | string) {
   } catch { error.value = projectContext.navigationError || '工作台数据加载失败，请稍后重试' }
 }
 onMounted(async () => {
-  void performanceApi.getAccessContext()
+  void projectContext.loadResource('access-context', () => performanceApi.getAccessContext(), 30_000)
     .then((context) => { devAdminDebug.value = Boolean(context.dev_admin_debug) })
     .catch(() => { devAdminDebug.value = false })
   try {
@@ -512,6 +492,7 @@ onMounted(async () => {
 .todo-project { overflow: hidden; max-width: 40%; text-overflow: ellipsis; white-space: nowrap; }
 .timeline-card, .side-card { border: 1px solid #dee0e3; border-radius: 8px; background: #fff; box-shadow: none; }
 .timeline-card { margin-bottom: 28px; padding: 24px; overflow: hidden; border-width: 0.666667px; box-shadow: none; }
+.timeline-placeholder { display: grid; min-height: 86px; place-items: center; color: var(--color-text-secondary); font-size: 14px; }
 .timeline-card-content { margin: -4px 0; }
 .result-card { display: flex; align-items: center; gap: 22px; margin-top: 14px; padding: 24px 30px; border: 1px solid #edf0f4; border-radius: 12px; background: #fff; box-shadow: 0 5px 18px rgb(26 41 70 / 3%); }
 .result-icon { display: grid; flex: 0 0 auto; width: 56px; height: 56px; place-items: center; border-radius: 12px; background: #f1f5fb; color: #3478f6; font-size: 27px; }

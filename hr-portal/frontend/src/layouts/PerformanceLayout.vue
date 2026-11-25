@@ -187,7 +187,7 @@ const switchCapability = ref<SwitchCapability | null>(null)
 async function refreshIdentity() {
   const version = employeeSwitchEpoch.value
   try {
-    const context = await performanceApi.getAccessContext()
+    const context = await projectContext.loadResource('access-context', () => performanceApi.getAccessContext(), 30_000)
     if (version === employeeSwitchEpoch.value) performanceContext.value = context
   } catch { if (version === employeeSwitchEpoch.value) performanceContext.value = null }
   if (version !== employeeSwitchEpoch.value) return

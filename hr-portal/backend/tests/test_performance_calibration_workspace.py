@@ -60,15 +60,25 @@ def data(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_multiple_projects_phases_and_rules_have_distinct_scopes(data):
+async def test_multiple_projects_phases_and_rules_have_distinct_scopes(data, monkeypatch):
+    original_execute = data.db.execute
+    queries = 0
+    async def counted(statement):
+        nonlocal queries
+        queries += 1
+        return await original_execute(statement)
+    monkeypatch.setattr(data.db, "execute", counted)
     result = await workspace.list_scopes(data.db, 1, None)
     assert len(result["tasks"]) == 8
+    assert queries == 5
     assert len({item["scope_key"] for item in result["tasks"]}) == 8
     assert [item["task_number"] for item in result["tasks"]] == list(range(1, 9))
     assert result["pending_member_count"] == 4
     assert [item["member_count"] for item in result["tasks"]] == [2, 1, 2, 1] * 2
     assert all(item["status"] == "pending" for item in result["tasks"])
+    assert all(item["people_options"] for item in result["tasks"])
     assert all("SECRET" not in {person["employee_no"] for person in item["people_options"]} for item in result["tasks"])
+    routes._self_summary_task.assert_not_awaited()
     data.actor.actor_ref = "OUTSIDER"
     assert (await workspace.list_scopes(data.db, 1, None))["tasks"] == []
 

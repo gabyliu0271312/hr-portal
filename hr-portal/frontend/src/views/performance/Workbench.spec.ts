@@ -130,6 +130,15 @@ describe('PerformanceWorkbench project context', () => {
     vi.spyOn(performanceWorkbenchApi, 'listProjects').mockImplementation(async (_keyword, cycleId) => cycleId === 2 ? [projects[1]] : [projects[0]])
     vi.spyOn(performanceWorkbenchApi, 'timeline').mockResolvedValue(timeline)
     vi.spyOn(performanceWorkbenchApi, 'tasks').mockImplementation(async (_projectId, state) => state === 'pending' ? pending : [])
+    vi.spyOn(performanceWorkbenchApi, 'summary').mockImplementation(async (cycleId) => {
+      const loaded = await performanceWorkbenchApi.listProjects(undefined, cycleId)
+      const entries = await Promise.all(loaded.map(async project => [project.project_id, {
+        timeline: await performanceWorkbenchApi.timeline(project.project_id),
+        pending: await performanceWorkbenchApi.tasks(project.project_id, 'pending'),
+        completed: await performanceWorkbenchApi.tasks(project.project_id, 'completed'),
+      }] as const))
+      return { projects: loaded, snapshots: Object.fromEntries(entries) }
+    })
     vi.spyOn(performanceWorkbenchApi, 'announcements').mockResolvedValue({ announcement_enabled: true, items: [] })
     vi.spyOn(performanceWorkbenchApi, 'acknowledge').mockResolvedValue({ acknowledged: true })
     vi.spyOn(performanceWorkbenchApi, 'announcementImage').mockResolvedValue(new Blob(['image'], { type: 'image/png' }))
@@ -226,7 +235,7 @@ describe('PerformanceWorkbench project context', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(performanceWorkbenchApi.announcements).toHaveBeenCalledWith('cycle-2')
+    expect(performanceWorkbenchApi.announcements).toHaveBeenCalledWith(undefined, 2)
     expect(wrapper.get('.announcement-link').text()).toContain('绩效面谈指引')
   })
 
@@ -235,7 +244,7 @@ describe('PerformanceWorkbench project context', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(performanceWorkbenchApi.announcements).toHaveBeenCalledWith('cycle-1')
+    expect(performanceWorkbenchApi.announcements).toHaveBeenCalledWith(undefined, 1)
     expect(wrapper.find('.announcement-card').exists()).toBe(false)
   })
 
@@ -349,7 +358,7 @@ describe('PerformanceWorkbench project context', () => {
     await flushPromises()
     expect(context.workbenchProjects).toBeNull()
     expect(wrapper.findAll('.todo-item')).toHaveLength(0)
-    expect(performanceWorkbenchApi.timeline).not.toHaveBeenCalled()
+    expect(performanceWorkbenchApi.summary).toHaveBeenCalledWith(1)
     wrapper.unmount()
   })
 
@@ -363,27 +372,27 @@ describe('PerformanceWorkbench project context', () => {
     wrapper.unmount()
   })
 
-  it('renders the timeline as soon as it resolves even when pending tasks never resolve', async () => {
-    let resolveTimeline!: (value: PerformanceWorkbenchTimelineNode[]) => void
-    vi.mocked(performanceWorkbenchApi.timeline).mockReturnValue(new Promise(resolve => { resolveTimeline = resolve }))
-    vi.mocked(performanceWorkbenchApi.tasks).mockImplementation(async (_projectId, state) => state === 'pending' ? new Promise(() => {}) : [])
+  it('renders timeline and tasks together from the cycle summary', async () => {
+    let resolveSummary!: (value: Awaited<ReturnType<typeof performanceWorkbenchApi.summary>>) => void
+    vi.mocked(performanceWorkbenchApi.summary).mockReturnValue(new Promise(resolve => { resolveSummary = resolve }))
     const wrapper = mountView()
     await flushPromises()
-    resolveTimeline(timeline)
+    expect(wrapper.findAll('.timeline-node')).toHaveLength(0)
+    resolveSummary({ projects: [projects[0]], snapshots: { 1: { timeline, pending, completed: [] } } })
     await flushPromises()
     expect(wrapper.findAll('.timeline-node')).toHaveLength(1)
     expect(wrapper.get('.timeline-node').text()).toContain('工作总结')
+    expect(wrapper.findAll('.todo-item')).toHaveLength(1)
     wrapper.unmount()
   })
 
-  it('loads project data without waiting for announcements and isolates failed sections', async () => {
+  it('loads announcements independently when the cycle summary fails', async () => {
     vi.mocked(performanceWorkbenchApi.announcements).mockReturnValue(new Promise(() => {}))
-    vi.mocked(performanceWorkbenchApi.timeline).mockRejectedValue(new Error('timeline'))
+    vi.mocked(performanceWorkbenchApi.summary).mockRejectedValue(new Error('summary'))
     const wrapper = mountView()
     await flushPromises()
-    expect(performanceWorkbenchApi.tasks).toHaveBeenCalledWith(1, 'pending')
-    expect(wrapper.findAll('.todo-item')).toHaveLength(1)
-    expect(wrapper.text()).toContain('部分工作台数据加载失败')
+    expect(performanceWorkbenchApi.announcements).toHaveBeenCalledWith(undefined, 1)
+    expect(wrapper.text()).toContain('工作台数据加载失败')
     wrapper.unmount()
   })
 

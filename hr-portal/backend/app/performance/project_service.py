@@ -1634,10 +1634,13 @@ class PerformanceProjectService:
                     timing = node_times.get(node_id) or {}
                     available_at = _parse_time(timing.get("start_at"))
                     due_at = _parse_time(timing.get("end_at") or timing.get("appeal_deadline"))
+                    direct_reports = {}
+                    for reviewer in people:
+                        direct_reports.setdefault(reviewer.direct_supervisor_employee_no, []).append(reviewer)
                     for target in task_people:
-                        for reviewer in people:
+                        for reviewer in direct_reports.get(target.employee_no, []):
                             reviewer_status = getattr(reviewer, "live_employment_status", None) or reviewer.employment_status
-                            if reviewer.direct_supervisor_employee_no != target.employee_no or reviewer_status == "离职":
+                            if reviewer_status == "离职":
                                 continue
                             self.db.add(PerformanceNodeTask(
                                 project_id=project.id,

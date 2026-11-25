@@ -562,6 +562,11 @@ export const performanceReview360FeedbackApi = {
 }
 
 export const performanceReviewApi = {
+  async navigation(cycleId: number): Promise<{ projects: PerformanceReviewOverview['projects']; overviews: PerformanceReviewOverview[] }> {
+    const path = '/performance/review/navigation'
+    const params = { cycle_id: cycleId }
+    return mergeInFlight(requestKey(path, params), async () => (await api.get(path, { params })).data)
+  },
   async discardTaskDraft(taskId: number | string, kind: string, version: number, employeeNo?: string): Promise<{ version: number }> {
     const endpoint = kind === 'work_summary' ? 'self-summary' : 'template-task'
     const { data } = await api.delete(`/performance/tasks/${encodeURIComponent(String(taskId))}/${endpoint}/draft`, { data: { version }, params: employeeNo ? { employee_no: employeeNo } : undefined })
@@ -1807,6 +1812,11 @@ export type SelfSummaryTask = PerformanceTemplateTask
 export type SelfSummarySaveResult = { reviewer_360?: PerformanceReview360InviteList; reviewer_360_version?: string; comparison?: PerformanceComparisonResult | null; draft_diff_reason?: string | null; draft_comparison_context?: string | null; draft_comparison_reasons?: PerformanceComparisonReason[]; answers: Record<string, unknown>; version?: number; result_version?: number | null; draft_base_result_version?: number | null; answer_submissions?: Array<{ display_name: string; submitted_at: string }>; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean; reconsideration_closed?: boolean }
 
 export const performanceWorkbenchApi = {
+  async summary(cycleId: number): Promise<{ projects: PerformanceWorkbenchProject[]; snapshots: Record<number, { timeline: PerformanceWorkbenchTimelineNode[]; pending: PerformanceWorkbenchTaskGroup[]; completed: PerformanceWorkbenchTaskGroup[] }> }> {
+    const path = '/performance/workbench/summary'
+    const params = { cycle_id: cycleId }
+    return mergeInFlight(requestKey(path, params), async () => (await api.get(path, { params })).data)
+  },
   async listProjects(keyword?: string, cycleId?: number): Promise<PerformanceWorkbenchProject[]> {
     const projects: PerformanceWorkbenchProject[] = []
     for (let page = 1; ; page += 1) {
@@ -1891,8 +1901,10 @@ export interface PerformanceAccessContext {
 
 export const performanceApi = {
   async getAccessContext(): Promise<PerformanceAccessContext> {
-    const { data } = await api.get<PerformanceAccessContext>('/performance/auth/context')
-    return data
+    return mergeInFlight(requestKey('/performance/auth/context'), async () => {
+      const { data } = await api.get<PerformanceAccessContext>('/performance/auth/context')
+      return data
+    })
   },
 }
 

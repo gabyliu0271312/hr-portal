@@ -79,6 +79,8 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
     projectCopyAudience = null
     clearPerformanceInFlightRequests()
     cacheVersion.value += 1
+    resources.clear()
+    resourceRequests.clear()
     drawerDetails.clear()
     drawerRequests.clear()
     reports.clear()
@@ -87,7 +89,33 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
     workbenchSnapshots.value = {}
     workbenchProjects.value = null
   }
-  const invalidateDrawerDetails = invalidate
+  const resources = new Map<string, { value: unknown; expiresAt: number }>()
+  const resourceRequests = new Map<string, Promise<unknown>>()
+  function resourceScope(key: string) {
+    return JSON.stringify([getToken(), employeeSwitchEpoch.value, activeCycleId.value, cacheVersion.value, key])
+  }
+  async function loadResource<T>(key: string, loader: () => Promise<T>, ttlMs = 15_000): Promise<T> {
+    const scopedKey = resourceScope(key)
+    const cached = resources.get(scopedKey)
+    if (cached && cached.expiresAt > Date.now()) return cached.value as T
+    resources.delete(scopedKey)
+    const pending = resourceRequests.get(scopedKey)
+    if (pending) return pending as Promise<T>
+    const request = loader().then(value => {
+      if (scopedKey === resourceScope(key)) resources.set(scopedKey, { value, expiresAt: Date.now() + ttlMs })
+      return value
+    }).finally(() => {
+      if (resourceRequests.get(scopedKey) === request) resourceRequests.delete(scopedKey)
+    })
+    resourceRequests.set(scopedKey, request)
+    return request
+  }
+  let drawerVersion = 0
+  function invalidateDrawerDetails() {
+    drawerVersion += 1
+    drawerDetails.clear()
+    drawerRequests.clear()
+  }
   async function loadReport<T>(key: string, loader: () => Promise<T>): Promise<T> {
     const scopedKey = JSON.stringify([employeeSwitchEpoch.value, activeCycleId.value, key])
     const cached = reports.get(scopedKey)
@@ -110,8 +138,9 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
     const pending = drawerRequests.get(scopedKey)
     if (pending) return pending as Promise<T>
     const version = cacheVersion.value
+    const detailVersion = drawerVersion
     const request = loader().then(detail => {
-      if (version === cacheVersion.value) drawerDetails.set(scopedKey, detail)
+      if (version === cacheVersion.value && detailVersion === drawerVersion) drawerDetails.set(scopedKey, detail)
       return detail
     }).finally(() => {
       if (drawerRequests.get(scopedKey) === request) drawerRequests.delete(scopedKey)
@@ -127,7 +156,7 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
       workbenchProjects.value = null
       reviewOverviews.value = {}
       workbenchSnapshots.value = {}
-      invalidateDrawerDetails()
+      invalidate()
     }
     activeCycleId.value = cycleId
     navigationReady.value = true
@@ -184,7 +213,7 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
     if (projectId) reviewOverviews.value = { ...reviewOverviews.value, [projectId]: overview }
   }
   function invalidateReviewOverview(projectId: number) {
-    invalidateDrawerDetails()
+    invalidate()
     const next = { ...reviewOverviews.value }
     delete next[projectId]
     reviewOverviews.value = next
@@ -197,7 +226,7 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
   function workbenchSnapshot(projectId: number | null | undefined) { return projectId ? workbenchSnapshots.value[projectId] || null : null }
 
   function resetIdentity() {
-    invalidateDrawerDetails()
+    invalidate()
     ++requestVersion
     navigationRequest = null
     activeCycleId.value = null
@@ -213,6 +242,7 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
     workbenchSnapshots.value = {}
   }
   return {
+    loadResource,
     saveProjectCopyAudience,
     takeProjectCopyAudience,
     saveManagementReturn,

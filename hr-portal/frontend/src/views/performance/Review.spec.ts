@@ -110,6 +110,7 @@ describe('PerformanceReview', () => {
     usePerformanceProjectContextStore().setNavigation(navigation)
     vi.spyOn(performanceNavigationApi, 'get').mockResolvedValue(navigation)
     vi.spyOn(performanceReviewApi, 'overview').mockResolvedValue(structuredClone(overview))
+    vi.spyOn(performanceReviewApi, 'navigation').mockResolvedValue({ projects: structuredClone(overview.projects), overviews: [structuredClone(overview)] })
     const wrapper = mountView()
     await flushPromises()
     expect(wrapper.text()).toContain('查看团队绩效结果')
@@ -332,10 +333,11 @@ describe('PerformanceReview', () => {
       categories: [{ key: 'mine', label: '我的绩效', nodes: [{ ...overview.categories[0].nodes[0], task_id: projectId * 11 }] }],
     })
     usePerformanceProjectContextStore().setNavigation(navigationOf(1, { review_projects: projects, can_view_team_results: true, can_view_focus_results: true }))
+    vi.mocked(performanceReviewApi.navigation).mockResolvedValue({ projects, overviews: [projectOverview(1), projectOverview(2)] })
     vi.mocked(performanceReviewApi.overview).mockImplementation(async projectId => projectOverview(projectId || 1))
     const wrapper = mountView()
     await flushPromises()
-    expect(performanceReviewApi.overview).toHaveBeenCalledWith(2, undefined, 1)
+    expect(performanceReviewApi.navigation).toHaveBeenCalledWith(1)
     expect(wrapper.find('.project-picker').exists()).toBe(false)
     expect(wrapper.findAll('.cycle-picker')).toHaveLength(1)
     expect(wrapper.findAll('.review-node').filter(node => node.text().includes('工作总结环节')).map(node => node.text())).toEqual(['工作总结环节待完成', '工作总结环节待完成'])
@@ -371,6 +373,7 @@ describe('PerformanceReview', () => {
       categories: projectId === 1 ? [overview.categories[3]] : [overview.categories[1], overview.categories[0]],
     })
     usePerformanceProjectContextStore().setNavigation(navigationOf(1, { review_projects: projects, can_view_team_results: true }))
+    vi.mocked(performanceReviewApi.navigation).mockResolvedValue({ projects, overviews: [projectOverview(1), projectOverview(2)] })
     vi.mocked(performanceReviewApi.overview).mockImplementation(async projectId => projectOverview(projectId || 1))
     const wrapper = mountView()
     await flushPromises()
@@ -391,6 +394,7 @@ describe('PerformanceReview', () => {
     })
     Object.assign(routeQuery, { project_id: '2', node: 'second-360' })
     usePerformanceProjectContextStore().setNavigation(navigationOf(1, { review_projects: projects }))
+    vi.mocked(performanceReviewApi.navigation).mockResolvedValue({ projects, overviews: [projectOverview(1), projectOverview(2)] })
     vi.mocked(performanceReviewApi.overview).mockImplementation(async projectId => projectOverview(projectId || 2))
     const list = vi.spyOn(performanceReview360FeedbackApi, 'list')
     list.mockResolvedValue({ items: [], total: 0, node_id: 'first-360', allow_voluntary_evaluation: false })
@@ -451,6 +455,14 @@ describe('PerformanceReview', () => {
     const projects = [overview.projects[0], { ...overview.projects[0], project_id: 2, project_name: '第二项目' }]
     usePerformanceProjectContextStore().setNavigation(navigationOf(1, { review_projects: projects }))
     routeQuery.node = 'feedback-1'
+    const navigationOverviews = projects.map((project, index) => ({
+      ...structuredClone(overview), projects, active_project: project,
+      categories: [{ key: 'others', label: '给他人的评估', nodes: [{
+        ...overview.categories[1].nodes[0], node_id: `feedback-${index + 1}`, executor_role_code: 'assessment.reviewer_360',
+        status: index === 1 ? status : 'not_started',
+      }] }],
+    }))
+    vi.mocked(performanceReviewApi.navigation).mockResolvedValue({ projects, overviews: navigationOverviews })
     vi.mocked(performanceReviewApi.overview).mockImplementation(async projectId => ({
       ...structuredClone(overview), projects, active_project: projects[(projectId || 1) - 1],
       categories: [{ key: 'others', label: '给他人的评估', nodes: [{
@@ -574,18 +586,18 @@ describe('PerformanceReview', () => {
 
   it('drops late aggregated project menus after switching cycles', async () => {
     const projects = [overview.projects[0], { ...overview.projects[0], project_id: 2, project_name: '旧周期第二项目' }]
-    let resolveOld!: (value: PerformanceReviewOverview) => void
-    vi.mocked(performanceReviewApi.overview).mockImplementation((projectId, _taskId, cycleId) => {
-      if (cycleId === 1 && projectId === 2) return new Promise(done => { resolveOld = done })
-      return Promise.resolve(cycleId === 1 ? { ...structuredClone(overview), projects } : { ...structuredClone(overview), template_name: '新周期模板' })
-    })
+    let resolveOld!: (value: Awaited<ReturnType<typeof performanceReviewApi.navigation>>) => void
+    vi.mocked(performanceReviewApi.navigation).mockImplementation(cycleId => cycleId === 1
+      ? new Promise(done => { resolveOld = done })
+      : Promise.resolve({ projects: overview.projects, overviews: [{ ...structuredClone(overview), template_name: '新周期模板' }] }))
+    vi.mocked(performanceReviewApi.overview).mockImplementation((_projectId, _taskId, cycleId) => Promise.resolve(cycleId === 1 ? { ...structuredClone(overview), projects } : { ...structuredClone(overview), template_name: '新周期模板' }))
     const wrapper = mountView()
     await flushPromises()
     expect(wrapper.text()).toContain('工作总结环节')
     expect(wrapper.text()).not.toContain('正在加载绩效评估')
     wrapper.findComponent({ name: 'PerformanceReviewCategorySidebar' }).vm.$emit('select-filter', 2)
     await flushPromises()
-    resolveOld({ ...structuredClone(overview), projects, active_project: projects[1], categories: [{ key: 'mine', label: '我的绩效', nodes: [{ ...overview.categories[0].nodes[0], node_name: '旧周期敏感节点' }] }] })
+    resolveOld({ projects, overviews: [{ ...structuredClone(overview), projects, active_project: projects[1], categories: [{ key: 'mine', label: '我的绩效', nodes: [{ ...overview.categories[0].nodes[0], node_name: '旧周期敏感节点' }] }] }] })
     await flushPromises()
     expect(wrapper.text()).toContain('新周期模板')
     expect(wrapper.text()).not.toContain('旧周期敏感节点')
@@ -752,6 +764,7 @@ describe('PerformanceReview', () => {
     vi.spyOn(performanceCalibrationApi, 'members').mockResolvedValue({ items: [], total: 0, rating_columns: [] })
     vi.spyOn(projectManagementApi, 'resultReconsideration').mockRejectedValue(new Error('RECONSIDERATION_NOT_CONFIGURED'))
     vi.spyOn(performanceReviewApi, 'overview').mockResolvedValue(overview)
+    vi.spyOn(performanceReviewApi, 'navigation').mockResolvedValue({ projects: structuredClone(overview.projects), overviews: [structuredClone(overview)] })
     vi.spyOn(projectManagementApi, 'calibrationCompletionPreview').mockResolvedValue({ scope_version: 'scope-1', total_count: 2, completed_count: 0, missing_result_count: 1, can_complete: true, completed: false })
     vi.spyOn(projectManagementApi, 'memberReminderTasks').mockResolvedValue({ items: [], total: 0, can_remind: true })
     vi.spyOn(performanceWorkbenchApi, 'taskPeople').mockResolvedValue([])

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,8 +76,30 @@ def normalize_subject_visibility_rules(raw: object) -> dict[str, list[str]]:
     return result
 
 
+_read_batch = ContextVar("performance_profile_read_batch", default=None)
+
+
+@contextmanager
+def subject_read_batch(db):
+    token = _read_batch.set((db, {}))
+    try:
+        yield
+    finally:
+        _read_batch.reset(token)
+
+
+async def read_subject_reference(db, key, load):
+    batch = _read_batch.get()
+    if batch is None or batch[0] is not db:
+        return await load()
+    cache = batch[1]
+    if key not in cache:
+        cache[key] = await load()
+    return cache[key]
+
+
 async def load_subject_visibility_rules(db: AsyncSession) -> dict[str, list[str]]:
-    setting = await db.get(PerformanceSubjectVisibilitySetting, 1)
+    setting = await read_subject_reference(db, ("visibility_setting",), lambda: db.get(PerformanceSubjectVisibilitySetting, 1))
     return normalize_subject_visibility_rules(getattr(setting, "rules", None))
 
 
@@ -99,11 +123,12 @@ async def resolve_subject_visibility_role(
     cycle_ref = getattr(project, "cycle_ref", None) if project else None
     if cycle_ref:
         try:
-            hrbp = await db.scalar(
-                select(PerformanceHrbpPermission.id).where(
+            hrbp = await read_subject_reference(
+                db, ("hrbp_exists", cycle_ref, actor_ref),
+                lambda: db.scalar(select(PerformanceHrbpPermission.id).where(
                     PerformanceHrbpPermission.cycle_ref == cycle_ref,
                     PerformanceHrbpPermission.hrbp_employee_no == actor_ref,
-                ).limit(1)
+                ).limit(1)),
             )
         except (AttributeError, AssertionError):
             hrbp = None

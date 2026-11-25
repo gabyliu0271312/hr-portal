@@ -91,16 +91,31 @@ def scope_groups(project, node, tasks, records, actor_ref):
     return result
 
 
-async def project_scopes(db, project, node, actor_ref, context):
+def task_handler_allowed(task, actor_ref, records):
+    active = [record for record in records if record.task_id == task.id and record.status == "ACTIVE"]
+    transferred = any(record.authorization_type == "TRANSFER" for record in active)
+    return (str(task.handler_ref) == actor_ref and not transferred) or any(record.recipient_employee_no == actor_ref for record in active)
+
+
+async def project_scopes(db, project, node, actor_ref, context, *, tasks=None, records=None, allowed_targets=None):
     from app.performance import projects_router as routes
-    tasks = list((await db.execute(select(PerformanceNodeTask).where(
-        PerformanceNodeTask.project_id == project.id, PerformanceNodeTask.cycle_ref == project.cycle_ref,
-        PerformanceNodeTask.node_snapshot_id == node.id, PerformanceNodeTask.task_kind == "calibration",
-        PerformanceNodeTask.revoked_at.is_(None), task_handler_condition(actor_ref),
-    ).order_by(PerformanceNodeTask.id).execution_options(populate_existing=True))).scalars().all())
+    preloaded = tasks is not None
+    if tasks is None:
+        tasks = list((await db.execute(select(PerformanceNodeTask).where(
+            PerformanceNodeTask.project_id == project.id, PerformanceNodeTask.cycle_ref == project.cycle_ref,
+            PerformanceNodeTask.node_snapshot_id == node.id, PerformanceNodeTask.task_kind == "calibration",
+            PerformanceNodeTask.revoked_at.is_(None), task_handler_condition(actor_ref),
+        ).order_by(PerformanceNodeTask.id).execution_options(populate_existing=True))).scalars().all())
+    else:
+        tasks = [task for task in tasks if task.node_snapshot_id == node.id and task_handler_allowed(task, actor_ref, records or [])]
+    if allowed_targets is not None:
+        tasks = [task for task in tasks if task.target_employee_no in allowed_targets]
     visible = []
     for task in tasks:
         if not calibration_task_scope(task, node):
+            continue
+        if preloaded:
+            visible.append(task)
             continue
         try:
             await routes._self_summary_task(task.id, context, db, "evaluation")
@@ -109,12 +124,16 @@ async def project_scopes(db, project, node, actor_ref, context):
                 continue
             raise
         visible.append(task)
-    records = list((await db.execute(select(PerformanceNodeTaskAuthorization).where(
-        PerformanceNodeTaskAuthorization.project_id == project.id,
-        PerformanceNodeTaskAuthorization.cycle_ref == project.cycle_ref,
-        PerformanceNodeTaskAuthorization.task_id.in_([task.id for task in visible]),
-        PerformanceNodeTaskAuthorization.status == "ACTIVE",
-    ).order_by(PerformanceNodeTaskAuthorization.id).execution_options(populate_existing=True))).scalars().all()) if visible else []
+    if records is None:
+        records = list((await db.execute(select(PerformanceNodeTaskAuthorization).where(
+            PerformanceNodeTaskAuthorization.project_id == project.id,
+            PerformanceNodeTaskAuthorization.cycle_ref == project.cycle_ref,
+            PerformanceNodeTaskAuthorization.task_id.in_([task.id for task in visible]),
+            PerformanceNodeTaskAuthorization.status == "ACTIVE",
+        ).order_by(PerformanceNodeTaskAuthorization.id).execution_options(populate_existing=True))).scalars().all()) if visible else []
+    else:
+        visible_ids = {task.id for task in visible}
+        records = [record for record in records if record.task_id in visible_ids and record.status == "ACTIVE"]
     return scope_groups(project, node, visible, records, actor_ref), records
 
 
@@ -154,23 +173,75 @@ async def list_scopes(db, cycle_id, context):
     from app.performance import projects_router as routes
     cycle = await routes._get_cycle(db, cycle_id)
     projects = list((await db.execute(select(PerformanceProject).where(PerformanceProject.cycle_ref == cycle.cycle_ref, PerformanceProject.status == PROJECT_STATUS_STARTED).order_by(PerformanceProject.id))).scalars().all())
+    if not projects:
+        return {"tasks": [], "pending_member_count": 0}
+    actor = await routes.resolve_trusted_performance_actor(db, context, cycle_ref=cycle.cycle_ref, require_employee_identity=True)
+    project_ids = [project.id for project in projects]
+    nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+        PerformanceProjectNodeSnapshot.project_id.in_(project_ids), PerformanceProjectNodeSnapshot.node_type == "calibration",
+    ).order_by(PerformanceProjectNodeSnapshot.project_id, PerformanceProjectNodeSnapshot.node_order, PerformanceProjectNodeSnapshot.id))).scalars().all())
+    tasks = list((await db.execute(select(PerformanceNodeTask).where(
+        PerformanceNodeTask.project_id.in_(project_ids), PerformanceNodeTask.cycle_ref == cycle.cycle_ref,
+        PerformanceNodeTask.node_snapshot_id.in_([node.id for node in nodes]), PerformanceNodeTask.task_kind == "calibration",
+        PerformanceNodeTask.revoked_at.is_(None), task_handler_condition(str(actor.actor_ref)),
+    ).order_by(PerformanceNodeTask.id).execution_options(populate_existing=True))).scalars().all()) if nodes else []
+    records = list((await db.execute(select(PerformanceNodeTaskAuthorization).where(
+        PerformanceNodeTaskAuthorization.project_id.in_(project_ids),
+        PerformanceNodeTaskAuthorization.cycle_ref == cycle.cycle_ref,
+        PerformanceNodeTaskAuthorization.task_id.in_([task.id for task in tasks]),
+        PerformanceNodeTaskAuthorization.status == "ACTIVE",
+    ).order_by(PerformanceNodeTaskAuthorization.id).execution_options(populate_existing=True))).scalars().all()) if tasks else []
+    people = list((await db.execute(select(
+        PerformanceProjectMemberSnapshot.id, PerformanceAuthorizationSnapshotPerson,
+    ).join(
+        PerformanceAuthorizationSnapshotPerson,
+        PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
+    ).where(PerformanceProjectMemberSnapshot.id.in_({task.member_snapshot_id for task in tasks})))).all()) if tasks else []
+    nodes_by_project = {}
+    tasks_by_project = {}
+    records_by_project = {}
+    for node in nodes:
+        nodes_by_project.setdefault(node.project_id, []).append(node)
+    for task in tasks:
+        tasks_by_project.setdefault(task.project_id, []).append(task)
+    for record in records:
+        records_by_project.setdefault(record.project_id, []).append(record)
+    people_by_snapshot = {}
+    for member_snapshot_id, person in people:
+        people_by_snapshot.setdefault(member_snapshot_id, {})[person.employee_no] = person
+
     result, pending_members = [], set()
     now = datetime.now(UTC)
     for project in projects:
-        actor = await routes.resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
-        nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(PerformanceProjectNodeSnapshot.project_id == project.id, PerformanceProjectNodeSnapshot.node_type == "calibration").order_by(PerformanceProjectNodeSnapshot.node_order, PerformanceProjectNodeSnapshot.id))).scalars().all())
-        for node in nodes:
-            groups, _records = await project_scopes(db, project, node, str(actor.actor_ref), context)
-            snapshot_ids = {task.member_snapshot_id for group in groups for task in group["tasks"]}
-            people = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson).join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id).where(PerformanceProjectMemberSnapshot.id.in_(snapshot_ids)))).scalars().all()) if snapshot_ids else []
+        project_tasks = tasks_by_project.get(project.id, [])
+        project_records = records_by_project.get(project.id, [])
+        allowed_targets = None
+        if getattr(context, "management_role", None):
+            try:
+                allowed_targets = await routes._project_data_scope(context, project, db, "performance.frontend.data-view")
+            except HTTPException as error:
+                if error.status_code == 403:
+                    allowed_targets = set()
+                else:
+                    raise
+        for node in nodes_by_project.get(project.id, []):
+            groups, _records = await project_scopes(
+                db, project, node, str(actor.actor_ref), context,
+                tasks=project_tasks, records=project_records, allowed_targets=allowed_targets,
+            )
             for group in groups:
                 task = group["tasks"][0]
                 phase = next((phase for phase in ((node.config or {}).get("calibration") or {}).get("phases", []) if phase.get("phase_id") == task.phase_id), {})
                 rules = [rule for rule in routes._calibration_source_rules(phase, group["tasks"]) if group["source_rule_id"] is None or rule["rule_id"] == group["source_rule_id"]]
-                referenced_people = {task.target_employee_no for task in group["tasks"]}
+                referenced_people = {item.target_employee_no for item in group["tasks"]}
                 for rule in rules:
                     referenced_people.update(value for key in ("subject_groups", "scope_groups") for block in rule.get(key) or [] for condition in block.get("conditions") or [] if condition.get("field") in {"employee", "person"} for value in condition.get("values") or [])
-                names = list({person.employee_no: {"employee_no": person.employee_no, "display_name": person.display_name} for person in people if person.employee_no in referenced_people}.values())
+                names_by_employee = {}
+                for item in group["tasks"]:
+                    for person in people_by_snapshot.get(item.member_snapshot_id, {}).values():
+                        if person.employee_no in referenced_people:
+                            names_by_employee[person.employee_no] = {"employee_no": person.employee_no, "display_name": person.display_name}
+                names = list(names_by_employee.values())
                 start, end = routes._task_window(task, node, project)
                 completed = group_completed(group)
                 status = "completed" if completed else "overdue" if end is not None and end < now else "pending"

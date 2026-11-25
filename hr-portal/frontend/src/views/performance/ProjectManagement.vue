@@ -17,7 +17,7 @@
       <div v-if="loading" class="state-message">正在加载项目管理…</div>
       <div v-else-if="error" class="state-message error-state">
         <p>{{ error }}</p>
-        <button type="button" @click="loadOverview(activeCycleId)">重新加载</button>
+        <button type="button" @click="retryOverview()">重新加载</button>
       </div>
       <div v-else-if="!activeCycle" class="state-message">
         <p>当前没有你作为项目管理员参与的已启动项目</p>
@@ -31,19 +31,19 @@
             </template>
           </PerformancePageTitle>
           <PerformanceLineTabs v-model="activeTab" sticky :tabs="overviewTabs">
-            <p v-if="returnRefreshError" role="alert">{{ returnRefreshError }} <button type="button" @click="loadOverview(activeCycleId, false, true)">重新加载</button></p>
-            <div v-if="activeTab === 'overview' && statisticsLoading" class="state-message" role="status">正在加载总览统计…</div>
-            <div v-else-if="activeTab === 'overview' && statisticsError" class="state-message error-state" role="alert">
-              <p>{{ statisticsError }}</p>
-              <button type="button" @click="loadOverview(activeCycleId, true)">重新加载</button>
-            </div>
-            <template v-else-if="activeTab === 'overview'">
+            <p v-if="returnRefreshError" role="alert">{{ returnRefreshError }} <button type="button" @click="retryOverview(false, true)">重新加载</button></p>
+            <template v-if="activeTab === 'overview'">
               <section v-if="selectedProject" class="management-timeline" aria-label="项目流程时间节点">
                 <p v-if="timelineLoading" role="status">正在加载项目流程…</p>
                 <p v-else-if="timelineError" role="alert">{{ timelineError }} <button type="button" @click="loadTimeline">重新加载</button></p>
                 <PerformanceWorkbenchTimeline v-else :key="scopeKey" :nodes="timelineNodes" />
               </section>
-              <CompletionRatePanel ref="completionPanel" :initial-state="returnCompletion" :key="scopeKey" :nodes="completionNodes" :cycle-id="activeCycle.cycle_id" v-model:view-mode="overviewViewMode" :department-provider="projectManagementApi.departmentCompletion" @action="handleCompletionAction" />
+              <div v-if="statisticsLoading" class="state-message" role="status">正在加载总览统计…</div>
+              <div v-else-if="statisticsError" class="state-message error-state" role="alert">
+                <p>{{ statisticsError }}</p>
+                <button type="button" @click="retryOverview(true)">重新加载</button>
+              </div>
+              <CompletionRatePanel v-else ref="completionPanel" :initial-state="returnCompletion" :key="scopeKey" :nodes="completionNodes" :cycle-id="activeCycle.cycle_id" v-model:view-mode="overviewViewMode" :department-provider="projectManagementApi.departmentCompletion" @action="handleCompletionAction" />
               <AuthorizationManagementPanel :authorizations="authorizations" @view="handleAuthorizationView" />
               <AuthorizationManagementPanel title="其他" :authorizations="otherModules" @view="handleOtherView" />
             </template>
@@ -55,7 +55,7 @@
         </div>
       </template>
     </section>
-    <PerformanceMemberReminderDialog v-model="memberReminderOpen" :context="memberReminderContext" />
+    <PerformanceMemberReminderDialog v-if="memberReminderOpen" v-model="memberReminderOpen" :context="memberReminderContext" />
     <PerformanceTaskOverlay v-model="reminderOpen" :title="reminderContext?.title || '上级评估'" :description="reminderContext?.description" @close="closeReminder">
       <PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" :mode="reminderMode" :description="reminderContext.description" @filter="handleReminderFilter" />
     </PerformanceTaskOverlay>
@@ -79,19 +79,20 @@
       @transfer="openDrawerDelegation('TRANSFER', $event)"
       @delete="removeDrawerMember"
     />
-    <PerformanceTaskDelegationDialog v-model="delegationOpen" :action="delegationAction" :tasks="delegationTasks" @completed="delegationCompleted" @refresh="projectContext.invalidate(); viewRefreshKey++" />
+    <PerformanceTaskDelegationDialog v-if="delegationOpen" v-model="delegationOpen" :action="delegationAction" :tasks="delegationTasks" @completed="delegationCompleted" @refresh="projectContext.invalidate(); viewRefreshKey++" />
     <RevieweeAddDialog
+      v-if="revieweeAddOpen"
       v-model="revieweeAddOpen"
       :project-id="revieweeAddProjectId"
       :projects="revieweeAddProjects"
       @added="onRevieweeAdded"
     />
-    <FrontFocusGroupManagementDialog v-model="focusGroupDialogOpen" :cycle-id="activeCycleId" />
+    <FrontFocusGroupManagementDialog v-if="focusGroupDialogOpen" v-model="focusGroupDialogOpen" :cycle-id="activeCycleId" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import PerformanceManagementMemberScope from '@/components/performance/PerformanceManagementMemberScope.vue'
 import PerformanceWorkbenchTimeline, { type WorkbenchTimelineNode } from '@/components/performance/PerformanceWorkbenchTimeline.vue'
 import type { ProjectReportComparisonProvider, ProjectReportProvider } from '@/components/performance/projectStatisticsReport'
@@ -108,18 +109,18 @@ import {
 import PerformanceReviewCategorySidebar from '@/components/performance/PerformanceReviewCategorySidebar.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from '@/components/performance/PerformanceLineTabs.vue'
 import PerformancePageTitle from '@/components/performance/PerformancePageTitle.vue'
-import ProjectStatisticsReportPanel from '@/components/performance/ProjectStatisticsReportPanel.vue'
-import ProjectPerformanceMatrix from '@/components/performance/ProjectPerformanceMatrix.vue'
+const ProjectStatisticsReportPanel = defineAsyncComponent(() => import('@/components/performance/ProjectStatisticsReportPanel.vue'))
+const ProjectPerformanceMatrix = defineAsyncComponent(() => import('@/components/performance/ProjectPerformanceMatrix.vue'))
 import ProjectMemberListPanel from '@/components/performance/ProjectMemberListPanel.vue'
 import CompletionRatePanel from '@/components/performance/CompletionRatePanel.vue'
 import AuthorizationManagementPanel from '@/components/performance/AuthorizationManagementPanel.vue'
-import FrontFocusGroupManagementDialog from '@/components/performance/focus-group/FrontFocusGroupManagementDialog.vue'
+const FrontFocusGroupManagementDialog = defineAsyncComponent(() => import('@/components/performance/focus-group/FrontFocusGroupManagementDialog.vue'))
 import PerformanceTaskOverlay from '@/components/performance/PerformanceTaskOverlay.vue'
 import PerformanceReminderPanel from '@/components/performance/PerformanceReminderPanel.vue'
-import PerformanceMemberReminderDialog from '@/components/performance/PerformanceMemberReminderDialog.vue'
+const PerformanceMemberReminderDialog = defineAsyncComponent(() => import('@/components/performance/PerformanceMemberReminderDialog.vue'))
 import { usePerformanceMemberReminder } from '@/composables/usePerformanceMemberReminder'
-import PerformanceTaskDelegationDialog from '@/components/performance/PerformanceTaskDelegationDialog.vue'
-import RevieweeAddDialog from '@/components/performance/RevieweeAddDialog.vue'
+const PerformanceTaskDelegationDialog = defineAsyncComponent(() => import('@/components/performance/PerformanceTaskDelegationDialog.vue'))
+const RevieweeAddDialog = defineAsyncComponent(() => import('@/components/performance/RevieweeAddDialog.vue'))
 import MemberAddIcon from '@/components/performance/MemberAddIcon.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import type { PerformanceReferenceTab, ProjectMember, ProjectMemberTaskOption } from '@/api/performance'
@@ -225,7 +226,7 @@ async function fillFromDrawer(payload: { task_id: string | number; employee_no: 
       ...(activeCycleId.value ? { cycle_id: String(activeCycleId.value) } : {}),
     } : {}),
   }
-  projectContext.invalidateDrawerDetails()
+  projectContext.invalidate()
   drawerOpen.value = false
   await router.push({ path, query })
 }
@@ -328,7 +329,7 @@ async function removeDrawerMember(payload: { project_id: number; employee_no: st
 }
 
 function delegationCompleted(count: number, _notificationStatus: string | undefined, recordId?: number, skippedCount = 0) {
-  projectContext.invalidateDrawerDetails()
+  projectContext.invalidate()
   delegationOpen.value = false
   delegationTasks.value = []
   selectedDelegationMembers.value = []
@@ -463,7 +464,7 @@ function onRevieweeAdded() {
   // 成员列表/总览完成率/矩阵/统计均查同一快照。这里只重绘当前所在视图一次。
   const currentCycleId = activeCycleId.value
   viewRefreshKey.value += 1
-  projectContext.invalidateDrawerDetails()
+  projectContext.invalidate()
   void loadOverview(currentCycleId)
 }
 
@@ -482,11 +483,16 @@ const statisticsLoaded = ref(false)
 const statisticsLoading = ref(false)
 const statisticsError = ref('')
 const returnRefreshError = ref('')
-async function loadOverview(cycleId?: number | null, statisticsOnly = false, background = false, lightweight = false) {
+function retryOverview(statisticsOnly = false, background = false) {
+  projectContext.invalidate()
+  void loadOverview(activeCycleId.value, statisticsOnly, background)
+}
+async function loadOverview(cycleId?: number | null, statisticsOnly = false, background = false) {
   const request = ++overviewRequest
-  const key = scopeKey.value
+  let key = scopeKey.value
   const version = projectContext.cacheVersion
-  const includeStatistics = !lightweight && activeTab.value === 'overview'
+  const scope = { ...requestedScope.value }
+  const includeStatistics = (statisticsOnly || background) && activeTab.value === 'overview'
   loading.value = !statisticsOnly && !background
   statisticsLoading.value = statisticsOnly && !background
   if (!background) statisticsLoaded.value = false
@@ -495,30 +501,38 @@ async function loadOverview(cycleId?: number | null, statisticsOnly = false, bac
   error.value = ''
   const current = () => !disposed && request === overviewRequest && key === scopeKey.value && version === projectContext.cacheVersion
   try {
-    const loaded = await projectManagementApi.overview(cycleId ?? undefined, { ...requestedScope.value }, includeStatistics)
+    const loaded = await projectContext.loadResource(JSON.stringify(['management-overview', cycleId, scope, includeStatistics]), () => projectManagementApi.overview(cycleId ?? undefined, scope, includeStatistics), 15_000)
     if (!current()) return
     if (loaded.active_cycle && cycleId != null && loaded.active_cycle.cycle_id !== cycleId) throw new Error('INVALID_MANAGEMENT_CYCLE')
     if (!route.query.management_role && (loaded.active_role || !loaded.categories)) {
+      const role = loaded.active_role || 'project_admin'
+      const normalizedKey = JSON.stringify([activeCycleId.value, role, route.query.project_id || ''])
       normalizingRole = true
-      try { await router.replace({ query: { ...route.query, management_role: loaded.active_role || 'project_admin' } }) }
+      try { await router.replace({ query: { ...route.query, management_role: role } }) }
       finally { normalizingRole = false }
-      if (disposed || request !== overviewRequest) return
+      if (disposed || request !== overviewRequest || version !== projectContext.cacheVersion || scopeKey.value !== normalizedKey) return
+      key = normalizedKey
     }
+    if (!current()) return
     applyOverview(loaded)
     statisticsLoaded.value = includeStatistics
   } catch (failure: any) {
     if (current()) {
       const message = failure?.response?.status === 403 ? '无权访问当前管理范围' : '项目管理加载失败，请稍后重试'
-      if (background) {
-        projectContext.clearManagementReturn()
-        if ([401, 403, 404].includes(failure?.response?.status) || failure?.message?.startsWith('INVALID_MANAGEMENT_')) {
-          overview.value = null
-          returnCompletion.value = undefined
-          error.value = message
-        } else returnRefreshError.value = '总览刷新失败，当前显示返回前的数据'
-      } else if (statisticsOnly) {
+      if (statisticsOnly) {
         overview.value = overview.value ? { ...overview.value, completion_nodes: [] } : null
         statisticsError.value = message
+      } else if ([401, 403, 404].includes(failure?.response?.status) || failure?.message?.startsWith('INVALID_MANAGEMENT_')) {
+        projectContext.invalidate()
+        overview.value = null
+        returnCompletion.value = undefined
+        timelineRequest++
+        timelineNodes.value = []
+        timelineLoading.value = false
+        error.value = message
+      } else if (background) {
+        projectContext.clearManagementReturn()
+        returnRefreshError.value = '总览刷新失败，当前显示返回前的数据'
       } else {
         overview.value = null
         error.value = message
@@ -588,7 +602,7 @@ async function selectCycle(rawCycleId: number | string) {
     if (!navigation.can_manage) { await router.replace('/performance/workbench'); return }
     const { project_id: _project, ...query } = cleanMemberQuery()
     await router.replace({ query: { ...query, cycle_id: String(cycleId), management_role: managementRole.value, tab: activeTab.value } })
-    await loadOverview(cycleId)
+    await loadOverview(cycleId, false)
   } catch { error.value = '项目管理加载失败，请稍后重试' }
   finally { selectingCycle = false; loading.value = false }
 }
@@ -617,7 +631,7 @@ watch([() => route.query.cycle_id, () => route.query.management_role, () => rout
       try { await projectContext.selectCycle(cycleId) } finally { selectingCycle = false }
     }
     if (key !== JSON.stringify([route.query.cycle_id, route.query.management_role, route.query.project_id])) return
-    await loadOverview(cycleId)
+    await loadOverview(cycleId, false)
     if (!error.value) restoreMember()
   } catch { error.value = '项目管理加载失败，请稍后重试'; loading.value = false }
 }, { flush: 'sync' })
@@ -646,14 +660,16 @@ async function loadTimeline() {
   const key = scopeKey.value
   const projectId = selectedProject.value?.project_id
   const cycleId = activeCycle.value?.cycle_id
+  const role = managementRole.value as 'hrbp' | 'project_admin'
+  const version = projectContext.cacheVersion
   timelineNodes.value = []
   timelineError.value = ''
   timelineLoading.value = false
-  if (!projectId || !cycleId || activeTab.value !== 'overview' || loading.value || statisticsLoading.value || statisticsError.value) return
+  if (!projectId || !cycleId || activeTab.value !== 'overview' || loading.value || error.value) return
   timelineLoading.value = true
-  const current = () => !disposed && request === timelineRequest && key === scopeKey.value
+  const current = () => !disposed && request === timelineRequest && key === scopeKey.value && version === projectContext.cacheVersion
   try {
-    const nodes = await projectManagementApi.timeline(cycleId, projectId, managementRole.value as 'hrbp' | 'project_admin')
+    const nodes = await projectContext.loadResource(JSON.stringify(['management-timeline', cycleId, role, projectId]), () => projectManagementApi.timeline(cycleId, projectId, role), 15_000)
     if (current()) timelineNodes.value = nodes.map(node => ({
       node_id: node.node_id, node_name: node.node_name,
       range: !node.start_at && !node.end_at ? '时间待配置' : `${formatDateTime(node.start_at) || '--'} - ${formatDateTime(node.end_at) || '--'}`,
@@ -665,7 +681,7 @@ async function loadTimeline() {
     if (current()) timelineLoading.value = false
   }
 }
-watch(() => [scopeKey.value, activeTab.value, loading.value, statisticsLoading.value, statisticsError.value], () => { void loadTimeline() })
+watch(() => [scopeKey.value, activeTab.value, loading.value, error.value], () => { void loadTimeline() })
 
 async function handleCompletionAction(payload: { action: 'remind' | 'enable-result'; nodeKey: string; title: string; description?: string; departmentPath?: string }) {
   emit('completion-action', payload)
@@ -734,7 +750,7 @@ onMounted(async () => {
       void loadOverview(cycleId, false, true)
       return
     }
-    await loadOverview(cycleId, false, false, route.query.from_reminder === '1')
+    await loadOverview(cycleId)
     if (!error.value) restoreMember()
     contextReady = true
   } catch { error.value = '项目管理加载失败，请稍后重试'; loading.value = false }

@@ -532,20 +532,14 @@ class PerformanceObjectAuthorizationService:
             DYNAMIC_IDENTITY_TYPE_PROJECT_ADMIN,
             DYNAMIC_IDENTITY_TYPE_APPEAL_HANDLER,
         )
-        resolved: dict[str, set[str]] = {}
-        for identity_type in identities:
-            scopes = await self.snapshot_service.resolve_scopes(
-                request.cycle_ref,
-                actor_type=request.actor_type,
-                actor_ref=request.actor_ref,
-                identity_type=identity_type,
-            )
-            resolved[identity_type] = {
-                scope.target_ref
-                for scope in scopes
-                if scope.target_type == DYNAMIC_ASSIGNMENT_TARGET_TYPE_EMPLOYEE
-            }
-        return resolved
+        scopes_by_identity = await self.snapshot_service.resolve_scopes_batch(
+            request.cycle_ref, actor_type=request.actor_type,
+            actor_ref=request.actor_ref, identity_types=identities,
+        )
+        return {
+            identity: {scope.target_ref for scope in scopes if scope.target_type == DYNAMIC_ASSIGNMENT_TARGET_TYPE_EMPLOYEE}
+            for identity, scopes in scopes_by_identity.items()
+        }
 
 
 class PerformancePublicationTransferService:
