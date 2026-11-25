@@ -109,6 +109,20 @@
   - UI证据：`ui-blueprints/CR-007-F07-implemented-results-submenu-20261109.png`、`ui-blueprints/CR-007-F07-implemented-results-denied-20261109.png`，已查看，均为合成验收数据，不是生产结果或像素级对齐证明。属于既有入口修复，无新蓝图。
   - 未运行：真实鉴权API/数据库回读、后端套件、全量前端套件、部署或真实外部投递；无数据库变更，不适用迁移验收。代码按用户后续指令提交并推送 main；推送不代表部署或生产验收。
 
+## CR-007-F22 矩阵 BU 导航与评估状态展示（2026-11-25）
+
+- 用户确认：完成 REA 专项采集后明确要求开发全部四项。多 BU 为“全部＋具体 BU 名称”，单 BU 仅名称与完成/总人数；待完成/已完成标题分别橙/绿竖线；当前范围待完成为0时隐藏整块；姓名默认深色、hover蓝色，不改变详情权限。既有页面的小范围增强，无新增信息架构或新蓝图。
+- 输入/输出合同：沿 F20 公共快照读取 `PerformanceProjectMember.bu`，原矩阵三类入口的 MatrixPersonResponse 增量返回 nullable bu；不新增数据库列、不回填历史、不实时查花名册、不把 company_org 或飞书 allCategories 岗位树冒充 BU。前端仅从已授权完整矩阵人员派生 BU 列表及完成/总人数，空 BU 为 `--`。选中后同步过滤人员、重算单元格/职级分母/模块人数，保留评级轴；范围或周期切换清空旧选择和钻取，保留旧请求丢弃机制。
+- 数字钻取：原成员 GET 增加可选 `matrix_bu`，不传为全部，空串为空 BU；必须与 matrix_level/matrix_rating 同传，否则沿既有 MATRIX_DRILLDOWN_FILTERS_REQUIRED/422拒绝。服务端仍先执行原项目数据范围，再与职级/评级/BU求交；原403/404与聚合409不变。周期钻取消费当前格已授权人员；单项目钻取继续使用原完整成员API，不降级为空部门本地明细。
+- 复用与文件边界：复用 `_matrix_person`、`_matrix_drilldown_scope`、原矩阵聚合权限链、ProjectPerformanceMatrix、PerformanceMemberIdentity、MatrixPeopleDialog；新增小组件 MatrixBuNavigation 管理导航。只改原projects_router、performance.ts、上述组件、既有项目/管理/矩阵测试及本记录；独立PNG放ui-blueprints/CR-007-F22-*。不改模型/迁移/角色/任务/最终结果计算/生产/通知，不commit、push或deploy；停止仅撤回本轮增量。校准旧provider没有bu时按未知分组显示 `--`，不推断BU。
+- UI：复用原tokens/组件；BU标签可横向滚动并支持键盘原生按钮；单BU无分类按钮。标题伪元素2×14px、left0/top5，待完成#ff8800、已完成#34c724；姓名默认#1f2329/hover#4e83fd；零待完成同时消除两模块间距。筛选按钮仍为既有禁用入口，不在本次四项范围扩建通用筛选器。适用Spec012 A0502/A0503/A0505、N0001/N0002/N0004/N0005，数仓/UCP专属要求不适用。
+- [ ] F22-T01 矩阵BU合同与钻取：Given合法管理范围，When返回矩阵/按BU钻取，Then仅含合法快照人员且空BU和全部区分；既有test_performance_projects.py和test_performance_management_scope.py。
+- [ ] F22-T02 展示与联动：Given单/多/空BU，When切BU/数量/周期，Then导航计数、比例、待完成显隐与钻取一致，详情权限不变；既有ProjectPerformanceMatrix.spec.ts、ProjectManagement.spec.ts及CalibrationScopeContent.spec.ts。
+- 验收证据：后端 `DB_HOST=127.0.0.1 DB_PORT=1 PYTHONPATH=hr-portal/backend hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_management_scope.py -q --tb=short` → 1229 passed、5 skipped、1既有python_multipart弃用警告、exit0。5项跳过不计通过，未连接真实业务数据库。
+- 浏览器：本地Vite真实Vue组件、独立Chromium、1440×900、合成数据provider，非生产/真实认证API。多BU“全部2/3、研发1/2、运营1/1”；切运营仅一人且待完成DOM=0；单BU标题、tab=0；已完成姓名实测默认rgb(31,35,41)/hover rgb(78,131,253)，橙绿竖线均2×14px，pageErrors=[]。独立PNG三张均已读取：ui-blueprints/CR-007-F22-matrix-bu-multiple-implemented.png、CR-007-F22-matrix-bu-zero-pending-implemented.png、CR-007-F22-matrix-bu-single-implemented.png。首轮验收页缺UTF8/公共布局变量导致定位超时与截图遮挡，已停止修正夹具后重新验证，不计首轮截图为证据。
+- 最终前端：`npm --prefix hr-portal/frontend test -- src/components/performance/ProjectPerformanceMatrix.spec.ts src/views/performance/ProjectManagement.spec.ts src/components/performance/calibration/CalibrationScopeContent.spec.ts --silent` → 3文件100 passed、exit0（矩阵17、管理入口80、校准范围3）；`npm --prefix hr-portal/frontend run build` → vue-tsc＋Vite exit0，3868模块，仅既有VueUse PURE注释提示。更新既有零待完成空态断言，补单/多/空BU、过滤分母、切换关闭钻取、项目BU参数透传；后端补BU快照规范化与空值/不存在/全部求交。`git diff --check`通过。
+- 状态：本地开发、定向回归、构建及上述组件浏览器验证已完成。真实JWT/API/PostgreSQL及生产部署未验收，不勾选整体任务，不以合成组件截图宣称整页像素一致。无新迁移、脚本、报告或测试文档；未提交/推送/部署。
+
 ## 7. 风险与停止方式
 
 - 现有工作台和评估页面仍以项目承载具体内容；本轮只统一周期选择，不推断跨项目菜单合并规则。

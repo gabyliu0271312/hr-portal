@@ -11079,7 +11079,8 @@ async def test_member_lists_keep_supervisor_name_visibility_and_zero_360_rate(mo
 
 
 @pytest.mark.asyncio
-async def test_matrix_drilldown_members_intersects_data_scope(monkeypatch):
+@pytest.mark.parametrize("matrix_bu", [None, "研发BU", ""])
+async def test_matrix_drilldown_members_intersects_data_scope(monkeypatch, matrix_bu):
     from unittest.mock import AsyncMock
     from app.performance import projects_router as routes
 
@@ -11100,11 +11101,29 @@ async def test_matrix_drilldown_members_intersects_data_scope(monkeypatch):
             return SimpleNamespace(all=lambda: [])
 
     db = Db()
-    result = await routes.list_project_members(7, None, 1, 50, "name", "asc", actor, db, "J6", "three")
+    result = await routes.list_project_members(7, None, 1, 50, "name", "asc", actor, db, "J6", "three", matrix_bu)
 
     assert [item.employee_no for item in result.items] == ["E2"]
-    drilldown.assert_awaited_once_with(project, {"E1", "E2"}, "J6", "three", db)
+    drilldown.assert_awaited_once_with(project, {"E1", "E2"}, "J6", "three", db, bu=matrix_bu)
     loader.assert_awaited_once_with(project, {"E2"}, None, "name", "asc", actor, db, page=1, page_size=50)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bu,expected", [(None, {"E1", "E2", "E3"}), ("研发BU", {"E1"}), ("", {"E3"}), ("不存在", set())])
+async def test_matrix_bu_snapshot_projection_and_drilldown(monkeypatch, bu, expected):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    members = [SimpleNamespace(id=index, employee_no=f"E{index}", display_name="员工", employment_status="在职", position_level="J3", bu=value) for index, value in enumerate([" 研发BU ", "运营BU", None], 1)]
+    class Db:
+        async def execute(self, statement):
+            assert "employee_no IN" in str(statement)
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: members))
+    values = {member.employee_no: (None, None, None, {"key": "three"}) for member in members}
+    monkeypatch.setattr(routes, "_project_final_ratings", AsyncMock(return_value=([], values, None)))
+    result = await routes._matrix_drilldown_scope(SimpleNamespace(id=7), {"E1", "E2", "E3"}, "J3", "three", Db(), bu=bu)
+    assert result == expected
+    assert routes.MatrixPersonResponse(**routes._matrix_person(members[0], 7)).bu == "研发BU"
+    assert routes.MatrixPersonResponse(**routes._matrix_person(members[2], 7)).bu is None
 
 
 @pytest.mark.asyncio

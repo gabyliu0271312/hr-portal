@@ -1230,6 +1230,7 @@ export interface RevieweeConflictResult {
 }
 
 export interface ProjectMatrixPerson {
+  bu?: string | null
   identity_status?: PerformanceMemberIdentityStatus | null
   employee_no: string
   display_name: string
@@ -1469,9 +1470,9 @@ export const projectManagementApi = {
     const { data } = await api.get<ProjectMemberPage>(`/performance/project-management/cycles/${cycleId}/members/export`, { params: { keyword, sort_by: sortBy, sort_order: sortOrder } })
     return data
   },
-  async members(projectId: number | string, keyword?: string, page = 1, pageSize = 50, sortBy?: string, sortOrder?: 'asc' | 'desc', matrixLevel?: string, matrixRating?: string): Promise<ProjectMemberPage> {
+  async members(projectId: number | string, keyword?: string, page = 1, pageSize = 50, sortBy?: string, sortOrder?: 'asc' | 'desc', matrixLevel?: string, matrixRating?: string, matrixBu?: string | null): Promise<ProjectMemberPage> {
     const { data } = await api.get<ProjectMemberPage>(`/performance/projects/${encodeURIComponent(String(projectId))}/members`, {
-      params: { ...(keyword ? { keyword } : {}), ...(sortBy && sortOrder ? { sort_by: sortBy, sort_order: sortOrder } : {}), ...(matrixLevel && matrixRating ? { matrix_level: matrixLevel, matrix_rating: matrixRating } : {}), page, page_size: pageSize },
+      params: { ...(keyword ? { keyword } : {}), ...(sortBy && sortOrder ? { sort_by: sortBy, sort_order: sortOrder } : {}), ...(matrixLevel && matrixRating ? { matrix_level: matrixLevel, matrix_rating: matrixRating } : {}), ...(matrixBu != null ? { matrix_bu: matrixBu } : {}), page, page_size: pageSize },
     })
     return data
   },

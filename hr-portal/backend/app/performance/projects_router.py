@@ -1881,6 +1881,7 @@ class ProjectMemberPage(BaseModel):
 class MatrixPersonResponse(BaseModel):
     employee_no: str
     display_name: str
+    bu: str | None = None
     identity_status: dict | None = None
     employment_status: str | None = None
     can_view_detail: bool = False
@@ -2109,6 +2110,7 @@ def _matrix_person(member: PerformanceProjectMember, project_id: int, root_revie
     return {
         "employee_no": member.employee_no,
         "display_name": member.display_name,
+        "bu": (getattr(member, "bu", None) or "").strip() or None,
         "employment_status": member.employment_status,
         "can_view_detail": True,
         "project_id": project_id,
@@ -2335,7 +2337,7 @@ async def project_matrix(
     )
 
 
-async def _matrix_drilldown_scope(project, scope, level, rating_key, db):
+async def _matrix_drilldown_scope(project, scope, level, rating_key, db, bu=None):
     snapshot_id = _latest_member_snapshot_statement(project.id)
     statement = select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == snapshot_id)
     if scope is not None:
@@ -2345,6 +2347,7 @@ async def _matrix_drilldown_scope(project, scope, level, rating_key, db):
     return {
         member.employee_no for member in members
         if _matrix_level(member.position_level) == level
+        and (bu is None or (getattr(member, "bu", None) or "").strip() == bu.strip())
         and final_values.get(member.employee_no)
         and final_values[member.employee_no][3]["key"] == rating_key
     }
@@ -3394,10 +3397,11 @@ async def list_project_members(
     db: AsyncSession = Depends(get_session),
     matrix_level: str | None = None,
     matrix_rating: str | None = None,
+    matrix_bu: str | None = None,
 ):
     _enable_member_read_reuse(db)
     project = await _get_project(db, project_id)
-    if bool(matrix_level) != bool(matrix_rating):
+    if bool(matrix_level) != bool(matrix_rating) or (matrix_bu is not None and not (matrix_level and matrix_rating)):
         raise HTTPException(status_code=422, detail="MATRIX_DRILLDOWN_FILTERS_REQUIRED")
     try:
         scope = await _project_data_scope(context, project, db, "performance.frontend.data-view")
@@ -3411,7 +3415,7 @@ async def list_project_members(
 
     schema = await _management_member_schema(context, db, project=project, scope=scope)
     if matrix_level and matrix_rating:
-        scope = await _matrix_drilldown_scope(project, scope, matrix_level, matrix_rating, db)
+        scope = await _matrix_drilldown_scope(project, scope, matrix_level, matrix_rating, db, bu=matrix_bu)
     if isinstance(page, int) and sort_by in (None, "name") and sort_order != "desc":
         items, rating_columns, total = await _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db, page=page, page_size=page_size)
         await hydrate_project_member_rows(db, items, context=context, verified_view=True)

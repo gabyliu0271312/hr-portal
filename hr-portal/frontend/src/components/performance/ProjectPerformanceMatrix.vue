@@ -7,17 +7,11 @@
     </div>
     <template v-else>
       <header class="matrix-toolbar">
-        <div class="matrix-scope-tabs" role="tablist" aria-label="人员范围">
-          <button type="button" class="matrix-scope-tab active" role="tab" aria-selected="true">
-            <span>全部</span>
-            <span>({{ matrix.completed_count }}/{{ matrix.total }})</span>
-          </button>
-          <button type="button" class="matrix-more" disabled aria-label="更多人员范围">更多⌄</button>
-        </div>
+        <MatrixBuNavigation v-model="selectedBu" :items="buItems" :completed="sourceMatrix.completed_count" :total="sourceMatrix.total" />
         <button type="button" class="matrix-filter" disabled aria-label="筛选"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11.431V21a1 1 0 1 1-2 0V11c0-.147.032-.287.089-.412a.96.96 0 0 1 .4-.467L20 6.83V4H4v2.866l5.345 3.195A1 1 0 0 1 10 11v6.5a1 1 0 1 1-2 0v-6.035c-.477-.285-3.369-1.867-4.957-2.735A2 2 0 0 1 2 6.975V4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v2.945a2 2 0 0 1-1.035 1.752L16 11.43Z" fill="currentColor" /></svg><span>筛选</span></button>
       </header>
 
-      <section class="matrix-block pending-block">
+      <section v-if="matrix.pending_count > 0" class="matrix-block pending-block">
         <h3 class="matrix-title">待完成评估 <span>（{{ matrix.pending_count }} 人）</span></h3>
         <div class="matrix-table-wrap">
           <table class="matrix-table pending-table pending-header-table">
@@ -98,6 +92,7 @@
         :rating-key="drilldown.rating.key"
         :rating-label="drilldown.rating.label"
         :people="props.cycleId ? drilldownPeople : undefined"
+        :bu="selectedBu"
         @select-member="onDialogSelectMember"
       />
     </template>
@@ -107,6 +102,7 @@
 <script setup lang="ts">
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import MatrixPeopleDialog from './MatrixPeopleDialog.vue'
+import MatrixBuNavigation from './MatrixBuNavigation.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { projectManagementApi, type ProjectMatrix, type ProjectMatrixRating, type ProjectMatrixRow } from '@/api/performance'
 import PerformanceSurfaceCard from './PerformanceSurfaceCard.vue'
@@ -114,7 +110,37 @@ import { performanceLevelBackground } from './performanceColorOptions'
 
 const props = defineProps<{ projectId: number; cycleId?: number; scopeKey?: string; cycleName?: string; provider?: () => Promise<ProjectMatrix>; readonly?: boolean; embedded?: boolean }>()
 const emit = defineEmits<{ 'open-member': [member: { project_id?: number; employee_no: string; root_review_id?: number; can_view_detail?: boolean }] }>()
-const matrix = ref<ProjectMatrix>({ source: 'template_final_result', dimension: 'rating', display_modes: ['name', 'count'], total: 0, completed_count: 0, pending_count: 0, ratings: [], pending_rows: [], completed_rows: [] })
+const sourceMatrix = ref<ProjectMatrix>({ source: 'template_final_result', dimension: 'rating', display_modes: ['name', 'count'], total: 0, completed_count: 0, pending_count: 0, ratings: [], pending_rows: [], completed_rows: [] })
+const selectedBu = ref<string | null>(null)
+const buItems = computed(() => {
+  const items = new Map<string, { value: string; label: string; completed: number; total: number }>()
+  for (const [rows, completed] of [[sourceMatrix.value.pending_rows, false], [sourceMatrix.value.completed_rows, true]] as const) {
+    for (const row of rows) for (const cell of Object.values(row.cells)) for (const person of cell.people) {
+      const value = person.bu?.trim() || ''
+      const item = items.get(value) || { value, label: value || '--', completed: 0, total: 0 }
+      item.total++
+      if (completed) item.completed++
+      items.set(value, item)
+    }
+  }
+  return [...items.values()].sort((a, b) => a.value ? b.value ? a.label.localeCompare(b.label, 'zh-CN') : -1 : 1)
+})
+const matrix = computed(() => {
+  if (selectedBu.value === null) return sourceMatrix.value
+  const filterRows = (rows: ProjectMatrixRow[]) => rows.map(row => {
+    const cells = Object.fromEntries(Object.entries(row.cells).map(([key, cell]) => {
+      const people = cell.people.filter(person => (person.bu?.trim() || '') === selectedBu.value)
+      return [key, { count: people.length, people }]
+    }))
+    return { ...row, cells, total: Object.values(cells).reduce((total, cell) => total + cell.count, 0) }
+  })
+  const pending_rows = filterRows(sourceMatrix.value.pending_rows).filter(row => row.total > 0)
+  const pendingLevels = new Set(pending_rows.map(row => row.level))
+  const completed_rows = filterRows(sourceMatrix.value.completed_rows).filter(row => row.total > 0 || pendingLevels.has(row.level))
+  const pending_count = pending_rows.reduce((total, row) => total + row.total, 0)
+  const completed_count = completed_rows.reduce((total, row) => total + row.total, 0)
+  return { ...sourceMatrix.value, pending_rows, completed_rows, pending_count, completed_count, total: pending_count + completed_count }
+})
 const loading = ref(false)
 const error = ref('')
 const displayMode = ref<'name' | 'count'>('name')
@@ -180,13 +206,15 @@ async function load() {
   const request = ++requestId
   peopleOpen.value = false
   drilldown.value = null
+  selectedBu.value = null
   if (!props.provider && !props.projectId) return
   loading.value = true
   error.value = ''
   try {
     const loaded = props.provider ? await props.provider() : await projectManagementApi.matrix(props.projectId)
     if (request !== requestId) return
-    matrix.value = loaded
+    sourceMatrix.value = loaded
+    selectedBu.value = null
     expanded.value = new Set()
   } catch {
     if (request === requestId) error.value = '矩阵分析加载失败，请稍后重试'
@@ -258,6 +286,13 @@ function countStyle(row: ProjectMatrixRow, rating: ProjectMatrixRating) {
   }
 }
 
+watch(selectedBu, async () => {
+  peopleOpen.value = false
+  drilldown.value = null
+  expanded.value = new Set()
+  await nextTick()
+  syncColumnWidths()
+})
 onMounted(load)
 watch(() => [props.projectId, props.cycleId, props.scopeKey, props.provider], load)
 onBeforeUnmount(() => { requestId++ })
@@ -296,17 +331,17 @@ export default { components: { PeopleCell } }
 .project-matrix.surface-card { display: block; flex: none; padding: 0 20px 20px; }
 .project-matrix.surface-card.surface-card--embedded { padding: 0; border-radius: 0; box-shadow: none; }
 .matrix-toolbar { position: sticky; top: calc(var(--performance-tab-area-height) - var(--performance-review-surface-inset)); z-index: 4; display: flex; align-items: center; justify-content: space-between; min-height: 72px; background: #fff; }
-.matrix-scope-tabs { display: flex; align-items: center; min-width: 0; }
-.matrix-scope-tab { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 16px; border: 1px solid #3370ff; border-radius: 6px 0 0 6px; background: #e1eaff; color: #3370ff; font-size: 14px; font-weight: 500; cursor: pointer; }
-.matrix-more, .matrix-filter { height: 32px; padding: 0 14px; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #646a73; font-size: 14px; }
-.matrix-more { margin-left: 8px; }
+.matrix-filter { flex: none; height: 32px; padding: 0 14px; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #646a73; font-size: 14px; }
 .matrix-filter { display: inline-flex; align-items: center; gap: 6px; }
-.matrix-filter:disabled, .matrix-more:disabled { opacity: 1; cursor: default; }
+.matrix-filter:disabled { opacity: 1; cursor: default; }
 .matrix-block { min-width: 0; }
-.completed-block { margin-top: 24px; }
-.matrix-title { margin: 0 0 12px; padding-left: 8px; font-size: 16px; font-weight: 600; line-height: 24px; }
+.completed-block { margin-top: 0; }
+.pending-block + .completed-block { margin-top: 24px; }
+.matrix-title { position: relative; margin: 0 0 12px; padding-left: 8px; font-size: 16px; font-weight: 600; line-height: 24px; }
+.matrix-title::before { content: ''; position: absolute; left: 0; top: 5px; width: 2px; height: 14px; background: #34c724; }
+.pending-block .matrix-title::before { background: #ff8800; }
 .matrix-title span { font-weight: 600; }
-.completed-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: 24px 0 12px; }
+.completed-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: 0 0 12px; }
 .completed-heading .matrix-title { margin: 0; }
 .matrix-selects { display: flex; align-items: center; gap: 24px; }
 .matrix-select { display: inline-flex; align-items: center; height: 32px; min-width: 170px; padding: 0 10px; border: 1px solid #d0d3d6; border-radius: 6px; color: #646a73; font-size: 14px; white-space: nowrap; }
@@ -332,8 +367,7 @@ export default { components: { PeopleCell } }
 .people-cell :deep(.people-list) { display: flex; flex-wrap: wrap; gap: 0 10px; align-items: flex-start; }
 .people-cell :deep(.person-name) { min-width: 0; min-height: 0; max-width: 100%; box-sizing: border-box; padding: 0; border: 0; background: transparent; font-family: LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Tahoma, "PingFang SC", "Microsoft Yahei", Arial, "Hiragino Sans GB", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"; font-size: 14px; font-weight: 400; line-height: 22px; text-align: left; word-break: keep-all; color: #1f2329; list-style-type: none; cursor: pointer; }
 .people-cell :deep(.person-name:hover) { color: #4e83fd; }
-.people-cell :deep(.is-detail-link) { color: var(--color-primary); cursor: pointer; text-decoration: none; }
-.people-cell :deep(.is-detail-link:hover) { color: var(--color-primary-hover); }
+.people-cell :deep(.is-detail-link) { cursor: pointer; text-decoration: none; }
 .people-cell :deep(.people-toggle) { position: absolute; right: 0; bottom: 0; width: 59px; height: 23px; padding-left: 14px; border: 0; background: linear-gradient(to right, rgba(255,255,255,0), #fff 20%, #fff); color: #4e83fd; font: inherit; cursor: pointer; text-align: left; }
 .people-cell.expanded :deep(.people-toggle) { position: static; width: auto; height: auto; padding: 0; margin-left: 8px; background: transparent; }
 .rating-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; height: 24px; padding: 0 10px; border-radius: 9999px; background: var(--rating-bg); color: #1f2329; font-family: LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Tahoma, "PingFang SC", "Microsoft Yahei", Arial, "Hiragino Sans GB", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"; font-size: 14px; font-weight: 400; line-height: 22px; }

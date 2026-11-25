@@ -19,6 +19,7 @@ const props = defineProps<{
   ratingKey: string
   ratingLabel: string
   people?: ProjectMatrixPerson[]
+  bu?: string | null
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; 'select-member': [member: ProjectMember] }>()
 
@@ -102,6 +103,7 @@ async function load() {
       sortOrder.value || undefined,
       props.level,
       props.ratingKey,
+      ...(props.bu != null ? [props.bu] : []),
     )
     rows.value = result.items
     total.value = result.total

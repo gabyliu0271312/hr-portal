@@ -111,7 +111,8 @@ describe('ProjectPerformanceMatrix', () => {
 
     resolve(matrixOf({ total: 0, completed_count: 0, pending_count: 0, pending_rows: [], completed_rows: [] }))
     await flushPromises()
-    for (const selector of ['.matrix-toolbar', '.pending-block', '.completed-heading', '.completed-table-wrap', '.matrix-empty']) {
+    expect(wrapper.find('.pending-block').exists()).toBe(false)
+    for (const selector of ['.matrix-toolbar', '.completed-heading', '.completed-table-wrap', '.matrix-empty']) {
       expect(surface.element.contains(wrapper.get(selector).element)).toBe(true)
     }
     expect(wrapper.findAll('.surface-card')).toHaveLength(1)
@@ -155,6 +156,64 @@ describe('ProjectPerformanceMatrix', () => {
     expect(matrixSource).toMatch(/\.people-cell :deep\(\.person-name\)[^{]*\{[^}]*color:\s*#1f2329/)
     expect(matrixSource).toMatch(/\.people-cell :deep\(\.person-name:hover\)[^{]*\{[^}]*color:\s*#4e83fd/)
     wrapper.unmount()
+  })
+
+  it('filters BU tabs, counts, pending visibility and cycle drilldown together', async () => {
+    const data = matrixOf()
+    data.pending_rows[0].cells.pending.people[0].bu = '研发BU'
+    data.completed_rows[0].cells.one.people[0].bu = '研发BU'
+    data.completed_rows[0].cells.five.people[0].bu = '运营BU'
+    const wrapper = mount(ProjectPerformanceMatrix, { props: { projectId: 0, cycleId: 1, provider: vi.fn().mockResolvedValue(data) } })
+    await flushPromises()
+    expect(wrapper.findAll('[role="tab"]').map(tab => tab.text())).toEqual(['全部(2/3)', '研发BU(1/2)', '运营BU(1/1)'])
+    await wrapper.findAll('[role="tab"]')[2].trigger('click')
+    expect(wrapper.find('.pending-block').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('员工一')
+    expect(wrapper.text()).toContain('员工二')
+    wrapper.getComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', 'count')
+    await flushPromises()
+    expect(wrapper.get('.count-value').text()).toBe('100.0%1')
+    await wrapper.get('.count-value').trigger('click')
+    expect(wrapper.getComponent(MatrixPeopleDialog).props('people')?.map(person => person.employee_no)).toEqual(['E002'])
+    await wrapper.findAll('[role="tab"]')[0].trigger('click')
+    expect(wrapper.find('.matrix-people-dialog').exists()).toBe(false)
+    expect(wrapper.find('.pending-block').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('shows a single BU as a title and keeps missing BU as its own group', async () => {
+    const data = matrixOf()
+    for (const row of [...data.pending_rows, ...data.completed_rows]) for (const cell of Object.values(row.cells)) for (const person of cell.people) person.bu = '唯一BU'
+    const wrapper = mount(ProjectPerformanceMatrix, { props: { projectId: 7, provider: vi.fn().mockResolvedValue(data) } })
+    await flushPromises()
+    expect(wrapper.get('.matrix-bu-title').text()).toBe('唯一BU (2/3)')
+    expect(wrapper.find('[role="tablist"]').exists()).toBe(false)
+    const next = structuredClone(data)
+    next.completed_rows[0].cells.five.people[0].bu = null
+    await wrapper.setProps({ scopeKey: 'new', provider: vi.fn().mockResolvedValue(next) })
+    await flushPromises()
+    expect(wrapper.findAll('[role="tab"]').map(tab => tab.text())).toEqual(['全部(2/3)', '唯一BU(1/2)', '--(1/1)'])
+    expect(matrixSource).toContain('width: 2px; height: 14px; background: #34c724')
+    expect(matrixSource).toContain('.pending-block .matrix-title::before { background: #ff8800; }')
+    expect(matrixSource).not.toMatch(/\.is-detail-link\)[^{]*\{[^}]*color:/)
+    wrapper.unmount()
+  })
+
+  it('passes the selected BU to project drilldown without fetching other BU members', async () => {
+    const data = matrixOf()
+    data.completed_rows[0].cells.one.people[0].bu = '研发BU'
+    data.completed_rows[0].cells.five.people[0].bu = '运营BU'
+    const members = vi.spyOn(mockedApi, 'members').mockResolvedValue({ items: [], total: 0 } as any)
+    const wrapper = mount(ProjectPerformanceMatrix, { props: { projectId: 7, provider: vi.fn().mockResolvedValue(data) } })
+    try {
+      await flushPromises()
+      await wrapper.findAll('[role="tab"]').find(tab => tab.text().startsWith('运营BU'))!.trigger('click')
+      wrapper.getComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', 'count')
+      await flushPromises()
+      await wrapper.get('.count-value').trigger('click')
+      await flushPromises()
+      expect(members).toHaveBeenCalledWith(7, undefined, 1, 50, 'name', 'asc', 'J6', 'five', '运营BU')
+    } finally { wrapper.unmount(); members.mockRestore() }
   })
 
   it('keeps expand and collapse controls as buttons while names remain spans', async () => {
