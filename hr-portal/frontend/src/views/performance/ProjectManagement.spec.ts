@@ -1105,6 +1105,23 @@ describe('ProjectManagement', () => {
     expect(wrapper.findAll('.member-name')).toHaveLength(0)
   })
 
+  it('uses the original member drawer for report drilldown without reloading report providers', async () => {
+    const statistics = vi.spyOn(projectManagementApi, 'levelStatistics').mockResolvedValue({ source: 'api', dimension: 'department', rowLabel: '部门', showSummary: true, totalParticipants: 0, ratings: [], distribution: {}, departments: [] })
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+    vi.mocked(mockedApi.memberDetail).mockResolvedValue({ task_id: 41, task_kind: 'evaluation', entry_mode: 'template_task', node_name: '终评', editable: false, submit_allowed: false, person: { employee_no: 'E1', display_name: '报表人员' }, form_schema: [], answers: {}, reference_tabs: [] })
+    const wrapper = mountView()
+    try {
+      await flushPromises(); await wrapper.findAll('.line-tab')[3].trigger('click'); await vi.dynamicImportSettled(); await flushPromises()
+      const report = wrapper.getComponent({ name: 'ProjectStatisticsReportPanel' })
+      const provider = report.props('provider')
+      report.vm.$emit('open-member', { project_id: 3, employee_no: 'E1', root_review_id: 71, can_view_detail: true })
+      await flushPromises()
+      expect(mockedApi.memberDetail).toHaveBeenCalledWith(3, 'E1', 71, '')
+      expect(wrapper.getComponent({ name: 'ProjectStatisticsReportPanel' }).props('provider')).toBe(provider)
+      expect(wrapper.getComponent({ name: 'PerformanceReviewEvaluationDrawer' }).props('modelValue')).toBe(true)
+    } finally { wrapper.unmount(); statistics.mockRestore() }
+  })
+
   it('opens the statistics report with the current cycle and the statistics API', async () => {
     const statistics = vi.spyOn(projectManagementApi, 'levelStatistics').mockResolvedValue({ source: 'api', dimension: 'department', rowLabel: '部门', showSummary: true, totalParticipants: 0, ratings: [], distribution: {}, departments: [] })
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())

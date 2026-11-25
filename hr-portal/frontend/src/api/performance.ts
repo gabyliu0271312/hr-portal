@@ -1269,6 +1269,34 @@ export interface ProjectMatrix {
   completed_rows: ProjectMatrixRow[]
 }
 
+export interface ReportPeopleQuery {
+  type: 'statistics' | 'comparison'
+  dimension?: 'department' | 'team' | 'sequence' | 'level' | 'tenure'
+  indicatorKey?: string
+  rowKey?: string
+  ratingKey?: string
+  kind?: 'self-final' | 'dimension' | 'history'
+  xKey?: string
+  yKey?: string
+  historyCycleId?: number
+  xRatingKey?: string
+  yRatingKey?: string
+}
+export interface PeoplePageQuery {
+  keyword?: string
+  page: number
+  pageSize: number
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+}
+export type PerformancePeopleProvider = (query: PeoplePageQuery) => Promise<ProjectMemberPage>
+export interface ReportStatisticsRow {
+  id: string
+  name: string
+  counts: Record<string, number>
+  heatLevels?: Record<string, 1 | 2 | 3>
+  children?: ReportStatisticsRow[]
+}
 export interface ProjectStatisticsReport {
   source: 'api'
   dimension: 'department' | 'team' | 'sequence' | 'level' | 'tenure'
@@ -1278,7 +1306,7 @@ export interface ProjectStatisticsReport {
   ratings: ProjectMatrixRating[]
   distribution: Record<string, number>
   heatLevels?: Record<string, 1 | 2 | 3>
-  departments: Array<{ id: string; name: string; counts: Record<string, number>; heatLevels?: Record<string, 1 | 2 | 3>; children?: never[] }>
+  departments: ReportStatisticsRow[]
   indicators?: Array<{ key: string; label: string }>
   indicatorKey?: string
   indicatorLabel?: string
@@ -1556,6 +1584,14 @@ export const projectManagementApi = {
   },
   async withdrawResultReconsideration(projectId: number | string, version: number): Promise<PerformanceReconsiderationStatus> {
     const { data } = await api.post(`/performance/projects/${encodeURIComponent(String(projectId))}/result-reconsiderations/withdraw`, { version })
+    return data
+  },
+  async reportPeople(cycleId: number, selection: ReportPeopleQuery, query: PeoplePageQuery, scope?: PerformanceManagementScope & { result_kind?: 'team' | 'focus' }): Promise<ProjectMemberPage> {
+    const { data } = await api.get<ProjectMemberPage>(`/performance/project-management/${selection.type}/members`, { params: {
+      cycle_id: cycleId, ...scope, keyword: query.keyword, page: query.page, page_size: query.pageSize, sort_by: query.sortBy, sort_order: query.sortOrder,
+      ...(selection.type === 'statistics' ? { dimension: selection.dimension, indicator_key: selection.indicatorKey, row_key: selection.rowKey, rating_key: selection.ratingKey }
+        : { kind: selection.kind, x_key: selection.xKey, y_key: selection.yKey, history_cycle_id: selection.historyCycleId, x_rating_key: selection.xRatingKey, y_rating_key: selection.yRatingKey }),
+    } })
     return data
   },
   async levelStatistics(cycleId: number, dimension: 'department' | 'team' | 'sequence' | 'level' | 'tenure' = 'level', scope?: PerformanceManagementScope, indicatorKey?: string): Promise<ProjectStatisticsReport> {

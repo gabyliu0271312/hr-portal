@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { projectManagementApi, type ProjectMatrixPerson, type ProjectMember } from '@/api/performance'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { projectManagementApi, type ProjectMatrixPerson, type ProjectMember, type PerformancePeopleProvider, type ProjectMemberPage } from '@/api/performance'
 import type { PerformanceTableColumn } from './performanceTableColumns'
 import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
@@ -15,9 +15,11 @@ const props = defineProps<{
   modelValue: boolean
   projectId: number
   cycleName: string
-  level: string
-  ratingKey: string
-  ratingLabel: string
+  level?: string
+  ratingKey?: string
+  ratingLabel?: string
+  description?: string
+  provider?: PerformancePeopleProvider
   people?: ProjectMatrixPerson[]
   bu?: string | null
 }>()
@@ -33,7 +35,9 @@ const pageSize = ref(50)
 const sortKey = ref('name')
 const sortOrder = ref<'asc' | 'desc' | ''>('asc')
 
-const columns: PerformanceTableColumn[] = [
+const columnSchema = ref<ProjectMemberPage | null>(null)
+const columns = computed<PerformanceTableColumn[]>(() => baseColumns.filter(column => !columnSchema.value?.allowed_column_keys || columnSchema.value.allowed_column_keys.includes(column.key)).map(column => ({ ...column, sortable: column.sortable && (!columnSchema.value?.sort_keys || columnSchema.value.sort_keys.includes(column.key)) })))
+const baseColumns: PerformanceTableColumn[] = [
   { key: 'name', label: '姓名', width: 422, fixed: 'left', sortable: true },
   { key: 'department_path', label: '部门全路径', width: 422 },
   { key: 'rating', label: '绩效评级', width: 271, sortable: true },
@@ -42,7 +46,7 @@ const columns: PerformanceTableColumn[] = [
   { key: 'position_level', label: '职级', width: 234, sortable: true },
 ]
 
-const subtitle = computed(() => `符合「${props.cycleName}-终评状态：已完成，${props.cycleName}-职级：${props.level}，${props.cycleName}-绩效评级（终评）：${props.ratingLabel}」的员工`)
+const subtitle = computed(() => props.description || `符合「${props.cycleName}-终评状态：已完成，${props.cycleName}-职级：${props.level}，${props.cycleName}-绩效评级（终评）：${props.ratingLabel}」的员工`)
 
 function departmentPath(row: ProjectMember) {
   return row.department_path || '--'
@@ -80,7 +84,9 @@ function localRows() {
   rows.value = sorted.slice((page.value - 1) * pageSize.value, page.value * pageSize.value)
 }
 
+let requestId = 0
 async function load() {
+  const request = ++requestId
   if (!props.modelValue) return
   loading.value = true
   error.value = ''
@@ -89,12 +95,12 @@ async function load() {
     loading.value = false
     return
   }
-  if (!props.projectId) {
+  if (!props.projectId && !props.provider) {
     loading.value = false
     return
   }
   try {
-    const result = await projectManagementApi.members(
+    const result = await (props.provider ? props.provider({ keyword: keyword.value.trim() || undefined, page: page.value, pageSize: pageSize.value, sortBy: sortKey.value || undefined, sortOrder: sortOrder.value || undefined }) : projectManagementApi.members(
       props.projectId,
       keyword.value.trim() || undefined,
       page.value,
@@ -104,15 +110,18 @@ async function load() {
       props.level,
       props.ratingKey,
       ...(props.bu != null ? [props.bu] : []),
-    )
+      ))
+    if (request !== requestId) return
     rows.value = result.items
+    columnSchema.value = result
     total.value = result.total
   } catch {
+    if (request !== requestId) return
     rows.value = []
     total.value = 0
     error.value = '人员列表加载失败，请稍后重试'
   } finally {
-    loading.value = false
+    if (request === requestId) loading.value = false
   }
 }
 
@@ -131,14 +140,19 @@ function onRowClick(row: ProjectMember) {
   if (row.can_view_detail) emit('select-member', row)
 }
 
-watch(() => props.modelValue, open => {
-  if (!open) return
+watch(() => [props.modelValue, props.provider], () => {
+  requestId++
+  if (!props.modelValue) return
+  rows.value = []
+  total.value = 0
+  columnSchema.value = null
   keyword.value = ''
   page.value = 1
   sortKey.value = 'name'
   sortOrder.value = 'asc'
   void load()
 }, { immediate: true })
+onBeforeUnmount(() => { requestId++ })
 </script>
 
 <template>
@@ -146,7 +160,7 @@ watch(() => props.modelValue, open => {
     <template #subtitle><span class="matrix-people-subtitle">{{ subtitle }}</span></template>
     <div class="matrix-people-page">
       <UiSurface class="matrix-people-surface" radius="all" min-width="0" shadow>
-      <p v-if="error" class="matrix-people-error" role="alert">{{ error }}</p>
+      <p v-if="error" class="matrix-people-error" role="alert">{{ error }} <button type="button" @click="load">重新加载</button></p>
       <PerformanceListToolbar v-model:keyword="keyword" search-placeholder="搜索成员" search-aria-label="搜索成员" search-fill :filter-disabled="loading" @search="search" @clear="clearSearch" @filter="search" />
       <div class="matrix-people-result" aria-live="polite">{{ total }}个结果</div>
       <PerformanceManagementTable

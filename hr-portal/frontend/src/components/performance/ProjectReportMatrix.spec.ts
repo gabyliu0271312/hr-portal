@@ -196,7 +196,7 @@ describe('ProjectReportMatrix', () => {
 
 describe('report comparison matrices', () => {
   it('uses Y rows and X columns, dynamic geometry and forwards selected dimension keys', async () => {
-    const comparison = mockProjectReportComparison()
+    const comparison = { ...mockProjectReportComparison(), source: 'api' as const }
     comparison.xRatings = comparison.ratings.slice(0, 3)
     comparison.yRatings = comparison.ratings.slice(0, 2)
     comparison.xOptions = [{ key: 'value', label: '价值贡献' }, { key: 'effort', label: '投入度' }]
@@ -212,7 +212,7 @@ describe('report comparison matrices', () => {
     expect(wrapper.get('.matrix-grid').attributes('style')).toContain('repeat(3, minmax(132px, 1fr))')
     expect(wrapper.findAll('.row-label')).toHaveLength(2)
     expect(wrapper.findAll('.column-label')).toHaveLength(3)
-    expect(wrapper.findAll('.performance-comparison-cell.clickable')).toHaveLength(0)
+    expect(wrapper.findAll('.performance-comparison-cell.clickable')).toHaveLength(6)
     const selectors = wrapper.findAllComponents(PerformanceComparisonDimensionSelector)
     expect(selectors[0].props('modelValue')).toBe('effort')
     expect(selectors[1].props('modelValue')).toBe('value')

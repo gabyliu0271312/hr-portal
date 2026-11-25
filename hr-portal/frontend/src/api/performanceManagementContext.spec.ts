@@ -18,6 +18,16 @@ afterEach(() => {
 })
 
 describe('management request scope', () => {
+  it('serializes statistics and historical drilldown keys without losing entry permissions', async () => {
+    const requests: Parameters<AxiosAdapter>[0][] = []
+    api.defaults.adapter = async config => { requests.push(config); return response(config) }
+    await projectManagementApi.reportPeople(9, { type: 'statistics', dimension: 'department', rowKey: 'department:集团/研发', indicatorKey: 'contribution', ratingKey: 'A' }, { page: 2, pageSize: 20, keyword: '甲', sortBy: 'name', sortOrder: 'desc' }, { management_role: 'hrbp', project_id: 29 })
+    expect(requests[0].url).toBe('/performance/project-management/statistics/members')
+    expect(requests[0].params).toMatchObject({ cycle_id: 9, management_role: 'hrbp', project_id: 29, dimension: 'department', row_key: 'department:集团/研发', indicator_key: 'contribution', rating_key: 'A', page: 2, page_size: 20, keyword: '甲', sort_by: 'name', sort_order: 'desc' })
+    await projectManagementApi.reportPeople(9, { type: 'comparison', kind: 'history', xKey: 'old', yKey: 'now', historyCycleId: 3, xRatingKey: 'A', yRatingKey: 'B' }, { page: 1, pageSize: 50 }, { result_kind: 'focus' })
+    expect(requests[1].url).toBe('/performance/project-management/comparison/members')
+    expect(requests[1].params).toMatchObject({ cycle_id: 9, result_kind: 'focus', kind: 'history', x_key: 'old', y_key: 'now', history_cycle_id: 3, x_rating_key: 'A', y_rating_key: 'B' })
+  })
   it('submits one scope request and rejects an unsuccessful receipt', async () => {
     const requests: Parameters<AxiosAdapter>[0][] = []
     api.defaults.adapter = async config => {

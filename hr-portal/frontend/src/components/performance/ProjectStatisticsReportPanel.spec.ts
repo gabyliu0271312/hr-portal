@@ -5,6 +5,9 @@ import { api } from '@/api/client'
 import ProjectReportComparison from './ProjectReportComparison.vue'
 import ProjectReportMatrix from './ProjectReportMatrix.vue'
 import ProjectStatisticsReportPanel from './ProjectStatisticsReportPanel.vue'
+import ProjectReportDistribution from './ProjectReportDistribution.vue'
+import MatrixPeopleDialog from './MatrixPeopleDialog.vue'
+import { projectManagementApi, type ProjectMemberPage } from '@/api/performance'
 import ProjectReportNavigation from './ProjectReportNavigation.vue'
 import PerformanceReportCommentButton from './PerformanceReportCommentButton.vue'
 import PerformanceReportCycleSelector from './PerformanceReportCycleSelector.vue'
@@ -25,6 +28,48 @@ beforeEach(() => { setActivePinia(createPinia()); vi.spyOn(reportNotesApi, 'read
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
 
 describe('ProjectStatisticsReportPanel', () => {
+  it('shares the matrix people list, preserves scope and opens only permitted people', async () => {
+    const provider = vi.fn(async query => ({ ...apiReport(await mockProjectReportProvider(query)), indicatorKey: 'chosen', indicatorLabel: '价值贡献' }))
+    const member = { id: 1, employee_no: 'E1', display_name: '钻取人员', project_id: 9, root_review_id: 91, can_view_detail: true }
+    const people = vi.spyOn(projectManagementApi, 'reportPeople').mockResolvedValue({ items: [member], total: 1, page: 1, page_size: 50 } as ProjectMemberPage)
+    const wrapper = mount(ProjectStatisticsReportPanel, { props: { cycleId: 7, provider, noteScope: { management_role: 'hrbp', project_id: 9 } }, global })
+    try {
+      await flushPromises()
+      wrapper.getComponent(ProjectReportDistribution).vm.$emit('people', { dimension: 'department', rowLabel: '汇总', ratingKey: 'good', ratingLabel: '优秀' })
+      await flushPromises()
+      expect(people).toHaveBeenCalledWith(7, { type: 'statistics', dimension: 'department', indicatorKey: 'chosen', rowKey: undefined, ratingKey: 'good' }, { keyword: undefined, page: 1, pageSize: 50, sortBy: 'name', sortOrder: 'asc' }, { management_role: 'hrbp', project_id: 9 })
+      const dialog = wrapper.getComponent(MatrixPeopleDialog)
+      expect(dialog.text()).toContain('钻取人员')
+      dialog.vm.$emit('select-member', { ...member, can_view_detail: false })
+      expect(wrapper.emitted('open-member')).toBeUndefined()
+      dialog.vm.$emit('select-member', member)
+      expect(wrapper.emitted('open-member')).toEqual([[member]])
+      expect(dialog.props('modelValue')).toBe(true)
+      await wrapper.setProps({ noteScope: { management_role: 'hrbp', project_id: 9 } })
+      await flushPromises()
+      expect(wrapper.getComponent(MatrixPeopleDialog).props('modelValue')).toBe(true)
+      expect(people).toHaveBeenCalledTimes(1)
+      await wrapper.setProps({ cycleId: 8 })
+      await flushPromises()
+      expect(wrapper.findComponent(MatrixPeopleDialog).exists()).toBe(false)
+    } finally { wrapper.unmount() }
+  })
+
+  it('drills comparison cells using the response axes and history context', async () => {
+    const comparison = { ...mockProjectReportComparison(), source: 'api' as const, xKey: 'historic', yKey: 'current', historyCycleId: 3 }
+    const peopleProvider = vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, page_size: 50 })
+    const wrapper = mount(ProjectStatisticsReportPanel, { props: { cycleId: 7, provider: vi.fn(async query => apiReport(await mockProjectReportProvider(query))), comparisonProvider: vi.fn().mockResolvedValue(comparison), peopleProvider }, global })
+    try {
+      await flushPromises(); await wrapper.get('[data-key="history"]').trigger('click'); await flushPromises()
+      const component = wrapper.findComponent(ProjectReportComparison)
+      component.vm.$emit('cell', { rowKey: 'B', columnKey: 'A', count: 0 })
+      await flushPromises()
+      expect(peopleProvider).not.toHaveBeenCalled()
+      component.vm.$emit('cell', { rowKey: 'B', columnKey: 'A', count: 2 })
+      await flushPromises()
+      expect(peopleProvider).toHaveBeenCalledWith({ type: 'comparison', kind: 'history', xKey: 'historic', yKey: 'current', historyCycleId: 3, xRatingKey: 'A', yRatingKey: 'B' }, expect.objectContaining({ page: 1, pageSize: 50 }))
+    } finally { wrapper.unmount() }
+  })
   it('saves private notes, cancels drafts, clears content and reloads persisted content', async () => {
     const save = vi.spyOn(reportNotesApi, 'save').mockResolvedValueOnce({ content: '个人备注', version: 1 }).mockResolvedValueOnce({ content: '', version: 2 })
     const wrapper = mount(PerformanceReportCommentButton, { props: { cycleId: 7, section: 'history', scope: { management_role: 'hrbp', project_id: 9 } } })

@@ -19,15 +19,16 @@
             </PerformanceSortHeader>
           </template>
           <template #default="{ row }">
-            <div v-if="row.counts[rating.key]" class="matrix-value" :class="heatClass(row.heatLevels?.[rating.key])">
+            <button v-if="row.counts[rating.key] && report.source === 'api'" type="button" class="matrix-value" :class="heatClass(row.heatLevels?.[rating.key])" @click="emit('people', { rowKey: row.id === 'report-summary' ? undefined : row.id, rowLabel: row.name, ratingKey: rating.key, ratingLabel: rating.label, count: row.counts[rating.key] })">
               <span>{{ reportPercent(row.counts[rating.key], row.total) }}%</span><span>{{ row.counts[rating.key] }}</span>
-            </div>
+            </button>
+            <div v-else-if="row.counts[rating.key]" class="matrix-value" :class="heatClass(row.heatLevels?.[rating.key])"><span>{{ reportPercent(row.counts[rating.key], row.total) }}%</span><span>{{ row.counts[rating.key] }}</span></div>
             <div v-else class="matrix-zero">--</div>
           </template>
         </el-table-column>
         <el-table-column prop="total" label="总人数" min-width="110" fixed="right" align="right" sortable="custom" class-name="matrix-total-column">
           <template #header><PerformanceSortHeader label="总人数" :order="sort.prop === 'total' ? sort.order : null" @click="changeSort('total')" /></template>
-          <template #default="{ row }"><div class="matrix-total">{{ row.total }}</div></template>
+          <template #default="{ row }"><button v-if="row.total && report.source === 'api'" type="button" class="matrix-total" @click="emit('people', { rowKey: row.id === 'report-summary' ? undefined : row.id, rowLabel: row.name, count: row.total })">{{ row.total }}</button><div v-else class="matrix-total">{{ row.total }}</div></template>
         </el-table-column>
         <template #empty><div class="matrix-empty"><MetricTemplateEmptyIllustration /><span>暂无{{ report.rowLabel }}统计数据</span></div></template>
       </el-table>
@@ -46,7 +47,7 @@ import PerformanceSortHeader from './PerformanceSortHeader.vue'
 import { getProjectReportMatrixConfig, reportPercent, reportTotal, type ProjectReportMatrixConfig, type ProjectStatisticsReport, type ReportDepartment } from './projectStatisticsReport'
 
 const props = defineProps<{ report: ProjectStatisticsReport; config?: ProjectReportMatrixConfig }>()
-const emit = defineEmits<{ 'indicator-change': [key: string] }>()
+const emit = defineEmits<{ 'indicator-change': [key: string]; people: [selection: { rowKey?: string; rowLabel: string; ratingKey?: string; ratingLabel?: string; count: number }] }>()
 const root = ref<HTMLElement | null>(null)
 const table = ref<TableInstance>()
 const tableWidth = ref(0)
@@ -113,7 +114,11 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
 .report-matrix :deep(.el-table__body .cell) { padding: 0; font-size: 14px; line-height: 22px; }
 .report-matrix :deep(.matrix-department-column .el-table__expand-icon), .report-matrix :deep(.matrix-department-column .el-table__indent), .report-matrix :deep(.matrix-department-column .el-table__placeholder) { display: none; }
 .matrix-value, .matrix-zero { box-sizing: border-box; height: 54px; border-radius: 0; font-size: 14px; font-weight: 400; line-height: 22px; text-align: right; font-variant-numeric: tabular-nums; }
+button.matrix-value, button.matrix-total { width: 100%; border: 0; font-family: inherit; cursor: pointer; }
+button.matrix-total { background: transparent; color: inherit; }
+button.matrix-value:focus-visible, button.matrix-total:focus-visible { outline: 2px solid #3370ff; outline-offset: -2px; }
 .matrix-value { display: flex; flex-direction: column; justify-content: center; padding: 5px 12px; color: rgba(0, 0, 0, .88); }
+:where(button).matrix-value { background: transparent; }
 .matrix-heat-1 { background: #e1eaff; color: #133c9a; }
 .matrix-heat-2 { background: #bacefd; color: #133c9a; }
 .matrix-heat-3 { background: #82a7fc; color: #fff; }

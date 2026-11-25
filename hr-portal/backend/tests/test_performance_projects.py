@@ -5793,6 +5793,224 @@ def _add_report_dimension(db, *, field_id="potential", label="发展潜力", opt
     })
 
 
+@pytest.fixture
+def report_drilldown(statistics_db, monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    db = statistics_db
+    schema = {"columns": [{"key": "name", "label": "姓名"}], "allowed_column_keys": ["name"],
+              "default_column_keys": ["name"], "locked_column_keys": ["name"], "sort_keys": ["name"]}
+    monkeypatch.setattr(routes, "_management_member_schema", AsyncMock(return_value=schema))
+    monkeypatch.setattr(routes, "hydrate_project_member_rows", AsyncMock())
+    calls = []
+
+    async def rows(project, scope, keyword, sort_by, sort_order, account, session, **kwargs):
+        calls.append((project.id, scope, kwargs))
+        members = [member for member in db.members if member.snapshot_id == db.snapshots[project.id]
+                   and (scope is None or member.employee_no in scope)
+                   and (kwargs.get("employee_nos") is None or member.employee_no in kwargs["employee_nos"])
+                   and (not keyword or keyword.casefold() in (member.display_name + member.employee_no).casefold())]
+        return [routes.ProjectMemberResponse(id=index + 1, root_review_id=index + 100, project_id=project.id,
+                    employee_no=member.employee_no, display_name=member.display_name, can_view_detail=True,
+                    column_values={"name": member.display_name}) for index, member in enumerate(members)], []
+
+    monkeypatch.setattr(routes, "_project_member_rows", rows)
+    monkeypatch.setattr(routes, "_task_authorization_members", AsyncMock(side_effect=AssertionError("no task fallback")))
+
+    async def statistics(**kwargs):
+        return await routes.project_management_statistics_members(
+            cycle_id=1, dimension=kwargs.pop("dimension", "level"), context=kwargs.pop("context", context("performance.cycles.manage")),
+            db=db, result_kind=kwargs.pop("result_kind", None), project_id=kwargs.pop("project_id", None),
+            page=kwargs.pop("page", 1), page_size=kwargs.pop("page_size", 50), **kwargs)
+
+    async def comparison(**kwargs):
+        return await routes.project_management_comparison_members(
+            cycle_id=1, kind=kwargs.pop("kind", "dimension"), x_rating_key=kwargs.pop("x_rating_key", "five"),
+            y_rating_key=kwargs.pop("y_rating_key", "high"), context=kwargs.pop("context", context("performance.cycles.manage")),
+            db=db, result_kind=kwargs.pop("result_kind", None), project_id=kwargs.pop("project_id", None),
+            history_cycle_id=kwargs.pop("history_cycle_id", None), page=kwargs.pop("page", 1), page_size=kwargs.pop("page_size", 50), **kwargs)
+
+    return SimpleNamespace(db=db, routes=routes, statistics=statistics, comparison=comparison, calls=calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("row_key,rating_key,expected", [(None, None, {"E001", "E002"}),
+    (None, "five", {"E001"}), ("level:J6", None, {"E001"}), ("level:J7", "one", {"E002"}), ("level:J7", "five", set())])
+async def test_report_drilldown_statistics_matches_aggregate(report_drilldown, row_key, rating_key, expected):
+    data = report_drilldown
+    data.db.members += [_statistics_member("E002", position_level="J7"), _statistics_member("DRAFT")]
+    data.db.tasks += [_statistics_task("E002", "one", task_id=102), _statistics_task("DRAFT", submitted=False, task_id=103)]
+    result = await data.statistics(row_key=row_key, rating_key=rating_key)
+    assert {item.employee_no for item in result.items} == expected
+    assert result.total == len(expected)
+    assert result.allowed_column_keys == ["name"]
+    assert all(item.project_id == 1 and item.root_review_id and item.can_view_detail for item in result.items)
+
+
+@pytest.mark.asyncio
+async def test_report_drilldown_summary_follows_existing_leaf_distribution(report_drilldown):
+    data = report_drilldown
+    data.db.members[0].company_org = "Company"
+    data.db.members.append(_statistics_member("E002", company_org="Company", department="Department"))
+    data.db.tasks.append(_statistics_task("E002", task_id=102))
+    aggregate = await data.routes.project_management_statistics(1, "department", context("performance.cycles.manage"), data.db)
+    assert (await data.statistics(dimension="department")).total == sum(aggregate.distribution.values()) == 1
+    assert (await data.statistics(dimension="department", row_key="department:Company")).total == 2
+
+
+@pytest.mark.asyncio
+async def test_report_drilldown_statistics_nondefault_and_opaque_hierarchy(report_drilldown):
+    data = report_drilldown
+    _add_report_dimension(data.db)
+    data.db.tasks[0].answers["potential"] = "high"
+    data.db.members[0].company_org = "A/B"
+    data.db.members[0].department = "C:D"
+    result = await data.statistics(dimension="department", indicator_key="rating:potential", row_key="department:A/B/C:D", rating_key="high")
+    assert result.total == 1
+    assert (await data.statistics(dimension="department", row_key="department:A/B")).total == 1
+    assert (await data.statistics(dimension="tenure", row_key="tenure:3年以上")).total == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kwargs,error", [({"row_key": "J6"}, "INVALID_STATISTICS_ROW_KEY"),
+    ({"rating_key": "missing"}, "INVALID_RATING_KEY"), ({"indicator_key": "missing"}, "INVALID_INDICATOR_KEY"),
+    ({"sort_by": "secret"}, "INVALID_MEMBER_SORT_KEY")])
+async def test_report_drilldown_statistics_invalid_filters(report_drilldown, kwargs, error):
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as raised:
+        await report_drilldown.statistics(**kwargs)
+    assert (raised.value.status_code, raised.value.detail) == (422, error)
+
+
+@pytest.mark.asyncio
+async def test_report_drilldown_statistics_search_sort_pagination(report_drilldown):
+    data = report_drilldown
+    for index in range(2, 6):
+        data.db.members.append(_statistics_member(f"E00{index}"))
+        data.db.tasks.append(_statistics_task(f"E00{index}", task_id=100 + index))
+    result = await data.statistics(sort_by="name", sort_order="desc", page=2, page_size=2)
+    assert result.total == 5 and [item.employee_no for item in result.items] == ["E003", "E002"]
+    assert (await data.statistics(page=4, page_size=2)).items == []
+    result = await data.statistics(keyword="E003")
+    assert result.total == 1 and result.items[0].employee_no == "E003"
+
+
+@pytest.mark.asyncio
+async def test_report_drilldown_comparison_dimension_and_invalid_axes(report_drilldown):
+    from fastapi import HTTPException
+    data = report_drilldown
+    _add_report_dimension(data.db)
+    data.db.tasks[0].answers["potential"] = "high"
+    aggregate = await data.routes.project_management_comparison(1, "dimension", context("performance.cycles.manage"), data.db)
+    result = await data.comparison()
+    assert result.total == aggregate.counts[2][1] == 1
+    for kwargs, error in [({"x_key": "missing"}, "INVALID_COMPARISON_KEY"),
+                           ({"x_key": "rating:potential", "y_key": "rating:potential"}, "INVALID_COMPARISON_KEY"),
+                           ({"x_rating_key": "missing"}, "INVALID_RATING_KEY"),
+                           ({"y_rating_key": "missing"}, "INVALID_RATING_KEY")]:
+        with pytest.raises(HTTPException) as raised:
+            await data.comparison(**kwargs)
+        assert (raised.value.status_code, raised.value.detail) == (422, error)
+
+
+@pytest.mark.asyncio
+async def test_report_drilldown_comparison_history_independent_permissions_and_current_location(report_drilldown, monkeypatch):
+    from fastapi import HTTPException
+    data = report_drilldown
+    db = data.db
+    db.cycle.start_at = datetime(2026, 9, 1, tzinfo=UTC)
+    previous = _pm_cycle(2)
+    previous.start_at = datetime(2026, 3, 1, tzinfo=UTC)
+    db.history_cycles.append(previous)
+    db.projects.append(_pm_project(2, "历史项目", 2, administrators=["管理员"]))
+    db.snapshots[2] = 22
+    db.nodes.append(_statistics_node(2, node_id=32))
+    for employee in ["E001", "CURRENT_HIDDEN", "HISTORY_HIDDEN"]:
+        if employee != "E001":
+            db.members.append(_statistics_member(employee))
+            db.tasks.append(_statistics_task(employee, task_id=200 + len(db.tasks)))
+        db.members.append(_statistics_member(employee, 22))
+        task = _statistics_task(employee, "one", project_id=2, node_id=32, snapshot_id=22, task_id=300 + len(db.tasks))
+        task.cycle_ref = "cycle:2"
+        db.tasks.append(task)
+    seen = []
+
+    async def scope(account, project, session, feature):
+        seen.append((project.id, feature))
+        return {"E001", "HISTORY_HIDDEN"} if project.id == 1 else {"E001", "CURRENT_HIDDEN"}
+
+    monkeypatch.setattr(data.routes, "_project_data_scope", scope)
+    result = await data.comparison(kind="history", x_rating_key="one", y_rating_key="five", history_cycle_id=2)
+    assert result.total == 1 and result.items[0].employee_no == "E001" and result.items[0].project_id == 1
+    assert data.calls == [(1, {"E001", "HISTORY_HIDDEN"}, {"employee_nos": {"E001"}, "readonly": False})]
+    assert set(seen) == {(1, "performance.frontend.data-view"), (2, "performance.frontend.data-view")}
+    with pytest.raises(HTTPException) as raised:
+        await data.comparison(kind="history", history_cycle_id=999)
+    assert raised.value.detail == "INVALID_HISTORY_CYCLE"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("result_kind", ["team", "focus"])
+async def test_report_drilldown_result_scope_readonly_and_project_selection(report_drilldown, monkeypatch, result_kind):
+    from unittest.mock import AsyncMock
+    from app.performance import result_view_scope
+    data = report_drilldown
+    data.db.members.append(_statistics_member("HIDDEN"))
+    data.db.tasks.append(_statistics_task("HIDDEN", task_id=102))
+    resolver = AsyncMock(return_value=SimpleNamespace(employee_nos={"E001"}, scopes={1: {"E001"}}, projects=data.db.projects))
+    monkeypatch.setattr(result_view_scope, "resolve_result_view_scope", resolver)
+    result = await data.statistics(context=context(), result_kind=result_kind, project_id=1)
+    assert result.total == 1 and result.items[0].employee_no == "E001"
+    assert data.calls == [(1, {"E001"}, {"employee_nos": {"E001"}, "readonly": True})]
+    resolver.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_report_drilldown_denies_data_scope_without_task_fallback(report_drilldown, monkeypatch):
+    from fastapi import HTTPException
+    from unittest.mock import AsyncMock
+    data = report_drilldown
+    monkeypatch.setattr(data.routes, "_project_data_scope", AsyncMock(side_effect=HTTPException(403, "PROJECT_DATA_FORBIDDEN")))
+    with pytest.raises(HTTPException) as raised:
+        await data.statistics()
+    assert raised.value.status_code == 404
+    data.routes._task_authorization_members.assert_not_awaited()
+    assert data.calls == []
+
+
+@pytest.mark.asyncio
+async def test_report_drilldown_self_final_uses_submitted_intersection(report_drilldown):
+    data = report_drilldown
+    data.db.nodes.append(_self_summary_node(options=[{"id": "self-high", "label": "优秀"}]))
+    task = _statistics_task("E001", "self-high", node_id=32, task_id=201)
+    data.db.tasks.append(task)
+    result = await data.comparison(kind="self-final", x_rating_key="self-high", y_rating_key="five")
+    assert result.total == 1
+    task.submitted_at = None
+    assert (await data.comparison(kind="self-final", x_rating_key="self-high", y_rating_key="five")).total == 0
+
+
+@pytest.mark.asyncio
+async def test_report_drilldown_http_query_validation():
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from app.performance import projects_router as routes
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.dependency_overrides[routes.get_performance_access_context] = lambda: context()
+    app.dependency_overrides[routes.get_session] = lambda: None
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        for path, params in [
+            ("statistics", {"cycle_id": 0}), ("statistics", {"dimension": "unknown"}),
+            ("statistics", {"page": 0}), ("statistics", {"page_size": 201}),
+            ("statistics", {"sort_order": "invalid"}), ("statistics", {"project_id": 0}),
+            ("comparison", {"kind": "unknown"}), ("comparison", {"history_cycle_id": 0}),
+        ]:
+            query = {"cycle_id": 1, **({"kind": "dimension", "x_rating_key": "five", "y_rating_key": "high"} if path == "comparison" else {}), **params}
+            response = await client.get(f"/performance/project-management/{path}/members", params=query)
+            assert response.status_code == 422, response.text
+
+
 @pytest.mark.asyncio
 async def test_statistics_selects_all_final_indicators_and_ignores_drafts(statistics_db):
     from app.performance.projects_router import project_management_statistics

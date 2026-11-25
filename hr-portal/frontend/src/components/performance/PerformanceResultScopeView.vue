@@ -9,7 +9,7 @@
           <CompletionRatePanel v-if="activeTab === 'overview'" :embedded="true" :nodes="completionNodes" :cycle-id="cycleId" v-model:view-mode="completionViewMode" :department-provider="departmentProvider" @action="handleCompletionAction" />
           <ProjectMemberListPanel v-else-if="activeTab === 'members'" variant="review" :project-id="0" :cycle-id="cycleId" readonly :provider="memberProvider" @select-member="openMember" />
           <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" embedded :project-id="0" :cycle-name="overview.cycle.cycle_name" readonly :provider="matrixProvider" @open-member="openMember" />
-          <ProjectStatisticsReportPanel v-else embedded :cycle-id="cycleId" :cycle-name="overview.cycle.cycle_name" :provider="statisticsProvider" :self-final-provider="selfFinalProvider" :comparison-provider="comparisonProvider" :note-scope="{ result_kind: kind }" />
+          <ProjectStatisticsReportPanel v-else embedded :cycle-id="cycleId" :cycle-name="overview.cycle.cycle_name" :provider="statisticsProvider" :self-final-provider="selfFinalProvider" :comparison-provider="comparisonProvider" :note-scope="{ result_kind: kind }" @open-member="openMember" />
         </PerformanceSurfaceCard>
       </PerformanceLineTabs>
     </template>

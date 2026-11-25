@@ -21,6 +21,20 @@ async function clickNode(name: string) {
 }
 
 describe('ProjectReportDistribution', () => {
+  it('opens only real nonzero bars with their exact group and rating keys', async () => {
+    const report = { ...await mockProjectReportProvider({ cycleId: 1 }), source: 'api' as const }
+    const wrapper = mount(ProjectReportDistribution, { props: { report } })
+    try {
+      await wrapper.findAll('.chart-bar')[0].trigger('click')
+      expect(wrapper.emitted('people')).toBeUndefined()
+      const index = report.ratings.findIndex(rating => report.distribution[rating.key] > 0)
+      await wrapper.findAll('.chart-bar')[index].trigger('keydown', { key: 'Enter' })
+      expect(wrapper.emitted('people')?.[0]?.[0]).toMatchObject({ dimension: 'department', rowLabel: '汇总', ratingKey: report.ratings[index].key })
+      await wrapper.setProps({ report: { ...report, source: 'mock' } })
+      await wrapper.findAll('.chart-bar')[index].trigger('click')
+      expect(wrapper.emitted('people')).toHaveLength(1)
+    } finally { wrapper.unmount() }
+  })
   it('shows captured blue bars, full-category shadow, percent ticks and a body tooltip following the pointer', async () => {
     const report = await mockProjectReportProvider({ cycleId: 1 })
     report.indicatorLabel = '价值贡献'

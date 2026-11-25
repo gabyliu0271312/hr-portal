@@ -17,7 +17,7 @@
             <div class="chart-columns" :style="{ gridTemplateColumns: `repeat(${Math.max(1, report.ratings.length)}, minmax(0, 1fr))` }">
               <div v-for="rating in report.ratings" :key="rating.key" class="chart-column" tabindex="0" :class="{ 'column-active': activeKey === rating.key }" :aria-label="`${rating.label}：${report.distribution[rating.key] ?? 0}人，占比${reportPercent(report.distribution[rating.key] ?? 0, evaluated)}%`" @mouseenter="activate(rating.key, $event)" @mousemove="activate(rating.key, $event)" @mouseleave="hideTooltip" @focus.self="activate(rating.key, $event, firstBar(rating.key))" @blur="hideTooltip" @keydown.esc="hideTooltip">
                 <div class="chart-axis-line" aria-hidden="true" />
-                <div v-for="item in series" :key="item.key" class="chart-bar" :data-series="item.key" tabindex="0" :style="{ height: `${Number(share(item, rating.key)) / maximum * 100}%`, ...seriesStyle(item) }" :aria-label="`${item.label}：${share(item, rating.key)}%，${item.counts[rating.key] ?? 0}人`" @mouseenter.stop="activate(rating.key, $event, item.key)" @focus.stop="activate(rating.key, $event, item.key)" @blur="hideTooltip" />
+                <div v-for="item in series" :key="item.key" class="chart-bar" :class="{ 'is-clickable': report.source === 'api' && (item.counts[rating.key] || 0) > 0 }" :role="report.source === 'api' ? 'button' : undefined" :data-series="item.key" :tabindex="report.source === 'api' && (item.counts[rating.key] || 0) > 0 ? 0 : -1" @click.stop="openPeople(item.key, rating.key)" @keydown.enter.stop.prevent="openPeople(item.key, rating.key)" @keydown.space.stop.prevent="openPeople(item.key, rating.key)" :style="{ height: `${Number(share(item, rating.key)) / maximum * 100}%`, ...seriesStyle(item) }" :aria-label="`${item.label}：${share(item, rating.key)}%，${item.counts[rating.key] ?? 0}人`" @mouseenter.stop="activate(rating.key, $event, item.key)" @focus.stop="activate(rating.key, $event, item.key)" @blur="hideTooltip" />
                 <span class="chart-label"><PerformanceRatingTag :label="rating.label" :color="rating.color" /></span>
               </div>
             </div>
@@ -40,7 +40,16 @@ import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.v
 import { reportPercent, reportTotal, type ProjectStatisticsReport, type ReportDepartment } from './projectStatisticsReport'
 type ComparisonDimension = 'team' | 'department' | 'sequence'
 const props = defineProps<{ report: ProjectStatisticsReport; comparisonReports?: Partial<Record<ComparisonDimension, ProjectStatisticsReport>> }>()
-const emit = defineEmits<{ compare: [dimension: ComparisonDimension]; 'indicator-change': [key: string] }>()
+const emit = defineEmits<{ compare: [dimension: ComparisonDimension]; 'indicator-change': [key: string]; people: [selection: { dimension: 'department' | ComparisonDimension; rowKey?: string; rowLabel: string; ratingKey: string; ratingLabel: string }] }>()
+function openPeople(seriesKey: string, ratingKey: string) {
+  const item = series.value.find(item => item.key === seriesKey)
+  const rating = props.report.ratings.find(rating => rating.key === ratingKey)
+  if (props.report.source !== 'api' || !rating || !item || !(item.counts[ratingKey] > 0)) return
+  hideTooltip()
+  const dimension = seriesKey === 'summary' ? 'department' : comparisonDimensions.find(dimension => seriesKey.startsWith(`${dimension}:`))
+  if (!dimension) return
+  emit('people', { dimension, rowKey: seriesKey === 'summary' ? undefined : rowsByKey.value.get(seriesKey)?.id, rowLabel: item.label, ratingKey, ratingLabel: rating.label })
+}
 const indicatorLabel = computed(() => props.report.indicatorLabel || props.report.indicators?.find(item => item.key === props.report.indicatorKey)?.label || '绩效评级')
 const indicatorOptions = computed(() => props.report.indicators?.length ? props.report.indicators.map(item => ({ value: item.key, label: item.label })) : [{ value: props.report.indicatorKey || '', label: indicatorLabel.value }])
 const evaluated = computed(() => reportTotal(props.report.distribution))
@@ -130,6 +139,8 @@ watch(() => props.report, hideTooltip)
 .chart-gridline span { position: absolute; right: calc(100% + 8px); top: -10px; color: #646a73; font-size: 12px; font-variant-numeric: tabular-nums; }
 .chart-columns { position: absolute; inset: 0; display: grid; }.chart-column { display: flex; gap: 2px; position: relative; justify-content: center; align-items: flex-end; min-width: 0; height: 100%; }
 .chart-axis-line { position: absolute; inset: 0; pointer-events: none; }.chart-column.column-active .chart-axis-line { background: #f7f7f7; opacity: .7; }
+.chart-bar.is-clickable { cursor: pointer; }
+.chart-bar.is-clickable:focus-visible { outline: 2px solid #3370ff; outline-offset: 2px; }
 .chart-bar { position: relative; flex: 0 1 24px; width: 24px; max-width: calc(100% - 8px); border-radius: 4px 4px 0 0; z-index: 1; }.chart-label { position: absolute; top: calc(100% + 12px); left: 0; right: 0; display: flex; justify-content: center; }
 .chart-hover-line { position: absolute; left: 0; right: 0; border-top: 1px dashed; pointer-events: none; z-index: 2; }
 .chart-tooltip { position: fixed; z-index: 9999999; min-width: min(280px, calc(100vw - 24px)); max-width: calc(100vw - 24px); box-sizing: border-box; padding: 16px; background: #fff; border: 1px solid #fff; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.16); color: #666; font-size: 14px; line-height: 22px; pointer-events: none; }

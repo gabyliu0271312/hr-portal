@@ -14,7 +14,7 @@
         <div class="matrix-body" :style="bodyStyle">
           <div v-if="hasAxes" class="matrix-grid" :style="gridStyle">
             <template v-for="(row, rowIndex) in rows" :key="row.value">
-              <div v-for="(column, columnIndex) in columns" :key="column.value" class="performance-comparison-cell" :class="heatClass(rowIndex, columnIndex)" :aria-label="cellLabel(rowIndex, columnIndex)" @click="emit('cell', { rowKey: row.value, columnKey: column.value, count: cellAt(rowIndex, columnIndex).count })">
+              <div v-for="(column, columnIndex) in columns" :key="column.value" class="performance-comparison-cell" :class="[heatClass(rowIndex, columnIndex), { clickable: clickable && cellAt(rowIndex, columnIndex).count > 0 }]" :aria-label="cellLabel(rowIndex, columnIndex)" :role="clickable && cellAt(rowIndex, columnIndex).count > 0 ? 'button' : undefined" :tabindex="clickable && cellAt(rowIndex, columnIndex).count > 0 ? 0 : undefined" @click="selectCell(rowIndex, columnIndex)" @keydown.enter.prevent="selectCell(rowIndex, columnIndex)" @keydown.space.prevent="selectCell(rowIndex, columnIndex)">
                 <template v-if="cellAt(rowIndex, columnIndex).count > 0"><span>{{ percent(cellAt(rowIndex, columnIndex).count) }}%</span><span>{{ cellAt(rowIndex, columnIndex).count }}</span></template>
                 <span v-else class="performance-comparison-cell__zero">--</span>
               </div>
@@ -39,12 +39,16 @@ const props = withDefaults(defineProps<{
   rows: PerformanceComparisonOption[]; columns: PerformanceComparisonOption[]; cells: PerformanceComparisonCellData[][]; denominator: number
   rowDimensionOptions: PerformanceComparisonOption[]; columnDimensionOptions: PerformanceComparisonOption[]
   rowDimension?: string; columnDimension?: string; rowLabelPrefix?: string; columnLabelPrefix?: string; focusAreas?: PerformanceComparisonFocusArea[]
-  rowMissingLabel?: string; columnMissingLabel?: string
+  rowMissingLabel?: string; columnMissingLabel?: string; clickable?: boolean
 }>(), { focusAreas: () => [], rowLabelPrefix: '终评：', columnLabelPrefix: '自评：', rowMissingLabel: '未配置终评评级', columnMissingLabel: '未配置自评评级' })
 const emit = defineEmits<{
   'update:rowDimension': [key: string]; 'update:columnDimension': [key: string]; 'dimension-change': [axis: 'x' | 'y', key: string]
   cell: [cell: { rowKey: string; columnKey: string; count: number }]
 }>()
+function selectCell(row: number, column: number) {
+  if (props.clickable === false || cellAt(row, column).count <= 0) return
+  emit('cell', { rowKey: props.rows[row].value, columnKey: props.columns[column].value, count: cellAt(row, column).count })
+}
 const selectedRow = computed(() => props.rowDimension ?? props.rowDimensionOptions[0]?.value ?? '')
 const selectedColumn = computed(() => props.columnDimension ?? props.columnDimensionOptions[0]?.value ?? '')
 function changeDimension(axis: 'x' | 'y', key: string) {
@@ -82,6 +86,8 @@ const focusStyle = (area: PerformanceComparisonFocusArea) => ({
 .row-label.comparison-axis-missing { height: auto; min-height: 55px; padding: 8px; }
 .matrix-body { position: relative; overflow: hidden; }
 .matrix-grid { display: grid; grid-auto-rows: 55px; width: 100%; }
+.performance-comparison-cell.clickable { cursor: pointer; }
+.performance-comparison-cell.clickable:focus-visible { outline: 2px solid #3370ff; outline-offset: -2px; }
 .performance-comparison-cell { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; height: 55px; padding: 5px 12px; border-bottom: 1px solid #eff0f1; box-sizing: border-box; color: #133c9a; font-variant-numeric: tabular-nums; line-height: 22px; }
 .heat-1 { background: #e1eaff; }.heat-2 { background: #bacefd; }.heat-3 { background: #82a7fc; color: #fff; }
 .heat-1:hover, .heat-2:hover, .heat-3:hover { background: #bacefd; }

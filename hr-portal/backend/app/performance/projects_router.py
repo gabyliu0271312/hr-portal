@@ -7389,8 +7389,7 @@ async def put_project_management_report_note(
     return ReportNoteResponse(content=content, version=version)
 
 
-@router.get("/project-management/statistics", response_model=ProjectStatisticsReportResponse)
-async def project_management_statistics(
+async def _report_statistics_data(
     cycle_id: int = Query(..., ge=1),
     dimension: str = Query(default="level", pattern="^(level|tenure|department|team|sequence)$"),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
@@ -7407,6 +7406,8 @@ async def project_management_statistics(
     if indicator_key is not None and selected_indicator is None:
         raise HTTPException(422, "INVALID_INDICATOR_KEY")
 
+    row_members = {}
+    rated_members = {}
     rows: dict[tuple[str, ...], dict[str, int]] = {}
     if dimension == "tenure":
         rows = {(bucket,): {} for bucket in _TENURE_BUCKET_ORDER}
@@ -7445,9 +7446,14 @@ async def project_management_statistics(
             member = members_by_employee[employee_no]
             paths = _team_chain_paths(member, team_people) if dimension == "team" else _statistics_paths(member, dimension)
             selected = final_values.get(employee_no)
+            if selected is not None:
+                rated_members[employee_no] = selected[3]["key"]
             for path in paths:
+                row_id = f"{dimension}:" + "/".join(path)
+                row_members.setdefault(row_id, set())
                 counts = rows.setdefault(path, {})
                 if selected is not None:
+                    row_members[row_id].add(employee_no)
                     key = selected[3]["key"]
                     counts[key] = counts.get(key, 0) + 1
 
@@ -7509,7 +7515,24 @@ async def project_management_statistics(
         distribution=distribution,
         heatLevels=heat_levels,
         departments=[ProjectStatisticsRowResponse(**row) for row in report_rows],
-    )
+    ), projects, scopes, rated_members, {
+        f"{dimension}:" + "/".join(path): row_members.get(f"{dimension}:" + "/".join(path), set())
+        for path in rows
+    }, set().union(*(row_members.get(f"{dimension}:" + "/".join(path), set()) for path, _counts in leaf_rows))
+
+
+@router.get("/project-management/statistics", response_model=ProjectStatisticsReportResponse)
+async def project_management_statistics(
+    cycle_id: int = Query(..., ge=1),
+    dimension: str = Query(default="level", pattern="^(level|tenure|department|team|sequence)$"),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+    result_kind: Literal["team", "focus"] | None = Query(default=None),
+    project_id: int | None = None,
+    indicator_key: str | None = None,
+):
+    report, *_ = await _report_statistics_data(cycle_id, dimension, context, db, result_kind, project_id, indicator_key)
+    return report
 
 
 async def _report_comparison_axis(projects, scopes, db, *, self_only=False, legacy=False):
@@ -7575,8 +7598,7 @@ def _report_comparison_response(x, y, x_options, y_options, *, history_cycles=No
     )
 
 
-@router.get("/project-management/comparison", response_model=ProjectSelfFinalComparisonResponse)
-async def project_management_comparison(
+async def _report_comparison_data(
     cycle_id: int = Query(..., ge=1),
     kind: Literal["self-final", "dimension", "history"] = Query(...),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
@@ -7589,18 +7611,22 @@ async def project_management_comparison(
 ):
     cycle, projects, scopes = await _report_project_scope(cycle_id, context, db, result_kind, project_id)
     y_options, y_axes = await _report_comparison_axis(projects, scopes, db)
+
+    def finish(x, y, x_options, y_options, **kwargs):
+        return _report_comparison_response(x, y, x_options, y_options, **kwargs), projects, scopes, x, y
+
     if kind == "dimension":
         x = _report_choose_axis(y_options, y_axes, x_key)
         candidates = [item for item in y_options if x is None or item["key"] != x["key"]]
         y = _report_choose_axis(candidates, {item["key"]: y_axes[item["key"]] for item in candidates}, y_key)
-        return _report_comparison_response(
+        return finish(
             x, y, [item for item in y_options if y is None or item["key"] != y["key"]], candidates,
             empty_reason="INSUFFICIENT_DIMENSIONS" if len(y_options) < 2 else None,
         )
     y = _report_choose_axis(y_options, y_axes, y_key)
     if kind == "self-final":
         x_options, x_axes = await _report_comparison_axis(projects, scopes, db, self_only=True)
-        return _report_comparison_response(_report_choose_axis(x_options, x_axes, x_key), y, x_options, y_options)
+        return finish(_report_choose_axis(x_options, x_axes, x_key), y, x_options, y_options)
     historical_context = replace(context, management_project_id=None, management_cycle_id=None)
     candidates = list((await db.execute(select(PerformanceCycle).where(
         PerformanceCycle.start_at < cycle.start_at,
@@ -7624,13 +7650,112 @@ async def project_management_comparison(
     if selected_history is None:
         if x_key is not None:
             raise HTTPException(422, "INVALID_COMPARISON_KEY")
-        return _report_comparison_response(None, y, [], y_options, empty_reason="NO_HISTORY")
+        return finish(None, y, [], y_options, empty_reason="NO_HISTORY")
     previous_projects, previous_scopes = permitted[selected_history]
     x_options, x_axes = await _report_comparison_axis(previous_projects, previous_scopes, db)
-    return _report_comparison_response(
+    return finish(
         _report_choose_axis(x_options, x_axes, x_key), y, x_options, y_options,
         history_cycles=history, history_id=selected_history,
     )
+
+
+@router.get("/project-management/comparison", response_model=ProjectSelfFinalComparisonResponse)
+async def project_management_comparison(
+    cycle_id: int = Query(..., ge=1),
+    kind: Literal["self-final", "dimension", "history"] = Query(...),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+    result_kind: Literal["team", "focus"] | None = Query(default=None),
+    project_id: int | None = None,
+    x_key: str | None = None,
+    y_key: str | None = None,
+    history_cycle_id: int | None = None,
+):
+    report, *_ = await _report_comparison_data(cycle_id, kind, context, db, result_kind, project_id, x_key, y_key, history_cycle_id)
+    return report
+
+
+async def _report_member_page(projects, scopes, employee_nos, keyword, page, page_size, sort_by, sort_order, context, db, *, readonly=False):
+    _enable_member_read_reuse(db)
+    authorized = [(project, scopes[project.id]) for project in projects]
+    schema = await _management_member_schema(context, db, authorized=authorized, readonly=readonly)
+    _sort_member_rows([], sort_by, sort_order, [], schema)
+    items = []
+    columns = {column["key"]: {"key": column["key"], "label": column["label"]}
+               for column in schema.get("columns", []) if column["key"].startswith("rating:")}
+    for project, scope in authorized:
+        project_items, project_columns = await _project_member_rows(
+            project, scope, keyword, None, None, context, db, employee_nos=employee_nos, readonly=readonly,
+        )
+        items.extend(project_items)
+        for column in project_columns:
+            columns.setdefault(column["key"], column)
+    items.sort(key=lambda item: (item.display_name, item.employee_no, item.project_id, item.id))
+    rating_columns = list(columns.values())
+    _sort_member_rows(items, sort_by, sort_order, rating_columns, schema)
+    total = len(items)
+    items = items[(page - 1) * page_size:page * page_size]
+    await hydrate_project_member_rows(db, items, context=context, verified_view=True)
+    return ProjectMemberPage(**schema, items=items, total=total, page=page, page_size=page_size, rating_columns=rating_columns)
+
+
+@router.get("/project-management/statistics/members", response_model=ProjectMemberPage)
+async def project_management_statistics_members(
+    cycle_id: int = Query(..., ge=1),
+    dimension: Literal["level", "tenure", "department", "team", "sequence"] = Query(default="level"),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+    result_kind: Literal["team", "focus"] | None = Query(default=None),
+    project_id: int | None = Query(default=None, ge=1),
+    indicator_key: str | None = None,
+    row_key: str | None = None,
+    rating_key: str | None = None,
+    keyword: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    sort_by: str | None = None,
+    sort_order: Literal["asc", "desc"] | None = None,
+):
+    report, projects, scopes, rated, rows, summary = await _report_statistics_data(
+        cycle_id, dimension, context, db, result_kind, project_id, indicator_key,
+    )
+    if row_key is not None and row_key not in rows:
+        raise HTTPException(422, "INVALID_STATISTICS_ROW_KEY")
+    if rating_key is not None and rating_key not in {rating.key for rating in report.ratings}:
+        raise HTTPException(422, "INVALID_RATING_KEY")
+    employees = summary if row_key is None else rows[row_key]
+    if rating_key is not None:
+        employees = {employee for employee in employees if rated[employee] == rating_key}
+    return await _report_member_page(projects, scopes, employees, keyword, page, page_size, sort_by, sort_order, context, db, readonly=result_kind is not None)
+
+
+@router.get("/project-management/comparison/members", response_model=ProjectMemberPage)
+async def project_management_comparison_members(
+    cycle_id: int = Query(..., ge=1),
+    kind: Literal["self-final", "dimension", "history"] = Query(...),
+    x_rating_key: str = Query(...),
+    y_rating_key: str = Query(...),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+    result_kind: Literal["team", "focus"] | None = Query(default=None),
+    project_id: int | None = Query(default=None, ge=1),
+    x_key: str | None = None,
+    y_key: str | None = None,
+    history_cycle_id: int | None = Query(default=None, ge=1),
+    keyword: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    sort_by: str | None = None,
+    sort_order: Literal["asc", "desc"] | None = None,
+):
+    report, projects, scopes, x, y = await _report_comparison_data(
+        cycle_id, kind, context, db, result_kind, project_id, x_key, y_key, history_cycle_id,
+    )
+    if x_rating_key not in {rating.key for rating in report.xRatings} or y_rating_key not in {rating.key for rating in report.yRatings}:
+        raise HTTPException(422, "INVALID_RATING_KEY")
+    employees = {employee for employee in x["values"].keys() & y["values"].keys()
+                 if x["values"][employee] == x_rating_key and y["values"][employee] == y_rating_key}
+    return await _report_member_page(projects, scopes, employees, keyword, page, page_size, sort_by, sort_order, context, db, readonly=result_kind is not None)
 
 
 @router.get("/project-management/self-final-comparison", response_model=ProjectSelfFinalComparisonResponse)

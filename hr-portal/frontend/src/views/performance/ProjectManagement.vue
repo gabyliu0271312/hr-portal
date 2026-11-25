@@ -49,7 +49,7 @@
             </template>
             <ProjectMemberListPanel v-else-if="activeTab === 'members'" :key="contentKey" :cycle-id="selectedProject ? undefined : activeCycle.cycle_id" :project-id="memberProjectId" :preference-scope="{ cycle_ref: activeCycle.cycle_id, scene: 'management', project_id: selectedProject?.project_id, role_key: managementRole }" @filter="emit('member-filter')" @authorize-selected="openDelegation('AUTHORIZE', $event)" @transfer-selected="openDelegation('TRANSFER', $event)" @select-member="openMember" @remind-evaluate="handleEvaluateRemind" />
             <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :key="contentKey" :project-id="memberProjectId" :cycle-id="selectedProject ? undefined : activeCycle.cycle_id" :scope-key="scopeKey" :provider="matrixProvider" :cycle-name="activeCycle.cycle_name" @open-member="openMatrixMember" />
-            <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :key="contentKey" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" :provider="statisticsProvider" :self-final-provider="selfFinalProvider" :comparison-provider="comparisonProvider" :note-scope="managementScope" />
+            <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :key="contentKey" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" :provider="statisticsProvider" :self-final-provider="selfFinalProvider" :comparison-provider="comparisonProvider" :note-scope="managementScope" @open-member="openMatrixMember" />
             <p v-else class="pane-hint">该页签内容将在后续迭代中开发</p>
           </PerformanceLineTabs>
         </div>
@@ -154,9 +154,11 @@ const emit = defineEmits<{
 const overview = ref<ProjectManagementOverview | null>(null)
 const activeCycleId = computed(() => projectContext.activeCycleId)
 const managementRole = computed(() => String(route.query.management_role || overview.value?.active_role || 'project_admin'))
+const requestedRole = computed(() => route.query.management_role ? String(route.query.management_role) as 'hrbp' | 'project_admin' : undefined)
+const requestedProject = computed(() => route.query.project_id ? Number(route.query.project_id) : undefined)
 const requestedScope = computed(() => ({
-  ...(route.query.management_role ? { management_role: String(route.query.management_role) as 'hrbp' | 'project_admin' } : {}),
-  ...(route.query.project_id ? { project_id: Number(route.query.project_id) } : {}),
+  ...(requestedRole.value ? { management_role: requestedRole.value } : {}),
+  ...(requestedProject.value ? { project_id: requestedProject.value } : {}),
 }))
 const managementScope = computed(() => ({ ...requestedScope.value, management_role: managementRole.value as 'hrbp' | 'project_admin' }))
 const scopeKey = computed(() => JSON.stringify([activeCycleId.value, managementRole.value, route.query.project_id || '']))

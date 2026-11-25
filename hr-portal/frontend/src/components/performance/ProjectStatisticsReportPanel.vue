@@ -18,7 +18,7 @@
                 <template v-if="section.key === 'overview'">
                   <p v-if="loadingDimensions.department && !reports.department" class="report-state" role="status">正在加载统计报表…</p>
                   <div v-else-if="errors.department" class="report-state" role="alert"><p>{{ errors.department }}</p><button type="button" @click="loadDimension('department')">重新加载</button></div>
-                  <ProjectReportDistribution v-else-if="reports.department" :report="reports.department" :comparison-reports="reports" @compare="loadComparisonDimension" @indicator-change="changeIndicator('department', $event)" />
+                  <ProjectReportDistribution v-else-if="reports.department" :report="reports.department" :comparison-reports="reports" @compare="loadComparisonDimension" @people="selection => openStatisticsPeople(selection.dimension, selection)" @indicator-change="changeIndicator('department', $event)" />
                   <p v-if="comparisonDimensionLoading" class="report-state" role="status">正在加载对比数据…</p>
                   <p v-if="comparisonDimensionError" class="report-state" role="alert">{{ comparisonDimensionError }}</p>
                 </template>
@@ -27,14 +27,14 @@
                   <div v-else-if="errors[section.key]" class="report-state" role="alert"><p>{{ errors[section.key] }}</p><button type="button" @click="loadDimension(section.key)">重新加载</button></div>
                   <template v-else-if="reports[section.key]">
                     <p v-if="section.key === 'tenure'" class="report-source-notice">数据来源：统计 API（入职日期，按当前日期计算）</p>
-                    <ProjectReportMatrix :report="reports[section.key]!" @indicator-change="changeIndicator(section.key, $event)" />
+                    <ProjectReportMatrix :report="reports[section.key]!" @people="openStatisticsPeople(section.key, $event)" @indicator-change="changeIndicator(section.key, $event)" />
                   </template>
                   <p v-else class="report-placeholder">统计数据尚未加载</p>
                 </template>
                 <template v-else-if="isComparison(section.key)">
                   <p v-if="comparisonLoading[section.key]" class="report-placeholder" role="status">正在加载{{ section.label }}…</p>
                   <div v-else-if="comparisonErrors[section.key]" class="report-state" role="alert"><p>{{ comparisonErrors[section.key] }}</p><button type="button" @click="loadComparison(section.key)">重新加载</button></div>
-                  <ProjectReportComparison v-else-if="comparisons[section.key]" :kind="section.key" :cycle-name="cycleName" :comparison="comparisons[section.key]!" :load-history="loadHistoryOptions" :allow-examples="allowExamples" @change="changeComparison(section.key, $event)" />
+                  <ProjectReportComparison v-else-if="comparisons[section.key]" :kind="section.key" :cycle-name="cycleName" :comparison="comparisons[section.key]!" :load-history="loadHistoryOptions" :allow-examples="allowExamples" @cell="openComparisonPeople(section.key, $event)" @change="changeComparison(section.key, $event)" />
                   <p v-else class="report-placeholder">{{ section.label }}数据尚未加载</p>
                 </template>
                 <PerformanceReportCommentButton :cycle-id="cycleId" :section="section.key" :scope="noteScope" :identity-key="String(reportStore.cacheVersion)" />
@@ -45,6 +45,7 @@
         </div>
       </div>
     </PerformanceSurfaceCard>
+    <MatrixPeopleDialog v-if="peopleSelection" v-model="peopleOpen" :project-id="0" :cycle-name="cycleName || '当前周期'" :description="peopleSelection.description" :provider="peopleProvider" @select-member="selectPerson" />
   </section>
 </template>
 
@@ -60,13 +61,39 @@ import ProjectReportMatrix from './ProjectReportMatrix.vue'
 import PerformanceReportCommentButton from './PerformanceReportCommentButton.vue'
 import type { ReportNoteScope } from '@/api/performanceReportNotes'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
-import { projectManagementApi } from '@/api/performance'
+import { projectManagementApi, type ReportPeopleQuery, type PerformancePeopleProvider, type PeoplePageQuery, type ProjectMember } from '@/api/performance'
+import MatrixPeopleDialog from './MatrixPeopleDialog.vue'
 import { reportGroups, reportSectionInfo, type ProjectReportComparisonData, type ProjectReportComparisonKind, type ProjectReportComparisonProvider, type ProjectReportComparisonQuery, type ProjectReportDimension, type ProjectReportProvider, type ProjectStatisticsReport } from './projectStatisticsReport'
 import { useProjectReportNavigation } from './useProjectReportNavigation'
 
-const props = withDefaults(defineProps<{ cycleId: number; cycleName?: string; provider?: ProjectReportProvider; selfFinalProvider?: () => Promise<ProjectReportComparisonData>; comparisonProvider?: ProjectReportComparisonProvider; allowExamples?: boolean; embedded?: boolean; noteScope?: ReportNoteScope }>(), { allowExamples: true, noteScope: () => ({}) })
+const props = withDefaults(defineProps<{ cycleId: number; cycleName?: string; provider?: ProjectReportProvider; selfFinalProvider?: () => Promise<ProjectReportComparisonData>; comparisonProvider?: ProjectReportComparisonProvider; allowExamples?: boolean; embedded?: boolean; noteScope?: ReportNoteScope; peopleProvider?: (selection: ReportPeopleQuery, query: PeoplePageQuery) => ReturnType<PerformancePeopleProvider> }>(), { allowExamples: true, noteScope: () => ({}) })
 const reportStore = usePerformanceProjectContextStore()
-const emit = defineEmits<{ filter: []; compare: [] }>()
+const emit = defineEmits<{ filter: []; compare: []; 'open-member': [member: ProjectMember] }>()
+const peopleOpen = ref(false)
+const peopleSelection = ref<{ query: ReportPeopleQuery; description: string } | null>(null)
+const peopleScopeKey = computed(() => JSON.stringify(props.noteScope))
+const peopleProvider = computed<PerformancePeopleProvider>(() => {
+  const cycleId = props.cycleId
+  const selection = peopleSelection.value?.query
+  const scope = JSON.parse(peopleScopeKey.value) as ReportNoteScope
+  const provider = props.peopleProvider
+  return query => selection ? provider ? provider(selection, query) : projectManagementApi.reportPeople(cycleId, selection, query, scope) : Promise.reject(new Error('REPORT_SELECTION_REQUIRED'))
+})
+function openStatisticsPeople(dimension: ProjectReportDimension, selection: { rowKey?: string; rowLabel: string; ratingKey?: string; ratingLabel?: string; count?: number }) {
+  const report = reports.value[dimension]
+  if (report?.source !== 'api' || selection.count === 0) return
+  peopleSelection.value = { query: { type: 'statistics', dimension, indicatorKey: report.indicatorKey, rowKey: selection.rowKey, ratingKey: selection.ratingKey }, description: `符合「${props.cycleName || '当前周期'}，${report.indicatorLabel || '绩效评级'}，${selection.rowLabel}${selection.ratingLabel ? `，${selection.ratingLabel}` : ''}」的员工` }
+  peopleOpen.value = true
+}
+function openComparisonPeople(kind: ProjectReportComparisonKind, cell: { rowKey: string; columnKey: string; count: number }) {
+  const report = comparisons.value[kind]
+  if (report?.source !== 'api' || cell.count <= 0) return
+  const xRatings = report.xRatings || report.ratings
+  const yRatings = report.yRatings || report.ratings
+  peopleSelection.value = { query: { type: 'comparison', kind, xKey: report.xKey, yKey: report.yKey, ...(report.historyCycleId ? { historyCycleId: report.historyCycleId } : {}), xRatingKey: cell.columnKey, yRatingKey: cell.rowKey }, description: `符合「${props.cycleName || '当前周期'}，${report.xLabel || 'X轴'}：${xRatings.find(r => r.key === cell.columnKey)?.label || cell.columnKey}，${report.yLabel || 'Y轴'}：${yRatings.find(r => r.key === cell.rowKey)?.label || cell.rowKey}」的员工` }
+  peopleOpen.value = true
+}
+function selectPerson(member: ProjectMember) { if (member.can_view_detail) emit('open-member', member) }
 const root = ref<HTMLElement | null>(null)
 const collapsed = ref(false)
 const reports = ref<Partial<Record<ProjectReportDimension, ProjectStatisticsReport>>>({})
@@ -147,11 +174,15 @@ async function loadHistoryOptions(cycleId: number) {
   return report.xOptions || []
 }
 function changeComparison(kind: ProjectReportComparisonKind, change: Omit<Partial<ProjectReportComparisonQuery>, 'kind'>) {
+  peopleOpen.value = false
+  peopleSelection.value = null
   const current = comparisons.value[kind]
   comparisonQueries.value[kind] = { kind, xKey: current?.xKey, yKey: current?.yKey, ...(current?.historyCycleId ? { historyCycleId: current.historyCycleId } : {}), ...change, ...(change.historyCycleId && change.xKey === undefined ? { xKey: undefined } : {}) }
   void loadComparison(kind)
 }
 async function changeIndicator(dimension: ProjectReportDimension, key: string) {
+  peopleOpen.value = false
+  peopleSelection.value = null
   indicators.value[dimension] = key
   const currentGeneration = generation
   if (dimension === 'department') {
@@ -183,8 +214,10 @@ function requestFilter() {
   feedback.value = '筛选入口已预留，筛选条件尚未接入。'
   emit('filter')
 }
-watch(() => [props.cycleId, props.provider, props.selfFinalProvider, props.comparisonProvider, reportStore.cacheVersion], () => {
+watch([() => props.cycleId, () => props.provider, () => props.selfFinalProvider, () => props.comparisonProvider, () => props.peopleProvider, peopleScopeKey, () => reportStore.cacheVersion], () => {
   generation++
+  peopleOpen.value = false
+  peopleSelection.value = null
   for (const dimension of Object.keys(requestIds) as ProjectReportDimension[]) requestIds[dimension]++
   for (const kind of Object.keys(comparisonIds) as ProjectReportComparisonKind[]) comparisonIds[kind]++
   reports.value = {}
@@ -212,6 +245,8 @@ watch(visibleKeys, keys => keys.forEach(ensureSection))
 watch(collapsed, () => void refresh())
 onBeforeUnmount(() => {
   generation++
+  peopleOpen.value = false
+  peopleSelection.value = null
   for (const dimension of Object.keys(requestIds) as ProjectReportDimension[]) requestIds[dimension]++
   for (const kind of Object.keys(comparisonIds) as ProjectReportComparisonKind[]) comparisonIds[kind]++
 })

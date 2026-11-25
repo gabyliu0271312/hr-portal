@@ -35,6 +35,26 @@ const matrixOf = (overrides: Partial<ProjectMatrix> = {}): ProjectMatrix => ({
 })
 
 describe('ProjectPerformanceMatrix', () => {
+  it('ignores stale people-provider replies and keeps query state after member selection', async () => {
+    let resolve!: (value: any) => void
+    const first = vi.fn(() => new Promise<any>(done => { resolve = done }))
+    const member = { id: 1, employee_no: 'new', display_name: '新查询人员', can_view_detail: true }
+    const second = vi.fn().mockResolvedValue({ items: [member], total: 1, page: 1, page_size: 50, allowed_column_keys: ['name'], sort_keys: ['name'] })
+    const wrapper = mount(MatrixPeopleDialog, { props: { modelValue: true, projectId: 0, cycleName: '本期', description: '统计条件', provider: first } })
+    try {
+      await flushPromises()
+      await wrapper.setProps({ provider: second })
+      await flushPromises()
+      resolve({ items: [{ ...member, display_name: '旧查询人员' }], total: 1 })
+      await flushPromises()
+      expect(wrapper.text()).toContain('新查询人员')
+      expect(wrapper.text()).not.toContain('旧查询人员')
+      expect((wrapper.getComponent(PerformanceManagementTable).props('columns') || []).map(column => column.key)).toEqual(['name'])
+      await wrapper.get('tbody tr').trigger('click')
+      expect(wrapper.emitted('select-member')?.[0]?.[0]).toMatchObject({ employee_no: 'new' })
+      expect(wrapper.props('modelValue')).toBe(true)
+    } finally { wrapper.unmount() }
+  })
   beforeEach(() => {
     vi.mocked(mockedApi.matrix).mockReset()
   })
@@ -336,7 +356,11 @@ describe('ProjectPerformanceMatrix', () => {
       members.mockRejectedValueOnce(new Error('network'))
       table.vm.$emit('page-change', 1)
       await flushPromises()
-      expect(dialog.get('[role="alert"]').text()).toBe('人员列表加载失败，请稍后重试')
+      expect(dialog.get('[role="alert"]').text()).toContain('人员列表加载失败，请稍后重试')
+      members.mockResolvedValueOnce({ items: [member], total: 1 } as any)
+      await dialog.get('[role="alert"] button').trigger('click')
+      await flushPromises()
+      expect(dialog.find('[role="alert"]').exists()).toBe(false)
       await dialog.get('.full-screen-modal-header-back').trigger('click')
       expect(dialog.emitted('update:modelValue')?.at(-1)).toEqual([false])
     } finally {
