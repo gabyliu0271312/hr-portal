@@ -34,6 +34,8 @@
   - Backend专项：既有projects测试新增2项真实SQLite ORM集合调整用例，覆盖双向跨项目转移全部3次DELETE早于4次INSERT、新增/移出/限定范围/仅报表、冲突409零SQL写入/零成员mutation/零审计、留存成员及任务所有字段/答案/草稿/版本回读不变、重复执行零成员/任务写入、保存条件不变；既有cycles测试新增sync/adjust/flush/commit四阶段失败隔离，调用真实lifecycle handler验证rollback、下一周期提交、失败标记不保存及最终raise，事务为受控替身。新增6项专项通过；主线程已核对对应测试定义，不将SQLite或替身当作PostgreSQL验收。
   - Blocked：本地无5432服务，Docker daemon不可用，alembic check连接拒绝；真实PostgreSQL升级/降级/触发器/并发、真实API→SQL→新连接回读未执行。未操作公共/生产数据库。后续隔离库须完成upgrade/downgrade/upgrade；存在v2数据时downgrade明确拒绝丢弃策略；7项opt-in skipped不计通过。
   - Status：本地UI及业务代码开发、自动化、构建和隔离浏览器验证已完成；真实数据库验收阻塞，保持本卡及I03整卡未勾选。未commit/push/deploy。
+  - 截止时间回显修复（2026-11-25，用户授权）：CycleSummary 补充 `pre_lock_adjust_until: datetime | None = None`，修复服务已序列化截止时间但响应模型过滤字段，导致创建/详情/列表/编辑返回缺字段的问题。仅修改 cycles_router.py、既有 test_performance_cycles.py 和本任务记录；无前端、落库、调度、权限、迁移或外部通知变更，旧周期空值不推导日期。
+  - 本轮验证：新增参数化回归覆盖UTC非空、北京时间偏移转UTC、显式null及历史缺字段，断言 `_summary().model_dump(mode="json")` 与 CyclePage 嵌套输出。修复前4项均因 `KeyError: pre_lock_adjust_until` 失败；修复后运行 `python -B -m pytest hr-portal/backend/tests/test_performance_cycles.py -q --tb=short -p no:cacheprovider`，102 passed、1 PostgreSQL验收 skipped、1项既有multipart弃用warning（6.12s）。命令使用后端虚拟环境、PYTHONPATH指向backend、DB_HOST=127.0.0.1及DB_PORT=1隔离数据库检查，无法连接后的schema检查跳过不计数据库验证。此前前端截止定向7 passed/59名称筛选未执行；本轮无前端变更未重复运行。真实HTTP→数据库→重开及生产部署验收未执行，本父卡继续保持未勾选；本次未commit/push/deploy。
 
 - [ ] PM-T003-I16 项目设置保存、离开保护及起止时间校验统一
   - Goal/Type：已确认既有功能优化；2026-11-11用户授权全部开发，保留弹窗/抽屉即时保存，规则可删空但下一步阻断。无新页面/信息架构，沿用已确认界面与共享组件，小调整不新增完整HTML蓝图。

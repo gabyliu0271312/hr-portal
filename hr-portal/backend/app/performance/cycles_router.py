@@ -402,6 +402,7 @@ class CycleSummary(BaseModel):
     lock_rule: str
     lock_at: datetime | None
     pre_lock_sync_mode: str
+    pre_lock_adjust_until: datetime | None = None
     leaver_enabled: bool
     leaver_start_date: date | None
     leaver_end_date: date | None

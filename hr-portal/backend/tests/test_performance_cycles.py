@@ -1706,6 +1706,29 @@ async def test_leaver_edit_uses_locked_original_start_and_rejects_same_request_d
     service.audit.append_event.assert_not_called()
 
 
+@pytest.mark.parametrize("deadline_fields,expected", [
+    ({"pre_lock_adjust_until": datetime(2026, 12, 1, 4, 30, tzinfo=timezone.utc)}, "2026-12-01T04:30:00Z"),
+    ({"pre_lock_adjust_until": datetime(2026, 12, 1, 12, 30, tzinfo=timezone(timedelta(hours=8)))}, "2026-12-01T04:30:00Z"),
+    ({"pre_lock_adjust_until": None}, None),
+    ({}, None),
+])
+def test_cycle_summary_preserves_adjustment_deadline_in_responses(deadline_fields, expected):
+    from app.performance.cycles_router import CyclePage, _summary
+
+    cycle = SimpleNamespace(
+        **PerformanceCycleService._normalize_payload(_payload(
+            lock_rule="SCHEDULED", pre_lock_sync_mode="AUTO_DAILY", **deadline_fields,
+        )),
+        id=1, cycle_ref="cycle:test", language="zh-CN", status="DRAFT",
+        lock_at=datetime(2026, 12, 2, tzinfo=timezone.utc),
+        leaver_start_date=None, leaver_end_date=None,
+    )
+    summary = _summary(cycle, 1, 1, [])
+    assert summary.model_dump(mode="json")["pre_lock_adjust_until"] == expected
+    page = CyclePage(items=[summary], total=1, page=1, page_size=20)
+    assert page.model_dump(mode="json")["items"][0]["pre_lock_adjust_until"] == expected
+
+
 def test_cycle_summary_reports_real_template_references_and_start_boundary():
     from app.performance.cycles_router import _summary
     cycle = SimpleNamespace(**PerformanceCycleService._normalize_payload(_payload()), id=1, cycle_ref="cycle:test", language="zh-CN", status="LOCKED", lock_at=None, leaver_start_date=None, leaver_end_date=None, created_at=datetime(2026, 11, 18, 9, 56, 9, tzinfo=timezone.utc))
