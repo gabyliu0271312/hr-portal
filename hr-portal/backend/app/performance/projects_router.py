@@ -6838,23 +6838,7 @@ async def project_management_authorization_records(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    projects_by_id = {}
-    for function_key in (TASK_EVALUATION_AUTHORIZATION_KEY, TASK_CALIBRATION_AUTHORIZATION_KEY):
-        try:
-            permitted = await _task_authorization_projects(cycle_id, context, db, function_key)
-        except HTTPException as exc:
-            if exc.status_code == 403:
-                continue
-            raise
-        for project, scope in permitted:
-            current = projects_by_id.get(project.id)
-            if current is None or scope is None:
-                projects_by_id[project.id] = (project, scope)
-            elif current[1] is not None:
-                projects_by_id[project.id] = (project, current[1] | scope)
-    if not projects_by_id:
-        raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_FORBIDDEN")
-    projects = list(projects_by_id.values())
+    projects = await _task_authorization_projects(cycle_id, context, db, TASK_EVALUATION_AUTHORIZATION_KEY)
     result = {"cycle_id": cycle_id, "authorization_records": [], "transfer_records": []}
     for project, scope in projects:
         events = list((await db.execute(select(PerformanceAuditEvent).where(
@@ -6882,7 +6866,7 @@ async def project_management_authorization_records(
             task_node = await db.scalar(select(PerformanceProjectNodeSnapshot).join(
                 PerformanceNodeTask, PerformanceNodeTask.node_snapshot_id == PerformanceProjectNodeSnapshot.id,
             ).where(PerformanceNodeTask.id == int(event.subject_ref))) if str(event.subject_ref).isdigit() else None
-            if task_node is None:
+            if task_node is None or task_node.node_type == "calibration":
                 continue
             try:
                 event_scope = await _task_authorization_view_scope(context, project, db, _task_authorization_key(task_node))

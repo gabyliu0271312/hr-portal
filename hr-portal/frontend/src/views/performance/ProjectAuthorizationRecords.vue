@@ -1,7 +1,7 @@
 <template>
   <div ref="root" class="authorization-records">
     <UiPageHeader title="授权及转交记录" @back="goBack" />
-    <PerformanceLineTabs v-model="activeTab" :tabs="tabs" flush class="record-tabs">
+    <PerformanceLineTabs v-model="activeTab" :tabs="tabs" flush fill class="record-tabs">
       <section class="records-surface">
         <div class="records-toolbar"><span>{{ rows.length }} 个记录</span><button class="filter-button" type="button" disabled title="筛选暂不可用">筛选</button></div>
         <PerformanceManagementTable
@@ -13,13 +13,15 @@
           table-aria-label="授权及转交记录"
           pagination-aria-label="授权及转交记录分页"
           :page="page"
-          :page-size="10"
+          :page-size="pageSize"
           :total="rows.length"
           :highlight-row-key="highlightKey"
-          scroll-mode="page"
+          scroll-mode="inner"
+          fit-available-height
           row-key="id"
           :show-pagination="true"
           @page-change="page = $event"
+          @page-size-change="changePageSize"
         >
           <template #cell="{ row, column }">
             <span v-if="column.key === 'status'"><span class="status-dot" />{{ row.status }}</span>
@@ -59,6 +61,7 @@ const notice = ref('')
 const confirmOpen = ref(false)
 const revokeTarget = ref<ProjectAuthorizationRecord | null>(null)
 const page = ref(1)
+const pageSize = ref(10)
 let sequence = 0
 const cycleId = computed(() => Number(route.query.cycle_id || 0))
 const highlightTab = computed(() => route.query.highlight_tab === 'transfer' ? 'transfer' : route.query.highlight_tab === 'authorization' ? 'authorization' : '')
@@ -66,7 +69,7 @@ const highlightId = computed(() => typeof route.query.highlight_id === 'string' 
 const highlightKey = ref('')
 const highlightRow = computed(() => rows.value.find(row => String(row.authorization_id ?? '') === highlightId.value))
 const rows = computed(() => activeTab.value === 'authorization' ? data.value.authorization_records : data.value.transfer_records)
-const pageRows = computed(() => rows.value.slice((page.value - 1) * 10, page.value * 10))
+const pageRows = computed(() => rows.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
 const columns = [
   { key: 'initiator', label: '发起人', width: 180 }, { key: 'status', label: '状态', width: 120 },
   { key: 'authorized_person', label: '被授权人', width: 180 }, { key: 'stages', label: '授权环节', width: 240 },
@@ -87,7 +90,7 @@ function locateHighlight() {
   const target = highlightRow.value ? rows.value.indexOf(highlightRow.value) : -1
   highlightKey.value = target >= 0 ? rows.value[target].id : ''
   if (target >= 0) {
-    page.value = Math.floor(target / 10) + 1
+    page.value = Math.floor(target / pageSize.value) + 1
     void nextTick(() => { root.value?.querySelector('.is-highlighted, .is-highlighted-row')?.scrollIntoView?.({ block: 'nearest' }) })
   }
 }
@@ -95,6 +98,11 @@ watch([highlightId, highlightTab], () => {
   if (highlightTab.value) activeTab.value = highlightTab.value
   locateHighlight()
 })
+function changePageSize(value: number) {
+  pageSize.value = value
+  page.value = 1
+  if (highlightKey.value) locateHighlight()
+}
 function goBack() { void router.push({ name: 'PerformanceProjectManagement', query: { cycle_id: String(cycleId.value), management_role: route.query.management_role, project_id: route.query.project_id } }) }
 function formatDate(value: string) { return value ? new Date(value).toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(0, 16) + '（GMT+8）' : '--' }
 async function revoke(row: ProjectAuthorizationRecord) {
@@ -124,10 +132,11 @@ onMounted(() => void load())
 
 :where(.project-management-page, .project-reminder-page, .authorization-records, .calibration-authorization) { font-family: 'Helvetica Neue', Tahoma, 'PingFang SC', 'Microsoft Yahei', Arial, 'Hiragino Sans GB', sans-serif; }
 
-.authorization-records { position:relative; display:flex; width:100vw; min-width:0; height:100vh; min-height:0; flex-direction:column; background:#f5f6f7; color:#1f2329; }
-.record-tabs { flex:1; min-height:0; padding:calc(var(--layout-topbar-height) + 12px) 20px 0; }
-.records-surface { min-height:calc(100vh - 144px); margin-top:0; padding:0 20px 20px; border-radius:8px; background:#fff; }
-.records-toolbar { display:flex; height:68px; align-items:center; justify-content:space-between; border-bottom:1px solid #dee0e3; font-size:14px; }
+.authorization-records { position:relative; display:flex; width:100vw; min-width:0; height:100vh; min-height:0; flex-direction:column; overflow:hidden; background:#f5f6f7; color:#1f2329; }
+.record-tabs { flex:1; min-height:0; padding:calc(var(--layout-topbar-height) + 12px) 20px 20px; }
+.record-tabs :deep(.line-tabs-content) { padding-top:0; }
+.records-surface { display:flex; flex:1; min-width:0; min-height:0; flex-direction:column; margin-top:0; padding:0 20px 20px; border-radius:8px; background:#fff; }
+.records-toolbar { display:flex; height:68px; flex-shrink:0; align-items:center; justify-content:space-between; border-bottom:1px solid #dee0e3; font-size:14px; }
 .filter-button { width:80px; height:32px; border:1px solid #d0d3d6; border-radius:6px; background:#fff; color:#1f2329; font:inherit; cursor:pointer; }
 .status-dot { display:inline-block; width:8px; height:8px; margin-right:8px; border-radius:50%; background:#3370ff; }
 .stage-tag { display:inline-block; margin-right:8px; padding:4px 8px; border-radius:4px; background:#eff0f1; white-space:nowrap; }

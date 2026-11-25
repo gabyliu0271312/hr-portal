@@ -312,12 +312,15 @@ def test_actual_task_delegation_endpoints_consume_assigned_keys_and_revoke_immed
     app.dependency_overrides[get_performance_access_context] = switched_employee_context
     records = client.get('/api/v1/performance/project-management/authorization-records?cycle_id=1')
     assert records.status_code == 200, records.text
-    assert len(records.json()['authorization_records']) == 2
+    assert [row['task_id'] for row in records.json()['authorization_records']] == [1]
     assert all(not row['can_revoke'] for row in records.json()['authorization_records'])
     calibration_rows = client.get('/api/v1/performance/project-management/calibration-authorization?cycle_id=1')
     assert calibration_rows.status_code == 200, calibration_rows.text
     rows = calibration_rows.json()['items']
     assert len(rows) == 2
+    delegated_row = next(row for row in rows if row['source'] == 'DELEGATION')
+    assert delegated_row['task_ids'] == [2]
+    assert delegated_row['authorizations'][0]['id'] == created_calibration.json()['id']
     row = next(row for row in rows if row['source'] == 'BACKEND')
     assert row['allow_authorize'] is True
     assert all(row['can_authorize'] is False and row['can_revoke'] is False for row in rows)
@@ -349,16 +352,25 @@ def test_authorization_records_display_task_snapshot_names_for_both_tabs(api, mo
         PerformanceProjectMember(id=4, snapshot_id=1, employee_no='NO_NAME', display_name=''),
         PerformanceProjectMember(id=5, snapshot_id=1, employee_no='HIDDEN', display_name='范围外人员'),
         PerformanceProjectNodeSnapshot(id=1, project_id=1, node_id='eval', name='上级评估', node_type='evaluation', node_order=1, config={}),
+        PerformanceProjectNodeSnapshot(id=2, project_id=1, node_id='cal', name='校准', node_type='calibration', node_order=2, config={}),
+        PerformanceProjectNodeSnapshot(id=3, project_id=1, node_id='comm', name='结果沟通', node_type='result_communication', node_order=3, config={}),
+        PerformanceProjectNodeSnapshot(id=4, project_id=1, node_id='reconsideration', name='结果复议', node_type='result_reconsideration', node_order=4, config={}),
     ])
-    for task_id, snapshot_id, employee_no, event_type in [
-        (1, 1, 'E1', 'PERFORMANCE_TASK_AUTHORIZED'),
-        (2, 1, 'E1', 'PERFORMANCE_TASK_TRANSFERRED'),
-        (3, 2, 'E1', 'PERFORMANCE_TASK_TRANSFERRED'),
-        (4, 1, 'NO_NAME', 'PERFORMANCE_TASK_AUTHORIZED'),
-        (5, 1, 'HIDDEN', 'PERFORMANCE_TASK_AUTHORIZED'),
+    for task_id, snapshot_id, employee_no, node_id, task_kind, event_type in [
+        (1, 1, 'E1', 1, 'evaluation', 'PERFORMANCE_TASK_AUTHORIZED'),
+        (2, 1, 'E1', 1, 'evaluation', 'PERFORMANCE_TASK_TRANSFERRED'),
+        (3, 2, 'E1', 1, 'evaluation', 'PERFORMANCE_TASK_TRANSFERRED'),
+        (4, 1, 'NO_NAME', 1, 'evaluation', 'PERFORMANCE_TASK_AUTHORIZED'),
+        (5, 1, 'HIDDEN', 1, 'evaluation', 'PERFORMANCE_TASK_AUTHORIZED'),
+        (6, 1, 'E1', 2, 'calibration', 'PERFORMANCE_TASK_AUTHORIZED'),
+        (7, 1, 'E1', 2, 'calibration', 'PERFORMANCE_TASK_TRANSFERRED'),
+        (8, 1, 'E1', 3, 'result_communication', 'PERFORMANCE_TASK_AUTHORIZED'),
+        (9, 1, 'E1', 4, 'result_reconsideration', 'PERFORMANCE_TASK_TRANSFERRED'),
     ]:
-        session.add(PerformanceNodeTask(id=task_id, project_id=1, cycle_ref='C1', member_snapshot_id=snapshot_id, node_snapshot_id=1, target_employee_no=employee_no, handler_ref=f'OWNER{task_id}', task_kind='evaluation', phase_id='', answers={}))
-        session.add(PerformanceAuditEvent(id=task_id, cycle_ref='C1', employee_no=employee_no, event_type=event_type, actor_type='EMPLOYEE', actor_ref='OWNER', subject_type='PERFORMANCE_NODE_TASK', subject_ref=str(task_id), after_state={'project_id': 1, 'initiator_name': '发起显示名', 'recipient_name': '接收显示名', 'reviewee_names': [employee_no] if employee_no != 'NO_NAME' else ['旧记录姓名']}))
+        session.add(PerformanceNodeTask(id=task_id, project_id=1, cycle_ref='C1', member_snapshot_id=snapshot_id, node_snapshot_id=node_id, target_employee_no=employee_no, handler_ref=f'OWNER{task_id}', task_kind=task_kind, phase_id='', answers={}))
+        session.add(PerformanceAuditEvent(id=task_id, cycle_ref='C1', employee_no=employee_no, event_type=event_type, actor_type='EMPLOYEE', actor_ref='OWNER', subject_type='PERFORMANCE_NODE_TASK', subject_ref=str(task_id), after_state={'project_id': 1, 'authorization_id': task_id, 'initiator_name': '发起显示名', 'recipient_name': '接收显示名', 'reviewee_names': [employee_no] if employee_no != 'NO_NAME' else ['旧记录姓名']}))
+    for event_id, task_id in [(10, 6), (11, 9), (12, 1)]:
+        session.add(PerformanceAuditEvent(id=event_id, cycle_ref='C1', employee_no='E1', event_type='PERFORMANCE_TASK_AUTHORIZATION_REVOKED', actor_type='EMPLOYEE', actor_ref='OWNER', subject_type='PERFORMANCE_NODE_TASK', subject_ref=str(task_id), after_state={'project_id': 1, 'authorization_id': task_id}))
     session.commit()
     project = session.get(PerformanceProject, 1)
     async def permitted(*_args): return [(project, scope)]
@@ -375,7 +387,11 @@ def test_authorization_records_display_task_snapshot_names_for_both_tabs(api, mo
         assert records[3]['reviewees'] == ['新快照显示名']
         assert records[4]['reviewees'] == (['NO_NAME'] if scope is not None else ['旧记录姓名'])
         assert all(row['initiator'] == '发起显示名' and row['authorized_person'] == '接收显示名' for row in records.values())
-        assert {row['task_id'] for row in result['transfer_records']} == {2, 3}
+        assert {row['task_id'] for row in result['transfer_records']} == {2, 3, 9}
+        assert {row['task_id'] for row in result['authorization_records']} == ({1, 4, 5, 8} if scope is None else {1, 4, 8})
+        assert records[8]['reviewees'] == records[9]['reviewees'] == ['历史显示名']
+        assert records[1]['status'] == records[9]['status'] == '已撤销'
+        assert records[8]['status'] == '已授权'
         assert (5 in records) == (scope is None)
         assert all('其他项目显示名' not in row['reviewees'] for row in records.values())
     assert session.get(PerformanceAuditEvent, 1).after_state['reviewee_names'] == ['E1']
@@ -409,6 +425,29 @@ def member_actions_api(api):
     context = PerformanceAccessContext('EMPLOYEE', 0, '管理员', None, ('performance.app',), (), (), effective_employee_no='E8', management_role='project_admin', management_cycle_id=1)
     app.dependency_overrides[get_performance_access_context] = lambda: context
     return client, db, session, app, context
+
+
+@pytest.mark.parametrize('role_key', ['project_admin', None])
+@pytest.mark.parametrize('function_keys, expected_status', [
+    ([projects.TASK_CALIBRATION_AUTHORIZATION_KEY], 403),
+    ([projects.TASK_EVALUATION_AUTHORIZATION_KEY], 200),
+    (['performance.frontend.progress'], 200),
+    (['performance.frontend.data-view'], 200),
+    ([projects.TASK_CALIBRATION_AUTHORIZATION_KEY, 'performance.frontend.progress'], 200),
+    ([projects.TASK_CALIBRATION_AUTHORIZATION_KEY, 'performance.frontend.data-view'], 200),
+])
+def test_authorization_records_exclude_calibration_only_permission(member_actions_api, role_key, function_keys, expected_status):
+    from dataclasses import replace
+    client, db, session, app, context = member_actions_api
+    context = replace(context, management_role=role_key)
+    app.dependency_overrides[get_performance_access_context] = lambda: context
+    session.get(PerformanceRole, 16).function_permission_keys = function_keys
+    session.get(PerformanceProject, 1).settings = {'data_managers': ['PROJECT_ADMIN']}
+    session.commit()
+    response = client.get('/api/v1/performance/project-management/authorization-records?cycle_id=1')
+    assert response.status_code == expected_status, response.text
+    if expected_status == 200:
+        assert response.json() == {'cycle_id': 1, 'authorization_records': [], 'transfer_records': []}
 
 
 @pytest.mark.parametrize('role_key', ['project_admin', None])

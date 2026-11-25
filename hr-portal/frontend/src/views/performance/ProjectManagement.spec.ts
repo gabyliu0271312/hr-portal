@@ -1187,6 +1187,66 @@ describe('authorization workspaces', () => {
     delete routeQuery.cycle_id; delete routeQuery.highlight_id; delete routeQuery.highlight_tab
   })
 
+  it.each(['authorization', 'transfer'])('changes page size and resets pagination in the %s tab', async tab => {
+    const { default: Records } = await import('./ProjectAuthorizationRecords.vue')
+    const { default: Table } = await import('@/components/performance/PerformanceManagementTable.vue')
+    const { default: Pagination } = await import('@/components/ui/UiPagination.vue')
+    routeQuery.cycle_id = '1'
+    const rows = Array.from({ length: 45 }, (_, index) => ({ id: String(index + 1), initiator: '发起人', authorized_person: `接收人${index}`, status: '已授权', stages: ['上级评估'], reviewees: ['员工一'], submitted_at: '', can_revoke: false }))
+    const records = vi.spyOn(projectManagementApi, 'authorizationRecords').mockResolvedValue({ cycle_id: 1, authorization_records: rows, transfer_records: rows })
+    const wrapper = mount(Records)
+    try {
+      await flushPromises()
+      if (tab === 'transfer') await wrapper.findAll('[role="tab"]')[1].trigger('click')
+      const table = wrapper.getComponent(Table)
+      expect(table.props('scrollMode')).toBe('inner')
+      expect(table.props('fitAvailableHeight')).toBe(true)
+      expect(wrapper.findAll('tbody tr')).toHaveLength(10)
+      wrapper.getComponent(Pagination).vm.$emit('page-change', 4)
+      await flushPromises()
+      wrapper.getComponent(Pagination).vm.$emit('page-size-change', 20)
+      await flushPromises()
+      expect(table.props('pageSize')).toBe(20)
+      expect(table.props('page')).toBe(1)
+      expect(wrapper.findAll('tbody tr')).toHaveLength(20)
+      wrapper.getComponent(Pagination).vm.$emit('page-change', 3)
+      await flushPromises()
+      expect(wrapper.findAll('tbody tr')).toHaveLength(5)
+      expect(wrapper.text()).toContain('接收人44')
+      await wrapper.findAll('[role="tab"]')[tab === 'transfer' ? 0 : 1].trigger('click')
+      expect(table.props('page')).toBe(1)
+      expect(table.props('pageSize')).toBe(20)
+    } finally {
+      wrapper.unmount(); records.mockRestore(); delete routeQuery.cycle_id
+    }
+  })
+
+  it('keeps the highlighted authorization visible after page-size changes', async () => {
+    const { default: Records } = await import('./ProjectAuthorizationRecords.vue')
+    const { default: Table } = await import('@/components/performance/PerformanceManagementTable.vue')
+    const { default: Pagination } = await import('@/components/ui/UiPagination.vue')
+    routeQuery.cycle_id = '1'; routeQuery.highlight_id = '99'; routeQuery.highlight_tab = 'authorization'
+    const rows = Array.from({ length: 45 }, (_, index) => ({ id: `audit-${index}`, authorization_id: index === 34 ? 99 : index + 100, initiator: '发起人', authorized_person: `接收人${index}`, status: '已授权', stages: ['上级评估'], reviewees: ['员工一'], submitted_at: '', can_revoke: false }))
+    const records = vi.spyOn(projectManagementApi, 'authorizationRecords').mockResolvedValue({ cycle_id: 1, authorization_records: rows, transfer_records: [] })
+    const wrapper = mount(Records)
+    try {
+      await flushPromises()
+      expect(wrapper.getComponent(Table).props('page')).toBe(4)
+      wrapper.getComponent(Pagination).vm.$emit('page-size-change', 20)
+      await flushPromises()
+      expect(wrapper.getComponent(Table).props('page')).toBe(2)
+      expect(wrapper.get('.is-highlighted').text()).toContain('接收人34')
+      wrapper.getComponent(Pagination).vm.$emit('page-size-change', 100)
+      await flushPromises()
+      expect(wrapper.getComponent(Table).props('page')).toBe(1)
+      expect(wrapper.findAll('tbody tr')).toHaveLength(45)
+      expect(wrapper.get('.is-highlighted').text()).toContain('接收人34')
+    } finally {
+      wrapper.unmount(); records.mockRestore()
+      delete routeQuery.cycle_id; delete routeQuery.highlight_id; delete routeQuery.highlight_tab
+    }
+  })
+
   it('splits delegation candidate requests into at most 200 distinct task IDs', async () => {
     const { api } = await import('@/api/client')
     const post = vi.spyOn(api, 'post').mockImplementation(async (_url, body: any) => ({ data: body.task_ids.map((task_id: number) => ({ project_id: 3, task_id, candidates: [] })) }))
