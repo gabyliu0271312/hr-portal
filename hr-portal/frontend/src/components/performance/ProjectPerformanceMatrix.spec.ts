@@ -78,6 +78,28 @@ describe('ProjectPerformanceMatrix', () => {
     } finally { wrapper.unmount() }
   })
 
+  it('uses the same permitted detail event for pending and completed people', async () => {
+    const data = matrixOf()
+    data.pending_rows[0].cells.pending.people = [
+      { employee_no: 'P1', display_name: '待评人员', employment_status: '在职', project_id: 4, root_review_id: 41, can_view_detail: true },
+      { employee_no: 'P2', display_name: '无权人员', employment_status: '在职', project_id: 5, can_view_detail: false },
+    ]
+    data.completed_rows[0].cells.one.people = [{ employee_no: 'C1', display_name: '已评人员', employment_status: '在职', project_id: 4, root_review_id: 42, can_view_detail: true }]
+    const wrapper = mount(ProjectPerformanceMatrix, { props: { projectId: 0, cycleId: 1, provider: async () => data } })
+    try {
+      await flushPromises()
+      const pending = wrapper.findAll('.pending-block .person-name')
+      await pending[1].trigger('click')
+      expect(wrapper.emitted('open-member')).toBeUndefined()
+      await pending[0].trigger('click')
+      await wrapper.get('.completed-block .person-name').trigger('click')
+      expect(wrapper.emitted('open-member')).toEqual([
+        [{ project_id: 4, employee_no: 'P1', root_review_id: 41, can_view_detail: true }],
+        [{ project_id: 4, employee_no: 'C1', root_review_id: 42, can_view_detail: true }],
+      ])
+    } finally { wrapper.unmount() }
+  })
+
   it('discards a prior scope response and closes the prior drilldown', async () => {
     let resolve!: (value: ProjectMatrix) => void
     const first = vi.fn(() => new Promise<ProjectMatrix>(done => { resolve = done }))

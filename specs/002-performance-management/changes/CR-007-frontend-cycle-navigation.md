@@ -640,6 +640,11 @@
 - 用户明确要求移除结果总览“查看数据表”功能和级别统计“数据来源”说明；删除对应DOM及数据表专属样式，保留柱图/tooltip、个人备注、司龄说明与全部统计接口。属于既有页面小范围移除，无新蓝图、token、后端或迁移。
 - 对应Distribution/Panel既有测试更新为不展示断言；首轮两项残留数据表断言失败，修正后两文件30 passed、13.56s，git diff --check通过。未运行完整构建或浏览器验收；未提交推送、部署或操作生产。
 
+### 矩阵待评人员详情点击补接（2026-11-25）
+
+- 用户要求待评人员点击与已完成人员按姓名展示时完全复用同一弹窗。ProjectPerformanceMatrix 的 pending PeopleCell 补接既有 select-person→onPersonSelect→open-member，沿父级原详情弹窗及 can_view_detail 权限，不新建组件、API、token或迁移，不改变评估状态。
+- 新增既有矩阵测试覆盖待评/已评相同事件合同及无权不跳转；矩阵＋ProjectManagement 两文件98 passed，类型检查初次发现测试夹具缺employment_status，补齐后vue-tsc通过、矩阵18项复跑通过、diff --check通过。未运行浏览器/完整构建，未提交推送部署或操作生产。
+
 ## CR-007-F19 多项目时间轴与评估菜单修复（2026-11-19）
 
 ### F19-T02 未开始空态修复（2026-11-23）

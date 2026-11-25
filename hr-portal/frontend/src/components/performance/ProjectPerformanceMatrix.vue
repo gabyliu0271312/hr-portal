@@ -25,7 +25,7 @@
               <tr v-if="!matrix.pending_rows.length"><td colspan="2" class="matrix-empty">--</td></tr>
               <tr v-for="row in matrix.pending_rows" :key="`pending-${row.level}`">
                 <td class="level-cell sticky-level">{{ row.level }}</td>
-                <td><PeopleCell :people="row.cells.pending?.people || []" :expanded="isExpanded(`pending-${row.level}`)" @toggle="toggle(`pending-${row.level}`)" /></td>
+                <td><PeopleCell :people="row.cells.pending?.people || []" :expanded="isExpanded(`pending-${row.level}`)" @toggle="toggle(`pending-${row.level}`)" @select-person="onPersonSelect" /></td>
               </tr>
             </tbody>
           </table>
