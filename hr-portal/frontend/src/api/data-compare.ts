@@ -296,10 +296,10 @@ export const dataCompareApi = {
     api.post<SkillOut>('/data-compare/skills', data).then(r => r.data),
 
   generateSkill: (data: { instruction: string; name?: string | null }) =>
-    api.post<SkillGenerateResponse>('/data-compare/skills/generate', data).then(r => r.data),
+    api.post<SkillGenerateResponse>('/data-compare/skills/generate', data, { timeout: 130_000 }).then(r => r.data),
 
   generateDialogue: (data: DialogueRequest) =>
-    api.post<DialogueResponse>('/data-compare/skills/generate', data).then(r => r.data),
+    api.post<DialogueResponse>('/data-compare/skills/generate', data, { timeout: 130_000 }).then(r => r.data),
 
   updateSkill: (id: number, data: SkillUpdate) =>
     api.patch<SkillOut>(`/data-compare/skills/${id}`, data).then(r => r.data),

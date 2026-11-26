@@ -3,6 +3,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import secrets
 import time
 
@@ -127,6 +130,48 @@ async def _validate(params, user, db):
     return await validate(params, user, db)
 
 
+def _progress(draft, metadata, history, now):
+    report = next((item for item in metadata.get("reports", []) if item["id"] == draft.get("report_id")), None)
+    table = next((item for item in metadata.get("tables", []) if item["table"] == draft.get("table_b")), None)
+    lines = ["已明确："]
+    lines.append("报表：" + (report.get("name", str(report["id"])) if report else "尚待识别"))
+    lines.append("对照表：" + (table.get("label") or table["table"] if table else "尚待识别"))
+    if draft.get("periods"):
+        lines.append("月份：" + "、".join(draft["periods"]))
+    intent = "\n".join(item["content"] for item in history if item["role"] == "user")
+    recent = re.search(r"最近\s*([1-9]\d?|三)\s*个?月", intent)
+    if recent and not draft.get("periods"):
+        from app.data_compare.periods import _month_number, _month_text
+        count = 3 if recent[1] == "三" else int(recent[1])
+        current = _month_number(now.strftime("%Y%m"))
+        included = "、".join(_month_text(index) for index in range(current - count + 1, current + 1))
+        excluded = "、".join(_month_text(index) for index in range(current - count, current))
+        lines.extend(["待确认月份（尚未写入执行配置）：", f"含当月：{included}", f"不含当月：{excluded}"])
+    numbers = {"number", "numeric", "decimal", "integer", "float"}
+    if report:
+        metrics = {item.get("column_a"): item for item in draft.get("metrics") or [] if isinstance(item, dict)}
+        candidates = [item for item in report["columns"] if item.get("data_type") in numbers and item.get("agg_role") == "measure"]
+        lines.append("金额候选（仅明确可加总的度量；不自动包含人数、比例；映射需确认）：")
+        for column in candidates:
+            metric = metrics.get(column["code"], {})
+            label = column.get("label") or column["code"]
+            matches = [item for item in (table or {}).get("columns", [])
+                       if item.get("data_type") in numbers and (item["code"] == column["code"].split(".")[-1]
+                       or (column.get("label") and item.get("label") == column["label"]))]
+            suggested = ("建议 b." + matches[0]["code"] + "（同编码/名称候选，待确认）") if len(matches) == 1 else "待匹配对照表字段/表达式"
+            lines.append(f"• {label} → {metric.get('expression_b') or suggested}；容差：{metric.get('tolerance', '待确认')}")
+        if not candidates:
+            lines.append("当前没有元数据明确标记为可加总的金额候选，需核对报表字段定义。")
+    if table and not draft.get("metrics"):
+        fields = [item.get("label") or item["code"] for item in table["columns"] if item.get("data_type") in numbers]
+        lines.append("对照表可用数值候选（不代表已确认金额映射）：" + ("、".join(fields) or "无"))
+    labels = {"report_id": "报表来源", "table_b": "对照表来源", "period_field_a": "报表期间筛选", "periods": "具体月份及是否含当月", "metrics": "金额列、对应公式及容差", "dimension": "下钻维度及两侧对应关系"}
+    missing = _missing(draft)
+    if missing:
+        lines.append("待确认：" + "；".join(labels[key] for key in missing))
+    return "\n".join(lines)
+
+
 async def process_dialogue(data, user, db, model_call) -> dict:
     data = data if isinstance(data, dict) else data.model_dump()
     action = data.get("action", "message")
@@ -148,13 +193,18 @@ async def process_dialogue(data, user, db, model_call) -> dict:
     status = "requires_input"
     fingerprint = None
     instruction_digest = slots.get("instruction_digest")
+    history = copy.deepcopy(slots.get("history") or [])
+    metadata_digest = slots.get("metadata_digest")
+    pending_questions = copy.deepcopy(slots.get("pending_questions") or [])
     if action == "cancel":
+        history, pending_questions = [], []
+        metadata_digest = None
         draft = {"kind": "report_amount_v1"}
         summary = ""
         question = "已取消本次草稿。请重新说明对比需求。"
         session.clear_active()
     elif action == "confirm":
-        if slots.get("status") != "requires_confirmation" or _missing(draft):
+        if slots.get("status") != "requires_confirmation" or _missing(draft) or pending_questions:
             raise HTTPException(409, "当前草稿尚不可确认")
         fingerprint = await _validate(draft, user, db)
         if fingerprint != slots.get("fingerprint"):
@@ -171,24 +221,50 @@ async def process_dialogue(data, user, db, model_call) -> dict:
         instruction_digest = _digest(instruction.strip())
         metadata = await _metadata(user, db)
         _check_sources(draft, metadata)
+        current_metadata_digest = _digest(metadata)
+        if history and metadata_digest and metadata_digest != current_metadata_digest:
+            raise HTTPException(409, "可用来源或字段已变化，请重新开始对话以重新核对权限")
+        metadata_digest = current_metadata_digest
+        if len(history) >= 40:
+            raise HTTPException(422, "本次对话已达20轮，请根据已明确口径重新开始")
+        history.append({"role": "user", "content": instruction.strip()})
+        from app.data_compare.periods import BUSINESS_TIMEZONE
+        now = datetime.now(ZoneInfo(BUSINESS_TIMEZONE))
+        progress = _progress(draft, metadata, history, now)
         prompt = (
-            "你是报表金额对比配置提取器，只输出JSON对象 {patch:{}, question:''}。"
-            "只提取本轮明确新增或修改的配置，不猜测来源、字段、映射、金额可加总性或容差。"
-            "只用下列受权元数据。来源A必须是报表最终输出列instance_id，B为注册表；"
-            "B表达式仅字段、数值、括号、加减乘除。缺参请提问，不输出SQL。"
+            "你是报表金额对比助手。输出JSON {patch:{}, question:'', pending_questions:[]}。"
+            "结合完整对话、已有草稿和授权元数据理解本轮补充，不要求用户重复已明确内容。"
+            "必须先识别用户具名的报表和注册表并写入patch；缺项不妨碍保存已识别来源。"
+            "可以基于实际字段编码、名称和类型提出映射建议，解释计算/合成列的不确定性；"
+            "建议不等于用户已确认，不得编造字段或业务公式。用户说所有金额列时逐项列出候选及未匹配项，"
+            "不要把人数、比例等所有数值列都当金额。下次追问聚焦一个优先问题，并列出可选答案。"
+            "最近N个月需先列出具体月份并确认是否含当月，不能擅自决定。"
+            "pending_questions保存当前尚未确认的建议、映射或月份歧义；用户明确回答后才移除。"
+            "仅在全部口径明确时question为空且pending_questions为空。"
+            "patch只写确定的新增/修改或明确提交待最终确认的候选配置，不清除未修改项。"
+            "来源A必须是报表最终输出列instance_id，B为注册表；"
+            "B表达式仅字段、数值、括号、加减乘除，不输出SQL。"
             "patch允许kind=report_amount_v1,report_id,table_b,period_field_a,periods,"
             "metrics:[{id,label,column_a,expression_b,tolerance:十进制字符串}],"
             "dimension:{column_a,column_b,value_map_b:{B值:A值}}。"
-            "metrics修改返回完整指标列表并保留未修改指标的稳定id；维度值映射必须用户明确，不自动推定同义。\n"
-            + json.dumps({"metadata": metadata, "draft": draft, "instruction": instruction}, ensure_ascii=False)
+            "metrics修改返回完整指标列表并保留稳定id；维度值映射必须用户明确。\n"
+            + json.dumps({"metadata": metadata, "draft": draft, "history": history,
+                          "pending_questions": pending_questions, "progress": progress,
+                          "business_date": now.date().isoformat(), "timezone": BUSINESS_TIMEZONE,
+                          "instruction": instruction}, ensure_ascii=False)
         )
         parse_failed = False
         try:
             raw = parse_json_content(await model_call(prompt))
+            if not isinstance(raw, dict):
+                raise ValueError("无效响应")
             patch = raw.get("patch", {})
-            if not isinstance(patch, dict):
-                raise ValueError("无效补丁")
+            questions = raw.get("pending_questions", pending_questions)
+            if not isinstance(patch, dict) or not isinstance(questions, list) or any(not isinstance(item, str) for item in questions):
+                raise ValueError("无效补丁或待确认事项")
             draft = _merge(draft, patch)
+            _check_sources(draft, metadata)
+            pending_questions = [item.strip() for item in questions if item.strip()]
         except (ValueError, TypeError):
             parse_failed = True
             draft = copy.deepcopy(slots.get("params") or {"kind": "report_amount_v1"})
@@ -200,7 +276,9 @@ async def process_dialogue(data, user, db, model_call) -> dict:
         elif isinstance(raw.get("question"), str) and raw["question"].strip():
             question = raw["question"].strip()[:1000]
         elif missing:
-            question = question or "请补充或明确：" + "、".join(missing) + "。"
+            question = "请根据下方待确认清单补充一项口径，或选择建议的字段映射。"
+        elif pending_questions:
+            question = pending_questions[0]
         else:
             try:
                 fingerprint = await _validate(draft, user, db)
@@ -226,11 +304,18 @@ async def process_dialogue(data, user, db, model_call) -> dict:
                     lines.append("维度值映射（对照表→报表）：" + json.dumps(dimension["value_map_b"], ensure_ascii=False))
                 summary = "\n".join(lines)
                 question = "请核对上述完整口径并明确确认；保存不会自动执行。"
+        if status == "requires_input":
+            summary = _progress(draft, metadata, history, now)
+            if pending_questions:
+                summary += "\n待确认建议：\n" + "\n".join(f"• {item}" for item in pending_questions)
+        history.append({"role": "assistant", "content": question + "\n" + summary})
         session.active_capability_id = CAPABILITY
     if action != "confirm":
         revision += 1
         slots = {}
-    slots.update(status=status, revision=revision, params=draft, fingerprint=fingerprint, instruction_digest=instruction_digest, summary=summary if status != "requires_input" else "", question=question)
+    slots.update(status=status, revision=revision, params=draft, fingerprint=fingerprint, instruction_digest=instruction_digest,
+                 summary=summary, question=question, history=history, metadata_digest=metadata_digest,
+                 pending_questions=pending_questions)
     capability_state[SLOT] = slots
     session.set_capability_state(CAPABILITY, capability_state)
     await persist(db, conv, session)

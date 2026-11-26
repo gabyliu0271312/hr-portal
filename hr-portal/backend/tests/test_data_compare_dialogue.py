@@ -141,6 +141,46 @@ class DialogueTests(unittest.IsolatedAsyncioTestCase):
             await dialogue.validate_confirmation(confirmed["confirmation_token"], PARAMS, self.user, self.db)
 
 
+    async def test_second_turn_retains_original_request_and_shows_pending_candidates(self):
+        metadata = copy.deepcopy(METADATA)
+        metadata["reports"][0]["columns"][0].update(label="工资成本", data_type="number", agg_role="measure")
+        first = "对比成本报表和payroll，确保各列总和一致"
+        followup = "包含最近3个月，含A表所有涉及到金额的字段"
+        with patch.object(dialogue, "_metadata", AsyncMock(return_value=metadata)):
+            initial, _ = await self.turn({"instruction": first}, {"report_id": 1, "table_b": "payroll"})
+            result, model = await self.turn({"instruction": followup, "conversation_id": 7, "revision": 1})
+        prompt = model.await_args.args[0]
+        self.assertIn(first, prompt)
+        self.assertIn(initial["question"], prompt)
+        self.assertIn("business_date", prompt)
+        self.assertEqual(result["status"], "requires_input")
+        self.assertIn("工资成本", result["summary"])
+        self.assertIn("含当月", result["summary"])
+        self.assertIn("不含当月", result["summary"])
+        self.assertIn("建议 b.salary", result["summary"])
+        self.assertIn("待确认", result["summary"])
+        self.validator.assert_not_awaited()
+
+    async def test_pending_suggestions_block_confirmation_even_with_complete_params(self):
+        model = AsyncMock(return_value=json.dumps({"patch": PARAMS, "pending_questions": ["工资映射是否正确？"]}))
+        result = await dialogue.process_dialogue({"instruction": "建议映射"}, self.user, self.db, model)
+        self.assertEqual(result["status"], "requires_input")
+        self.assertIn("工资映射是否正确", result["summary"])
+        with self.assertRaises(HTTPException):
+            await self.turn({"action": "confirm", "conversation_id": 7, "revision": 1})
+
+    async def test_history_with_changed_metadata_is_not_sent_to_model(self):
+        await self.turn({"instruction": "先讨论口径"})
+        metadata = copy.deepcopy(METADATA)
+        metadata["tables"] = []
+        model = AsyncMock()
+        with patch.object(dialogue, "_metadata", AsyncMock(return_value=metadata)):
+            with self.assertRaises(HTTPException) as changed:
+                await dialogue.process_dialogue({"instruction": "继续", "conversation_id": 7, "revision": 1}, self.user, self.db, model)
+        self.assertEqual(changed.exception.status_code, 409)
+        model.assert_not_awaited()
+
+
 class AIRouterDialogueTests(unittest.IsolatedAsyncioTestCase):
     async def test_explicit_dialogue_extraction_skips_legacy_metadata(self):
         from app.ai import router as ai

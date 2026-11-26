@@ -60,16 +60,39 @@ describe('多轮确认安全', () => {
     await vm.save()
     expect(dataCompareApi.createSkill).not.toHaveBeenCalled()
   })
-  it('发送后继续编辑时忽略迟到的确认响应', async () => {
+  it('超时保留需求并显示可恢复状态', async () => {
+    const vm = setup().vm as any
+    vm.message = '最近3个月，包含所有金额字段'
+    vi.mocked(dataCompareApi.generateDialogue).mockRejectedValueOnce({ code: 'ECONNABORTED' })
+    await vm.send('message')
+    expect(vm.requestError).toContain('超时')
+    expect(vm.needsRestart).toBe(true)
+    expect(vm.message).toContain('最近3个月')
+    expect(vm.messages.at(-1).role).toBe('请求失败')
+    vm.restart()
+    expect(vm.needsRestart).toBe(false)
+    expect(vm.draft).toBeNull()
+    expect(vm.message).toContain('所有金额字段')
+  })
+  it('发送后继续编辑时保留会话进度但废弃迟到确认', async () => {
     let resolve!: (v: any) => void
     vi.mocked(dataCompareApi.generateDialogue).mockReturnValue(new Promise(r => { resolve = r }))
     const vm = setup().vm as any
     vm.message = '对比五月'
     const request = vm.send('message')
     vm.message = '改成六月'
+    expect(vm.busy).toBe(true)
+    await vm.send('message')
+    expect(dataCompareApi.generateDialogue).toHaveBeenCalledTimes(1)
     resolve(confirmed)
     await request
-    expect(vm.draft).toBeNull()
+    expect(vm.draft.conversation_id).toBe(17)
+    expect(vm.draft.revision).toBe(2)
+    expect(vm.draft.confirmation_token).toBeNull()
+    expect(vm.message).toBe('改成六月')
     expect(vm.canSave).toBe(false)
+    vi.mocked(dataCompareApi.generateDialogue).mockResolvedValueOnce({ ...ready, revision: 3 } as any)
+    await vm.send('message')
+    expect(dataCompareApi.generateDialogue).toHaveBeenLastCalledWith(expect.objectContaining({ conversation_id: 17, revision: 2, instruction: '改成六月' }))
   })
 })

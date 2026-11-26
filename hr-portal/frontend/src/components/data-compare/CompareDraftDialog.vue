@@ -12,12 +12,15 @@ const name = ref(''), instruction = ref(''), message = ref(''), paramsJson = ref
 const legacy = ref(false), busy = ref(false), saving = ref(false)
 const draft = ref<DialogueResponse | null>(null)
 const messages = ref<{ role: string; text: string }[]>([])
-let sequence = 0
+const requestError = ref(''), needsRestart = ref(false)
+let sequence = 0, editVersion = 0
 const canConfirm = computed(() => !busy.value && !message.value.trim() && draft.value?.status === 'requires_confirmation')
 const canSave = computed(() => !busy.value && !saving.value && !!name.value.trim() && (legacy.value ? !!paramsJson.value : !message.value.trim() && draft.value?.status === 'confirmed' && !!draft.value.confirmation_token))
 watch(() => props.modelValue, open => {
   sequence++
   busy.value = false
+  requestError.value = ''
+  needsRestart.value = false
   if (!open) return
   name.value = props.skill?.name || ''
   instruction.value = props.skill?.instruction || ''
@@ -28,31 +31,52 @@ watch(() => props.modelValue, open => {
   messages.value = []
 })
 watch(message, () => {
-  sequence++
-  busy.value = false
+  editVersion++
   if (draft.value) draft.value = { ...draft.value, status: 'requires_input', confirmation_token: null }
 }, { flush: 'sync' })
 watch(instruction, () => { if (legacy.value) paramsJson.value = '' }, { flush: 'sync' })
 watch(legacy, () => { sequence++; busy.value = false; draft.value = null })
 
-function errorText(e: any) { return e?.response?.data?.detail || e?.message || '请求失败' }
+function errorText(e: any) {
+  if (e?.code === 'ECONNABORTED' || e?.code === 'ETIMEDOUT') return 'AI 响应超时，未能确认服务端进度；需求已保留，请重新开始对话后重试。'
+  const detail = e?.response?.data?.detail
+  return typeof detail === 'string' ? detail : detail?.message || e?.message || '请求失败，请重试'
+}
+function restart() {
+  if (busy.value || saving.value) return
+  sequence++
+  draft.value = null
+  requestError.value = ''
+  needsRestart.value = false
+  const instructions = messages.value.filter(item => item.role === '需求').map(item => item.text)
+  if (message.value.trim() && instructions.at(-1) !== message.value.trim()) instructions.push(message.value.trim())
+  message.value = instructions.join('\n')
+  messages.value.push({ role: '提示', text: '已重新开始，历史需求已放回输入框；请核对后发送。' })
+}
 async function send(action: 'message' | 'confirm') {
   const text = message.value.trim()
-  if (busy.value || (action === 'message' && !text) || (action === 'confirm' && !canConfirm.value)) return
+  if (busy.value || needsRestart.value || (action === 'message' && !text) || (action === 'confirm' && !canConfirm.value)) return
   if (action === 'message') {
     instruction.value = text
     messages.value.push({ role: '需求', text })
     message.value = ''
   }
   const request = ++sequence
+  const sentEditVersion = editVersion
+  requestError.value = ''
   busy.value = true
   try {
     const result = await dataCompareApi.generateDialogue({ dialogue: true, action, instruction: action === 'message' ? text : '', conversation_id: draft.value?.conversation_id, revision: draft.value?.revision })
     if (request !== sequence || !props.modelValue) return
-    draft.value = result
+    draft.value = sentEditVersion === editVersion ? result : { ...result, status: 'requires_input', confirmation_token: null }
     messages.value.push({ role: '助手', text: result.question || result.summary || '请继续补充需求' })
-  } catch (e) {
-    if (request === sequence) ElMessage.error(errorText(e))
+  } catch (e: any) {
+    if (request === sequence) {
+      requestError.value = errorText(e)
+      needsRestart.value = !e?.response || e.response.status === 409 || e.response.status === 404
+      if (action === 'message' && !message.value.trim()) message.value = text
+      messages.value.push({ role: '请求失败', text: requestError.value })
+    }
   } finally { if (request === sequence) busy.value = false }
 }
 async function generateLegacy() {
@@ -108,8 +132,11 @@ function close() {
         <p class="hint">指定报表 A、注册表 B、月份、金额指标及一个维度。确认只保存口径，不查询或执行业务数据。</p>
         <div class="dialogue-log" role="log" aria-live="polite"><p v-for="(item, index) in messages" :key="index"><strong>{{ item.role }}</strong> {{ item.text }}</p></div>
         <el-form-item label="需求 / 补充或修改口径"><el-input v-model="message" type="textarea" :rows="3" :disabled="saving" placeholder="例如：对比成本报表与工资表 2026 年 5、6 月的实发金额，按部门核对" /></el-form-item>
-        <UiButton :loading="busy" :disabled="!message.trim() || saving" @click="send('message')">发送需求</UiButton>
-        <el-alert v-if="draft?.summary" :title="draft.summary" type="info" :closable="false" class="summary" />
+        <UiButton :loading="busy" :disabled="busy || !message.trim() || saving || needsRestart" @click="send('message')">发送需求</UiButton>
+        <p v-if="busy" class="hint" role="status">正在整理已明确内容和待确认事项；可先输入下一条补充，回复后再发送。</p>
+        <el-alert v-if="requestError" :title="requestError" type="error" :closable="false" />
+        <UiButton v-if="requestError" :disabled="busy || saving" @click="restart">保留需求并重新开始</UiButton>
+        <el-alert v-if="draft?.summary" title="已明确内容与待确认事项" type="info" :closable="false" class="summary"><p>{{ draft.summary }}</p></el-alert>
         <p v-if="draft?.status === 'confirmed'" class="hint">口径已确认，可保存。再次输入需求将使本次确认失效。</p>
       </template>
     </el-form>
