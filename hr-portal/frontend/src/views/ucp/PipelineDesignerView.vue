@@ -145,7 +145,7 @@
               <div class="text-muted">只补全空字段，北森原始字段保持优先。</div>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'WAREHOUSE_ASSET_SINK'">
-              <WarehouseAssetSinkConfig :key="selectedNode.id" v-model="selectedNode.config" :upstream-fields="sinkUpstreamFields" @save-state="onSinkSaveState(selectedNode.id, $event)" />
+              <WarehouseAssetSinkConfig :key="selectedNode.id" v-model="selectedNode.config" :upstream-fields="sinkUpstreamFields" :upstream-loading="upstreamFieldsLoading" :upstream-error="upstreamFieldsError" @retry-upstream="reloadSelectedUpstreamFields" @save-state="onSinkSaveState(selectedNode.id, $event)" />
             </template>
             <template v-else-if="(selectedNode.type as string) === 'LOOP_RESOURCE' || selectedNode.type === 'LOOP'">
               <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.system_id = v; cfg.system_code = systems.find(x=>x.id===v)?.system_code || ''; selectedNode.config = cfg } }" clearable placeholder="选择系统" style="width:100%"><el-option v-for="s in systems" :key="s.id" :label="`${s.system_code} - ${s.system_name}`" :value="s.id" /></el-select></el-form-item>
@@ -296,36 +296,47 @@ function selectConnectorResource(value: number): void {
   // 数据对象型资源（北森报表/飞书多维表格）：选资源只拉对象列表，选对象后再发现字段。
   // 非对象型资源（通用HTTP等）：选资源即可发现字段。
   if (resource?.adapter_code === 'BEISEN_REPORT_PULL_ADAPTER') void loadResourceDataObjects(value)
-  if (!needsObject) void refreshConnectorFieldCatalog(value)
+  if (!needsObject) void refreshConnectorFieldCatalog()
 }
 /** 通用设计期字段发现：把当前 CONNECTOR 的真实响应字段写入 config.output_field_catalog。
  *  下游 TRANSFORM / 资产写入 / 条件分支 统一从 output_field_catalog 读取源字段。
  *  数据对象型资源需先选数据对象（北森报表/飞书多维表格）；非对象型资源选资源即可。 */
-async function refreshConnectorFieldCatalog(resourceId?: number | null, dataObjectId?: number | null): Promise<void> {
-  if (!selectedNode.value || selectedNode.value.type !== 'CONNECTOR') return
-  const rid = resourceId ?? Number(selectedNode.value.config?.resource_id || 0)
-  if (!rid) return
-  const adapterCode = selectedNode.value.config?.adapter_code
-  const objectId = (dataObjectId ?? Number(selectedNode.value.config?.data_object_id || 0)) || null
-  // 数据对象型资源必须先选数据对象，避免只选资源就报"配置缺失"。
-  if ((adapterCode === 'BEISEN_REPORT_PULL_ADAPTER' || adapterCode === 'FEISHU_BITABLE_PULL_ADAPTER') && !objectId) return
+const connectorFieldRequests = new Map<string, number>()
+async function discoverConnectorFields(node: PipelineNode) {
+  const config = node.config
+  const resourceId = Number(config?.resource_id || 0)
+  const objectId = Number(config?.data_object_id || 0) || null
+  const tableId = config?.bitable_table_id
+  if (!resourceId) throw new Error('请先在上游资源调用节点选择来源资源')
+  if (config?.adapter_code === 'BEISEN_REPORT_PULL_ADAPTER' && !objectId) {
+    throw new Error('请先在上游资源调用节点选择具体北森报表')
+  }
+  const request = (connectorFieldRequests.get(node.id) || 0) + 1
+  connectorFieldRequests.set(node.id, request)
+  const result = await ucpApi.resourceFieldCatalog(resourceId, objectId)
+  if (connectorFieldRequests.get(node.id) !== request || node.config !== config
+    || Number(config.resource_id) !== resourceId || (Number(config.data_object_id || 0) || null) !== objectId
+    || config.bitable_table_id !== tableId || !form.nodes.includes(node)) return null
+  const fields = (result.items || []).map((field) => ({
+    code: field.source_key, label: field.label || field.source_key, type: field.type || 'string',
+  }))
+  config.output_field_catalog = fields
+  return fields
+}
+async function refreshConnectorFieldCatalog(): Promise<void> {
+  const node = selectedNode.value
+  if (!node || node.type !== 'CONNECTOR') return
+  node.config.output_field_catalog = []
+  if (!node.config.resource_id) return
+  if (String(node.config.adapter_code) === 'BEISEN_REPORT_PULL_ADAPTER' && !node.config.data_object_id) return
   try {
-    const result = await ucpApi.resourceFieldCatalog(rid, objectId)
-    const config = selectedNode.value.config as Record<string, any>
-    config.output_field_catalog = (result.items || []).map((field) => ({
-      code: field.source_key, label: field.label, type: field.type || 'string',
-    }))
-    selectedNode.value.config = config
-  } catch { /* 字段发现失败不阻断节点选择 */ }
+    await discoverConnectorFields(node)
+  } catch (error: any) {
+    if (selectedNode.value === node) ElMessage.warning(`字段目录加载失败：${error?.response?.data?.detail || error?.message || '请重新选择来源报表后重试'}`)
+  }
 }
-function selectBitableTableForNode(): void {
-  if (!selectedNode.value) return
-  void refreshConnectorFieldCatalog(Number(selectedNode.value.config?.resource_id || 0), null)
-}
-function selectBeisenDataObject(): void {
-  if (!selectedNode.value) return
-  void refreshConnectorFieldCatalog(Number(selectedNode.value.config?.resource_id || 0), Number(selectedNode.value.config?.data_object_id || null))
-}
+function selectBitableTableForNode(): void { void refreshConnectorFieldCatalog() }
+function selectBeisenDataObject(): void { void refreshConnectorFieldCatalog() }
 function selectCapabilitySystem(value: number) { if (!selectedNode.value) return; selectedNode.value.config = { ...(selectedNode.value.config || {}), system_id: value, object_code: null, capability_id: null, capability_name: '' } }
 function selectCapabilityObject(value: string) { if (!selectedNode.value) return; selectedNode.value.config = { ...(selectedNode.value.config || {}), object_code: value, capability_id: null, capability_name: '' } }
 function selectCapabilityOperation(value: number) { if (!selectedNode.value) return; const item = capabilityCatalog.value.find(row => row.capability_id === value); if (item) selectedNode.value.config = { ...(selectedNode.value.config || {}), capability_id: value, capability_name: item.operation_name, operation_id: item.operation_id, operation_version: item.operation_version } }
@@ -706,6 +717,9 @@ async function loadResourceDataObjects(resourceId: number | null | undefined): P
 }
 const upstreamFields = ref<{ name: string; label: string; type: string }[]>([])
 const upstreamSourceName = ref('')
+const upstreamFieldsLoading = ref(false)
+const upstreamFieldsError = ref('')
+let upstreamFieldsRequest = 0
 const transformMappingDocument = ref<MappingDocument>(createEmptyDocument('ucp_transform', 'UCP Transform'))
 const transformMappingCompatibility = ref<MappingCompatibility | null>(null)
 const transformMappingStorageMode = ref<'legacy_v1' | 'component_v1'>('component_v1')
@@ -843,24 +857,44 @@ function findUpstreamNode(nodeId: string): PipelineNode | null {
 
 // 加载上游节点的字段列表
 async function loadUpstreamFields(nodeId: string) {
+  const request = ++upstreamFieldsRequest
   upstreamFields.value = []
   upstreamSourceName.value = ''
+  upstreamFieldsError.value = ''
+  upstreamFieldsLoading.value = false
   const upstream = findUpstreamNode(nodeId)
-  if (!upstream) return
+  if (!upstream) {
+    if (selectedNode.value?.type === 'WAREHOUSE_ASSET_SINK') upstreamFieldsError.value = '请先将来源节点连接到资产写入节点'
+    return
+  }
   const upstreamCatalog = catalogFields(upstream.config?.output_field_catalog || upstream.config?.field_catalog || upstream.config?.mapping_source_catalog)
   if (upstreamCatalog.length) {
     upstreamFields.value = upstreamCatalog.map((field) => ({ name: field.code, label: field.label || field.code, type: field.type || 'string' }))
     upstreamSourceName.value = `(${upstream.label || upstream.id})`
     return
   }
-  if ((upstream.type as string) !== 'CONNECTOR') return
-  const adapterCode = upstream.config?.adapter_code
-  if (!adapterCode) return
-  upstreamSourceName.value = `(${upstream.config?.resource_name || adapterCode})`
+  if (upstream.type !== 'CONNECTOR') {
+    upstreamFieldsError.value = '上游节点尚未提供输出字段目录，请先完成上游配置'
+    return
+  }
+  upstreamSourceName.value = `(${upstream.config?.resource_name || upstream.label || upstream.id})`
+  upstreamFieldsLoading.value = true
   try {
-    const schema = await (ucpApi as any).adapterSchema?.(adapterCode)
-    if (schema?.categories) upstreamFields.value = schema.categories.flatMap((c: any) => (c.fields || []).map((f: any) => ({ name: f.name, label: f.label || f.name, type: f.type || 'string' })))
-  } catch { /* 上游 schema 未就绪 */ }
+    const fields = await discoverConnectorFields(upstream)
+    if (request !== upstreamFieldsRequest || selectedNodeId.value !== nodeId) return
+    if (!fields) {
+      upstreamFieldsError.value = '上游来源已变化，请重新加载字段目录'
+      return
+    }
+    upstreamFields.value = fields.map(field => ({ name: field.code, label: field.label, type: field.type }))
+    if (!fields.length) upstreamFieldsError.value = '所选来源返回了空字段目录，请检查报表配置后重试'
+  } catch (error: any) {
+    if (request === upstreamFieldsRequest && selectedNodeId.value === nodeId) {
+      upstreamFieldsError.value = `上游字段加载失败：${error?.response?.data?.detail || error?.message || '请检查来源资源后重试'}`
+    }
+  } finally {
+    if (request === upstreamFieldsRequest) upstreamFieldsLoading.value = false
+  }
 }
 
 function syncTransformMappingContext(): void {
@@ -939,23 +973,28 @@ const branchConditionAst = computed<any>(() => {
 function addBranchRule() { branchConditionAst.value.rules.push({ left_field_id: '', operator: 'EQ', right: '' }) }
 function removeBranchRule(index: number) { branchConditionAst.value.rules.splice(index, 1) }
 
+function syncSinkSourceCatalog(node: PipelineNode): void {
+  if (node.type !== 'WAREHOUSE_ASSET_SINK' || upstreamFieldsError.value) return
+  node.config.mapping_source_catalog = upstreamFields.value.map((field, ordinal) => ({
+    field_id: field.name, label: field.label || field.name, type: field.type || 'string', sensitive: false, parent_field_id: null, ordinal,
+  }))
+  const component = node.config.mapping_component as { ruleSet?: { sourceAsset?: string | null } } | undefined
+  if (component?.ruleSet) component.ruleSet.sourceAsset = upstreamSourceName.value || null
+}
+async function reloadSelectedUpstreamFields(): Promise<void> {
+  const node = selectedNode.value
+  if (!node) return
+  await loadUpstreamFields(node.id)
+  if (selectedNode.value === node) syncSinkSourceCatalog(node)
+}
 // 监听节点选中，同步映射
 watch(selectedNodeId, async (newId) => {
-  if (!newId) { upstreamFields.value = []; upstreamSourceName.value = ''; transformMappingCompatibility.value = null; transformLegacyMappingSnapshot.value = null; return }
+  if (!newId) { ++upstreamFieldsRequest; upstreamFieldsLoading.value = false; upstreamFieldsError.value = ''; upstreamFields.value = []; upstreamSourceName.value = ''; transformMappingCompatibility.value = null; transformLegacyMappingSnapshot.value = null; return }
   await loadUpstreamFields(newId)
+  if (selectedNodeId.value !== newId) return
   if (selectedNode.value?.type === 'TRANSFORM') syncTransformMappingContext()
   const node = selectedNode.value
-  if (node && (node.type as string) === 'WAREHOUSE_ASSET_SINK') {
-    // 将上游字段目录写入 sink 节点配置，供 component_v1 运行时消费并持久化。
-    const config = node.config as Record<string, any>
-    config.mapping_source_catalog = upstreamFields.value.map((field, ordinal) => ({
-      field_id: field.name, label: field.name, type: field.type || 'string', sensitive: false, parent_field_id: null, ordinal,
-    }))
-    if (config.mapping_component && typeof config.mapping_component === 'object') {
-      config.mapping_component.ruleSet.sourceAsset = upstreamSourceName.value || null
-    }
-    node.config = config
-  }
+  if (node) syncSinkSourceCatalog(node)
   if (node && (node.type as string) === 'START_TRIGGER') resetStartTriggerSelection()
   if ((node?.type as string) === 'RECORD_MERGE') {
     const sinkNode = form.nodes.find(item => (item.type as string) === 'WAREHOUSE_ASSET_SINK')

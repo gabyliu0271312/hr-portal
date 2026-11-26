@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   createTemplate: vi.fn(), updateTemplate: vi.fn(), routeQuery: { code: 'PIPELINE_DEMO' } as Record<string, string>,
   nodeTypes: vi.fn(), getTemplate: vi.fn(), systems: vi.fn(), resources: vi.fn(), capabilityCatalog: vi.fn(), resourceDataObjects: vi.fn(),
+  resourceFieldCatalog: vi.fn(), adapterSchema: vi.fn(),
   pipelineTriggers: vi.fn(), platformEventCatalog: vi.fn(), listAssets: vi.fn(), listAssetColumns: vi.fn(),
 }))
 
@@ -11,6 +12,7 @@ vi.mock('@/api/ucp', () => ({
   pipelineTemplateApi: { nodeTypes: mocks.nodeTypes, get: mocks.getTemplate, create: mocks.createTemplate, update: mocks.updateTemplate },
   ucpApi: {
     systems: mocks.systems, resources: mocks.resources, capabilityCatalog: mocks.capabilityCatalog, resourceDataObjects: mocks.resourceDataObjects,
+    resourceFieldCatalog: mocks.resourceFieldCatalog, adapterSchema: mocks.adapterSchema,
     pipelineTriggers: mocks.pipelineTriggers, platformEventCatalog: mocks.platformEventCatalog,
   },
 }))
@@ -30,7 +32,7 @@ const stubs = {
   'el-switch': { template: '<input type="checkbox" />' },
   'el-select': { props: ['modelValue', 'disabled'], template: '<select :value="modelValue" :disabled="disabled" @change="$emit(\'update:modelValue\', $event.target.value); $emit(\'change\')"><slot /></select>' },
   'el-option': { props: ['label', 'value'], template: '<option :value="value">{{ label }}</option>' },
-  WarehouseAssetSinkConfig: { name: 'WarehouseAssetSinkConfig', props: ['modelValue'], emits: ['save-state'], template: '<div class="sink-config-stub" />' },
+  WarehouseAssetSinkConfig: { name: 'WarehouseAssetSinkConfig', props: ['modelValue', 'upstreamFields', 'upstreamLoading', 'upstreamError'], emits: ['save-state', 'retry-upstream'], template: '<div class="sink-config-stub" />' },
   ScheduleSelector: { template: '<div />' },
 }
 
@@ -60,6 +62,65 @@ describe('PipelineDesignerView canvas interaction', () => {
     mocks.pipelineTriggers.mockResolvedValue({ items: [{ trigger_code: 'MANUAL_DEMO', trigger_type: 'MANUAL', trigger_name: '人工启动', is_active: true }] })
     mocks.platformEventCatalog.mockResolvedValue({ items: [{ category: 'DATA_CHANGE', category_name: '数据变更', source: 'DATA_WAREHOUSE', source_name: '数据仓库', event_type: 'datasource_sync_completed', event_name: '入仓同步完成', enabled: true, filter_fields: ['table_name'] }] })
     mocks.listAssets.mockResolvedValue({ items: [] }); mocks.listAssetColumns.mockResolvedValue({ items: [] })
+    mocks.resourceFieldCatalog.mockResolvedValue({ items: [] }); mocks.adapterSchema.mockResolvedValue({ categories: [] })
+  })
+
+  function sinkTemplate(sourceConfig: Record<string, any>) {
+    mocks.getTemplate.mockResolvedValue({
+      template_code: 'PIPELINE_SINK_FIELDS', name: '成本中心同步', description: '', version: '1.0.0',
+      nodes: [
+        { id: 'start', type: 'START_TRIGGER', x: 48, y: 96, label: '流程起点', config: {} },
+        { id: 'source', type: 'CONNECTOR', x: 328, y: 96, label: '成本中心报表', config: sourceConfig },
+        { id: 'sink', type: 'WAREHOUSE_ASSET_SINK', x: 608, y: 96, label: '成本中心写入', config: { target_asset: 'cost_center_tree', write_mode: 'upsert', field_whitelist: ['code'], mapping: [] } },
+      ],
+      edges: [{ from: 'start', to: 'source' }, { from: 'source', to: 'sink' }],
+    })
+  }
+
+  it('reads asset sink source fields from the selected Beisen report without the admin adapter schema', async () => {
+    sinkTemplate({ resource_id: 1, adapter_code: 'BEISEN_REPORT_PULL_ADAPTER', data_object_id: 2, resource_name: '成本中心报表' })
+    mocks.resourceFieldCatalog.mockResolvedValue({ items: [{ source_key: 'cost_code', label: '成本中心编码', type: 'string' }] })
+    const wrapper = mountView(); await flushPromises(); await flushPromises()
+    await wrapper.get('.node-card[data-node-id="sink"]').trigger('click'); await flushPromises()
+
+    expect(mocks.resourceFieldCatalog).toHaveBeenCalledWith(1, 2)
+    expect(mocks.adapterSchema).not.toHaveBeenCalled()
+    const vm = wrapper.vm as any
+    expect(vm.upstreamFieldsError).toBe('')
+    expect(vm.form.nodes.find((node: any) => node.id === 'sink').config.mapping_source_catalog).toEqual([
+      { field_id: 'cost_code', label: '成本中心编码', type: 'string', sensitive: false, parent_field_id: null, ordinal: 0 },
+    ])
+    expect(wrapper.getComponent({ name: 'WarehouseAssetSinkConfig' }).props('upstreamError')).toBe('')
+    wrapper.unmount()
+  })
+
+  it('surfaces source field load failures with a retry instead of an empty-catalog hint', async () => {
+    sinkTemplate({ resource_id: 1, adapter_code: 'BEISEN_REPORT_PULL_ADAPTER', data_object_id: 2, resource_name: '成本中心报表' })
+    mocks.resourceFieldCatalog.mockRejectedValueOnce(Object.assign(new Error('Request failed with status code 403'), { response: { data: { detail: '无权限执行 V 操作 (ucp.admin)' } } }))
+    const wrapper = mountView(); await flushPromises(); await flushPromises()
+    await wrapper.get('.node-card[data-node-id="sink"]').trigger('click'); await flushPromises()
+
+    const vm = wrapper.vm as any
+    expect(mocks.adapterSchema).not.toHaveBeenCalled()
+    expect(vm.upstreamFieldsError).toContain('无权限执行 V 操作 (ucp.admin)')
+    expect(vm.form.nodes.find((node: any) => node.id === 'sink').config.mapping_source_catalog).toBeUndefined()
+
+    mocks.resourceFieldCatalog.mockResolvedValue({ items: [{ source_key: 'cost_code', label: '成本中心编码', type: 'string' }] })
+    await wrapper.getComponent({ name: 'WarehouseAssetSinkConfig' }).vm.$emit('retry-upstream'); await flushPromises()
+    expect(vm.upstreamFieldsError).toBe('')
+    expect(vm.upstreamFields).toEqual([{ name: 'cost_code', label: '成本中心编码', type: 'string' }])
+    wrapper.unmount()
+  })
+
+  it('asks for the Beisen report selection instead of probing the adapter schema', async () => {
+    sinkTemplate({ resource_id: 1, adapter_code: 'BEISEN_REPORT_PULL_ADAPTER', resource_name: '成本中心报表' })
+    const wrapper = mountView(); await flushPromises(); await flushPromises()
+    await wrapper.get('.node-card[data-node-id="sink"]').trigger('click'); await flushPromises()
+
+    expect(mocks.resourceFieldCatalog).not.toHaveBeenCalled()
+    expect(mocks.adapterSchema).not.toHaveBeenCalled()
+    expect((wrapper.vm as any).upstreamFieldsError).toContain('请先在上游资源调用节点选择具体北森报表')
+    wrapper.unmount()
   })
 
   it('新建编码错误在字段处显示完整要求并拦截请求，修正后可保存', async () => {

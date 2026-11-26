@@ -283,6 +283,21 @@ describe('WarehouseAssetSinkConfig', () => {
     reopened.unmount()
   })
 
+  it('上游字段加载失败时显示原因并提供重试，而非空目录提示', async () => {
+    const wrapper = mount(WarehouseAssetSinkConfig, {
+      props: { modelValue: sinkConfig(), upstreamFields: [], upstreamError: '上游字段加载失败：无权限执行 V 操作 (ucp.admin)' },
+      global: { stubs: { ...stubs, 'el-button': { emits: ['click'], template: '<button @click="$emit(\'click\')"><slot /></button>' } } },
+    })
+    ;(wrapper.vm as any).openDialog()
+    await flushPromises()
+
+    const banner = wrapper.get('.upstream-banner')
+    expect(banner.text()).toContain('上游字段加载失败：无权限执行 V 操作 (ucp.admin)')
+    expect(banner.text()).not.toContain('事件补充字段手动添加')
+    await banner.get('button').trigger('click')
+    expect(wrapper.emitted('retry-upstream')).toHaveLength(1)
+  })
+
   it('unsupported legacy transform 初次读取即阻断无损写回且不丢原 mapping', async () => {
     const config = sinkConfig({ mapping: [{ source: 'period', target: 'cost_period', transform: 'custom_script', required: true }] })
     const wrapper = mountConfig(config)

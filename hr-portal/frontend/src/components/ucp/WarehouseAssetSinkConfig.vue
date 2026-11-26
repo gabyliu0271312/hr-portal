@@ -67,7 +67,8 @@
           <div v-show="dialogStep === 1" class="panel-body panel-body--mapping">
             <div v-if="upstreamSummary" class="upstream-banner">
               <el-icon><Connection /></el-icon>
-              <span>上游字段目录：{{ upstreamSummary }}</span>
+              <span role="status">上游字段目录：{{ upstreamSummary }}</span>
+              <el-button v-if="upstreamError" size="small" :loading="upstreamLoading" @click="emit('retry-upstream')">重新加载</el-button>
             </div>
             <el-alert v-if="lossyWriteBlocked" class="lossy-write-blocked" type="error" :closable="false" show-icon>
               <template #title>暂不能保存：{{ mappingSaveState.message }}</template>
@@ -138,11 +139,14 @@ type LegacyMapping = Record<string, any>
 const props = defineProps<{
   modelValue: Record<string, any>
   upstreamFields?: Array<{ code: string; label: string; type?: string }>
+  upstreamLoading?: boolean
+  upstreamError?: string
 }>()
 const emit = defineEmits<{
   'update:modelValue': [value: Record<string, any>]
   'lossy-write-blocked': [state: MappingSaveState]
   'save-state': [state: MappingSaveState]
+  'retry-upstream': []
 }>()
 
 const dialogVisible = ref(false)
@@ -206,8 +210,10 @@ const sourceFields = computed(() => {
   return Array.from(codes.values())
 })
 const upstreamSummary = computed(() => {
+  if (props.upstreamLoading) return '正在加载所选来源的字段…'
+  if (props.upstreamError) return props.upstreamError
   const fields = props.upstreamFields || []
-  return fields.length ? `${fields.length} 个上游字段（来自上游节点）` : '未识别到上游字段，可从事件补充字段手动添加'
+  return fields.length ? `${fields.length} 个上游字段（来自上游节点）` : '暂无上游字段，请检查来源节点配置与连线'
 })
 const componentV1Hint = computed(() => {
   if (!isComponentV1.value) return ''
