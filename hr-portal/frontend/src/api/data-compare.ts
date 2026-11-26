@@ -98,11 +98,42 @@ export interface CompareSpec {
 // Skill (数据对比配置)
 // ──────────────────────────────────────────────
 
+export interface ReportAmountSpec {
+  kind: 'report_amount_v1'
+  report_id: number
+  table_b: string
+  period_field_a: string
+  periods: string[]
+  metrics: Record<string, any>[]
+  dimension: Record<string, any>
+}
+
+export type SkillParams = CompareSpec | ReportAmountSpec
+
+export interface DialogueResponse {
+  status: 'requires_input' | 'requires_confirmation' | 'confirmed' | 'cancelled'
+  conversation_id: number
+  revision: number
+  question?: string | null
+  summary?: string | null
+  params?: ReportAmountSpec | null
+  confirmation_token?: string | null
+}
+
+export interface DialogueRequest {
+  dialogue: true
+  instruction: string
+  conversation_id?: number
+  revision?: number
+  action: 'message' | 'confirm' | 'cancel'
+}
+
 export interface SkillCreate {
   name: string
   description?: string | null
   instruction: string
-  params: CompareSpec
+  params: SkillParams
+  confirmation_token?: string
   status?: 'draft' | 'active'
 }
 
@@ -110,7 +141,8 @@ export interface SkillUpdate {
   name?: string | null
   description?: string | null
   instruction?: string | null
-  params?: CompareSpec | null
+  params?: SkillParams | null
+  confirmation_token?: string
   status?: 'draft' | 'active' | 'archived' | null
 }
 
@@ -120,7 +152,7 @@ export interface SkillOut {
   description: string | null
   skill_type: string
   instruction: string
-  params: CompareSpec
+  params: SkillParams
   status: string
   source: string
   last_run_at: string | null
@@ -266,6 +298,9 @@ export const dataCompareApi = {
   generateSkill: (data: { instruction: string; name?: string | null }) =>
     api.post<SkillGenerateResponse>('/data-compare/skills/generate', data).then(r => r.data),
 
+  generateDialogue: (data: DialogueRequest) =>
+    api.post<DialogueResponse>('/data-compare/skills/generate', data).then(r => r.data),
+
   updateSkill: (id: number, data: SkillUpdate) =>
     api.patch<SkillOut>(`/data-compare/skills/${id}`, data).then(r => r.data),
 
@@ -303,6 +338,6 @@ export const dataCompareApi = {
   listRuns: (taskId: number, params?: { limit?: number; offset?: number }) =>
     api.get<{ items: RunOut[]; total: number }>(`/data-compare/tasks/${taskId}/runs`, { params }).then(r => r.data),
 
-  getRun: (runId: number) =>
-    api.get<RunDetail>(`/data-compare/runs/${runId}`).then(r => r.data),
+  getRun: (runId: number, params?: { period?: string; metric_id?: string; only_diff?: boolean; limit?: number; offset?: number }) =>
+    api.get<RunDetail>(`/data-compare/runs/${runId}`, { params }).then(r => r.data),
 }

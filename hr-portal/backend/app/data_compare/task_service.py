@@ -66,12 +66,25 @@ async def create_task(
         from app.data_compare.metadata import MetadataLoader
         from app.data_compare.normalizer import normalize_compare_spec
 
-        loader = MetadataLoader(db)
-        spec = await normalize_compare_spec(skill.params, loader, instruction=skill.instruction)
-        compare_type = spec.compare_type.value
-        table_a = spec.source_a.table
-        table_b = spec.source_b.table
-        join_keys = spec.join_keys
+        if skill.params.get("kind") == "report_amount_v1":
+            if enabled or cron_expression:
+                raise ValueError("报表金额对比首版仅支持手动执行")
+            from app.data_compare.report_compare import ReportCompareSpec, validate_report_compare
+            user = await db.get(User, user_id)
+            if user is None:
+                raise ValueError("执行用户不存在")
+            spec = ReportCompareSpec.model_validate(skill.params)
+            await validate_report_compare(skill.params, user, db)
+            compare_type = "report_amount_v1"
+            table_a = f"report:{spec.report_id}"
+            table_b = spec.table_b
+        else:
+            loader = MetadataLoader(db)
+            spec = await normalize_compare_spec(skill.params, loader, instruction=skill.instruction)
+            compare_type = spec.compare_type.value
+            table_a = spec.source_a.table
+            table_b = spec.source_b.table
+            join_keys = spec.join_keys
 
     task = DataCompareTask(
         skill_id=skill_id,
@@ -142,6 +155,8 @@ async def update_task(
     task = await db.get(DataCompareTask, task_id)
     if task is None:
         return None
+    if task.compare_type == "report_amount_v1" and (enabled or cron_expression):
+        raise ValueError("报表金额对比首版仅支持手动执行")
 
     if name is not None:
         task.name = name
@@ -187,6 +202,8 @@ async def _bind_schedule(
     enabled: bool,
 ) -> None:
     """Create or update a ScheduledJob for the task."""
+    if task.compare_type == "report_amount_v1":
+        raise ValueError("报表金额对比首版不支持调度")
     from app.scheduler.service import upsert_job
 
     job = await upsert_job(
@@ -251,6 +268,31 @@ async def execute_task(
         user = await db.get(User, user_id)
         if user is None:
             raise ValueError(f"User {user_id} not found")
+
+        if skill.params.get("kind") == "report_amount_v1":
+            if trigger_type != "manual":
+                raise ValueError("报表金额对比首版仅支持手动执行")
+            if not user.is_active:
+                raise ValueError("执行账号已停用")
+            from app.core.deps import require_op
+            await require_op("system.data_compare", "V")(user, db)
+            from app.data_compare.report_compare import execute_report_compare
+            snapshot = await execute_report_compare(skill.params, user, db)
+            run.summary = snapshot["summary"]
+            run.detail = snapshot
+            run.diff_count = run.summary.get("diff_count", 0)
+            run.status = ("data_incomplete" if run.summary.get("incomplete_count")
+                          else "partial_diff" if run.diff_count else "success")
+            run.finished_at = datetime.now(timezone.utc)
+            run.duration_ms = int((run.finished_at - started_at).total_seconds() * 1000)
+            task.last_run_at = run.finished_at
+            task.last_status = run.status
+            task.last_diff_count = run.diff_count
+            task.last_summary = {"diff_count": run.diff_count}
+            db.add(run)
+            await db.flush()
+            await db.commit()
+            return run
 
         # Execute comparison
         result_dict = await run_data_compare(
@@ -328,6 +370,8 @@ async def execute_for_scheduler(
 
     # Use skill owner as the executing user
     skill = await db.get(AiSkill, task.skill_id) if task.skill_id else None
+    if skill and skill.params.get("kind") == "report_amount_v1":
+        raise ValueError("报表金额对比首版不支持调度或自动化")
     user_id = skill.created_by if skill else None
 
     run = await execute_task(

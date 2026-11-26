@@ -20,6 +20,7 @@ def format_result(
     max_detail: int = 200,
     sensitive_columns: set[str] | None = None,
     display: DisplayConfig | None = None,
+    only_diff: bool = False,
 ) -> CompareResult:
     """Format raw query rows into a structured CompareResult.
 
@@ -76,6 +77,8 @@ def format_result(
     conclusion = _build_conclusion(compare_type, summary, table_a_label, table_b_label)
 
     display_config = display or DisplayConfig()
+    if only_diff and compare_type == CompareType.AMOUNT:
+        rows = [row for row in rows if row.get("status") != "一致"]
 
     return CompareResult(
         compare_type=compare_type.value,

@@ -401,7 +401,7 @@ def build_scope_audit_event(*, user, dataset_id, report_id, channel, query_statu
             "restricted": item.get("restricted") is True,
         })
     allowed_channels = {"run", "csv", "xlsx", "export_rows", "push", "push_columns", "scheduled",
-                        "dimension_preview", "model_preview"}
+                        "dimension_preview", "model_preview", "report_compare"}
     return {
         "category": "scope_governance", "action": "report_scope_decision",
         "status": "success" if query_status == "success" else "failed", "user_id": user.id,
@@ -423,7 +423,7 @@ async def record_authorized_scope_audit(*, user, report, channel, query_status):
     binding = report.execution_binding if isinstance(report.execution_binding, dict) else {}
     metadata = {"schema_version": 1, "authorization_contract": "authorized_v1",
         "dataset_id": report.dataset_id, "report_id": report.id,
-        "channel": channel if channel in {"run", "csv", "xlsx", "push", "push_columns", "scheduled"} else "unsupported",
+        "channel": channel if channel in {"run", "csv", "xlsx", "push", "push_columns", "scheduled", "report_compare"} else "unsupported",
         "contract_id": binding.get("contract_id") if type(binding.get("contract_id")) is int else None,
         "contract_version": binding.get("contract_version") if type(binding.get("contract_version")) is int else None}
     try:

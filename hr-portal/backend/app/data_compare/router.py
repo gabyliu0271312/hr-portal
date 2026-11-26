@@ -48,13 +48,22 @@ _require_d = require_op("system.data_compare", "D")
 
 
 class SkillGenerateRequest(BaseModel):
-    instruction: str
+    instruction: str = ""
     name: str | None = None
+    dialogue: bool = False
+    conversation_id: int | None = None
+    revision: int | None = None
+    action: str = "message"
 
 
 class SkillGenerateResponse(BaseModel):
-    params: dict
-    summary: str
+    params: dict | None = None
+    summary: str = ""
+    status: str | None = None
+    conversation_id: int | None = None
+    revision: int | None = None
+    question: str | None = None
+    confirmation_token: str | None = None
 
 
 def _spec_summary(spec: CompareSpec) -> str:
@@ -126,6 +135,11 @@ async def create_skill(
     user: User = Depends(current_user),
     _perm: User = Depends(_require_c),
 ):
+    if data.params.get("kind") == "report_amount_v1":
+        from app.data_compare.dialogue import validate_confirmation
+        await validate_confirmation(data.confirmation_token, data.params, user, db, instruction=data.instruction)
+        skill = await service.create_skill(db, data, user.id)
+        return SkillOut.model_validate(skill)
     spec = await _normalize_and_validate_params(data.params, db, instruction=data.instruction)
     data = data.model_copy(update={"params": spec.model_dump(mode="json")})
     skill = await service.create_skill(db, data, user.id)
@@ -162,6 +176,16 @@ async def generate_skill_params(
     _perm: User = Depends(_require_c),
 ):
     """Generate and normalize CompareSpec from natural-language instruction."""
+    if data.dialogue:
+        from app.data_compare.dialogue import process_dialogue
+        model_call = await _data_compare_model_call(db) if data.action == "message" else None
+        try:
+            result = await process_dialogue(data.model_dump(), user, db, model_call)
+            await db.commit()
+            return result
+        except Exception:
+            await db.rollback()
+            raise
     instruction = (data.instruction or "").strip()
     if not instruction:
         raise HTTPException(status_code=400, detail="自然语言需求不能为空")
@@ -210,7 +234,13 @@ async def update_skill(
         raise HTTPException(status_code=404, detail="Skill not found")
     if not await service.user_can_access(skill, user.id, db):
         raise HTTPException(status_code=403, detail="Access denied")
-    if data.params is not None:
+    new_params = data.params if data.params is not None else skill.params
+    if new_params.get("kind") == "report_amount_v1":
+        if data.params is not None or data.instruction is not None:
+            from app.data_compare.dialogue import validate_confirmation
+            await validate_confirmation(data.confirmation_token, new_params, user, db,
+                                        instruction=data.instruction if data.instruction is not None else skill.instruction)
+    elif data.params is not None:
         instruction = data.instruction or skill.instruction
         spec = await _normalize_and_validate_params(data.params, db, instruction=instruction)
         data = data.model_copy(update={"params": spec.model_dump(mode="json")})
@@ -248,6 +278,8 @@ async def invoke_skill(
     if not await service.user_can_access(skill, user.id, db):
         raise HTTPException(status_code=403, detail="Access denied")
 
+    if skill.params.get("kind") == "report_amount_v1":
+        raise HTTPException(400, detail="请通过手动对比任务执行报表金额对比")
     try:
         loader = MetadataLoader(db)
         spec = await normalize_compare_spec(skill.params, loader, instruction=skill.instruction)
@@ -461,6 +493,13 @@ class RunOut(BaseModel):
         )
 
 
+async def _checked_run_output(run, user, db):
+    if isinstance(run.detail, dict) and run.detail.get("kind") == "report_amount_v1":
+        from app.data_compare.report_compare import validate_snapshot
+        await validate_snapshot(run.detail, user, db)
+    return RunOut.from_orm(run).model_dump()
+
+
 @router.post("/tasks", response_model=TaskOut)
 async def create_task(
     data: TaskCreate,
@@ -475,6 +514,8 @@ async def create_task(
         if not await service.user_can_access(skill, user.id, db):
             raise HTTPException(status_code=403, detail="Access denied")
 
+    if data.skill_id is not None and skill.params.get("kind") == "report_amount_v1" and (data.enabled or data.cron_expression):
+        raise HTTPException(400, detail="报表金额对比首版仅支持手动执行")
     task = await task_service.create_task(
         db,
         name=data.name,
@@ -540,6 +581,8 @@ async def update_task(
         raise HTTPException(status_code=404, detail="Task not found")
     if not await task_service.user_can_access_task(task, user.id, db):
         raise HTTPException(status_code=403, detail="Access denied")
+    if task.compare_type == "report_amount_v1" and (data.enabled or data.cron_expression):
+        raise HTTPException(400, detail="报表金额对比首版仅支持手动执行")
     task = await task_service.update_task(
         db,
         task_id,
@@ -604,7 +647,7 @@ async def list_task_runs(
 
     runs, total = await task_service.list_runs(db, task_id, limit=limit, offset=offset)
     return {
-        "items": [RunOut.from_orm(r) for r in runs],
+        "items": [await _checked_run_output(r, user, db) for r in runs],
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -614,6 +657,11 @@ async def list_task_runs(
 @router.get("/runs/{run_id}", response_model=dict)
 async def get_run_detail(
     run_id: int,
+    period: str | None = Query(None),
+    metric_id: str | None = Query(None),
+    only_diff: bool = Query(True),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_session),
     user: User = Depends(current_user),
     _perm: User = Depends(_require_v),
@@ -625,10 +673,22 @@ async def get_run_detail(
 
     # Check ownership via task
     task = await task_service.get_task(db, run.task_id)
-    if task and not await task_service.user_can_access_task(task, user.id, db):
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not await task_service.user_can_access_task(task, user.id, db):
         raise HTTPException(status_code=403, detail="Access denied")
 
     result = RunOut.from_orm(run).model_dump()
+    if isinstance(run.detail, dict) and run.detail.get("kind") == "report_amount_v1":
+        await _checked_run_output(run, user, db)
+        groups = run.detail.get("groups", [])
+        items = [row for row in groups
+                 if (period is None or row.get("period") == period)
+                 and (metric_id is None or row.get("metric_id") == metric_id)
+                 and (not only_diff or row.get("status") != "match")]
+        result["detail"] = {"items": items[offset:offset + limit], "total": len(items),
+                            "limit": limit, "offset": offset}
+        return result
     result["detail"] = run.detail
     result["execution_sql"] = run.execution_sql
     return result

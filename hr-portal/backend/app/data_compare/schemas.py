@@ -256,6 +256,7 @@ class SkillCreate(BaseModel):
     instruction: str = Field(..., min_length=1, description="用户原始需求描述")
     params: dict = Field(..., description="CompareSpec JSON 结构化参数")
     status: Literal["draft", "active"] = "draft"
+    confirmation_token: str | None = Field(None, exclude=True)
 
 
 class SkillUpdate(BaseModel):
@@ -266,6 +267,7 @@ class SkillUpdate(BaseModel):
     instruction: str | None = Field(None, min_length=1)
     params: dict | None = None
     status: Literal["draft", "active", "archived"] | None = None
+    confirmation_token: str | None = Field(None, exclude=True)
 
 
 class SkillOut(BaseModel):

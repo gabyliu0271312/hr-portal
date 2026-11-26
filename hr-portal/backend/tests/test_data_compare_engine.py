@@ -30,6 +30,32 @@ from app.data_compare.schemas import (
 )
 
 
+from app.data_compare.formatter import format_result
+
+
+def test_amount_totals_precede_difference_filter_and_pagination():
+    rows = [
+        {"department": "X", "amount_a": 60, "amount_b": 60, "diff": 0, "status": "一致"},
+        {"department": "Y", "amount_a": 40, "amount_b": 35, "diff": 5, "status": "金额不一致"},
+    ]
+    result = format_result(rows, CompareType.AMOUNT, "A", "B", None, None,
+                           max_detail=1, only_diff=True)
+    assert result.summary.total_amount_a == 100
+    assert result.summary.total_amount_b == 95
+    assert result.summary.diff_count == 1
+    assert result.details[0]["department"] == "Y"
+
+
+def test_amount_difference_filter_preserves_sensitive_masking():
+    rows = [{"amount_a": 40, "amount_b": 35, "diff": 5, "status": "金额不一致"}]
+    result = format_result(rows, CompareType.AMOUNT, "A", "B", None, None,
+                           only_diff=True, sensitive_columns={"amount_a"})
+    assert result.details[0]["amount_a"] == "***"
+    assert result.details[0]["diff"] == "***"
+    assert result.summary.total_amount_a is None
+    assert result.summary.amount_diff is None
+
+
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def _col(code: str, label: str = "", pk: bool = False,

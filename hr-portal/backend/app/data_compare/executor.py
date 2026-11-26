@@ -157,6 +157,7 @@ async def execute_compare(
     db: AsyncSession,
     max_rows: int = 10000,
     timeout_seconds: int = 30,
+    require_complete: bool = False,
 ) -> list[dict]:
     """Execute parameterized query and return result rows.
 
@@ -171,10 +172,15 @@ async def execute_compare(
     await db.execute(text(f"SET LOCAL statement_timeout = '{timeout_seconds * 1000}'"))
 
     # Execute the SELECT separately
-    result = await db.execute(text(compiled.sql), params)
+    sql = compiled.sql
+    if require_complete:
+        sql = f"SELECT * FROM ({sql.rstrip().rstrip(';')}) AS complete_compare LIMIT {int(max_rows) + 1}"
+    result = await db.execute(text(sql), params)
     rows = result.fetchall()
 
     if len(rows) > max_rows:
+        if require_complete:
+            raise ValueError("金额对比分组超过执行上限，未返回不完整合计；请缩小对比范围")
         rows = rows[:max_rows]
 
     columns = list(result.keys())

@@ -310,10 +310,18 @@ async def run_data_compare(
     )
 
     # 4. 模板编译 → 参数化 SQL（scope 在引擎编译层面注入）
-    compiled = await compile_query(spec, loader, scope_a, scope_b)
+    query_spec = spec
+    if spec.compare_type == CompareType.AMOUNT and spec.output.only_diff:
+        query_spec = spec.model_copy(update={
+            "output": spec.output.model_copy(update={"only_diff": False}),
+        })
+    compiled = await compile_query(query_spec, loader, scope_a, scope_b)
 
     # 5. 执行查询
-    rows = await execute_compare(compiled, loader, user, db)
+    if spec.compare_type == CompareType.AMOUNT:
+        rows = await execute_compare(compiled, loader, user, db, require_complete=True)
+    else:
+        rows = await execute_compare(compiled, loader, user, db)
 
     # 6. 格式化结果
     meta_a = await loader.get_table(spec.source_a.table)
@@ -372,6 +380,7 @@ async def run_data_compare(
         duration_ms=int((time.time() - start) * 1000),
         sensitive_columns=sensitive_columns or None,
         display=spec.display,
+        only_diff=spec.output.only_diff,
     )
 
     result_dict = result.model_dump()

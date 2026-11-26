@@ -1315,15 +1315,8 @@ async def run_report(
                                              "message": "运行时筛选只能修改报表已配置的筛选字段"})
     await _ensure_report_dataset_consumable(report, user, db)
 
-    cfg = ReportConfig(**(report.config or {}))
-    _ensure_valid_runtime_filters(cfg, overrides.filters if overrides else None)
-    cfg = _ensure_valid_report_config(_apply_runtime_overrides(
-        cfg,
-        overrides.filters if overrides else None,
-    ))
-    await _ensure_valid_report_field_references(
-        cfg, report.dataset_id, user, db, overrides.filters if overrides else None
-    )
+    from app.reports.report_service import prepare_report_query
+    cfg = await prepare_report_query(report, user, db, overrides.filters if overrides else None)
     _log_list_lookup_filters("report.run", report, cfg.list_lookup)
 
     from app.automation.events import AutomationEvent, publish_event

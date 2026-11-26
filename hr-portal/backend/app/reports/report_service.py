@@ -67,7 +67,7 @@ async def require_authorized_report_readiness(report, user, db):
 async def run_authorized_report_query(*, report, channel, **query):
     if getattr(report, "execution_version", None) != "authorized_v1":
         raise HTTPException(409, detail={"code": "execution_version_invalid", "message": "报表执行版本无效"})
-    if channel not in {"run", "csv", "xlsx"}:
+    if channel not in {"run", "csv", "xlsx", "report_compare"}:
         raise HTTPException(409, detail={"code": "authorized_channel_not_supported", "message": "此渠道尚未获准使用新执行版本"})
     if query.get("dataset_id") != report.dataset_id:
         raise HTTPException(409, detail={"code": "execution_dataset_mismatch", "message": "报表与执行数据集不一致"})
@@ -85,6 +85,11 @@ async def run_authorized_report_query(*, report, channel, **query):
         config = ReportConfig(**report.config)
     except (TypeError, ValueError) as exc:
         raise HTTPException(422, detail={"code": "authorized_config_invalid", "message": "报表配置无效"}) from exc
+    if channel == "report_compare":
+        budget = query.get("execution_budget")
+        if budget is None:
+            raise HTTPException(422, detail="缺少完整执行预算")
+        query["page_size"] = 0
     if config.aggregate:
         return await _execute_authorized_summary(report, channel, query, readiness)
     return await _execute_authorized_detail(report, channel, query, readiness)
@@ -293,7 +298,15 @@ async def _execute_authorized_summary(report, channel, query, readiness):
         page=query.get("page", 1), page_size=query.get("page_size", 50),
         runtime_filters=query.get("filters"))
     total = await query["db"].scalar(statements["count"])
-    rows = (await query["db"].execute(statements["preview"] if channel == "run" else statements["export"])).mappings().all()
+    budget = query.get("execution_budget")
+    if budget is not None:
+        budget.check(rows=total)
+    statement = statements["export"].limit(budget.max_rows + 1) if budget is not None else (statements["preview"] if channel == "run" else statements["export"])
+    rows = (await query["db"].execute(statement)).mappings().all()
+    if budget is not None:
+        budget.check(rows=len(rows))
+        if len(rows) != total:
+            raise HTTPException(422, detail="报表完整结果不可用")
     from datetime import date, datetime
     from decimal import Decimal
     def serialize(value):
@@ -393,7 +406,15 @@ async def _execute_authorized_detail(report, channel, query, readiness):
         page=query.get("page", 1), page_size=query.get("page_size", 50),
         runtime_filters=query.get("filters"))
     total = await query["db"].scalar(statements["count"])
-    rows = (await query["db"].execute(statements["preview"] if channel == "run" else statements["export"])).mappings().all()
+    budget = query.get("execution_budget")
+    if budget is not None:
+        budget.check(rows=total)
+    statement = statements["export"].limit(budget.max_rows + 1) if budget is not None else (statements["preview"] if channel == "run" else statements["export"])
+    rows = (await query["db"].execute(statement)).mappings().all()
+    if budget is not None:
+        budget.check(rows=len(rows))
+        if len(rows) != total:
+            raise HTTPException(422, detail="报表完整结果不可用")
     from datetime import date, datetime
     from decimal import Decimal
     def serialize(value):
@@ -412,7 +433,37 @@ async def _execute_authorized_detail(report, channel, query, readiness):
     return columns, items, total
 
 
+async def prepare_report_query(report, user, db, runtime_filters=None):
+    from app.reports.router import _can_access, _ensure_report_dataset_consumable
+    from app.reports.config import ReportConfig
+    from app.reports.runtime import apply_runtime_overrides, validate_runtime_filters
+
+    if user is None or not await _can_access(user, report, db):
+        raise HTTPException(403, detail="无权访问该报表")
+    await _ensure_report_dataset_consumable(report, user, db)
+    config = ReportConfig(**(report.config or {}))
+    validate_runtime_filters(config, runtime_filters)
+    config = ensure_valid_report_config(apply_runtime_overrides(config, runtime_filters))
+    await ensure_valid_report_field_references(config, report.dataset_id, user, db, runtime_filters)
+    return config
+
+
 async def run_audited_dataset_query(*, channel, report_id=None, report=None, **query):
+    if channel == "report_compare":
+        from app.reports.sql_builder import _current_budget
+        budget = query.get("execution_budget")
+        if report is None or budget is None or query.get("page_size") != 0:
+            raise HTTPException(422, detail="报表对比必须通过完整预算执行入口")
+        budget.check()
+        token = _current_budget.set(budget)
+        try:
+            return await _run_audited_dataset_query(channel=channel, report_id=report_id, report=report, **query)
+        finally:
+            _current_budget.reset(token)
+    return await _run_audited_dataset_query(channel=channel, report_id=report_id, report=report, **query)
+
+
+async def _run_audited_dataset_query(*, channel, report_id=None, report=None, **query):
     if report is None and report_id is not None:
         report = await query["db"].get(Report, report_id)
         if report is None:

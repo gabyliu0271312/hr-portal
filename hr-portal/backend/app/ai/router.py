@@ -308,6 +308,9 @@ class AiChatIn(BaseModel):
     referenced_people: list[str] = Field(default_factory=list, max_length=10, exclude=True)
     history: list[AiChatMessage] = Field(default_factory=list, max_length=20)
     selected_employee_id: int | None = Field(default=None, ge=1)
+    dialogue: bool = False
+    revision: int | None = Field(default=None, ge=0)
+    action: Literal["message", "confirm", "cancel"] = "message"
 
 
 class AiActionOut(BaseModel):
@@ -334,6 +337,7 @@ AI_RESULT_TYPES = {
     "compensation_comparison",
     "automation_rule_draft",
     "data_compare_result",
+    "data_compare_draft",
     "employee_profile_input",
     "employee_profile_result",
     "employee_profile_candidates",
@@ -402,6 +406,17 @@ class DataCompareResultData(CompareResult):
     model_config = ConfigDict(extra="forbid")
 
 
+class DataCompareDraftResultData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["requires_input", "requires_confirmation", "confirmed"]
+    revision: int
+    question: str
+    summary: str
+    params: dict[str, Any] | None = None
+    confirmation_token: str | None = None
+
+
 class CapabilityArtifactOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -447,6 +462,11 @@ class DataCompareCapabilityResult(CapabilityResultOut):
     data: DataCompareResultData
 
 
+class DataCompareDraftCapabilityResult(CapabilityResultOut):
+    type: Literal["data_compare_draft"] = "data_compare_draft"
+    data: DataCompareDraftResultData
+
+
 class EmployeeProfileInputCapabilityResult(CapabilityResultOut):
     type: Literal["employee_profile_input"] = "employee_profile_input"
     data: EmployeeProfileInputData
@@ -469,6 +489,7 @@ CapabilityResult = Annotated[
     | CompensationComparisonCapabilityResult
     | AutomationRuleDraftCapabilityResult
     | DataCompareCapabilityResult
+    | DataCompareDraftCapabilityResult
     | EmployeeProfileInputCapabilityResult
     | EmployeeProfileResultCapabilityResult
     | EmployeeProfileCandidatesCapabilityResult,
@@ -483,6 +504,7 @@ RESULT_TYPES: dict[str, type[CapabilityResultOut]] = {
     "compensation_comparison": CompensationComparisonCapabilityResult,
     "automation_rule_draft": AutomationRuleDraftCapabilityResult,
     "data_compare_result": DataCompareCapabilityResult,
+    "data_compare_draft": DataCompareDraftCapabilityResult,
     "employee_profile_input": EmployeeProfileInputCapabilityResult,
     "employee_profile_result": EmployeeProfileResultCapabilityResult,
     "employee_profile_candidates": EmployeeProfileCandidatesCapabilityResult,
@@ -2069,12 +2091,12 @@ async def _extract_data_compare_request(
     timer: AiAuditTimer,
 ) -> ExtractorResult:
     """LLM extractor：从自然语言提取 CompareSpec JSON。"""
+    if payload.dialogue or (session.active_capability_id == "data.compare" and session.capability_state("data.compare").get("report_dialogue")):
+        return ExtractorResult(extracted={"report_dialogue": True}, usage=None, parse_mode="report_dialogue")
     config = await active_ai_config(db)
     model = (config.model_reasoning or config.model_fast_json or "").strip()
     if not model or not config.api_key_encrypted:
         return ExtractorResult(extracted=None, usage=None, parse_mode="no_model")
-
-    loader = MetadataLoader(db)
 
     # 构建 LLM 调用函数
     async def model_call(prompt: str) -> str:
@@ -2096,6 +2118,14 @@ async def _extract_data_compare_request(
             raise
 
     try:
+        mode = parse_json_content(await model_call(
+            "只判断对比来源形态，不提取业务配置，不需要元数据。若用户要对比一份已保存报表的最终输出与注册表，"
+            "返回JSON {\"report_dialogue\":true}；普通两表的名单、字段、金额对比返回false。用户内容："
+            + json.dumps(payload.message, ensure_ascii=False)
+        ))
+        if mode.get("report_dialogue") is True:
+            return ExtractorResult(extracted={"report_dialogue": True}, usage=None, parse_mode="report_dialogue")
+        loader = MetadataLoader(db)
         spec = await extract_compare_spec(payload.message, loader, model_call)
     except ValueError as e:
         return ExtractorResult(extracted=None, usage=None, parse_mode="error")
@@ -2129,6 +2159,40 @@ async def _handle_data_compare_chat(
     validate_capability_policy(capability, used_tools=[])
     if not await user_has_permission(user, db, capability.required_permission):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权使用数据对比")
+
+    if extracted.get("report_dialogue") is True:
+        from app.data_compare.dialogue import process_dialogue
+        from app.ai.models import AiConversation
+
+        async def model_call(prompt):
+            config = await active_ai_config(db)
+            _, content, usage = await chat_completion_openai_compatible(
+                api_key=decrypt(config.api_key_encrypted), base_url=config.base_url,
+                model=config.model_reasoning or config.model_fast_json,
+                messages=[{"role": "user", "content": prompt}],
+                timeout=int(config.timeout_seconds or 60), response_format={"type": "json_object"},
+            )
+            timer.add_event("model_call", capability_id="data.compare", purpose="report_dialogue", usage=usage)
+            return content
+
+        if payload.conversation_id is not None and payload.conversation_id != session.conversation_id:
+            raise HTTPException(404, "会话不存在")
+        result = await process_dialogue({
+            "instruction": payload.message, "conversation_id": session.conversation_id,
+            "revision": payload.revision if session.capability_state("data.compare").get("report_dialogue") else 0,
+            "action": payload.action,
+        }, user, db, model_call)
+        conv = await db.get(AiConversation, session.conversation_id)
+        session.state = dict(conv.state or {})
+        session.active_capability_id = conv.active_capability_id
+        draft_data = {key: value for key, value in result.items() if key != "conversation_id"}
+        return _chat_out(
+            intent="data.compare", capability_id=capability.capability_id,
+            status="requires_confirmation" if result["status"] == "confirmed" else result["status"],
+            answer=result["question"] or "口径已确认，请前往数据对比管理页保存并手动运行。",
+            result_type="data_compare_draft", data=draft_data,
+            conversation_id=result["conversation_id"], trace_id=timer.trace_id,
+        )
 
     try:
         spec = CompareSpec.model_validate(extracted)

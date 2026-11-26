@@ -21,6 +21,9 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import hashlib
+import time
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from typing import Any
 from types import SimpleNamespace
 
@@ -48,6 +51,30 @@ from app.datasets.models import DataSet, DataSetRelation, DataSetTable
 from app.permissions.strategy import DEFAULT_SCOPE_STRATEGY, normalize_scope_strategy
 from app.reports.filter_logic import build_filter_clause
 from app.users.models import User
+
+@dataclass
+class ExecutionBudget:
+    max_rows: int = 100000
+    max_groups: int = 20000
+    max_cells: int = 1000000
+    max_seconds: int = 60
+    max_snapshot_bytes: int = 8000000
+    started: float = field(default_factory=time.monotonic)
+
+    def check(self, rows=0, cells=0, groups=0):
+        if (rows > self.max_rows or cells > self.max_cells or groups > self.max_groups
+                or time.monotonic() - self.started > self.max_seconds):
+            raise HTTPException(422, detail={"code": "report_compare_budget_exceeded", "message": "完整执行超出预算，未生成部分结果"})
+
+
+_current_budget = ContextVar("report_execution_budget", default=None)
+
+
+def _check_budget(rows=0, cells=0, groups=0):
+    budget = _current_budget.get()
+    if budget is not None:
+        budget.check(rows=rows, cells=cells, groups=groups)
+
 
 def _table_name(model) -> str:
     return getattr(model, "__tablename__", getattr(model.__table__, "name", "unknown"))
@@ -514,6 +541,7 @@ def _apply_transpose(
     if not clean_rules:
         return full_items, set()
 
+    _check_budget(rows=len(full_items) * (len(clean_rules) + 1), cells=len(full_items) * (len(clean_rules) + 1) * len(selected_quals))
     result: list[dict[str, Any]] = []
     # 收集所有被转置规则搬走的源列（这些列在原行中会被清零）
     transposed_sources: set[str] = {rule["source_col"] for rule in clean_rules}
@@ -620,6 +648,7 @@ def _apply_column_to_row(
     value_sensitive = any(bool(meta.get("is_sensitive")) for meta in source_meta)
     keep_cols = [col for col in selected_quals if col not in set(source_cols)]
 
+    _check_budget(rows=len(full_items) * len(source_cols), cells=len(full_items) * len(source_cols) * len(selected_quals))
     expanded: list[dict[str, Any]] = []
     for row in full_items:
         base = {col: row.get(col) for col in keep_cols}
@@ -712,6 +741,7 @@ def _apply_row_to_column(
         meta_map = _meta_by_code(columns_meta)
         return [], [meta_map[col] for col in group_by if col in meta_map]
 
+    _check_budget(cells=len(full_items) * (len(pivot_values) + len(group_by)))
     strategy = config.get("conflict_strategy") or "first"
     fill_value = config.get("fill_value")
     if fill_value is None:
@@ -959,10 +989,14 @@ def _apply_python_sorts(items: list[dict[str, Any]], sorts: list[dict[str, Any]]
 def _project_output_items(
     items: list[dict[str, Any]],
     columns_meta: list[dict[str, Any]],
+    preserve_decimal: bool = False,
 ) -> list[dict[str, Any]]:
+    _check_budget(rows=len(items), cells=len(items) * len(columns_meta))
     output_codes = [str(col.get("code")) for col in columns_meta if col.get("code")]
     def output_value(value: Any) -> Any:
         if isinstance(value, Decimal):
+            if preserve_decimal:
+                return value
             # 大整数标识字段不能转 float，否则 18 位证件号码会变成科学计数法并丢精度。
             if value == value.to_integral_value() and len(str(abs(value).to_integral_value())) >= 15:
                 return format(value, "f")
@@ -1320,6 +1354,8 @@ async def run_dataset_query(
     scope_strategy: str | None = None,
     warnings_sink: list[str] | None = None,
     scope_decisions_sink: list[dict[str, Any]] | None = None,
+    execution_budget=None,
+    preserve_decimal: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     """执行数据集多表查询 (Track B: columns 支持 str | ColumnInstance)
 
@@ -1873,7 +1909,13 @@ async def run_dataset_query(
     # 取数：聚合/转置要增删行，须取全量后 Python 分页；明细模式 SQL 分页
     need_all = agg_on or transpose_on or structural_reshape_on or calc_filter_on or calc_sort_on or bool(merge_rules)
     total = 0
-    if need_all:
+    if execution_budget is not None:
+        execution_budget.check()
+        rows = (await db.execute(stmt.limit(execution_budget.max_rows + 1))).all()
+        execution_budget.check(rows=len(rows), cells=len(rows) * len(stmt.selected_columns))
+        if not need_all:
+            total = len(rows)
+    elif need_all:
         rows = (await db.execute(stmt)).all()
     else:
         total = (await db.execute(count_stmt)).scalar_one()
@@ -1978,6 +2020,7 @@ async def run_dataset_query(
     async with get_session_factory()() as fn_db:
         custom_functions = await executable_functions(fn_db)
     for r in rows:
+        _check_budget(rows=len(full_items))
         d = r._mapping if hasattr(r, "_mapping") else dict(zip(r.keys(), r))
         item: dict[str, Any] = {}
         formula_item: dict[str, Any] = {}
@@ -2148,7 +2191,7 @@ async def run_dataset_query(
         total = len(full_items)
         if page_size > 0:
             full_items = full_items[(page - 1) * page_size: page * page_size]
-        full_items = _project_output_items(full_items, columns_meta)
+        full_items = _project_output_items(full_items, columns_meta, preserve_decimal)
         return columns_meta, full_items, total
 
     if row_to_column_on:
@@ -2162,7 +2205,7 @@ async def run_dataset_query(
         total = len(full_items)
         if page_size > 0:
             full_items = full_items[(page - 1) * page_size: page * page_size]
-        full_items = _project_output_items(full_items, columns_meta)
+        full_items = _project_output_items(full_items, columns_meta, preserve_decimal)
         return columns_meta, full_items, total
 
     if not agg_on:
@@ -2172,13 +2215,14 @@ async def run_dataset_query(
             total = len(full_items)
             if page_size > 0:
                 full_items = full_items[(page - 1) * page_size: page * page_size]
-        full_items = _project_output_items(full_items, columns_meta)
+        full_items = _project_output_items(full_items, columns_meta, preserve_decimal)
         return columns_meta, full_items, total
 
     # ===== 聚合：先拆分（已在上面完成）→ 按维度分组 → 度量聚合 =====
     groups: dict[tuple, dict] = {}
     order_keys: list[tuple] = []
     for it in full_items:
+        _check_budget(groups=len(groups), rows=len(full_items))
         key = tuple(it.get(dq) for dq in dim_quals)
         g = groups.get(key)
         if g is None:
@@ -2276,7 +2320,7 @@ async def run_dataset_query(
         items = result[(page - 1) * page_size: page * page_size]
     else:
         items = result
-    items = _project_output_items(items, columns_meta)
+    items = _project_output_items(items, columns_meta, preserve_decimal)
     return columns_meta, items, total
 
 
