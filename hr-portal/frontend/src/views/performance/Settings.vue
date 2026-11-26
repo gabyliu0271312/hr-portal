@@ -80,7 +80,7 @@ function requestExample() {
 <style scoped>
 .field-settings-page { display: flex; flex-direction: column; gap: var(--spacing-4); min-width: 0; font-family: var(--font-sans); color: var(--color-text-primary); font-size: var(--font-size-md); line-height: var(--performance-settings-help-line-height); }
 .field-settings-page :deep(a) { color: var(--color-primary); text-decoration: none; }
-.field-settings-page :deep(a:hover) { text-decoration: underline; }
+.field-settings-page :deep(a:hover) { text-decoration: none; }
 .field-settings-summary { padding: var(--spacing-3) var(--spacing-4); border-radius: var(--radius-md); background: var(--performance-review-readonly-surface); overflow-wrap: anywhere; }
 .field-settings-summary__label { margin-bottom: var(--spacing-2); color: var(--performance-settings-text-secondary); }
 </style>
