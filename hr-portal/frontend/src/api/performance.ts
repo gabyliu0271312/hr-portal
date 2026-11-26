@@ -1197,6 +1197,30 @@ export async function savePerformanceColumnPreference(query: PerformanceColumnPr
   return data
 }
 
+export interface PerformanceMemberFilterOption {
+  value: string
+  label: string
+  subLabel?: string
+  color?: string | null
+  children?: PerformanceMemberFilterOption[]
+}
+export interface PerformanceMemberFilterField {
+  key: string
+  label: string
+  kind: 'person' | 'organization' | 'select' | 'date'
+  operators: Array<{ value: 'in' | 'not_in' | 'eq' | 'ne'; label: string }>
+  options: PerformanceMemberFilterOption[]
+}
+export interface PerformanceMemberFilterCondition {
+  key: string
+  op: 'in' | 'not_in' | 'eq' | 'ne'
+  values: string[]
+}
+export interface PerformanceMemberFilters {
+  logic: 'and' | 'or'
+  conditions: PerformanceMemberFilterCondition[]
+}
+
 export interface ProjectMemberPage extends Partial<PerformanceMemberColumnSchema> {
   rating_columns?: Array<{ key: string; label: string }>
   items: ProjectMember[]
@@ -1490,12 +1514,16 @@ export const projectManagementApi = {
     const { data } = await api.get('/performance/project-management/calibration-authorization', { params: { cycle_id: cycleId } })
     return data
   },
-  async cycleMembers(cycleId: number, keyword?: string, page = 1, pageSize = 50, sortBy?: string, sortOrder?: 'asc' | 'desc'): Promise<ProjectMemberPage> {
-    const { data } = await api.get<ProjectMemberPage>(`/performance/project-management/cycles/${cycleId}/members`, { params: { keyword, page, page_size: pageSize, sort_by: sortBy, sort_order: sortOrder } })
+  async cycleMemberFilterOptions(cycleId: number, key?: string, keyword?: string): Promise<{ fields: PerformanceMemberFilterField[] }> {
+    const { data } = await api.get(`/performance/project-management/cycles/${cycleId}/members/filter-options`, { params: { key, keyword } })
     return data
   },
-  async cycleExportMembers(cycleId: number, keyword?: string, sortBy?: string, sortOrder?: 'asc' | 'desc'): Promise<ProjectMemberPage> {
-    const { data } = await api.get<ProjectMemberPage>(`/performance/project-management/cycles/${cycleId}/members/export`, { params: { keyword, sort_by: sortBy, sort_order: sortOrder } })
+  async cycleMembers(cycleId: number, keyword?: string, page = 1, pageSize = 50, sortBy?: string, sortOrder?: 'asc' | 'desc', filters?: PerformanceMemberFilters): Promise<ProjectMemberPage> {
+    const { data } = await api.get<ProjectMemberPage>(`/performance/project-management/cycles/${cycleId}/members`, { params: { keyword, page, page_size: pageSize, sort_by: sortBy, sort_order: sortOrder, ...(filters?.conditions.length ? { filters: JSON.stringify(filters) } : {}) } })
+    return data
+  },
+  async cycleExportMembers(cycleId: number, keyword?: string, sortBy?: string, sortOrder?: 'asc' | 'desc', filters?: PerformanceMemberFilters): Promise<ProjectMemberPage> {
+    const { data } = await api.get<ProjectMemberPage>(`/performance/project-management/cycles/${cycleId}/members/export`, { params: { keyword, sort_by: sortBy, sort_order: sortOrder, ...(filters?.conditions.length ? { filters: JSON.stringify(filters) } : {}) } })
     return data
   },
   async members(projectId: number | string, keyword?: string, page = 1, pageSize = 50, sortBy?: string, sortOrder?: 'asc' | 'desc', matrixLevel?: string, matrixRating?: string, matrixBu?: string | null): Promise<ProjectMemberPage> {

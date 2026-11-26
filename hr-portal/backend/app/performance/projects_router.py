@@ -1812,6 +1812,7 @@ class ProjectPage(BaseModel):
 
 
 class ProjectMemberResponse(BaseModel):
+    filter_values: dict[str, object] = Field(default_factory=dict, exclude=True)
     column_values: dict[str, object] = Field(default_factory=dict)
     project_name: str | None = None
     previous_position_level: str | None = None
@@ -3566,7 +3567,10 @@ def _sort_member_rows(items, sort_by, sort_order, rating_columns, schema=None):
 
 
 
-async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, *, export=False, page=None, page_size=50, schema_out=None):
+async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, *, export=False, page=None, page_size=50, schema_out=None, filters=None):
+    from app.performance.member_filters_service import parse_member_filters, filter_member_rows
+
+    parsed_filters = parse_member_filters(filters)
     _enable_member_read_reuse(db)
     if context.management_role:
         from app.performance.management_scope import management_projects
@@ -3596,6 +3600,13 @@ async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db
     merged_schema = await _management_member_schema(context, db, authorized=authorized)
     if schema_out is not None:
         schema_out.update(merged_schema)
+    if parsed_filters is not None:
+        items, columns, _total = await _authorized_member_rows(authorized, keyword, sort_by, sort_order, context, db, merged_schema, export=export)
+        items = filter_member_rows(items, parsed_filters, merged_schema)
+        total = len(items)
+        if page is not None and not export:
+            items = items[(page - 1) * page_size:page * page_size]
+        return items, columns, total
     return await _authorized_member_rows(authorized, keyword, sort_by, sort_order, context, db, merged_schema, export=export, page=page, page_size=page_size)
 
 
@@ -3862,13 +3873,31 @@ async def cycle_project_members(
     sort_order: str | None = Query(default=None, pattern="^(asc|desc)$"),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    filters: str | None = None,
 ):
     schema = {}
-    items, columns, total = await _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, page=page, page_size=page_size, schema_out=schema)
-    if sort_by not in {None, "name"}:
+    items, columns, total = await _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, page=page, page_size=page_size, schema_out=schema, filters=filters)
+    if filters is None and sort_by not in {None, "name"}:
         items = items[(page - 1) * page_size:page * page_size]
     await hydrate_project_member_rows(db, items, context=context, verified_view=True)
     return ProjectMemberPage(items=items, total=total, page=page, page_size=page_size, rating_columns=columns, **schema)
+
+
+@router.get("/project-management/cycles/{cycle_id}/members/filter-options")
+async def cycle_member_filter_options(
+    cycle_id: int,
+    key: str | None = None,
+    keyword: str | None = Query(default=None, max_length=128),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    from app.performance.member_filters_service import member_filter_options, invalid_filter
+
+    if key is not None and (not key.strip() or len(key) > 256):
+        invalid_filter()
+    schema = {}
+    items, _columns, _total = await _cycle_member_rows(cycle_id, None, None, None, context, db, schema_out=schema)
+    return member_filter_options(items, schema, key=key, keyword=keyword)
 
 
 @router.get("/project-management/cycles/{cycle_id}/members/export", response_model=ProjectMemberPage)
@@ -3879,9 +3908,10 @@ async def export_cycle_project_members(
     sort_order: str | None = Query(default=None, pattern="^(asc|desc)$"),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    filters: str | None = None,
 ):
     schema = {}
-    items, columns, _total = await _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, export=True, schema_out=schema)
+    items, columns, _total = await _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, export=True, schema_out=schema, filters=filters)
     await hydrate_project_member_rows(db, items, context=context, verified_view=True)
     return ProjectMemberPage(items=items, total=len(items), page=1, page_size=len(items), rating_columns=columns, **schema)
 
@@ -4030,6 +4060,19 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
         from app.performance.member_columns_service import column_schema as build_column_schema, SNAPSHOT_PROFILE_FIELDS
         row_schema = build_column_schema(rating_columns, visible_fields, nodes, available_profile_fields=SNAPSHOT_PROFILE_FIELDS | {"previous_position_level", "project_name"})
         _member_row_column_values(item, row_schema, stages=_member_stage_values(by_employee.get(member.employee_no, []), nodes, project))
+        filter_values = {}
+        if "direct_supervisor" in item["column_values"] and member.direct_supervisor_employee_no:
+            filter_values["direct_supervisor"] = {"value": member.direct_supervisor_employee_no, "label": item["direct_supervisor"] or member.direct_supervisor_employee_no}
+        answers = effective["answers"] if effective is not None else (latest_final.answers or {}) if latest_final is not None else {}
+        for rating in metadata:
+            if rating["key"] not in item["column_values"]:
+                continue
+            option = _matrix_rating_value(answers.get(rating["answer_key"]), rating["options"])
+            filter_values[rating["key"]] = None if option is None or option.get("id") is None else {
+                "value": str(option["id"]), "label": str(option.get("code") or option.get("label") or option["id"]),
+                "color": option.get("color"),
+            }
+        item["filter_values"] = filter_values
         items.append(ProjectMemberResponse(**item))
     _sort_member_rows(items, sort_by, sort_order, rating_columns, column_schema)
     return (items, rating_columns, member_total) if page is not None else (items, rating_columns)

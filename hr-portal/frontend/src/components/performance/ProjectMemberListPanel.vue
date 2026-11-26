@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { projectManagementApi, performanceWorkbenchApi, fetchPerformanceColumnPreference, savePerformanceColumnPreference, type PerformanceMemberColumnSchema, type PerformanceColumnPreferenceScope, type ProjectMember, type PerformanceWorkbenchTaskPerson } from '@/api/performance'
 import { employeeSwitchEpoch } from '@/stores/identitySwitch'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
+import PerformanceMemberFilter from './PerformanceMemberFilter.vue'
+import type { PerformanceMemberFilters } from '@/api/performance'
 import UiButton from '../ui/UiButton.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
@@ -61,6 +63,23 @@ watch(selectedKeys, keys => {
   selectedRows.value = next
 })
 const keyword = ref('')
+const memberToolbar = ref<InstanceType<typeof PerformanceListToolbar> | null>(null)
+const filterOpen = ref(false)
+const filterAnchor = ref<HTMLElement | null>(null)
+const memberFilters = ref<PerformanceMemberFilters>({ logic: 'and', conditions: [] })
+const supportsMemberFilters = computed(() => Boolean(props.cycleId) && !props.provider && !props.reviewContext && (!props.variant || props.variant === 'default'))
+function openMemberFilter() {
+  if (!supportsMemberFilters.value) { emit('filter'); return }
+  filterAnchor.value = memberToolbar.value?.$el?.querySelector('.filter-button') || null
+  filterOpen.value = true
+}
+function applyMemberFilters(filters: PerformanceMemberFilters) {
+  memberFilters.value = filters
+  page.value = 1
+  selectedKeys.value = []
+  selectedRows.value = {}
+  void loadMembers()
+}
 const members = ref<MemberRow[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -244,7 +263,7 @@ const loadMembers = async () => {
       total.value = Array.isArray(result) ? members.value.length : result.total
     } else {
       const result = props.cycleId
-        ? await projectManagementApi.cycleMembers(props.cycleId, keyword.value.trim() || undefined, page.value, pageSize.value, sortBy.value || undefined, sortOrder.value || undefined)
+        ? await projectManagementApi.cycleMembers(props.cycleId, keyword.value.trim() || undefined, page.value, pageSize.value, sortBy.value || undefined, sortOrder.value || undefined, ...(memberFilters.value.conditions.length ? [memberFilters.value] : []))
         : await projectManagementApi.members(props.projectId, keyword.value.trim() || undefined, page.value, pageSize.value, sortBy.value || undefined, sortOrder.value || undefined)
       if (sequence !== requestSequence) return
       updateSchema(result)
@@ -346,7 +365,7 @@ async function exportRows() {
     : context
       ? sortPerformanceRows((Array.isArray(result) ? result : ((result as { items?: PerformanceWorkbenchTaskPerson[] } | null)?.items || [])) as MemberRow[], sortBy.value, sortOrder.value, memberSortValue)
       : (props.cycleId
-        ? await projectManagementApi.cycleExportMembers(props.cycleId, keyword.value.trim() || undefined, sortBy.value || undefined, sortOrder.value || undefined)
+        ? await projectManagementApi.cycleExportMembers(props.cycleId, keyword.value.trim() || undefined, sortBy.value || undefined, sortOrder.value || undefined, ...(memberFilters.value.conditions.length ? [memberFilters.value] : []))
         : await projectManagementApi.exportMembers(props.projectId, keyword.value.trim() || undefined, sortBy.value || undefined, sortOrder.value || undefined)).items
   return [
     visibleColumns.value.map(column => column.label),
@@ -400,6 +419,8 @@ watch([() => props.projectId, () => props.cycleId, () => props.reviewContext?.no
 }, { immediate: true })
 watch([() => props.projectId, () => props.cycleId, () => props.reviewContext?.nodeId, () => props.reviewContext?.state, () => props.reviewContext?.phaseId, preferenceScopeKey], () => {
   page.value = 1
+  memberFilters.value = { logic: 'and', conditions: [] }
+  filterOpen.value = false
   selectedKeys.value = []
   selectedRows.value = {}
   members.value = []
@@ -415,6 +436,8 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
   <section class="member-list-panel" :class="{ 'member-list-panel--calibration': variant === 'calibration', 'member-list-panel--embedded': variant === 'embedded', 'member-list-panel--review': variant === 'review' }" aria-label="成员列表">
     <div class="card-sticky-mask" aria-hidden="true"></div>
     <PerformanceListToolbar
+      ref="memberToolbar"
+      :filter-label="memberFilters.conditions.length ? `筛选 (${memberFilters.conditions.length})` : '筛选'"
       v-model:keyword="keyword"
       class="member-list-toolbar"
       search-placeholder="搜索成员"
@@ -422,12 +445,13 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
       search-fill
       @search="page = 1; loadMembers()"
       @clear="page = 1; loadMembers()"
-      @filter="variant === 'calibration' || variant === 'embedded' ? (page = 1, loadMembers()) : emit('filter')"
+      @filter="variant === 'calibration' || variant === 'embedded' ? (page = 1, loadMembers()) : openMemberFilter()"
     >
       <template v-if="showExport" #actions>
         <PerformanceExportButton :load-rows="exportRows" :filename="`成员列表_${props.cycleId || props.projectId}`" :disabled="loading || Boolean(error) || !total" @success="exportNotice = '导出成功'" @error="exportNotice = '导出失败，请稍后重试'" />
       </template>
     </PerformanceListToolbar>
+    <PerformanceMemberFilter v-if="supportsMemberFilters" :visible="filterOpen" :anchor="filterAnchor" :cycle-id="cycleId!" :model-value="memberFilters" :context-key="preferenceScopeKey" @close="filterOpen = false" @apply="applyMemberFilters" />
     <PerformanceTableSummary :total="total" :hidden-column-count="hiddenColumnCount" @columns="openColumnDrawer" />
     <p v-if="preferenceError" role="alert">{{ preferenceError }} <UiButton variant="text" @click="loadPreference">重试</UiButton></p>
     <PerformanceManagementTable
@@ -489,13 +513,13 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
 .member-list-panel--embedded .card-sticky-mask { display: block; top: var(--performance-calibration-tabs-height); height: var(--performance-calibration-content-inset); margin: 0 calc(-1 * var(--performance-calibration-content-inset)); border-radius: var(--radius-lg); background: var(--color-bg-card); }
 .member-list-panel.member-list-panel--calibration { padding: var(--spacing-5); margin-top: var(--spacing-4); border-radius: var(--radius-lg); background: var(--color-bg-card); box-shadow: none; --performance-table-sticky-top: 0; }
 .member-list-panel--calibration .card-sticky-mask { display: none; }
-.member-list-panel { min-width:0; border-radius:8px; background:#fff; box-shadow:rgba(31,35,41,.03) 0 4px 16px 4px,rgba(31,35,41,.02) 0 4px 8px,rgba(31,35,41,.02) 0 2px 4px -4px; padding:0 20px 20px; color:#1f2329; --performance-table-container-padding: var(--performance-review-surface-inset); --performance-table-sticky-top: calc(var(--performance-tab-area-height) - 28px); }
-.card-sticky-mask { position: sticky; top: calc(var(--performance-table-sticky-top, 0px) - 20px); z-index: 19; flex: none; height: 20px; margin: 0 -20px; border-radius: 8px 8px 0 0; background: var(--color-bg-card, #fff); }
+.member-list-panel { min-width:0; border-radius:var(--radius-lg); background:var(--color-bg-card); box-shadow:var(--performance-member-scope-shadow); padding:0 var(--spacing-5) var(--spacing-5); color:var(--color-text-primary); --performance-table-container-padding: var(--performance-review-surface-inset); --performance-table-sticky-top: calc(var(--performance-tab-area-height) - var(--performance-button-height-small)); }
+.card-sticky-mask { position: sticky; top: calc(var(--performance-table-sticky-top, 0) - var(--spacing-5)); z-index: var(--performance-member-sticky-mask-z-index); flex: none; height: var(--spacing-5); margin: 0 calc(-1 * var(--spacing-5)); border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--color-bg-card); }
 .member-list-panel.member-list-panel--review { padding: 0; border-radius: 0; background: transparent; box-shadow: none; --performance-table-sticky-top: var(--performance-review-table-sticky-top, 0px); }
 .member-list-panel--review .card-sticky-mask { top: calc(var(--performance-table-sticky-top) - var(--performance-review-surface-inset)); height: var(--performance-review-surface-inset); margin: calc(-1 * var(--performance-review-surface-inset)) calc(-1 * var(--performance-review-surface-inset)) 0; }
 .member-list-toolbar{height:var(--control-height)}
-.rating-badge{display:inline-flex;align-items:center;justify-content:center;min-width:44px;height:24px;padding:0 10px;box-sizing:border-box;border-radius:9999px;font-size:14px;line-height:24px}.rating-badge--teal{background:#d5f6f2;color:#024b41}.rating-badge--blue{background:#e1eaff;color:#0c296e}.rating-badge--green{background:#d9f5d6;color:#124b0c}
+.rating-badge{display:inline-flex;align-items:center;justify-content:center;min-width:var(--performance-member-rating-min-width);height:var(--spacing-6);padding:0 var(--performance-comparison-detail-gap);box-sizing:border-box;border-radius:var(--radius-pill);font-size:var(--font-size-md);line-height:var(--spacing-6)}.rating-badge--teal{background:var(--performance-member-rating-teal-background);color:var(--performance-member-rating-teal-color)}.rating-badge--blue{background:var(--performance-member-rating-blue-background);color:var(--performance-member-rating-blue-color)}.rating-badge--green{background:var(--performance-member-rating-green-background);color:var(--performance-member-rating-green-color)}
 .table-text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .completion-text{color:var(--color-primary)}
-.member-state{display:grid;min-height:220px;place-items:center;color:#646a73;font-size:14px}.member-state--error{color:#d14343}
+.member-state{display:grid;min-height:var(--ui-table-empty-height);place-items:center;color:var(--color-text-secondary);font-size:var(--font-size-md)}.member-state--error{color:var(--color-danger)}
 </style>

@@ -808,11 +808,11 @@ describe('ProjectManagement', () => {
     expect(wrapper.findComponent({ name: 'ProjectMemberListPanel' }).exists()).toBe(true)
     // Tab 恢复 sticky（采集：ud__tabs pt-6 sticky z-30），表头/遮罩相对 Tab 区底减 8px 锁定（采集：header top 76px、mask top 56px）
     expect(wrapper.find('.line-tabs').classes()).toContain('sticky')
-    expect(memberListPanelSource).toMatch(/--performance-table-sticky-top:\s*calc\(var\(--performance-tab-area-height\) - 28px\)/)
+    expect(memberListPanelSource).toMatch(/--performance-table-sticky-top:\s*calc\(var\(--performance-tab-area-height\) - var\(--performance-button-height-small\)\)/)
     const table = wrapper.findComponent({ name: 'UiTable' })
     expect(table.props('stickyHeaderTop')).toBe('var(--performance-table-sticky-top, 0px)')
     expect(wrapper.find('.ui-table__header').exists()).toBe(true)
-    expect(memberListPanelSource).toMatch(/\.card-sticky-mask\s*\{[^}]*top:\s*calc\(var\(--performance-table-sticky-top, 0px\) - 20px\)/)
+    expect(memberListPanelSource).toMatch(/\.card-sticky-mask\s*\{[^}]*top:\s*calc\(var\(--performance-table-sticky-top, 0\) - var\(--spacing-5\)\)/)
   })
 
   it('renders real completion data and hides reminder actions for a not-started node', async () => {

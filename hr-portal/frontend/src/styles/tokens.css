@@ -453,6 +453,17 @@
   --drawer-leave-duration: 200ms;
   --performance-drawer-z-index: 2200;
   --performance-overlay: rgba(0, 0, 0, 0.45);
+  --performance-member-filter-width: 708px;
+  --performance-member-rating-min-width: 44px;
+  --performance-member-rating-teal-background: #d5f6f2;
+  --performance-member-rating-teal-color: #024b41;
+  --performance-member-rating-blue-background: #e1eaff;
+  --performance-member-rating-blue-color: #0c296e;
+  --performance-member-rating-green-background: #d9f5d6;
+  --performance-member-rating-green-color: #124b0c;
+  --performance-member-sticky-mask-z-index: 19;
+  --performance-member-filter-field-width: 240px;
+  --performance-member-filter-operator-width: 100px;
   --performance-popover-background: var(--color-bg-card);
   --performance-popover-border: #dee0e3;
   --performance-popover-border-width: 1px;
