@@ -130,6 +130,34 @@ async def _validate(params, user, db):
     return await validate(params, user, db)
 
 
+def _draft_sanitize(draft):
+    result = copy.deepcopy(draft)
+    for key in ("table_b", "period_field_a"):
+        if result.get(key) is not None and not isinstance(result[key], str):
+            result.pop(key)
+    if result.get("report_id") is not None and type(result["report_id"]) is not int:
+        result.pop("report_id")
+    if not isinstance(result.get("periods"), list):
+        result.pop("periods", None)
+    if not isinstance(result.get("metrics"), list):
+        result.pop("metrics", None)
+    if isinstance(result.get("periods"), list):
+        result["periods"] = [str(value).strip() for value in result["periods"] if value not in (None, "")]
+    if isinstance(result.get("metrics"), list):
+        result["metrics"] = [item for item in result["metrics"] if isinstance(item, dict)]
+        for metric in result["metrics"]:
+            for key in ("id", "label", "column_a", "expression_b"):
+                if metric.get(key) is not None and not isinstance(metric[key], str):
+                    metric.pop(key)
+    if not isinstance(result.get("dimension"), dict):
+        result.pop("dimension", None)
+    else:
+        for key in ("column_a", "column_b"):
+            if result["dimension"].get(key) is not None and not isinstance(result["dimension"][key], str):
+                result["dimension"].pop(key)
+    return result
+
+
 def _progress(draft, metadata, history, now):
     report = next((item for item in metadata.get("reports", []) if item["id"] == draft.get("report_id")), None)
     table = next((item for item in metadata.get("tables", []) if item["table"] == draft.get("table_b")), None)
@@ -137,7 +165,7 @@ def _progress(draft, metadata, history, now):
     lines.append("报表：" + (report.get("name", str(report["id"])) if report else "尚待识别"))
     lines.append("对照表：" + (table.get("label") or table["table"] if table else "尚待识别"))
     if draft.get("periods"):
-        lines.append("月份：" + "、".join(draft["periods"]))
+        lines.append("月份：" + "、".join(str(value) for value in draft["periods"]))
     intent = "\n".join(item["content"] for item in history if item["role"] == "user")
     recent = re.search(r"最近\s*([1-9]\d?|三)\s*个?月", intent)
     if recent and not draft.get("periods"):
@@ -150,8 +178,12 @@ def _progress(draft, metadata, history, now):
     numbers = {"number", "numeric", "decimal", "integer", "float"}
     if report:
         metrics = {item.get("column_a"): item for item in draft.get("metrics") or [] if isinstance(item, dict)}
-        candidates = [item for item in report["columns"] if item.get("data_type") in numbers and item.get("agg_role") == "measure"]
-        lines.append("金额候选（仅明确可加总的度量；不自动包含人数、比例；映射需确认）：")
+        measures = [item for item in report["columns"] if item.get("data_type") in numbers and item.get("agg_role") == "measure"]
+        uncertain = [item for item in measures if re.search(r"系数|人数|汇率|比例|比率|百分比|职级|headcount|coefficient|rate|ratio", str(item.get("label") or item["code"]), re.I)]
+        candidates = [item for item in measures if item not in uncertain]
+        lines.append("金额候选（可加总度量仍需核对金额含义及映射）：")
+        if uncertain:
+            lines.append("非金额/含义待核实，未纳入金额候选：" + "、".join(item.get("label") or item["code"] for item in uncertain))
         for column in candidates:
             metric = metrics.get(column["code"], {})
             label = column.get("label") or column["code"]
@@ -247,7 +279,10 @@ async def process_dialogue(data, user, db, model_call) -> dict:
             "patch允许kind=report_amount_v1,report_id,table_b,period_field_a,periods,"
             "metrics:[{id,label,column_a,expression_b,tolerance:十进制字符串}],"
             "dimension:{column_a,column_b,value_map_b:{B值:A值}}。"
-            "metrics修改返回完整指标列表并保留稳定id；维度值映射必须用户明确。\n"
+            "metrics修改返回完整指标列表并保留稳定id；维度值映射必须用户明确。"
+            "系数、人数、汇率、比例不是金额，不得建议系数映射headcount。"
+            "用户回答按建议执行只表示接受紧接上一轮具体建议，不是立即运行或确认全部缺项；"
+            "只落实该建议，不猜测缺失月份、容差、下钻维度。计算列不能静默省略，暂不映射项明确保留为排除待确认。\n"
             + json.dumps({"metadata": metadata, "draft": draft, "history": history,
                           "pending_questions": pending_questions, "progress": progress,
                           "business_date": now.date().isoformat(), "timezone": BUSINESS_TIMEZONE,
@@ -262,12 +297,12 @@ async def process_dialogue(data, user, db, model_call) -> dict:
             questions = raw.get("pending_questions", pending_questions)
             if not isinstance(patch, dict) or not isinstance(questions, list) or any(not isinstance(item, str) for item in questions):
                 raise ValueError("无效补丁或待确认事项")
-            draft = _merge(draft, patch)
+            draft = _draft_sanitize(_merge(draft, patch))
             _check_sources(draft, metadata)
             pending_questions = [item.strip() for item in questions if item.strip()]
         except (ValueError, TypeError):
             parse_failed = True
-            draft = copy.deepcopy(slots.get("params") or {"kind": "report_amount_v1"})
+            draft = _draft_sanitize(copy.deepcopy(slots.get("params") or {"kind": "report_amount_v1"}))
             raw = {}
             question = "未能识别有效修改，请明确来源、月份、金额指标或维度。"
         missing = _missing(draft)

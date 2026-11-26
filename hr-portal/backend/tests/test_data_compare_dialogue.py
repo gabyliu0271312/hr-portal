@@ -161,6 +161,15 @@ class DialogueTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("待确认", result["summary"])
         self.validator.assert_not_awaited()
 
+    async def test_numeric_period_values_are_safely_rendered_without_500(self):
+        metadata = copy.deepcopy(METADATA)
+        with patch.object(dialogue, "_metadata", AsyncMock(return_value=metadata)), \
+             patch.object(dialogue, "_validate", AsyncMock(return_value={"fingerprint": "v1"})):
+            model = AsyncMock(return_value=json.dumps({"patch": {"report_id": 1, "table_b": "payroll", "periods": [202609, 202610]}}))
+            result = await dialogue.process_dialogue({"instruction": "最近两个月"}, self.user, self.db, model)
+        self.assertEqual(result["status"], "requires_input")
+        self.assertIn("202609、202610", result["summary"])
+
     async def test_pending_suggestions_block_confirmation_even_with_complete_params(self):
         model = AsyncMock(return_value=json.dumps({"patch": PARAMS, "pending_questions": ["工资映射是否正确？"]}))
         result = await dialogue.process_dialogue({"instruction": "建议映射"}, self.user, self.db, model)
