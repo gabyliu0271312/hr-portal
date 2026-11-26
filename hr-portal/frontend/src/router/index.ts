@@ -633,8 +633,8 @@ const routes: RouteRecordRaw[] = [
         path: 'system/copy',
         name: 'PerformanceSystemCopy',
         component: () => import('@/views/performance/Settings.vue'),
-        props: { section: 'system', title: '字眼设置' },
-        meta: { label: '字眼设置' },
+        props: { section: 'system', title: '字段设置' },
+        meta: { label: '字段设置' },
       },
       {
         path: 'system/other',

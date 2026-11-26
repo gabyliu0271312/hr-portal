@@ -128,7 +128,7 @@ describe('PerformanceAdminLayout', () => {
     expect(submenu.text()).toContain('考核方式设置')
     expect(submenu.text()).toContain('通知设置')
     expect(submenu.text()).toContain('工作台设置')
-    expect(submenu.text()).toContain('字眼设置')
+    expect(submenu.text()).toContain('字段设置')
     expect(submenu.text()).toContain('其他设置')
 
     await submenu.findAll('button').find((button) => button.text() === '考核方式设置')!.trigger('click')

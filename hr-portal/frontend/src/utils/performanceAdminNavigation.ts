@@ -197,7 +197,7 @@ export const PERFORMANCE_ADMIN_SUBMENU_ITEMS: Record<'evaluation-questions' | 'p
     { key: 'PerformanceSystemAssessmentMethod', label: '考核方式设置' },
     { key: 'PerformanceSystemNotifications', label: '通知设置' },
     { key: 'PerformanceSystemWorkbench', label: '工作台设置' },
-    { key: 'PerformanceSystemCopy', label: '字眼设置' },
+    { key: 'PerformanceSystemCopy', label: '字段设置' },
     { key: 'PerformanceSystemOther', label: '其他设置' },
   ],
 }
