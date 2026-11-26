@@ -99,8 +99,27 @@ def _validate_warehouse_sink_config(config: dict, idx: int) -> None:
     if storage_mode == "legacy_v1":
         if "mapping" in config and not isinstance(config["mapping"], list):
             raise PipelineTemplateError(f"node[{idx}] 的 legacy_v1 mapping 必须是数组")
+        for rule_idx, rule in enumerate(config.get("mapping", [])):
+            if not isinstance(rule, dict) or any(
+                not isinstance(rule.get(field), str) or not rule[field].strip()
+                for field in ("source", "target")
+            ):
+                raise PipelineTemplateError(
+                    f"node[{idx}] 的 mapping[{rule_idx}] 必须配置非空的 source 和 target"
+                )
     else:
-        _validate_component_document(config, idx)
+        document = _validate_component_document(config, idx)
+        for rule_idx, rule in enumerate(document.ruleSet.rules):
+            if not rule.enabled:
+                continue
+            for field in ("sourceFields", "targetFields"):
+                fields = getattr(rule, field)
+                if not isinstance(fields, list) or not fields or any(
+                    not isinstance(value, str) or not value.strip() for value in fields
+                ):
+                    raise PipelineTemplateError(
+                        f"node[{idx}] 的 mapping_component.rules[{rule_idx}].{field} 必须为非空字段数组"
+                    )
 
 
 def _validate_node(node: Any, idx: int) -> dict:
@@ -208,6 +227,7 @@ async def _validate_warehouse_sink_assets(db: AsyncSession, nodes: list[dict]) -
             targets = [
                 target
                 for rule in document.ruleSet.rules
+                if rule.enabled
                 for target in rule.targetFields
             ]
             if not targets:
@@ -406,7 +426,7 @@ async def create_template(
     version = normalize_semver_version(version)
     if not TEMPLATE_CODE_RE.match(code):
         raise PipelineTemplateError(
-            f"template_code 格式错误: {code!r}"
+            "template_code 格式错误：流程编码须以大写字母开头，仅允许大写字母、数字和下划线，长度为3–64位，例如 COST_CENTER_SYNC"
         )
     if not SEMVER_RE.match(version):
         raise PipelineTemplateError(f"version 不是 semver: {version!r}")

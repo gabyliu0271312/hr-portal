@@ -70,7 +70,10 @@
         <h4>流程信息</h4>
         <el-form :model="form" label-width="60px" size="small" class="pipeline-info-form">
           <el-row :gutter="8">
-            <el-col :span="12"><el-form-item label="编码"><el-input v-model="form.template_code" :disabled="!!currentTpl" placeholder="code" size="small" /></el-form-item></el-col>
+            <el-col :span="24"><el-form-item label="流程编码" :error="templateCodeError">
+              <el-input ref="templateCodeInput" v-model="form.template_code" :disabled="!!currentTpl" placeholder="例如 COST_CENTER_SYNC" size="small" :aria-invalid="!!templateCodeError" aria-describedby="pipeline-code-requirements" @blur="templateCodeTouched = true" />
+              <p id="pipeline-code-requirements" class="pipeline-code-hint">{{ templateCodeRequirements }}</p>
+            </el-form-item></el-col>
             <el-col :span="12"><el-form-item label="名称"><el-input v-model="form.name" placeholder="流程名称" size="small" /></el-form-item></el-col>
           </el-row>
           <el-form-item label="描述" class="compact-item"><el-input v-model="form.description" type="textarea" :rows="2" placeholder="流程用途说明" size="small" /></el-form-item>
@@ -142,7 +145,7 @@
               <div class="text-muted">只补全空字段，北森原始字段保持优先。</div>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'WAREHOUSE_ASSET_SINK'">
-              <WarehouseAssetSinkConfig v-model="selectedNode.config" :upstream-fields="sinkUpstreamFields" />
+              <WarehouseAssetSinkConfig :key="selectedNode.id" v-model="selectedNode.config" :upstream-fields="sinkUpstreamFields" @save-state="onSinkSaveState(selectedNode.id, $event)" />
             </template>
             <template v-else-if="(selectedNode.type as string) === 'LOOP_RESOURCE' || selectedNode.type === 'LOOP'">
               <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.system_id = v; cfg.system_code = systems.find(x=>x.id===v)?.system_code || ''; selectedNode.config = cfg } }" clearable placeholder="选择系统" style="width:100%"><el-option v-for="s in systems" :key="s.id" :label="`${s.system_code} - ${s.system_name}`" :value="s.id" /></el-select></el-form-item>
@@ -228,6 +231,7 @@ import MappingWorkspace from '@/components/mapping/MappingWorkspace.vue'
 import WarehouseAssetSinkConfig from '@/components/ucp/WarehouseAssetSinkConfig.vue'
 import {
   createEmptyDocument,
+  sinkMappingDraftProblems,
   type MappingCaller,
   type MappingCompatibility,
   type MappingDocument,
@@ -359,6 +363,18 @@ function removeOfferMapping(index: number): void { if (!selectedNode.value) retu
 
 const currentTpl = ref<PipelineTemplate | null>(null)
 const form = reactive<{ template_code: string; name: string; description: string; version: string; change_note: string; nodes: PipelineNode[]; edges: PipelineEdge[] }>({ template_code: '', name: '', description: '', version: '1.0.0', change_note: '', nodes: [], edges: [] })
+const templateCodeRequirements = '大写字母开头，仅允许大写字母、数字和下划线，长度 3–64 位。例如 COST_CENTER_SYNC。'
+const templateCodeTouched = ref(false)
+const templateCodeInput = ref<{ focus: () => void } | null>(null)
+const templateCodeError = computed(() => {
+  if (currentTpl.value || !templateCodeTouched.value) return ''
+  return /^[A-Z][A-Z0-9_]{2,63}$/.test(form.template_code) ? '' : `流程编码不符合要求：${templateCodeRequirements}`
+})
+const sinkSaveStates = reactive<Record<string, { config: Record<string, any>; canSave: boolean; message: string }>>({})
+function onSinkSaveState(nodeId: string, state: { canSave: boolean; message: string }): void {
+  const node = form.nodes.find(item => item.id === nodeId)
+  if (node) sinkSaveStates[nodeId] = { config: node.config, ...state }
+}
 const selectedNodeId = ref<string | null>(null); const selectedNode = computed(() => form.nodes.find((n) => n.id === selectedNodeId.value) || null)
 const selectedBranchEdges = computed(() => selectedNode.value?.type === 'BRANCH' ? form.edges.filter((edge) => edge.from === selectedNode.value?.id) : [])
 const branchRouteOptions = [
@@ -1237,12 +1253,18 @@ function normalizeWarehouseSinkConfigs(): void {
         throw new Error(`${textKey === 'mapping_text' ? '字段映射' : '校验规则'} JSON 格式无效：${error instanceof Error ? error.message : String(error)}`)
       }
     }
+    const problems = sinkMappingDraftProblems(config)
+    const state = sinkSaveStates[node.id]
+    if (problems.length || (state?.config === config && !state.canSave)) {
+      selectedNodeId.value = node.id
+      throw new Error(`资产写入节点 ${node.label || node.id}：${problems.join('；') || state.message}。请打开“配置资产写入”修正后再保存`)
+    }
     if (config.write_mode === 'period_full_snapshot' && !config.period_field) {
       throw new Error('按期间全量快照必须选择期间字段')
     }
   }
 }
-async function saveTemplate(): Promise<void> { if (!form.template_code || !form.name) { ElMessage.error('编码和名称必填'); return }; saving.value = true; try { const blockedTransform = form.nodes.find((node) => { if (node.type !== 'TRANSFORM') return false; const result = documentFromTransformConfig((node.config || {}) as Record<string, any>); return result.compatibility.writable === false && !node.config?.mapping_component }); if (blockedTransform) throw new Error(`TRANSFORM 节点 ${blockedTransform.id} 存在有损字段，已阻断保存`); normalizeTransformStorageModes(); normalizeWarehouseSinkConfigs(); const dangerous = form.nodes.filter((node) => (node.type as string) === 'WAREHOUSE_ASSET_SINK' && ['replace', 'period_full_snapshot'].includes(String(node.config?.write_mode))); if (dangerous.length) await ElMessageBox.confirm(`以下节点将执行破坏性写入：${dangerous.map((node) => `${node.id} → ${node.config?.target_asset || '未选择资产'}`).join('；')}。确认保存？`, '危险写入确认', { type: 'warning' }); if (currentTpl.value) { const saved = await pipelineTemplateApi.update(currentTpl.value.template_code, { name: form.name, description: form.description, nodes: form.nodes, edges: form.edges, change_note: form.change_note || undefined }); currentTpl.value = { ...saved, nodes: form.nodes, edges: form.edges }; form.version = saved.version; ElMessage.success('已保存，新版本已创建') } else { const created = await pipelineTemplateApi.create({ template_code: form.template_code, name: form.name, description: form.description, nodes: form.nodes, edges: form.edges }); currentTpl.value = { ...created, nodes: form.nodes, edges: form.edges }; ElMessage.success('已创建') } } catch (e: unknown) { const detail = (e as { response?: { data?: { detail?: unknown } } }).response?.data?.detail; ElMessage.error(`保存失败: ${typeof detail === 'string' ? detail : e instanceof Error ? e.message : String(e)}`) } finally { saving.value = false } }
+async function saveTemplate(): Promise<void> { templateCodeTouched.value = true; if (templateCodeError.value) { ElMessage.error(templateCodeError.value); await nextTick(); templateCodeInput.value?.focus(); return }; if (!form.template_code || !form.name) { ElMessage.error('流程编码和名称必填'); return }; saving.value = true; try { const blockedTransform = form.nodes.find((node) => { if (node.type !== 'TRANSFORM') return false; const result = documentFromTransformConfig((node.config || {}) as Record<string, any>); return result.compatibility.writable === false && !node.config?.mapping_component }); if (blockedTransform) throw new Error(`TRANSFORM 节点 ${blockedTransform.id} 存在有损字段，已阻断保存`); normalizeTransformStorageModes(); normalizeWarehouseSinkConfigs(); const dangerous = form.nodes.filter((node) => (node.type as string) === 'WAREHOUSE_ASSET_SINK' && ['replace', 'period_full_snapshot'].includes(String(node.config?.write_mode))); if (dangerous.length) await ElMessageBox.confirm(`以下节点将执行破坏性写入：${dangerous.map((node) => `${node.id} → ${node.config?.target_asset || '未选择资产'}`).join('；')}。确认保存？`, '危险写入确认', { type: 'warning' }); if (currentTpl.value) { const saved = await pipelineTemplateApi.update(currentTpl.value.template_code, { name: form.name, description: form.description, nodes: form.nodes, edges: form.edges, change_note: form.change_note || undefined }); currentTpl.value = { ...saved, nodes: form.nodes, edges: form.edges }; form.version = saved.version; ElMessage.success('已保存，新版本已创建') } else { const created = await pipelineTemplateApi.create({ template_code: form.template_code, name: form.name, description: form.description, nodes: form.nodes, edges: form.edges }); currentTpl.value = { ...created, nodes: form.nodes, edges: form.edges }; ElMessage.success('已创建') } } catch (e: unknown) { const detail = (e as { response?: { data?: { detail?: unknown } } }).response?.data?.detail; ElMessage.error(`保存失败: ${typeof detail === 'string' ? detail : e instanceof Error ? e.message : String(e)}`) } finally { saving.value = false } }
 
 const dryRunVisible = ref(false)
 const dryRunResult = ref<Awaited<ReturnType<typeof ucpApi.runPipeline>> | null>(null)
@@ -1403,6 +1425,8 @@ onBeforeUnmount(() => {
 .empty-tip { text-align: center; padding: 60px 0; color: var(--color-text-placeholder) }
 .empty-tip p { margin: var(--spacing-2) 0 0; font-size: var(--font-size-sm) }
 .pipeline-info-form :deep(.el-form-item) { margin-bottom: var(--spacing-2) }
+.pipeline-info-form :deep(.el-form-item__error) { position: static; line-height: 1.6 }
+.pipeline-code-hint { margin: var(--spacing-2) 0 0; color: var(--color-text-secondary); font-size: var(--font-size-xs); line-height: 1.6 }
 .pipeline-info-form .compact-item :deep(.el-form-item) { margin-bottom: 0 }
 .field-mappings { margin-bottom: var(--spacing-2) }
 .mapping-row { display: flex; align-items: center; gap: var(--spacing-2); margin-bottom: var(--spacing-2) }

@@ -70,7 +70,7 @@
               <span>上游字段目录：{{ upstreamSummary }}</span>
             </div>
             <el-alert v-if="lossyWriteBlocked" class="lossy-write-blocked" type="error" :closable="false" show-icon>
-              <template #title>lossy_write_blocked：{{ mappingSaveState.message }}</template>
+              <template #title>暂不能保存：{{ mappingSaveState.message }}</template>
             </el-alert>
             <MappingWorkspace
               :model-value="mappingDocument"
@@ -114,6 +114,7 @@ import { Connection } from '@element-plus/icons-vue'
 import {
   RULE_TYPES,
   mappingApi,
+  sinkMappingDraftProblems,
   type MappingCallerPolicy,
   type MappingCompatibility,
   type MappingDocument,
@@ -127,7 +128,7 @@ import UiStepFlow from '@/components/ui/UiStepFlow.vue'
 
 interface MappingSaveState {
   canSave: boolean
-  code: 'lossy_write_blocked' | null
+  code: 'lossy_write_blocked' | 'mapping_incomplete' | null
   message: string
   lossyFields: string[]
 }
@@ -234,7 +235,7 @@ const mappingPolicy = computed<MappingCallerPolicy>(() => ({
   referenceLookup: { allowedDatasetIds: [], allowedFieldIds: [], maxRules: 20 },
   effects: {
     allowPreview: true,
-    allowSave: canSave.value,
+    allowSave: adapterReadLossyFields.value.length === 0,
     allowPublish: false,
     allowExecute: false,
     allowRebuild: false,
@@ -466,12 +467,15 @@ function buildLegacyMapping(document: MappingDocument): { mapping?: LegacyMappin
   return lossyFields.length ? { lossyFields } : { mapping: output, lossyFields: [] }
 }
 
-const isComponentV1 = computed(() => dialogVisible.value && Boolean(config.value.mapping_component && typeof config.value.mapping_component === 'object'))
+const isComponentV1 = computed(() => Boolean(config.value.mapping_component && typeof config.value.mapping_component === 'object'))
 
 /** 目标字段业务校验（与存储模式无关）：目标必须在白名单、非只读、不得覆盖主键既有映射。 */
 function validateTargetContract(document: MappingDocument): string[] {
   const problems: string[] = []
+  if (document.mappingSchemaVersion !== 1) problems.push('mappingSchemaVersion')
+  if (document.ruleSet.targetAsset !== (config.value.target_asset || null)) problems.push('target_asset')
   document.ruleSet.rules.forEach((rule) => {
+    if (rule.enabled === false) return
     rule.targetFields.forEach((target) => {
       if (!target) return
       if (!fieldWhitelist.value.includes(target)) {
@@ -495,34 +499,32 @@ function validateTargetContract(document: MappingDocument): string[] {
 }
 
 function updateSaveState(lossyFields: string[]): void {
-  // component_v1 模式下，legacy 表达的有损不阻断（component 可表达），但目标字段业务校验仍执行。
-  const contractProblems = isComponentV1.value ? validateTargetContract(mappingDocument.value) : []
-  const next: MappingSaveState = isComponentV1.value
-    ? contractProblems.length
-      ? { canSave: false, code: 'lossy_write_blocked', message: contractProblems.join('；'), lossyFields: contractProblems }
+  const contractProblems = validateTargetContract(mappingDocument.value)
+  const blockingLoss = isComponentV1.value ? contractProblems : lossyFields
+  const draftProblems = sinkMappingDraftProblems(isComponentV1.value
+    ? { ...config.value, mapping_component: mappingDocument.value }
+    : config.value)
+  const next: MappingSaveState = blockingLoss.length
+    ? { canSave: false, code: 'lossy_write_blocked', message: blockingLoss.join('；'), lossyFields: [...blockingLoss] }
+    : draftProblems.length
+      ? { canSave: false, code: 'mapping_incomplete', message: draftProblems.join('；'), lossyFields: [] }
       : { canSave: true, code: null, message: '', lossyFields: [] }
-    : lossyFields.length
-      ? { canSave: false, code: 'lossy_write_blocked', message: lossyFields.join('；'), lossyFields: [...lossyFields] }
-      : { canSave: true, code: null, message: '', lossyFields: [] }
-  const changed = JSON.stringify(next) !== JSON.stringify(mappingSaveState.value)
   mappingSaveState.value = next
   compatibility.value = {
     ...compatibility.value,
-    writable: next.canSave,
-    requiresMigration: !next.canSave,
-    lossyFields: [...next.lossyFields],
+    writable: adapterReadLossyFields.value.length === 0,
+    requiresMigration: adapterReadLossyFields.value.length > 0,
+    lossyFields: [...adapterReadLossyFields.value],
     unknownFields: adapterUnknownFields.value,
   }
-  if (!changed) return
   emit('save-state', clone(next))
-  if (!next.canSave) emit('lossy-write-blocked', clone(next))
+  if (next.code === 'lossy_write_blocked') emit('lossy-write-blocked', clone(next))
 }
 
 function syncDocumentToLegacy(emitUpdate = true): void {
   const result = buildLegacyMapping(mappingDocument.value)
   updateSaveState(result.lossyFields)
-  // component_v1 运行时来源仅在弹窗打开时同步（旧流程保持 legacy 不受影响）。
-  if (isComponentV1.value) {
+  if (isComponentV1.value && emitUpdate) {
     config.value.mapping_component = clone(mappingDocument.value)
     config.value.storageMode = 'component_v1'
   }
@@ -582,7 +584,7 @@ function syncRules(): void {
   })
 }
 
-watch([() => props.modelValue.target_asset, () => props.modelValue.mapping], initializeMappingAdapter, { immediate: true })
+watch([() => props.modelValue, () => props.modelValue.target_asset, () => props.modelValue.mapping], initializeMappingAdapter, { immediate: true })
 watch([fieldWhitelist, readonlyFields, protectedKeyFields], () => syncDocumentToLegacy(false), { deep: true })
 watch(() => props.modelValue.target_asset, async (value) => {
   ensureConfig()
@@ -600,6 +602,7 @@ listAssets({ asset_status: 'published', page_size: 200 }).then((result: any) => 
 function openDialog(): void {
   ensureConfig()
   ensureComponentV1()
+  syncDocumentToLegacy(false)
   dialogStep.value = 0
   dialogVisible.value = true
 }
@@ -612,7 +615,6 @@ function finishDialog(): void { dialogVisible.value = false }
  * 仅当 legacy 映射可无损表达时升级；有损 legacy（含无法表达的自定义 transform）保持 legacy 模式并阻断保存，不静默丢字段。 */
 function ensureComponentV1(): void {
   if (config.value.mapping_component && typeof config.value.mapping_component === 'object') return
-  if (config.value.storageMode === 'component_v1') return
   if (adapterReadLossyFields.value.length) return
   const legacyResult = buildLegacyMapping(mappingDocument.value)
   if (legacyResult.lossyFields.length) return

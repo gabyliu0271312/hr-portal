@@ -1,6 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import WarehouseAssetSinkConfig from './WarehouseAssetSinkConfig.vue'
+import MappingWorkspace from '@/components/mapping/MappingWorkspace.vue'
+import { createEmptyDocument, createEmptyRule, RULE_TYPES, sinkMappingDraftProblems } from '@/api/mapping'
 
 const api = vi.hoisted(() => ({ assets: vi.fn(), columns: vi.fn(), asset: vi.fn() }))
 vi.mock('@/api/warehouse', () => ({ listAssets: api.assets, listAssetColumns: api.columns, getAsset: api.asset }))
@@ -132,8 +134,36 @@ describe('WarehouseAssetSinkConfig', () => {
     expect((wrapper.vm as any).lossyWriteBlocked).toBe(true)
     expect((wrapper.vm as any).mappingSaveState).toMatchObject({ code: 'lossy_write_blocked', canSave: false })
     expect(wrapper.emitted('lossy-write-blocked')?.at(-1)?.[0]).toMatchObject({ code: 'lossy_write_blocked', canSave: false })
-    expect(wrapper.find('.lossy-write-blocked').text()).toContain('lossy_write_blocked')
-    expect(workspace.props('policy').effects.allowSave).toBe(false)
+    expect(wrapper.find('.lossy-write-blocked').text()).toContain('暂不能保存')
+    expect(workspace.props('policy').effects.allowSave).toBe(true)
+    expect(workspace.props('compatibility').writable).toBe(true)
+    document.ruleSet.rules[0].sourceFields = ['period']
+    await workspace.vm.$emit('update:modelValue', document)
+    await flushPromises()
+    expect((wrapper.vm as any).canSave).toBe(true)
+  })
+
+  it.each(RULE_TYPES)('%s 空草稿阻止提交且禁用后不参与必填校验', (type) => {
+    const document = createEmptyDocument()
+    const complete = createEmptyRule('field')
+    complete.sourceFields = ['period']
+    complete.targetFields = ['cost_period']
+    const draft = createEmptyRule(type)
+    document.ruleSet.rules = [complete, draft]
+    const config = { storageMode: 'component_v1', mapping_component: document }
+    expect(sinkMappingDraftProblems(config)).toEqual(['第 2 条映射缺少源字段和目标字段，请补全或删除该规则'])
+    draft.enabled = false
+    expect(sinkMappingDraftProblems(config)).toEqual([])
+  })
+
+  it.each(['split', 'merge'])('保留 %s 的多字段映射', (action) => {
+    const document = createEmptyDocument()
+    const rule = createEmptyRule('split_merge')
+    rule.sourceFields = action === 'split' ? ['name'] : ['first_name', 'last_name']
+    rule.targetFields = action === 'split' ? ['first_name', 'last_name'] : ['name']
+    rule.config = { action: action as 'split' | 'merge', delimiter: ' ', nullBehavior: 'keep_null' }
+    document.ruleSet.rules = [rule]
+    expect(sinkMappingDraftProblems({ mapping_component: document })).toEqual([])
   })
 
   it('首次建立业务主键映射时允许保存为 component_v1', async () => {
@@ -175,6 +205,82 @@ describe('WarehouseAssetSinkConfig', () => {
     expect(config.storageMode).toBe('component_v1')
     expect(config.mapping_component.ruleSet.rules[1]).toMatchObject({ type: 'value_map', config: { mappings: { '100': '1' } } })
     expect(config.mapping).toEqual(legacySnapshot)
+  })
+
+  it('真实工作区新增空草稿后仍可逐字段补全、清空与删除，重挂载不锁定', async () => {
+    const config: Record<string, any> = sinkConfig({ mapping: [] })
+    const liveStubs = {
+      ...stubs,
+      MappingWorkspace: false,
+      'el-button': { props: ['disabled'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
+      'el-dropdown': { name: 'ElDropdown', emits: ['command'], template: '<div><slot /><slot name="dropdown" /></div>' },
+      'el-dropdown-menu': { template: '<div><slot /></div>' },
+      'el-dropdown-item': true,
+      'el-switch': true,
+      'el-select': { props: ['modelValue'], template: '<select :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"><option value="" /><slot /></select>' },
+      'el-option': { props: ['value', 'label'], template: '<option :value="value">{{ label }}</option>' },
+      'el-radio-group': true,
+      'el-radio-button': true,
+    }
+    let wrapper = mount(WarehouseAssetSinkConfig, { props: { modelValue: config, upstreamFields: [{ code: 'period', label: '期间' }] }, global: { stubs: liveStubs } })
+    ;(wrapper.vm as any).openDialog()
+    await flushPromises()
+    let workspace = wrapper.getComponent(MappingWorkspace)
+    await workspace.getComponent({ name: 'ElDropdown' }).vm.$emit('command', 'field')
+    await flushPromises()
+    expect((wrapper.vm as any).mappingSaveState.code).toBe('mapping_incomplete')
+    expect((workspace.vm as any).canEdit).toBe(true)
+    let selects = workspace.findAll('select')
+    await selects[0].setValue('period')
+    expect((wrapper.vm as any).canSave).toBe(false)
+    await selects[1].setValue('headcount')
+    await flushPromises()
+    expect((wrapper.vm as any).canSave).toBe(true)
+    await selects[0].setValue('')
+    await flushPromises()
+    expect((wrapper.vm as any).canSave).toBe(false)
+    wrapper.unmount()
+    wrapper = mount(WarehouseAssetSinkConfig, { props: { modelValue: config }, global: { stubs: liveStubs } })
+    await flushPromises()
+    expect((wrapper.vm as any).mappingSaveState.code).toBe('mapping_incomplete')
+    ;(wrapper.vm as any).openDialog()
+    await flushPromises()
+    workspace = wrapper.getComponent(MappingWorkspace)
+    expect((workspace.vm as any).canEdit).toBe(true)
+    await workspace.get('.rule-toggle').trigger('click')
+    selects = workspace.findAll('select')
+    await selects[0].setValue('period')
+    await flushPromises()
+    expect((wrapper.vm as any).canSave).toBe(true)
+    await workspace.getComponent({ name: 'ElDropdown' }).vm.$emit('command', 'field')
+    await flushPromises()
+    expect((wrapper.vm as any).canSave).toBe(false)
+    const deleteButtons = workspace.findAll('button').filter(button => button.text() === '删除')
+    await deleteButtons[1].trigger('click')
+    await flushPromises()
+    expect((wrapper.vm as any).canSave).toBe(true)
+    expect(config.mapping_component.ruleSet.rules).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('component_v1 标记缺文档时从无损 legacy 恢复，已有 component 文档不受弹窗开关影响', async () => {
+    const config: Record<string, any> = sinkConfig({ storageMode: 'component_v1' })
+    const wrapper = mountConfig(config)
+    await flushPromises()
+    expect(config.mapping_component).toBeTruthy()
+    expect((wrapper.vm as any).canSave).toBe(true)
+    wrapper.unmount()
+    const document = createEmptyDocument()
+    document.ruleSet.targetAsset = config.target_asset
+    document.ruleSet.rules = [createEmptyRule('field')]
+    config.mapping_component = document
+    const reopened = mount(WarehouseAssetSinkConfig, { props: { modelValue: config }, global: { stubs } })
+    await flushPromises()
+    expect((reopened.vm as any).mappingSaveState.code).toBe('mapping_incomplete')
+    ;(reopened.vm as any).openDialog()
+    await flushPromises()
+    expect(reopened.getComponent(MappingWorkspaceStub).props('compatibility').writable).toBe(true)
+    reopened.unmount()
   })
 
   it('unsupported legacy transform 初次读取即阻断无损写回且不丢原 mapping', async () => {

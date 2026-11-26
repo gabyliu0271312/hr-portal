@@ -2,12 +2,13 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+  createTemplate: vi.fn(), updateTemplate: vi.fn(), routeQuery: { code: 'PIPELINE_DEMO' } as Record<string, string>,
   nodeTypes: vi.fn(), getTemplate: vi.fn(), systems: vi.fn(), resources: vi.fn(), capabilityCatalog: vi.fn(), resourceDataObjects: vi.fn(),
   pipelineTriggers: vi.fn(), platformEventCatalog: vi.fn(), listAssets: vi.fn(), listAssetColumns: vi.fn(),
 }))
 
 vi.mock('@/api/ucp', () => ({
-  pipelineTemplateApi: { nodeTypes: mocks.nodeTypes, get: mocks.getTemplate },
+  pipelineTemplateApi: { nodeTypes: mocks.nodeTypes, get: mocks.getTemplate, create: mocks.createTemplate, update: mocks.updateTemplate },
   ucpApi: {
     systems: mocks.systems, resources: mocks.resources, capabilityCatalog: mocks.capabilityCatalog, resourceDataObjects: mocks.resourceDataObjects,
     pipelineTriggers: mocks.pipelineTriggers, platformEventCatalog: mocks.platformEventCatalog,
@@ -16,19 +17,20 @@ vi.mock('@/api/ucp', () => ({
 vi.mock('@/api/warehouse', () => ({ listAssets: mocks.listAssets, listAssetColumns: mocks.listAssetColumns }))
 vi.mock('@/components/mapping/MappingWorkspace.vue', () => ({ default: { name: 'MappingWorkspace', props: ['modelValue', 'policy', 'compatibility', 'sourceFields', 'targetFields'], emits: ['update:modelValue'], template: '<div class="mapping-workspace-stub" :data-caller="policy.caller" :data-source-format="compatibility?.sourceFormat || \'\'">MappingWorkspace</div>' } }))
 vi.mock('element-plus', () => ({ ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn() }, ElMessageBox: { confirm: vi.fn() } }))
-vi.mock('vue-router', () => ({ useRoute: () => ({ query: { code: 'PIPELINE_DEMO' } }), useRouter: () => ({ push: vi.fn() }) }))
+vi.mock('vue-router', () => ({ useRoute: () => ({ query: mocks.routeQuery }), useRouter: () => ({ push: vi.fn() }) }))
 
 const { default: PipelineDesignerView } = await import('./PipelineDesignerView.vue')
 
 const stubs = {
   'el-button': { props: ['disabled', 'loading'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
   'el-divider': true, 'el-icon': true, 'el-skeleton': true, 'el-tag': true, 'el-dialog': true,
-  'el-form': { template: '<form><slot /></form>' }, 'el-form-item': { template: '<div><slot /></div>' },
-  'el-row': true, 'el-col': true, 'el-table': true, 'el-table-column': true, 'el-input-number': true,
-  'el-input': { inheritAttrs: false, props: ['modelValue'], template: '<input :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />' },
+  'el-form': { template: '<form><slot /></form>' }, 'el-form-item': { props: ['error'], template: '<div><slot /><span v-if="error" class="field-error">{{ error }}</span></div>' },
+  'el-row': { template: '<div><slot /></div>' }, 'el-col': { template: '<div><slot /></div>' }, 'el-table': true, 'el-table-column': true, 'el-input-number': true,
+  'el-input': { inheritAttrs: false, props: ['modelValue'], methods: { focus() {} }, template: '<input :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />' },
   'el-switch': { template: '<input type="checkbox" />' },
   'el-select': { props: ['modelValue', 'disabled'], template: '<select :value="modelValue" :disabled="disabled" @change="$emit(\'update:modelValue\', $event.target.value); $emit(\'change\')"><slot /></select>' },
   'el-option': { props: ['label', 'value'], template: '<option :value="value">{{ label }}</option>' },
+  WarehouseAssetSinkConfig: { name: 'WarehouseAssetSinkConfig', props: ['modelValue'], emits: ['save-state'], template: '<div class="sink-config-stub" />' },
   ScheduleSelector: { template: '<div />' },
 }
 
@@ -38,7 +40,10 @@ function mountView() {
 
 describe('PipelineDesignerView canvas interaction', () => {
   beforeEach(() => {
-    Object.values(mocks).forEach((mock: any) => mock.mockReset())
+    Object.values(mocks).forEach((mock: any) => mock.mockReset?.())
+    mocks.routeQuery.code = 'PIPELINE_DEMO'
+    mocks.createTemplate.mockImplementation(async payload => ({ ...payload, version: '1.0.0' }))
+    mocks.updateTemplate.mockImplementation(async (code, payload) => ({ ...payload, template_code: code, version: '1.0.1' }))
     mocks.nodeTypes.mockResolvedValue({ node_types: [
       { type: 'START_TRIGGER', label: '流程起点', color: '#1f9d7a', palette: true, config_schema: {} },
       { type: 'CONNECTOR', label: '资源调用', color: '#409eff', palette: true, config_schema: {} },
@@ -55,6 +60,56 @@ describe('PipelineDesignerView canvas interaction', () => {
     mocks.pipelineTriggers.mockResolvedValue({ items: [{ trigger_code: 'MANUAL_DEMO', trigger_type: 'MANUAL', trigger_name: '人工启动', is_active: true }] })
     mocks.platformEventCatalog.mockResolvedValue({ items: [{ category: 'DATA_CHANGE', category_name: '数据变更', source: 'DATA_WAREHOUSE', source_name: '数据仓库', event_type: 'datasource_sync_completed', event_name: '入仓同步完成', enabled: true, filter_fields: ['table_name'] }] })
     mocks.listAssets.mockResolvedValue({ items: [] }); mocks.listAssetColumns.mockResolvedValue({ items: [] })
+  })
+
+  it('新建编码错误在字段处显示完整要求并拦截请求，修正后可保存', async () => {
+    delete mocks.routeQuery.code
+    const wrapper = mountView(); await flushPromises()
+    const vm = wrapper.vm as any
+    vm.form.template_code = 'cost_center'
+    vm.form.name = '成本中心同步'
+    await wrapper.findAll('button').find(button => button.text() === '保存')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('#pipeline-code-requirements').text()).toContain('大写字母开头')
+    expect(wrapper.get('.field-error').text()).toContain('仅允许大写字母、数字和下划线，长度 3–64 位')
+    expect(wrapper.get('.field-error').text()).toContain('COST_CENTER_SYNC')
+    expect(mocks.createTemplate).not.toHaveBeenCalled()
+    vm.form.template_code = 'COST_CENTER_SYNC'
+    await flushPromises()
+    expect(wrapper.find('.field-error').exists()).toBe(false)
+    await wrapper.findAll('button').find(button => button.text() === '保存')!.trigger('click')
+    await flushPromises()
+    expect(mocks.createTemplate).toHaveBeenCalledWith(expect.objectContaining({ template_code: 'COST_CENTER_SYNC' }))
+    wrapper.unmount()
+  })
+
+  it('未挂载的资产写入节点包含空草稿也禁止保存，修正后恢复', async () => {
+    const wrapper = mountView(); await flushPromises(); await flushPromises()
+    const vm = wrapper.vm as any
+    vm.form.nodes.push({ id: 'sink', type: 'WAREHOUSE_ASSET_SINK', label: '成本中心写入', x: 600, y: 96, config: {
+      target_asset: 'cost_center_tree', write_mode: 'upsert', field_whitelist: ['code', 'name'], storageMode: 'component_v1', mapping: [],
+      mapping_component: { mappingSchemaVersion: 1, ruleSet: { code: 'sink', name: 'sink', targetAsset: 'cost_center_tree', sourceSchemaHash: '', targetSchemaHash: '', rules: [
+        { id: 'valid', type: 'field', enabled: true, sourceFields: ['src_code'], targetFields: ['code'], config: { mode: 'rename' } },
+        { id: 'draft', type: 'field', enabled: true, sourceFields: [], targetFields: [], config: { mode: 'rename' } },
+      ] } },
+    } })
+    await vm.saveTemplate(); await flushPromises()
+    expect(mocks.updateTemplate).not.toHaveBeenCalled()
+    const { ElMessage } = await import('element-plus')
+    expect(ElMessage.error).toHaveBeenLastCalledWith(expect.stringContaining('第 2 条映射缺少源字段和目标字段'))
+    expect(vm.selectedNodeId).toBe('sink')
+    const sink = vm.form.nodes.find((node: any) => node.id === 'sink')
+    sink.config.mapping_component.ruleSet.rules.pop()
+    const configComponent = wrapper.getComponent({ name: 'WarehouseAssetSinkConfig' })
+    await configComponent.vm.$emit('save-state', { canSave: false, message: '目标字段不在白名单中' })
+    await wrapper.get('.node-card.start-trigger').trigger('click')
+    await vm.saveTemplate(); await flushPromises()
+    expect(mocks.updateTemplate).not.toHaveBeenCalled()
+    await flushPromises()
+    await wrapper.getComponent({ name: 'WarehouseAssetSinkConfig' }).vm.$emit('save-state', { canSave: true, message: '' })
+    await vm.saveTemplate(); await flushPromises()
+    expect(mocks.updateTemplate).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
   })
 
   it('keeps the start card fixed and moves platform-event controls to the right panel', async () => {

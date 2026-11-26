@@ -392,6 +392,30 @@ export const costCenterMappingApi = {
   },
 }
 
+export function sinkMappingDraftProblems(config: Record<string, any>): string[] {
+  const component = config.mapping_component
+  const isComponent = component && typeof component === 'object'
+  if (config.storageMode === 'component_v1' && !isComponent) return ['字段映射文档缺失，请打开资产写入配置重新配置']
+  const rules = isComponent ? component.ruleSet?.rules : config.mapping
+  if (!Array.isArray(rules)) return ['字段映射格式无效']
+  const activeRules = isComponent ? rules.filter(rule => rule?.enabled !== false) : rules
+  if (!activeRules.length) return ['请至少配置一条启用的字段映射']
+  const problems: string[] = []
+  rules.forEach((rule, index) => {
+    if (isComponent && rule?.enabled === false) return
+    const fields = isComponent ? [rule?.sourceFields, rule?.targetFields] : [[rule?.source], [rule?.target]]
+    const missing = fields.map((values, fieldIndex) => (
+      !Array.isArray(values) || !values.length || values.some(value => typeof value !== 'string' || !value.trim())
+        ? ['源字段', '目标字段'][fieldIndex] : ''
+    )).filter(Boolean)
+    if (missing.length) problems.push(`第 ${index + 1} 条映射缺少${missing.join('和')}，请补全或删除该规则`)
+    if (!isComponent && !['identity', 'string', 'decimal', 'decimal_divide_100', 'trim', 'yyyy_mm_to_yyyymm'].includes(rule?.transform || 'identity')) {
+      problems.push(`第 ${index + 1} 条旧映射包含无法无损转换的规则，请保留原配置并检查转换方式`)
+    }
+  })
+  return problems
+}
+
 // -- 工厂函数 ---------------------------------------------------------------
 
 export function createEmptyRule(type: MappingRuleType): MappingRule {
