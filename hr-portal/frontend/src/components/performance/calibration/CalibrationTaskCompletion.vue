@@ -15,7 +15,8 @@ let sequence = 0
 const entryDisabled = computed(() => props.scope.read_only || props.scope.status === 'completed' || loading.value)
 const blocked = computed(() => preview.value?.blocked_reason === 'CALIBRATION_DISTRIBUTION_VIOLATED' || Boolean(tips.value?.rules.some(rule => rule.conditions.some(condition => condition.control_mode === 'HARD' && condition.violated))))
 const allowed = computed(() => Boolean(preview.value?.can_complete) && !blocked.value && !stale.value)
-const title = computed(() => blocked.value ? '不符合强制分布规则，请调整后重新提交' : '确定要完成当前校准任务吗？')
+const hasSoftViolation = computed(() => Boolean(tips.value?.rules.some(rule => rule.conditions.some(condition => condition.control_mode === 'SOFT' && condition.violated))))
+const title = computed(() => blocked.value ? '不符合强制分布规则，请调整后重新提交' : '确定要完成校准嘛')
 async function inspect() {
   const request = ++sequence, scope = props.scope
   loading.value = true; error.value = ''; stale.value = false; preview.value = null; tips.value = null
@@ -55,11 +56,9 @@ onBeforeUnmount(() => { ++sequence; emit('busy', false) })
     <p v-if="error" role="alert" class="calibration-completion__error">{{ error }}</p>
     <template v-if="preview && !blocked">
       <p>仅完成当前校准任务，其他项目、阶段和规则任务保持原状态。</p>
-      <p v-if="preview.missing_result_count">当前范围有 {{ preview.missing_result_count }} 人尚无校准结果，仍可确认完成。</p>
-      <p v-if="preview.has_original_tasks === false">本次仅完成你的授权任务，原校准人仍需完成父任务。</p>
-      <p v-else>完成后将锁定该范围终评，校准窗口内仍可继续调整校准结果。</p>
+      <p v-if="preview.missing_result_count">有{{ preview.missing_result_count }}名员工没有绩效结果</p>
     </template>
-    <PerformanceDistributionTipsPanel v-if="blocked" :tips="tips" />
+    <PerformanceDistributionTipsPanel v-if="blocked || (preview && hasSoftViolation)" :tips="tips" />
     <template #footer><div class="calibration-completion__actions">
       <UiButton v-if="!blocked" :disabled="loading" @click="visible = false">取消</UiButton>
       <UiButton v-if="blocked" variant="primary" :disabled="loading" @click="visible = false">继续校准</UiButton>

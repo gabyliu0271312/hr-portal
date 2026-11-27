@@ -13,7 +13,7 @@ describe('task-scoped calibration completion', () => {
   it('confirms only selected scope with preview version, does not emit on failure, and requires new preview after 409', async () => {
     const wrapper = mount(CalibrationTaskCompletion, { attachTo: document.body, props: { scope } })
     await click('完成校准')
-    expect(document.body.textContent).toContain('1 人尚无校准结果')
+    expect(document.body.textContent).toContain('有1名员工没有绩效结果')
     vi.mocked(performanceCalibrationApi.confirm).mockRejectedValueOnce({ response: { status: 409 } })
     await click('确定')
     expect(wrapper.emitted('completed')).toBeUndefined()
@@ -38,11 +38,12 @@ describe('task-scoped calibration completion', () => {
     expect(performanceCalibrationApi.confirm).not.toHaveBeenCalled()
     wrapper.unmount()
   })
-  it('states delegated completion without promising the parent final-review lock', async () => {
+  it('uses unified confirmation without delegated wording or a parent-lock promise', async () => {
     vi.mocked(performanceCalibrationApi.preview).mockResolvedValueOnce({ ...preview, has_original_tasks: false })
     const wrapper = mount(CalibrationTaskCompletion, { attachTo: document.body, props: { scope } })
     await click('完成校准')
-    expect(document.body.textContent).toContain('本次仅完成你的授权任务，原校准人仍需完成父任务')
+    expect(document.body.textContent).toContain('确定要完成校准嘛')
+    expect(document.body.textContent).not.toContain('本次仅完成你的授权任务')
     expect(document.body.textContent).not.toContain('锁定该范围终评')
     wrapper.unmount()
   })
@@ -91,12 +92,46 @@ describe('task-scoped calibration completion', () => {
     vi.mocked(performanceCalibrationApi.distribution).mockResolvedValueOnce({ ...tips, enabled: true, rules: [{ assessment_item_id: 'grade', assessment_label: '绩效评级', conditions: [{ control_mode: 'SOFT', grades: ['优秀'], operator: 'LTE', value: 25, unit: 'PERCENT', rounding: 'ROUND', target_people: 0, current_people: 1, diff: 1, violated: true }] }] })
     const wrapper = mount(CalibrationTaskCompletion, { attachTo: document.body, props: { scope } })
     await click('完成校准')
-    const confirm = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === '确定')!
+    const dialog = document.querySelector('[role="dialog"]')!
+    expect(dialog.textContent).toContain('确定要完成校准嘛')
+    expect(dialog.textContent).toContain('有1名员工没有绩效结果')
+    expect(dialog.textContent).toContain('建议分布')
+    expect(dialog.textContent).toContain('不符合')
+    expect(dialog.textContent).toContain('需小于等于 0 人，当前 1 人，需减少 1人')
+    const confirm = [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === '确定')!
     expect(confirm.disabled).toBe(false)
     await wrapper.setProps({ scope: { ...scope, read_only: true } }); await flushPromises()
     expect(document.querySelector('[role="dialog"]')).toBeNull()
     expect(wrapper.find('button').attributes('disabled')).toBeDefined()
     expect(performanceCalibrationApi.confirm).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+  it('shows the same plain confirmation for original and delegated tasks with no missing results', async () => {
+    for (const hasOriginalTasks of [true, false]) {
+      vi.mocked(performanceCalibrationApi.preview).mockResolvedValueOnce({ ...preview, missing_result_count: 0, has_original_tasks: hasOriginalTasks })
+      const wrapper = mount(CalibrationTaskCompletion, { attachTo: document.body, props: { scope } })
+      await click('完成校准')
+      const dialog = document.querySelector('[role="dialog"]')!
+      expect(dialog.textContent).toContain('确定要完成校准嘛')
+      expect(dialog.textContent).not.toContain('没有绩效结果')
+      expect(dialog.textContent).not.toContain('授权任务')
+      expect(dialog.querySelector('.performance-distribution-tips')).toBeNull()
+      await click('取消')
+      expect(performanceCalibrationApi.confirm).not.toHaveBeenCalled()
+      wrapper.unmount()
+    }
+  })
+  it('reuses page distribution details for SOFT violations and still completes the selected task', async () => {
+    vi.mocked(performanceCalibrationApi.distribution).mockResolvedValueOnce({ ...tips, enabled: true, rules: [{ assessment_item_id: 'grade', assessment_label: '绩效评级', conditions: [{ control_mode: 'SOFT', grades: ['优秀'], operator: 'GTE', value: 2, unit: 'PEOPLE', rounding: 'ROUND', target_people: 2, current_people: 1, diff: -1, violated: true }] }] })
+    vi.mocked(performanceCalibrationApi.confirm).mockResolvedValueOnce({ ...preview, completed: true })
+    const wrapper = mount(CalibrationTaskCompletion, { attachTo: document.body, props: { scope } })
+    await click('完成校准')
+    const dialog = document.querySelector('[role="dialog"]')!
+    expect(dialog.textContent).toContain('需大于等于 2 人，当前 1 人，需增加 1人')
+    expect([...dialog.querySelectorAll('.calibration-completion__actions button')].map(button => button.textContent?.trim())).toEqual(['取消', '确定'])
+    await click('确定')
+    expect(performanceCalibrationApi.confirm).toHaveBeenCalledWith(scope, 'v1')
+    expect(wrapper.emitted('completed')).toHaveLength(1)
     wrapper.unmount()
   })
   it('ignores previous scope preview while a different task is selected', async () => {

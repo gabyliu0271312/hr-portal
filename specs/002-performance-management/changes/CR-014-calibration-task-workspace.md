@@ -110,6 +110,12 @@
 - 验收：`npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/components/performance/calibration --cache=false --silent` → **9文件236 passed**。单任务用例使用真实PerformanceReviewContent与共享完成组件，仅替换成员表格，覆盖首次范围提示、失败重试、阻断明细与唯一继续按钮、取消不写、缺结果成功、授权说明、409重预检、过期响应。共享组件另覆盖SOFT可确认、未完成响应拒绝成功及同scope权限刷新。首次联合回归发现Review旧文案断言失败，按统一文案更新并补首次提示API mock后复验通过。
 - 构建：最终`npm --prefix hr-portal/frontend run build` → **vue-tsc与Vite通过，3832模块，48.38s，exit0**；仅既有VueUse PURE注释提示。`git diff --check`通过。无本轮真实浏览器截图、真实SQL/API或生产验收；历史T02/T05/T06的PG阻塞保持不变，未commit、push或部署。
 
+### F05 确认提示统一增量（2026-11-27）
+
+- 用户确认：普通、缺结果及授权任务统一标题“确定要完成校准嘛”；缺结果显示“有N名员工没有绩效结果”；不再显示授权任务专属说明。删除原通用锁定说明，避免统一后向授权任务承诺父任务锁定；后端完成及锁定规则不变。
+- 交互：建议分布存在SOFT违规时，完成弹窗直接复用页面现有PerformanceDistributionTips及同一任务分布响应，沿用完整规则、符合状态、当前／目标人数、增减方向、取整和展开收起逻辑；仍提供取消／确定，不因SOFT违规阻断。HARD阻断标题、分布明细及仅“继续校准”保持不变。无新蓝图、API、数据库、权限或生产操作。
+- 实现：共享CalibrationTaskCompletion及既有CalibrationTaskCompletion.spec.ts、CalibrationSingleTask.spec.ts、Review.spec.ts。`npm.cmd --prefix hr-portal/frontend test -- src/components/performance/calibration src/views/performance/Review.spec.ts --silent` → **9文件253 passed**；覆盖统一普通／授权提示、缺结果、SOFT明细增减与可确认、HARD阻断、409、范围切换。UI规则检查0违规，git diff --check通过，仅既有换行告警。`npm.cmd --prefix hr-portal/frontend run build` → **vue-tsc与Vite通过，3906模块，43.45s**，仅既有VueUse PURE注释告警；未执行真实浏览器、真实API／SQL或生产验收，不提升历史PG阻塞任务状态。
+
 ## 验收记录
 
 2026-11-22，本地代码开发与前端验收完成，真实PostgreSQL迁移／并发尚未验收，未发布。

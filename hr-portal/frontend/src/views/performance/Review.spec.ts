@@ -2126,7 +2126,7 @@ describe('PerformanceReview', () => {
     await wrapper.findAll('button').find(item => item.text() === '完成校准')!.trigger('click')
     await flushPromises()
     expect(performanceCalibrationApi.preview).toHaveBeenCalledWith(expect.objectContaining({ scope_key: 'scope-rule-2', phase_id: 'phase-2' }))
-    expect(document.body.textContent).toContain('当前范围有 1 人尚无校准结果')
+    expect(document.body.textContent).toContain('有1名员工没有绩效结果')
     wrapper.unmount()
   })
 
