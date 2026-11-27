@@ -121,7 +121,7 @@ async def scoped_completion(db, project_id, node_id, phase_id, key, context, *, 
     by_id = {task.id: task for task in tasks}
     targets = [(by_id[record.task_id], record) for record in group["authorizations"]] if group["authorizations"] else [(task, None) for task in tasks]
     now = datetime.now(UTC)
-    in_window = all((start is None or start <= now) and (end is None or now <= end) for start, end in [routes._task_window(task, node, project) for task in tasks])
+    in_window = all(start is None or start <= now for start, end in [routes._task_window(task, node, project) for task in tasks])
     schema = routes.build_self_summary_schema(await routes._self_summary_template(tasks[0], node, db))
     metadata = routes._task_rating_metadata(schema)
     versions, ratings, missing = [], {}, 0
@@ -200,7 +200,7 @@ async def completion_scope(db, project_id, node_id, phase_id, context, *, lock=F
         raise HTTPException(404, "TASK_NOT_FOUND")
     writable = list({task.id: task for task, _record in targets.values()}.values())
     now = datetime.now(UTC)
-    in_window = all((start is None or start <= now) and (end is None or now <= end)
+    in_window = all(start is None or start <= now
                     for start, end in [routes._task_window(task, node, project) for task in writable])
     missing = 0
     versions = []

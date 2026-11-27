@@ -172,7 +172,10 @@ async def test_readonly_scope_can_read_distribution_but_cannot_complete(data):
 
 
 @pytest.mark.asyncio
-async def test_selected_rule_distribution_and_stale_result_or_scope_block(data, monkeypatch):
+@pytest.mark.parametrize("overdue", [False, True])
+async def test_selected_rule_distribution_and_stale_result_or_scope_block(data, monkeypatch, overdue):
+    if overdue:
+        monkeypatch.setattr(routes, "_task_window", lambda *_args: (None, datetime(2000, 1, 1, tzinfo=UTC)))
     hard = {"assessment_item_id": "grade", "min_people_count": 1, "conditions": [{"control_mode": "HARD", "grade_codes": ["A"], "operator": "LTE", "value": 0, "unit": "PEOPLE"}]}
     data.projects[0].settings = {"flow_settings": {"node_settings": {"cal": {"calibration": {"force_distribution_enabled": True, "phases": [{"phase_id": "p1", "rules": [{"rule_id": "a", "distribution_rules": []}, {"rule_id": "b", "distribution_rules": [hard]}]}]}}}}}
     data.session.commit()
@@ -242,8 +245,27 @@ async def test_missing_results_and_window_are_not_confused(data, monkeypatch):
     assert preview["can_complete"] and preview["missing_result_count"] == 2
     monkeypatch.setattr(routes, "_task_window", lambda *_args: (None, datetime(2000, 1, 1, tzinfo=UTC)))
     closed = await completion.preview_completion(data.db, 1, payload, None)
-    assert closed["blocked_reason"] == "SUBMISSION_NOT_ALLOWED"
-    assert closed["missing_result_count"] == 2 and not closed["can_complete"]
+    assert closed["blocked_reason"] is None
+    assert closed["missing_result_count"] == 2 and closed["can_complete"]
+    overdue_rows = (await workspace.list_scopes(data.db, 1, None))["tasks"]
+    assert all(row["status"] == "overdue" and row["can_complete"] for row in overdue_rows)
+    confirmed = await completion.confirm_completion(data.db, 1, routes.CalibrationCompletionConfirmPayload(**payload.model_dump(), scope_version=closed["scope_version"]), None)
+    assert confirmed["completed"]
+    data.session.expire_all()
+    assert (await workspace.list_scopes(data.db, 1, None))["tasks"][0]["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_not_started_completion_remains_disallowed(data, monkeypatch):
+    row = (await workspace.list_scopes(data.db, 1, None))["tasks"][0]
+    monkeypatch.setattr(routes, "_task_window", lambda *_args: (datetime(2100, 1, 1, tzinfo=UTC), None))
+    payload = routes.CalibrationCompletionPayload(node_id="cal", scope_key=row["scope_key"])
+    preview = await completion.preview_completion(data.db, 1, payload, None)
+    assert not preview["can_complete"] and preview["blocked_reason"] == "SUBMISSION_NOT_ALLOWED"
+    with pytest.raises(HTTPException) as denied:
+        await completion.confirm_completion(data.db, 1, routes.CalibrationCompletionConfirmPayload(**payload.model_dump(), scope_version=preview["scope_version"]), None)
+    assert denied.value.status_code == 409
+    assert data.tasks[0].calibration_completed_at is None
 
 
 def test_legacy_without_rule_sources_can_complete_without_inventing_rule_identity():

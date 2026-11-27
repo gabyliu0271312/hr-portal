@@ -119,6 +119,7 @@ function cancel() {
 
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
+    if (props.appearance === 'calibration-completion') event.stopPropagation()
     event.preventDefault()
     cancel()
     return
