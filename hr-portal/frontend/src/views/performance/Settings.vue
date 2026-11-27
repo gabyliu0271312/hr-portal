@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import PerformanceManagerStandardDialog from '@/components/performance/PerformanceManagerStandardDialog.vue'
+import { getPerformanceManagerStandard, getPerformanceEmployeeTypes, savePerformanceManagerStandard } from '@/api/performanceFieldSettings'
 import { ElMessage } from 'element-plus'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformancePageTitle from '@/components/performance/PerformancePageTitle.vue'
@@ -10,6 +12,7 @@ import {
   detailFieldOptions,
   type PerformanceFieldOption,
   type PerformanceFieldSettings,
+  type PerformanceManagerStandard,
   type PerformanceFieldSettingsSection as SectionKey,
 } from '@/components/performance/performanceFieldSettings'
 
@@ -18,18 +21,70 @@ const props = withDefaults(defineProps<{
   title?: string
   settings?: PerformanceFieldSettings
   fieldOptions?: PerformanceFieldOption[]
-  managerSummary?: string
 }>(), {
   title: '字段设置',
   settings: createFieldSettingsPreview,
   fieldOptions: () => detailFieldOptions,
-  managerSummary: '拥有“人员类型为正式”的在职直属下级时，才能被认定为管理者。',
 })
 const emit = defineEmits<{ 'request-edit': [section: SectionKey]; 'request-example': [] }>()
 const visibleFields = computed(() => props.settings.review_detail_visible_fields.field.map(id => props.fieldOptions.find(field => field.id === id)?.label || id))
 
+const manager = ref<PerformanceManagerStandard | null>(null)
+const employeeTypes = ref<{ value: string; label: string }[]>([])
+const managerOpen = ref(false)
+const loadingManager = ref(true)
+const savingManager = ref(false)
+const loadError = ref('')
+const saveError = ref('')
+const managerOptions = computed(() => {
+  const options = [...employeeTypes.value]
+  for (const value of manager.value?.specific_employee_types || []) {
+    if (!options.some(option => option.value === value)) options.push({ value, label: value })
+  }
+  return options
+})
+const managerSummary = computed(() => {
+  if (!manager.value) return loadingManager.value ? '加载中…' : '管理者判定标准加载失败'
+  if (manager.value.manager_standard === 'inservice_direct_underling') return '有在职直属下级时，可被认定为管理者。'
+  const labels = manager.value.specific_employee_types.map(value => managerOptions.value.find(option => option.value === value)?.label || value)
+  return `拥有“人员类型为${labels.join('、')}”的在职直属下级时，才能被认定为管理者。`
+})
+async function loadManager() {
+  loadingManager.value = true
+  loadError.value = ''
+  try {
+    const [value, options] = await Promise.all([getPerformanceManagerStandard(), getPerformanceEmployeeTypes()])
+    manager.value = value
+    employeeTypes.value = options
+  } catch {
+    loadError.value = '加载失败，请重试或联系管理员确认配置权限'
+  } finally {
+    loadingManager.value = false
+  }
+}
+async function saveManager(value: PerformanceManagerStandard) {
+  if (savingManager.value) return
+  savingManager.value = true
+  saveError.value = ''
+  try {
+    await savePerformanceManagerStandard(value)
+    manager.value = await getPerformanceManagerStandard()
+    managerOpen.value = false
+  } catch {
+    saveError.value = '保存或回读失败，请重试；当前编辑内容已保留'
+  } finally {
+    savingManager.value = false
+  }
+}
+onMounted(loadManager)
 function requestEdit(section: SectionKey) {
   emit('request-edit', section)
+  if (section === 'definition_of_manager') {
+    if (!manager.value || loadingManager.value || loadError.value) return
+    saveError.value = ''
+    managerOpen.value = true
+    return
+  }
   ElMessage.info('当前为配置预览，设置弹窗及保存功能将在后续开放')
 }
 
@@ -72,8 +127,10 @@ function requestExample() {
       <div class="field-settings-summary">
         <div class="field-settings-summary__label">判定标准</div>
         <div>{{ managerSummary }}</div>
+        <div v-if="loadError" role="alert">{{ loadError }} <UiButton variant="link" :disabled="loadingManager" @click="loadManager">重试</UiButton></div>
       </div>
     </PerformanceFieldSettingsSection>
+    <PerformanceManagerStandardDialog v-if="manager" v-model="managerOpen" :value="manager" :options="managerOptions" :saving="savingManager" :error="saveError" @save="saveManager" />
   </div>
 </template>
 

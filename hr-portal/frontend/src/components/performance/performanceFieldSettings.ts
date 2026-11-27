@@ -10,11 +10,16 @@ export interface PerformanceFilterCondition {
   default: boolean
 }
 
+export interface PerformanceManagerStandard {
+  manager_standard: 'inservice_direct_underling' | 'specific_employee_type_underling'
+  specific_employee_types: string[]
+}
+
 export interface PerformanceFieldSettings {
   review_detail_visible_fields: { field: string[] }
   default_filter_condition: { filter_conditions: PerformanceFilterCondition[] }
   department_tree_view_all: { enabled: boolean }
-  definition_of_manager: { manager_standard: string; specific_employee_type_ids: number[] }
+  definition_of_manager: PerformanceManagerStandard
 }
 
 export type PerformanceFieldSettingsSection = keyof PerformanceFieldSettings
@@ -79,6 +84,6 @@ export function createFieldSettingsPreview(): PerformanceFieldSettings {
       filter_conditions: filterLabels.map(([filter_key, label, isDefault]) => ({ filter_key, label, default: isDefault })),
     },
     department_tree_view_all: { enabled: true },
-    definition_of_manager: { manager_standard: 'specific_employee_type_underling', specific_employee_type_ids: [1] },
+    definition_of_manager: { manager_standard: 'inservice_direct_underling', specific_employee_types: [] },
   }
 }

@@ -100,6 +100,31 @@ class PerformanceAssessmentMethodSetting(Base):
     )
 
 
+class PerformanceManagerStandardSetting(Base):
+    __tablename__ = "performance_manager_standard_settings"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_performance_manager_standard_singleton"),
+        CheckConstraint(
+            "manager_standard IN ('inservice_direct_underling', 'specific_employee_type_underling')",
+            name="ck_performance_manager_standard_value",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(specific_employee_types) = 'array' AND "
+            "((manager_standard = 'inservice_direct_underling' AND jsonb_array_length(specific_employee_types) = 0) OR "
+            "(manager_standard = 'specific_employee_type_underling' AND jsonb_array_length(specific_employee_types) > 0))",
+            name="ck_performance_manager_standard_types",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    manager_standard: Mapped[str] = mapped_column(String(64), nullable=False, default="inservice_direct_underling", server_default="inservice_direct_underling")
+    specific_employee_types: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    updated_by_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    updated_by_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
 class PerformanceOtherSetting(Base):
     __tablename__ = "performance_other_settings"
     __table_args__ = (CheckConstraint("id = 1", name="ck_performance_other_settings_singleton"),)
