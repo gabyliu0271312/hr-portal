@@ -3,6 +3,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import CalibrationSingleTask from './CalibrationSingleTask.vue'
 import CalibrationTaskCompletion from './CalibrationTaskCompletion.vue'
 import PerformanceReviewContent from '../PerformanceReviewContent.vue'
+import reviewContentSource from '../PerformanceReviewContent.vue?raw'
 import { performanceWorkbenchApi } from '@/api/performance'
 import { performanceCalibrationApi, type PerformanceCalibrationTaskScope } from '@/api/performanceCalibration'
 vi.mock('@/api/performanceCalibration', async original => ({ ...await original<typeof import('@/api/performanceCalibration')>(), performanceCalibrationApi: { preview: vi.fn(), distribution: vi.fn(), confirm: vi.fn() } }))
@@ -20,6 +21,18 @@ afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = '' })
 const mountSingle = () => mount(CalibrationSingleTask, { attachTo: document.body, props: { scope, cycleId: 1 }, global: { stubs: { ProjectMemberListPanel: true } } })
 const click = async (text: string) => { const button = [...document.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.trim() === text); expect(button).toBeTruthy(); button!.click(); await flushPromises() }
 describe('single calibration shares task completion and scoped distribution', () => {
+  it('keeps the same heading-to-card gap as the other review modules', async () => {
+    const wrapper = mountSingle()
+    await wrapper.setProps({ scope: { ...scope, end_at: '2099-12-31T15:59:00Z' } })
+    await flushPromises()
+    expect(wrapper.get('.review-content').classes()).toContain('review-content--calibration')
+    expect(wrapper.get('.review-heading .review-deadline').text()).toContain('截止时间')
+    expect(wrapper.get('.review-heading').element.nextElementSibling).toBe(wrapper.get('.review-body').element)
+    expect(wrapper.get('.review-body > .tabbed-contained-surface').exists()).toBe(true)
+    expect(reviewContentSource).toMatch(/\.review-content--calibration \.review-body\s*\{\s*margin-top:\s*var\(--spacing-4\);\s*\}/)
+    wrapper.unmount()
+  })
+
   it('keeps the direct review layout but uses the shared completion component and scoped initial tips', async () => {
     const wrapper = mountSingle(); await flushPromises()
     expect(wrapper.getComponent(PerformanceReviewContent).props()).toMatchObject({ projectId: 2, node: { node_type: 'calibration', phase_id: 'phase', scope_key: 'single' } })

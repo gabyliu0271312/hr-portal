@@ -118,6 +118,8 @@
 
 ## F06 单任务分析范围与白卡内页签修复（2026-11-27）
 
+- 标题间距补充：单任务校准白卡与上方截止时间恢复普通评估模块相同的 `--spacing-4`（16px）间距；仅校准 tabbed 场景覆盖被清零的 review-body margin-top，白卡内部 padding、分布提示／页签顺序及吸顶偏移不变。`npm --prefix hr-portal/frontend test -- src/components/performance/calibration/CalibrationSingleTask.spec.ts src/components/performance/PerformanceLineTabs.spec.ts --silent` → **2 文件 20 passed**；修改 Vue UI 规则 0 违规，定向 diff check 通过。本增量未做浏览器／生产验收，未提交推送部署。
+
 - 用户确认：单任务直接成员工作区保留；强制／建议分布提示在三个选项卡上方，两者在同一个白色容器内。页签吸顶时，其下方分隔线与左侧周期选择器下方分隔线水平对齐；成员表头在页签下方。
 - 关联 CR-014-T04。复用 CalibrationScopeAnalysis、performanceCalibrationApi.members 与现有 scope_key 成员接口，替代单任务误走的通用 review analysis（该接口不接受 calibration 节点）。Content 通过可选成员 provider 与分析插槽保留普通评估默认行为；项目、周期、scope、phase、身份变化隔离旧实例／旧请求。403 不回退、不扩大范围，不改后端权限或结果计算。
 - PerformanceTabbedSurface 增加 contained 变体及 before-tabs 插槽，仅校准启用：同一白卡内依次分布提示、吸顶页签、成员／分析内容，移除重复内卡。页签和成员表头共用对齐偏移 token；普通评估／结果页与多任务全屏布局不变。统计关闭示例及无范围合同的管理报表评论，避免 report-note 请求再次触发权限错误。

@@ -1,5 +1,5 @@
 <template>
-  <section class="review-content" :class="{ 'review-content--tabbed': showsTabbedWorkspace }" aria-live="polite">
+  <section class="review-content" :class="{ 'review-content--tabbed': showsTabbedWorkspace, 'review-content--calibration': showsTabbedWorkspace && isCalibrationNode }" aria-live="polite">
     <div v-if="loading" class="review-state">正在加载绩效评估…</div>
     <div v-else-if="error" class="review-state error-state">
       <p>{{ error }}</p>
@@ -233,6 +233,7 @@ function formatStartTime(value: string) {
 .review-content { display: flex; min-width: 0; min-height: 0; height: 100%; flex: 1; flex-direction: column; overflow: auto; padding: var(--performance-review-surface-inset) var(--performance-review-surface-inset) 0; box-sizing: border-box; background: var(--performance-review-page-bg); scrollbar-width: none; }
 .review-content--tabbed { padding-bottom: var(--performance-review-surface-inset); }
 .review-content--tabbed .review-body { margin: 0; }
+.review-content--calibration .review-body { margin-top: var(--spacing-4); }
 .review-content::-webkit-scrollbar { display: none; }
 .review-heading { display: flex; flex: none; align-items: flex-start; margin: 0; max-width: none; }
 .review-heading-copy { flex: 1; min-width: 0; margin-right: var(--spacing-8); box-sizing: border-box; color: var(--color-text-primary); font-size: var(--font-size-md); font-weight: var(--font-weight-normal); line-height: var(--line-height-base); }
