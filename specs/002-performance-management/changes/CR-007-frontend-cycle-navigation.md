@@ -673,6 +673,15 @@
 - 前端最终证据：`npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/components/performance/ProjectStatisticsReportPanel.spec.ts src/components/performance/ProjectPerformanceMatrix.spec.ts src/api/performanceManagementContext.spec.ts --silent --maxWorkers=2 --minWorkers=1` → **4文件237 passed，30.59秒**；Review184、Panel24、Matrix19、API10。覆盖真实任务ID≠成员ID、独立五接口／指标与三类对比、原抽屉、迟到响应隔离及禁评论请求。`npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite exit0**，仅既有VueUse PURE注释提示；首次build被并行筛选ariaLabel类型问题阻塞，负责人修复后完整重跑通过。本地T01/T02完成，不提升F20整体生产验收状态。
 - UI规则：PerformanceReviewContent／PerformanceReviewScopeAnalysis／ProjectStatisticsReportPanel三组件**0违规**，目标文件git diff --check通过。成员筛选并行类型错误由其负责人修复，本卡未改成员筛选组件。真实JWT→API→PostgreSQL、生产部署尚未运行；不声明生产完成。
 
+## CR-007-F20-R02 评估与结果页签布局复用（2026-11-27）
+
+- 授权：用户确认完成前述布局统一方案。既有页面小范围调整，以团队结果为视觉基准，不新增页面或整页蓝图；012 N000/N0005复用绩效共享组件及全局token。不改API、权限、数据库、通知或生产；不提交推送部署。
+- [x] CR-007-F20-R02-T01 本地前端布局统一。新增薄组件 `PerformanceTabbedSurface`，统一sticky页签→内容白卡、表头偏移及报表间距，并共用成员列表／矩阵分析／统计报表定义；`PerformanceReviewContent`三页签分支移出旧白卡，保留标题／截止时间、任务provider及详情事件；`PerformanceResultScopeView`复用相同布局，保留团队总览、关注三页签和URL行为。复议／360／未开始／自评沿原分支。允许修改上述三组件、既有Review.spec及本记录和独立截图；停止仅撤回本卡差异，不影响并行成员筛选等修改。
+- 自动化：`npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/components/performance/ProjectStatisticsReportPanel.spec.ts src/components/performance/ProjectPerformanceMatrix.spec.ts --silent --maxWorkers=2 --minWorkers=1` → **3文件229 passed**（Review186／Panel24／Matrix19）。新增pending/completed任务共享布局、单白卡、页签在卡外、sticky非flush、切换及节点重置和复议隔离断言，结果四页签同壳断言；既有任务分析／原详情／迟到响应／结果URL回归通过。首轮6项旧类名／结构断言失败，同步新布局契约后复跑全通过。
+- 构建／规则：`npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite exit0，3909模块，Vite55.84s**，仅既有VueUse PURE注释提示；三组件 `check-ui-rules.mjs --files` **0违规**，git diff --check通过。
+- UI证据：本地Vite真实Vue组件、独立Chrome1440×1000，业务API全部隔离为合成数据，无真实写入。上级三个页签在单白卡外，页签与内容左边沿一致；保留截止时间故相对团队单行标题多16px，不为强行同高删除信息。上级列表滚动400px后页签top=0、表头top=81，矩阵页签切换成功，pageerror=0。截图 `ui-blueprints/CR-007-F20-R02-layout-20261127.png`、`ui-blueprints/CR-007-F20-R02-sticky-20261127.png`均已读取。右侧隔离组件因使用登录路由默认展示团队总览，团队成员／报表及focus布局由组件回归覆盖，不冒充完整登录路由、全页签浏览器或生产验收。初轮浏览器夹具因运行时路由注入不一致失败，复用原应用注入后通过；未创建脚本或测试文档。
+- 边界：本地实现与上述验收完成，无迁移；真实登录全链、移动端及生产部署未验收，不提升F20整体生产状态。
+
 ## CR-007-F19 多项目时间轴与评估菜单修复（2026-11-19）
 
 ### F19-T02 未开始空态修复（2026-11-23）

@@ -23,6 +23,8 @@ import SelfSummaryTask from './SelfSummaryTask.vue'
 import PerformanceDialogShell from '@/components/performance/PerformanceDialogShell.vue'
 import PerformanceResultScopeView from '@/components/performance/PerformanceResultScopeView.vue'
 import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
+import PerformanceTabbedSurface, { performanceAnalysisTabs } from '@/components/performance/PerformanceTabbedSurface.vue'
+import PerformanceLineTabs from '@/components/performance/PerformanceLineTabs.vue'
 import PerformanceReviewScopeAnalysis from '@/components/performance/PerformanceReviewScopeAnalysis.vue'
 import ProjectPerformanceMatrix from '@/components/performance/ProjectPerformanceMatrix.vue'
 import ProjectStatisticsReportPanel from '@/components/performance/ProjectStatisticsReportPanel.vue'
@@ -293,8 +295,11 @@ describe('PerformanceReview', () => {
       } },
     })
     await flushPromises()
-    expect(wrapper.findAll('.result-view-surface')).toHaveLength(1)
-    const content = wrapper.get('.result-view-surface').findComponent({ name: { overview: 'CompletionRatePanel', members: 'ProjectMemberListPanel', matrix: 'ProjectPerformanceMatrix', reports: 'ProjectStatisticsReportPanel' }[tab] })
+    expect(wrapper.findAll('.tabbed-surface-card')).toHaveLength(1)
+    expect(wrapper.getComponent(PerformanceTabbedSurface).props('tabs')).toEqual([{ key: 'overview', label: '总览' }, ...performanceAnalysisTabs])
+    expect(wrapper.getComponent(PerformanceLineTabs).props()).toMatchObject({ sticky: true, flush: false })
+    expect(wrapper.find('.surface-card .line-tabs-holder').exists()).toBe(false)
+    const content = wrapper.get('.tabbed-surface-card').findComponent({ name: { overview: 'CompletionRatePanel', members: 'ProjectMemberListPanel', matrix: 'ProjectPerformanceMatrix', reports: 'ProjectStatisticsReportPanel' }[tab] })
     if (tab === 'members') expect(content.props('variant')).toBe('review')
     else expect(content.attributes('embedded') === 'true' || content.props('embedded') === true).toBe(true)
     wrapper.unmount()
@@ -732,14 +737,36 @@ describe('PerformanceReview', () => {
     expect(reviewContentSource).not.toMatch(/\.review-content\.is-completed\s*\{/)
   })
 
-  it('keeps one padded white surface that grows around evaluation and feedback content', () => {
-    expect(reviewContentSource).toMatch(/\.review-body--workspace\s*\{[^}]*flex:\s*1 0 auto/s)
-    expect(reviewContentSource).toMatch(/\.review-panel\.evaluation, \.review-panel\.feedback\s*\{[^}]*flex:\s*1 0 auto;[^}]*min-height:\s*0;[^}]*align-items:\s*stretch/s)
-    expect(reviewContentSource).toMatch(/\.review-panel\s*\{[^}]*padding:\s*var\(--performance-review-surface-inset\)/s)
-    expect(reviewContentSource).toMatch(/\.evaluation-workspace\s*\{[^}]*width:\s*100%;[^}]*align-self:\s*stretch;[^}]*flex:\s*none/s)
-    expect(reviewContentSource).toContain(':tabs="evaluationTabs" flush')
-    expect(reviewContentSource).not.toContain(':tabs="evaluationTabs" sticky flush')
+  it('shares the tabbed surface outside the legacy padded evaluation panel', () => {
+    expect(reviewContentSource).toContain('<PerformanceTabbedSurface v-if="showsTabbedWorkspace"')
+    expect(reviewContentSource).not.toContain('<PerformanceLineTabs')
+    expect(reviewContentSource).toMatch(/\.review-content--tabbed \.review-body\s*\{[^}]*margin:\s*0/s)
     expect(reviewContentSource).toMatch(/\.review-panel\.completed\s*\{[^}]*padding:\s*var\(--performance-review-surface-inset\)/s)
+  })
+
+  it.each(['pending', 'completed'] as const)('uses one shared sticky tabbed surface for a %s manager task', async status => {
+    const node = { ...overview.categories[0].nodes[0], node_id: 'manager', node_type: 'evaluation', task_kind: 'evaluation', executor_role_code: 'assessment.line_manager', status }
+    const wrapper = mount(PerformanceReviewContent, {
+      props: { node, loading: false, error: '', templateName: '', projectId: 1, cycleId: 1 },
+      global: { plugins: [pinia], stubs: { ProjectMemberListPanel: true, PerformanceReviewScopeAnalysis: true } },
+    })
+    expect(wrapper.getComponent(PerformanceTabbedSurface).props('tabs')).toEqual(performanceAnalysisTabs)
+    expect(wrapper.getComponent(PerformanceLineTabs).props()).toMatchObject({ sticky: true, flush: false })
+    expect(wrapper.findAll('.surface-card')).toHaveLength(1)
+    expect(wrapper.find('.review-panel').exists()).toBe(false)
+    expect(wrapper.find('.surface-card .line-tabs-holder').exists()).toBe(false)
+    expect(wrapper.findAll('[role="tab"]').map(tab => tab.text())).toEqual(['成员列表', '矩阵分析', '统计报表'])
+    expect(wrapper.getComponent(ProjectMemberListPanel).props('reviewContext')).toEqual({ nodeId: 'manager', state: 'all', phaseId: undefined })
+    await wrapper.findAll('[role="tab"]')[1].trigger('click')
+    expect(wrapper.getComponent(PerformanceReviewScopeAnalysis).props('tab')).toBe('matrix')
+    await wrapper.findAll('[role="tab"]')[2].trigger('click')
+    expect(wrapper.getComponent(PerformanceReviewScopeAnalysis).props('tab')).toBe('reports')
+    await wrapper.setProps({ node: { ...node, node_id: 'next-manager' } })
+    expect(wrapper.getComponent(PerformanceTabbedSurface).props('modelValue')).toBe('members')
+    await wrapper.setProps({ node: { ...node, node_type: 'result_reconsideration' } })
+    expect(wrapper.findComponent(PerformanceTabbedSurface).exists()).toBe(false)
+    expect(wrapper.find('.review-panel').exists()).toBe(true)
+    wrapper.unmount()
   })
 
   it.each(['evaluation', 'calibration', 'result_reconsideration', 'reviewer_360_confirm', 'result_communication', 'reviewer360'])('embeds %s lists without a second white card', async kind => {
@@ -1650,7 +1677,7 @@ describe('PerformanceReview', () => {
     await flushPromises()
     await wrapper.findAll('.review-node')[2].trigger('click')
 
-    expect(wrapper.find('.evaluation-workspace').exists()).toBe(true)
+    expect(wrapper.findComponent(PerformanceTabbedSurface).exists()).toBe(true)
     expect(wrapper.find('.performance-review-completion-notice').exists()).toBe(false)
     expect(performanceWorkbenchApi.taskPeople).toHaveBeenCalledWith(1, 'manager-review', 'all', undefined, undefined, 1, 50, undefined, undefined)
   })
@@ -1833,7 +1860,7 @@ describe('PerformanceReview', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(wrapper.find('.evaluation-workspace').exists()).toBe(true)
+    expect(wrapper.findComponent(PerformanceTabbedSurface).exists()).toBe(true)
     wrapper.unmount()
   })
 

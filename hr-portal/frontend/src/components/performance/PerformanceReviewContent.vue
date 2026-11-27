@@ -1,5 +1,5 @@
 <template>
-  <section class="review-content" aria-live="polite">
+  <section class="review-content" :class="{ 'review-content--tabbed': showsTabbedWorkspace }" aria-live="polite">
     <div v-if="loading" class="review-state">正在加载绩效评估…</div>
     <div v-else-if="error" class="review-state error-state">
       <p>{{ error }}</p>
@@ -27,7 +27,35 @@
         </div>
       </div>
       <div class="review-body" :class="{ 'review-body--completed': !resultUnavailable && (node.node_type === 'result_view' || node.status === 'completed' && !showsEvaluationWorkspace), 'review-body--workspace': showsEvaluationWorkspace || showsFeedbackTable }">
-        <div class="review-panel" :class="{ completed: !resultUnavailable && (node.node_type === 'result_view' || node.status === 'completed' && !showsEvaluationWorkspace), evaluation: showsEvaluationWorkspace, feedback: showsFeedbackTable }">
+        <PerformanceTabbedSurface v-if="showsTabbedWorkspace" v-model="evaluationTab" :tabs="performanceAnalysisTabs">
+          <template v-if="isCalibrationNode && props.projectId && node.node_id">
+            <p v-if="distributionLoading" role="status">正在加载分布提示…</p>
+            <p v-else-if="distributionError" role="alert">{{ distributionError }} <UiButton variant="text" @click="loadDistributionTips">重试</UiButton></p>
+            <PerformanceDistributionTipsPanel v-else :tips="distributionTips" />
+          </template>
+          <ProjectMemberListPanel
+            v-if="evaluationTab === 'members' && props.projectId && node.node_id"
+            :project-id="props.projectId"
+            :key="`${props.projectId}-${node.node_id}-${node.phase_id || ''}`"
+            :review-context="{ nodeId: node.node_id, state: 'all', phaseId: node.phase_id }"
+            :preference-scope="props.memberPreferenceScope"
+            variant="review"
+            :show-export="false"
+            @select-member="emit('open-member', { node, member: $event })"
+            @remind-evaluate="emit('remind-evaluate', { node, ...$event })"
+          />
+          <PerformanceReviewScopeAnalysis
+            v-else-if="props.projectId && analysisCycleId && (evaluationTab === 'matrix' || evaluationTab === 'reports')"
+            :key="analysisScopeKey"
+            :project-id="props.projectId"
+            :cycle-id="analysisCycleId"
+            :node="node"
+            :tab="evaluationTab"
+            @open-member="emit('open-member', { node, member: $event })"
+          />
+          <p v-else class="evaluation-pane-hint">当前周期信息尚未就绪</p>
+        </PerformanceTabbedSurface>
+        <div v-else class="review-panel" :class="{ completed: !resultUnavailable && (node.node_type === 'result_view' || node.status === 'completed' && !showsEvaluationWorkspace), evaluation: showsEvaluationWorkspace, feedback: showsFeedbackTable }">
         <template v-if="node.node_type === 'result_view' && resultUnavailable">
           <div class="state-illustration" aria-hidden="true"><img src="/performance-not-started.svg" alt="" width="120" height="121"></div>
           <p>暂未开通结果</p>
@@ -47,11 +75,6 @@
         />
         <template v-else-if="showsEvaluationWorkspace">
           <div class="evaluation-workspace">
-            <template v-if="isCalibrationNode && props.projectId && node.node_id">
-              <p v-if="distributionLoading" role="status">正在加载分布提示…</p>
-              <p v-else-if="distributionError" role="alert">{{ distributionError }} <UiButton variant="text" @click="loadDistributionTips">重试</UiButton></p>
-              <PerformanceDistributionTipsPanel v-else :tips="distributionTips" />
-            </template>
             <ProjectMemberListPanel
               v-if="displayConfig?.table === 'members' && props.projectId && node.node_id"
               :project-id="props.projectId"
@@ -63,29 +86,6 @@
               @select-member="emit('open-member', { node, member: $event })"
               @remind-evaluate="emit('remind-evaluate', { node, ...$event })"
             />
-            <PerformanceLineTabs v-else v-model="evaluationTab" :tabs="evaluationTabs" flush>
-              <ProjectMemberListPanel
-                v-if="evaluationTab === 'members' && props.projectId && node.node_id"
-                :project-id="props.projectId"
-                :key="`${props.projectId}-${node.node_id}-${node.phase_id || ''}`"
-                :review-context="{ nodeId: node.node_id, state: 'all', phaseId: node.phase_id }"
-                :preference-scope="props.memberPreferenceScope"
-                variant="review"
-                :show-export="false"
-                @select-member="emit('open-member', { node, member: $event })"
-                @remind-evaluate="emit('remind-evaluate', { node, ...$event })"
-              />
-              <PerformanceReviewScopeAnalysis
-                v-else-if="props.projectId && analysisCycleId && (evaluationTab === 'matrix' || evaluationTab === 'reports')"
-                :key="analysisScopeKey"
-                :project-id="props.projectId"
-                :cycle-id="analysisCycleId"
-                :node="node"
-                :tab="evaluationTab"
-                @open-member="emit('open-member', { node, member: $event })"
-              />
-              <p v-else class="evaluation-pane-hint">当前周期信息尚未就绪</p>
-            </PerformanceLineTabs>
           </div>
         </template>
         <template v-else-if="node.status === 'completed'">
@@ -119,7 +119,7 @@ import PerformanceComparisonNotice from './PerformanceComparisonNotice.vue'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
 import PerformanceDisabledReason from './PerformanceDisabledReason.vue'
 import UiButton from '../ui/UiButton.vue'
-import PerformanceLineTabs, { type PerformanceLineTab } from './PerformanceLineTabs.vue'
+import PerformanceTabbedSurface, { performanceAnalysisTabs } from './PerformanceTabbedSurface.vue'
 import ProjectMemberListPanel from './ProjectMemberListPanel.vue'
 import PerformanceReviewScopeAnalysis from './PerformanceReviewScopeAnalysis.vue'
 import PerformanceReview360FeedbackPanel from './PerformanceReview360FeedbackPanel.vue'
@@ -154,11 +154,7 @@ const shows360Feedback = computed(() => {
   return Boolean(node && node.node_type === 'evaluation' && isReviewer360Node(node))
 })
 const feedbackPanel = ref<InstanceType<typeof PerformanceReview360FeedbackPanel> | null>(null)
-const evaluationTabs: PerformanceLineTab[] = [
-  { key: 'members', label: '成员列表' },
-  { key: 'matrix', label: '矩阵分析' },
-  { key: 'reports', label: '统计报表' },
-]
+const showsTabbedWorkspace = computed(() => showsEvaluationWorkspace.value && displayConfig.value?.table !== 'members' && !showsFeedbackTable.value && props.node?.node_type !== 'result_view')
 const evaluationTab = ref('members')
 const analysisCycleId = computed(() => {
   const id = Number(props.cycleId ?? props.memberPreferenceScope?.cycle_ref)
@@ -229,6 +225,8 @@ function formatStartTime(value: string) {
 
 <style scoped>
 .review-content { display: flex; min-width: 0; min-height: 0; height: 100%; flex: 1; flex-direction: column; overflow: auto; padding: var(--performance-review-surface-inset) var(--performance-review-surface-inset) 0; box-sizing: border-box; background: var(--performance-review-page-bg); scrollbar-width: none; }
+.review-content--tabbed { padding-bottom: var(--performance-review-surface-inset); }
+.review-content--tabbed .review-body { margin: 0; }
 .review-content::-webkit-scrollbar { display: none; }
 .review-heading { display: flex; flex: none; align-items: flex-start; margin: 0; max-width: none; }
 .review-heading-copy { flex: 1; min-width: 0; margin-right: var(--spacing-8); box-sizing: border-box; color: var(--color-text-primary); font-size: var(--font-size-md); font-weight: var(--font-weight-normal); line-height: var(--line-height-base); }

@@ -4,14 +4,12 @@
     <div v-else-if="error" class="result-view-state result-view-state--error"><p>{{ error }}</p><button type="button" @click="load">重新加载</button></div>
     <template v-else-if="overview">
       <PerformancePageTitle :title="title" />
-      <PerformanceLineTabs class="result-view-tabs" :model-value="activeTab" sticky :tabs="tabs" @update:model-value="selectTab">
-        <PerformanceSurfaceCard class="result-view-surface">
-          <CompletionRatePanel v-if="activeTab === 'overview'" :embedded="true" :nodes="completionNodes" :cycle-id="cycleId" v-model:view-mode="completionViewMode" :department-provider="departmentProvider" @action="handleCompletionAction" />
-          <ProjectMemberListPanel v-else-if="activeTab === 'members'" variant="review" :project-id="0" :cycle-id="cycleId" readonly :provider="memberProvider" @select-member="openMember" />
-          <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" embedded :project-id="0" :cycle-name="overview.cycle.cycle_name" readonly :provider="matrixProvider" @open-member="openMember" />
-          <ProjectStatisticsReportPanel v-else embedded :cycle-id="cycleId" :cycle-name="overview.cycle.cycle_name" :provider="statisticsProvider" :self-final-provider="selfFinalProvider" :comparison-provider="comparisonProvider" :note-scope="{ result_kind: kind }" @open-member="openMember" />
-        </PerformanceSurfaceCard>
-      </PerformanceLineTabs>
+      <PerformanceTabbedSurface :model-value="activeTab" :tabs="tabs" @update:model-value="selectTab">
+        <CompletionRatePanel v-if="activeTab === 'overview'" :embedded="true" :nodes="completionNodes" :cycle-id="cycleId" v-model:view-mode="completionViewMode" :department-provider="departmentProvider" @action="handleCompletionAction" />
+        <ProjectMemberListPanel v-else-if="activeTab === 'members'" variant="review" :project-id="0" :cycle-id="cycleId" readonly :provider="memberProvider" @select-member="openMember" />
+        <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" embedded :project-id="0" :cycle-name="overview.cycle.cycle_name" readonly :provider="matrixProvider" @open-member="openMember" />
+        <ProjectStatisticsReportPanel v-else embedded :cycle-id="cycleId" :cycle-name="overview.cycle.cycle_name" :provider="statisticsProvider" :self-final-provider="selfFinalProvider" :comparison-provider="comparisonProvider" :note-scope="{ result_kind: kind }" @open-member="openMember" />
+      </PerformanceTabbedSurface>
     </template>
     <PerformanceReviewEvaluationDrawer
       v-if="drawerMember"
@@ -39,9 +37,8 @@ import { resultViewApi, type PerformanceReferenceTab, type PerformanceResultView
 import PerformanceMemberReminderDialog from './PerformanceMemberReminderDialog.vue'
 import { usePerformanceMemberReminder } from '@/composables/usePerformanceMemberReminder'
 import type { ProjectReportComparisonQuery, ProjectReportDimension } from '@/components/performance/projectStatisticsReport'
-import PerformanceSurfaceCard from '@/components/performance/PerformanceSurfaceCard.vue'
+import PerformanceTabbedSurface, { performanceAnalysisTabs } from './PerformanceTabbedSurface.vue'
 import PerformancePageTitle from '@/components/performance/PerformancePageTitle.vue'
-import PerformanceLineTabs, { type PerformanceLineTab } from '@/components/performance/PerformanceLineTabs.vue'
 import CompletionRatePanel from '@/components/performance/CompletionRatePanel.vue'
 import type { CompletionNode } from '@/components/performance/CompletionNodeCard.vue'
 import ProjectMemberListPanel from '@/components/performance/ProjectMemberListPanel.vue'
@@ -63,11 +60,9 @@ function selectTab(tab: string) {
   void router.push({ query: { cycle_id: String(props.cycleId), node: props.kind === 'team' ? '__team-results__' : '__focus-results__', tab } })
 }
 const title = computed(() => props.kind === 'team' ? '查看团队绩效结果' : '关注人员的绩效结果')
-const tabs = computed<PerformanceLineTab[]>(() => [
+const tabs = computed(() => [
   ...(props.kind === 'team' ? [{ key: 'overview', label: '总览' }] : []),
-  { key: 'members', label: '成员列表' },
-  { key: 'matrix', label: '矩阵分析' },
-  { key: 'reports', label: '统计报表' },
+  ...performanceAnalysisTabs,
 ])
 const completionNodes = computed<CompletionNode[]>(() => (overview.value?.completion_nodes || []).map(node => ({
   key: node.key,
@@ -186,10 +181,7 @@ onMounted(load)
 
 <style scoped>
 .result-view-page { display:flex; min-width:0; min-height:0; flex:1; flex-direction:column; overflow-y:auto; padding:var(--performance-review-surface-inset); box-sizing:border-box; background:var(--performance-review-page-bg); --performance-review-table-sticky-top:var(--performance-tab-area-height); }
-.result-view-tabs, .result-view-tabs :deep(.line-tabs-content), .result-view-tabs :deep(.line-tabs-pane), .result-view-surface { flex:1 0 auto; }
-.result-view-tabs :deep(.line-tabs-content), .result-view-tabs :deep(.line-tabs-pane) { display:flex; flex-direction:column; }
-.result-view-surface :deep(.project-report-root) { margin-top:calc(-1 * var(--performance-review-surface-inset)); margin-bottom:0; }
-.result-view-state { display:grid; min-height:240px; place-items:center; color:var(--color-text-secondary); }
+.result-view-state { display:grid; min-height:calc(var(--spacing-8) * 8); place-items:center; color:var(--color-text-secondary); }
 .result-view-state--error { color:var(--color-danger); }
 .result-view-state button { border:0; background:transparent; color:var(--color-primary); cursor:pointer; }
 </style>
