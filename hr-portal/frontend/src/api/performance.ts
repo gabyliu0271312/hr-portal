@@ -1202,12 +1202,14 @@ export interface PerformanceMemberFilterOption {
   label: string
   subLabel?: string
   color?: string | null
+  avatarUrl?: string
   children?: PerformanceMemberFilterOption[]
 }
 export interface PerformanceMemberFilterField {
   key: string
   label: string
-  kind: 'person' | 'organization' | 'select' | 'date'
+  kind: 'person' | 'organization' | 'sequence' | 'select' | 'date'
+  group?: string[]
   operators: Array<{ value: 'in' | 'not_in' | 'eq' | 'ne'; label: string }>
   options: PerformanceMemberFilterOption[]
 }
@@ -1219,6 +1221,12 @@ export interface PerformanceMemberFilterCondition {
 export interface PerformanceMemberFilters {
   logic: 'and' | 'or'
   conditions: PerformanceMemberFilterCondition[]
+}
+
+export interface PerformanceMemberFilterPreset {
+  id: number
+  name: string
+  filters: PerformanceMemberFilters
 }
 
 export interface ProjectMemberPage extends Partial<PerformanceMemberColumnSchema> {
@@ -1517,6 +1525,17 @@ export const projectManagementApi = {
   async cycleMemberFilterOptions(cycleId: number, key?: string, keyword?: string): Promise<{ fields: PerformanceMemberFilterField[] }> {
     const { data } = await api.get(`/performance/project-management/cycles/${cycleId}/members/filter-options`, { params: { key, keyword } })
     return data
+  },
+  async cycleMemberFilterPresets(cycleId: number): Promise<{ items: PerformanceMemberFilterPreset[] }> {
+    const { data } = await api.get(`/performance/project-management/cycles/${cycleId}/members/filter-presets`)
+    return data
+  },
+  async saveCycleMemberFilterPreset(cycleId: number, name: string, filters: PerformanceMemberFilters): Promise<PerformanceMemberFilterPreset> {
+    const { data } = await api.post(`/performance/project-management/cycles/${cycleId}/members/filter-presets`, { name, filters })
+    return data
+  },
+  async deleteCycleMemberFilterPreset(cycleId: number, id: number): Promise<void> {
+    await api.delete(`/performance/project-management/cycles/${cycleId}/members/filter-presets/${id}`)
   },
   async cycleMembers(cycleId: number, keyword?: string, page = 1, pageSize = 50, sortBy?: string, sortOrder?: 'asc' | 'desc', filters?: PerformanceMemberFilters): Promise<ProjectMemberPage> {
     const { data } = await api.get<ProjectMemberPage>(`/performance/project-management/cycles/${cycleId}/members`, { params: { keyword, page, page_size: pageSize, sort_by: sortBy, sort_order: sortOrder, ...(filters?.conditions.length ? { filters: JSON.stringify(filters) } : {}) } })

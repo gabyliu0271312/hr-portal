@@ -38,6 +38,7 @@ from app.table_tools import models as _table_tools_models  # noqa: F401
 from app.ucp import models as _ucp_models  # noqa: F401
 from app.performance import models as _performance_models  # noqa: F401
 from app.performance import column_preferences_model as _performance_column_preferences_model  # noqa: F401
+from app.performance import member_filter_presets_model as _performance_member_filter_presets_model
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.db_url_async)

@@ -17,7 +17,7 @@ vi.mock('vue-router', () => ({
 
 vi.mock('@/api/performance', async () => {
   const actual = await vi.importActual<typeof import('@/api/performance')>('@/api/performance')
-  return { ...actual, fetchPerformanceColumnPreference: vi.fn().mockResolvedValue({ column_keys: null }), savePerformanceColumnPreference: vi.fn().mockImplementation(async (_scope, column_keys) => ({ column_keys })), projectManagementApi: { ...actual.projectManagementApi, overview: vi.fn(), timeline: vi.fn(), managementMatrix: vi.fn(), members: vi.fn(), exportMembers: vi.fn(), matrix: vi.fn(), memberDetail: vi.fn(), cycleMembers: vi.fn(), cycleExportMembers: vi.fn() } }
+  return { ...actual, fetchPerformanceColumnPreference: vi.fn().mockResolvedValue({ column_keys: null }), savePerformanceColumnPreference: vi.fn().mockImplementation(async (_scope, column_keys) => ({ column_keys })), projectManagementApi: { ...actual.projectManagementApi, overview: vi.fn(), timeline: vi.fn(), managementMatrix: vi.fn(), members: vi.fn(), exportMembers: vi.fn(), matrix: vi.fn(), memberDetail: vi.fn(), cycleMembers: vi.fn(), cycleExportMembers: vi.fn(), cycleMemberFilterOptions: vi.fn().mockResolvedValue({ fields: [] }), cycleMemberFilterPresets: vi.fn().mockResolvedValue({ items: [] }) } }
 })
 
 import ProjectManagement from './ProjectManagement.vue'

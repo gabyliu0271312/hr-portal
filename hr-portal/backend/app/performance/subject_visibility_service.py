@@ -24,6 +24,7 @@ SUBJECT_VISIBILITY_FIELDS = (
     ("position_level", "职级"),
     ("job_sequence", "序列"),
     ("direct_supervisor", "直属上级"),
+    ("hrbp", "HRBP"),
     ("hire_date", "入职日期"),
     ("employee_type", "人员类型"),
 )

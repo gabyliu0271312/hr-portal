@@ -7,13 +7,28 @@ from app.performance.member_columns_service import _value
 
 
 FILTER_KINDS = {
-    "name": "person", "direct_supervisor": "person",
+    "name": "person", "direct_supervisor": "person", "hrbp": "person",
     "department": "organization", "department_path": "organization",
-    "job_family": "select", "job_category": "select", "job_sequence": "select",
+    "job_family": "select", "job_category": "select", "job_sequence": "sequence",
     "position_level": "select", "previous_position_level": "select",
     "hire_date": "date", "employee_type": "select", "project_name": "select",
 }
 OPERATORS = [{"value": "in", "label": "包含"}, {"value": "not_in", "label": "不包含"}]
+
+
+def stage_filter_field(node):
+    node_type = _value(node, "node_type")
+    states = ("not_started", "completed") if node_type in {"project_start", "project_end"} else (
+        "pending", "overdue", "completed") if node_type == "result_reconsideration" else (
+        "not_started", "pending", "overdue", "completed")
+    template = (_value(node, "config", {}) or {}).get("template") or {}
+    from app.performance.assessment_roles import ROLE_REVIEWER_360, node_role_code
+    if node_type == "evaluation" and (node_role_code(template) == ROLE_REVIEWER_360 or template.get("executor_label") == "360°评估人"):
+        states = (*states, "rejected")
+    labels = {"not_started": "未开始", "pending": "待完成", "overdue": "已逾期", "completed": "已完成", "rejected": "已拒绝"}
+    return {"key": f"stage:{_value(node, 'node_id')}", "label": _value(node, "name"), "kind": "select",
+            "group": ["环节状态"], "operators": OPERATORS,
+            "options": [{"value": state, "label": labels[state]} for state in states]}
 
 
 def invalid_filter():
@@ -58,7 +73,35 @@ def member_filter_fields(schema, items=()):
         if kind:
             label = {"name": "人员", "department": "所属部门", "department_path": "部门（含子部门）"}.get(key, column["label"])
             fields.append({"key": key, "label": label, "kind": kind, "operators": OPERATORS, "options": []})
+    metadata = {field["key"]: field for field in schema.get("_filter_fields", [])}
+    for field in fields:
+        field.update(metadata.get(field["key"], {}))
+        if field["key"].startswith("stage:"):
+            field.setdefault("group", ["环节状态"])
+            if field["key"] not in metadata:
+                field["label"] = field["label"].removesuffix("状态")
+        elif field["key"].startswith("rating:"):
+            field["group"] = ["当前周期绩效结果"]
+        else:
+            field.setdefault("group", [])
+        if field["key"] == "job_sequence":
+            field["label"] = "序列（筛选结果不含子序列）"
+    if any(field["key"] == "job_sequence" for field in fields):
+        fields.append({"key": "job_sequence_descendants", "label": "序列（筛选结果含子序列）", "kind": "sequence",
+                       "group": [], "operators": OPERATORS, "options": []})
+    fields.extend(field for key, field in metadata.items() if key.startswith("history_rating:"))
     return fields
+
+
+def sequence_path(values):
+    if not values.get("job_sequence"):
+        return None
+    parts = [str(values[key]) for key in ("job_family", "job_category") if values.get(key)]
+    return parts or [str(values["job_sequence"])]
+
+
+def sequence_identity(parts):
+    return json.dumps(parts, ensure_ascii=False, separators=(",", ":"))
 
 
 def member_filter_values(item):
@@ -69,8 +112,16 @@ def member_filter_values(item):
             values[key] = overrides[key]
     if "name" in values:
         values["name"] = {"value": str(_value(item, "employee_no")), "label": _value(item, "display_name")}
+        if _value(item, "avatar_url"):
+            values["name"]["avatarUrl"] = _value(item, "avatar_url")
     if "project_name" in values:
         values["project_name"] = {"value": str(_value(item, "project_id")), "label": _value(item, "project_name")}
+    parts = sequence_path(values)
+    if parts:
+        values["job_sequence_descendants"] = sequence_identity(parts)
+    for key, value in overrides.items():
+        if key.startswith("history_rating:"):
+            values[key] = value
     return values
 
 
@@ -80,7 +131,7 @@ def _option(value):
         if identity is None:
             return None
         option = {"value": str(identity), "label": str(value.get("label") or identity)}
-        for key in ("subLabel", "color"):
+        for key in ("subLabel", "color", "avatarUrl"):
             if value.get(key) is not None:
                 option[key] = value[key]
         return option
@@ -96,6 +147,10 @@ def filter_member_rows(items, filters, schema):
     for condition in filters["conditions"]:
         if condition["key"] not in fields:
             invalid_filter()
+        field = fields[condition["key"]]
+        if field["key"].startswith("stage:") and field["options"]:
+            if not set(condition["values"]) <= {option["value"] for option in field["options"]}:
+                invalid_filter()
         if fields[condition["key"]]["kind"] == "date":
             for value in condition["values"]:
                 try:
@@ -119,6 +174,12 @@ def filter_member_rows(items, filters, schema):
         selected = condition["values"]
         if fields[key]["kind"] == "date" and condition["op"] in ("in", "not_in"):
             included = actual is not None and selected[0] <= actual <= selected[1]
+        elif key in {"job_sequence", "job_sequence_descendants"}:
+            parts = sequence_path(values)
+            if not parts:
+                return False
+            identities = {sequence_identity(parts[:index]) for index in range(1, len(parts) + 1)} if key == "job_sequence_descendants" else {sequence_identity(parts), actual}
+            included = bool(identities.intersection(selected))
         elif key == "department_path":
             included = actual is not None and any(actual == value or actual.startswith(value.rstrip("/") + "/") for value in selected)
         else:
@@ -138,6 +199,29 @@ def member_filter_options(items, schema, *, key=None, keyword=None):
     needle = (keyword or "").strip().casefold()
     values = [member_filter_values(item) for item in items]
     for field in fields:
+        if field["key"].startswith("stage:") and field["options"]:
+            continue
+        if field["kind"] == "sequence":
+            roots = {}
+            for row in values:
+                parts = sequence_path(row)
+                if not parts:
+                    continue
+                if needle and not any(needle in part.casefold() for part in parts):
+                    continue
+                siblings = roots
+                for index, label in enumerate(parts, 1):
+                    identity = sequence_identity(parts[:index])
+                    node = siblings.setdefault(identity, {"value": identity, "label": label, "_children": {}})
+                    siblings = node["_children"]
+            def tree(nodes):
+                result = []
+                for node in sorted(nodes.values(), key=lambda node: (node["label"], node["value"])):
+                    children = tree(node["_children"])
+                    result.append({"value": node["value"], "label": node["label"], **({"children": children} if children else {})})
+                return result
+            field["options"] = tree(roots)
+            continue
         if field["kind"] == "person" and not needle:
             continue
         options = {}

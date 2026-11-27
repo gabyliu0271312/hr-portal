@@ -156,6 +156,7 @@ watch(popup, element => {
     popupObserver.observe(element)
   }
 }, { flush: 'post' })
+watch(() => props.popupWidth, () => { if (open.value) void nextTick(updatePosition) })
 watch(() => props.disabled, disabled => { if (disabled) close() })
 onMounted(() => {
   void nextTick(measureVisibleItems)

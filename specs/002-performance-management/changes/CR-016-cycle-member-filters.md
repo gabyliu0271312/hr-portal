@@ -23,10 +23,24 @@ REA 已确认：锚定筛选浮层、所有/任意、增删条件、清除、取
 - 筛选只缩小原权限结果；行字段不可见不参与该条件，无论正反向；AND/OR均不得反推隐藏字段。
 - 必须先授权、再过滤、再计数排序分页；列表和导出使用相同条件，但导出仍额外校验原导出权限。
 - 评级 key 沿本地 rating:* 配置，值为本地真实option ID。环节 key 为 stage:*，名称来自项目流程快照，禁止使用参考站ID及硬编码节点列表。
-- UI只提交有值的条件；半填日期明确阻止应用；取消不应用草稿；重开复制已应用值；应用/清空后回第一页并清理勾选。
-- 不持久化保存条件（参考入口本轮初始禁用）；换周期/角色/身份清除筛选，未完成旧请求不可回填。
+- UI只提交有值的条件；日期不完整/倒序时不作为有效条件且不阻止确认（2026-11-27实采v2覆盖）；取消不应用草稿；重开复制已应用值；应用/清空后回第一页并清理勾选。
+- 保存条件按可信用户、周期和管理角色服务端持久化（2026-11-27实采v2覆盖）；换周期/角色/身份清除应用筛选及缓存，未完成旧请求不可回填。
 
-## UI 交互基准 v1
+## 2026-11-27 实采修订 v2（本轮实施依据）
+
+用户明确要求全部以实采 DOM、接口为准，并授权修复既有弹窗。覆盖上文 v1 的“不持久化”和“半填日期阻止应用”约束；其余授权、快照和列表/导出同条件约束不变。属于既有弹窗修复，不新增页面或页面流，不另起完整蓝图。
+
+- 实采本机目录：`C:/Users/gaby.liu/AppData/Local/Temp/rea-member-filter-detail-94zz0sqo`；69–92 是序列/当前历史结果的选择、应用、请求响应、重开和恢复证据。保存创建/必填/重名/回填/删除/恢复见45–56，日期/HRBP见57–64。
+- 布局708宽，字段/操作符/值240/100/280，控件32高、间距8，顶部已存条件与保存条件、底部添加/清除/取消/确定，删除图标复用。新增空条件自动展开字段级联；环节状态/当前周期绩效结果/历史周期绩效结果为动态分组；环节名使用配置原名，不追加状态。360反馈/复议等枚举以本地对应环节规则生成，不能硬编码全环节四态。
+- 序列区分精确/含子，树节点身份使用本地快照体系；当前结果沿rating:*稳定ID；历史结果同时绑定历史周期与指标，不读取当前组织关系改写历史。HRBP使用快照关系且受字段权限限制。
+- 日期使用双月范围控件；半填、倒序未提交为有效筛选（不得引入原站没有的阻止提交弹窗）。本地HTTP仍沿YYYY-MM-DD合同，不为复刻原站时间戳改变既有日期业务语义。
+- DTO增量：field.kind允许sequence，field.group?:string[]用于字段级联路径，option.children递归、avatarUrl?/subLabel?；现有filters={logic,conditions:[{key,op,values:string[]}]}保持兼容。
+- 条件持久化合同：GET/POST `/performance/project-management/cycles/{cycle_id}/members/filter-presets`，DELETE同路径`/{preset_id}`；列表`{items:[{id,name,filters}]}`，创建`{name,filters}`返回同一条目。名称1–500字；空条件/非法字段422 INVALID_MEMBER_FILTER，重名409 MEMBER_FILTER_NAME_EXISTS。按可信actor、周期、具名management角色隔离，删除越权404；回填后仍走当前授权字段验证。新增独立迁移，不挪用列偏好表。
+- 缓存仅用于当前周期/身份/角色，预取字段减少点击等待；上下文切换失效，旧请求不能回填。外部点击丢弃草稿，内部Teleport选择器、日期和命名浮层不误关外层。
+- 测试：字段分组/树/状态、历史权限/候选、日期、保存CRUD隔离与重名；前端缓存/自动展开/取消/外部关闭/应用/回填/删除；定向pytest与Vitest、build、UI规则扫描、本地真实Vue浏览器及独立PNG。数据库迁移未实测不得声明完成。
+- 单链协调：用户明确要求不使用双head或新增merge。保留另一线程`0326_performance_manager_standard`不改，本轮尚未应用的筛选迁移顺延为`0327_member_filter_presets`，依赖`0326_performance_manager_standard`。Alembic ScriptDirectory读取迁移图，断言唯一head为`0327_member_filter_presets`通过；本次增量为线性链，仓库已有历史merge不改。仅验证迁移图，未执行数据库upgrade/downgrade，不据此提升真实数据库验收状态。
+
+## UI 交互基准 v1（历史记录，冲突以v2为准）
 
 沿现有页面与已逐项确认的飞书浮层交互，不改页面信息架构。PerformancePopover 作壳，PerformanceSearchSelect / OrganizationTreeSelect / DateTimeField 作值控件；UiButton 作操作。新增条件行独立组件。
 界面布局：顶部“符合以下 [所有/任意] 条件”；中部多行“字段 / 操作符 / 值 / 删除”；底部添加条件、清除已选内容、取消、确定。加载/失败可重试/无可用字段/禁止状态有可见反馈；禁用状态不得显示假成功。
@@ -56,7 +70,16 @@ DOM+computedStyle原始本地证据：临时 rea-rating-network-1795689749280.js
 
 ## 实施与验收证据
 
-### 已实现范围（2026-11-26）
+### 2026-11-27 v2 实施验收（优先于下方历史记录）
+
+- 代码：字段三级级联与动态环节原名、当前/历史评级；序列精确/含子树；HRBP受权限快照候选；用户级条件保存/重名/回填/删除确认；中文双月日期范围；空白新增自动展开、复用垃圾桶图标、外部点击丢弃、身份上下文失效、字段预取。保留本地稳定ID和既有filters结构，不导入参考站业务ID。
+- 前端自动化：`npx vitest run src/components/performance/PerformanceMemberFilter.spec.ts src/views/performance/ProjectManagement.spec.ts src/components/performance/PerformanceSubjectVisibilityEditor.spec.ts --reporter=dot` → **99 passed / 3 files，22.68s，exit0**，筛选专项16项。项目管理部分存量测试仍有jsdom XHR AggregateError stderr，不冒充无告警运行。
+- UI规则：筛选主组件、字段级联、条件预设、取值、日期范围5个Vue → **0违规**。`npm run build` → **vue-tsc+Vite通过，3903模块，38.92s**；既有VueUse PURE和bundle尺寸提示保留。
+- 本地真实Vue受控API浏览器验证：708外宽、240/100/280三列、32控件高、48×28确认按钮；历史三级菜单704宽且修复动态扩宽；新增自动展开、历史评级按ID应用、保存与回填、中文双月范围280宽且点击子层不误关、选择2026-11-01至2026-12-01应用并重开回显、外部点击无额外apply均已观察。受控API不是已登录整页真实后端或PostgreSQL证据。截图已生成并读取：`ui-blueprints/CR-016-T02-v2-history-cascade.png`、`ui-blueprints/CR-016-T02-v2-date-range.png`；初版截图保留但不作为最终像素基准。
+- 后端线程最终报告：四组`test_performance_member_filters.py / test_performance_management_scope.py / test_performance_projects.py / test_performance_subject_visibility.py` → **1340 passed / 5 skipped / 1 warning，32.34s，exit0**；警告为既有python_multipart弃用。覆盖历史周期独立授权、预设身份/角色/周期隔离、权限撤销后重放、真实SQLite HRBP配置normalize→成员行→HTTP allow/deny。HRBP新增字段可配置注册，不扩大默认授权，前端配置入口原本动态渲染field_options，无须静态新增。阶段文案统一待完成/已完成/已逾期/未开始，360额外已拒绝，复议无未开始；序列文案完整对齐实采。
+- 迁移：唯一head`0327_member_filter_presets`图验证通过；后端测试真实执行隔离SQLite0327 upgrade→插入→downgrade，原周期数据保留。**真实PostgreSQL未监听、未执行持久库迁移**；不声明数据库或生产可上线。任务整体仍不勾选，原因是持久数据库与完整真实登录API联合验收未完成。
+
+### 已实现范围（2026-11-26，历史记录）
 
 - 后端：projects_router.py 与 member_filters_service.py 接通周期候选、列表与导出；有筛选时对完整授权结果过滤后计数分页，无筛选保留原SQL分页；内部真实评级/上级ID不进入公共DTO。
 - 实际支持：人员、直属上级、所属部门精确、部门全路径含子、职族/职类/序列精确、职级/上期职级、入职日期闭区间、人员类型、所属项目，以及按已有配置产生的rating:*、stage:*。

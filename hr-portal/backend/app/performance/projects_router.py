@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, datetime, date, timedelta
+import json
 import math
 from typing import Callable, Literal
 from types import SimpleNamespace
@@ -3453,9 +3454,15 @@ def _member_stage_values(tasks, nodes, project):
     for node in nodes:
         relevant = [task for task in tasks if task.node_snapshot_id == node.id and getattr(task, "revoked_at", None) is None]
         if not relevant:
+            if node.node_type != "result_reconsideration":
+                result[f"stage:{node.node_id}"] = "not_started"
             continue
-        statuses = ["completed" if _task_completed(task) else _review_task_status(task, *[value.isoformat() if value else None for value in _task_window(task, node, project)]) for task in relevant]
-        result[f"stage:{node.node_id}"] = "completed" if all(value == "completed" for value in statuses) else "overdue" if "overdue" in statuses else "pending"
+        from app.performance.member_filters_service import stage_filter_field
+        allowed_states = {option["value"] for option in stage_filter_field(node)["options"]}
+        statuses = ["rejected" if "rejected" in allowed_states and task.status == "rejected" else "completed" if _task_completed(task) else _review_task_status(task, *[value.isoformat() if value else None for value in _task_window(task, node, project)]) for task in relevant]
+        result[f"stage:{node.node_id}"] = "rejected" if all(value == "rejected" for value in statuses) else "completed" if all(value in {"completed", "rejected"} for value in statuses) else "overdue" if "overdue" in statuses else "pending" if "pending" in statuses else "not_started"
+        if node.node_type == "result_reconsideration" and result[f"stage:{node.node_id}"] == "not_started":
+            result.pop(f"stage:{node.node_id}")
     return result
 
 
@@ -3495,7 +3502,9 @@ async def _project_member_column_schema(project, scope, context, db, *, nodes=No
         if not members:
             role = await _member_visibility_role(context, project, None, scope, actor_ref, db)
             fields.update(rules[role])
-    schema = column_schema(rating_columns, fields, nodes, "management", available_profile_fields=SNAPSHOT_PROFILE_FIELDS | {"previous_position_level", "project_name"})
+    schema = column_schema(rating_columns, fields, nodes, "management", available_profile_fields=SNAPSHOT_PROFILE_FIELDS | {"previous_position_level", "project_name", "hrbp"})
+    from app.performance.member_filters_service import stage_filter_field
+    schema["_filter_fields"] = [stage_filter_field(node) for node in nodes]
     if isinstance(cache, dict):
         cache[key] = {"schema": schema, "nodes": nodes, "rating_columns": rating_columns, "metadata": rating_metadata, "rules": rules}
     return schema
@@ -3522,13 +3531,13 @@ async def _management_member_schema(context, db, *, project=None, scope=None, cy
                         continue
                     raise
                 authorized.append((candidate, candidate_scope))
-    merged = {key: [] for key in SCHEMA_KEYS}
+    merged = {key: [] for key in (*SCHEMA_KEYS, "_filter_fields")}
     for candidate, candidate_scope in authorized:
         schema = await _project_member_column_schema(candidate, candidate_scope, context, db, readonly=readonly)
-        for key in SCHEMA_KEYS:
-            existing = {column["key"] for column in merged[key]} if key == "columns" else set(merged[key])
-            for value in schema[key]:
-                identity = value["key"] if key == "columns" else value
+        for key in (*SCHEMA_KEYS, "_filter_fields"):
+            existing = {column["key"] for column in merged[key]} if key in {"columns", "_filter_fields"} else set(merged[key])
+            for value in schema.get(key, []):
+                identity = value["key"] if key in {"columns", "_filter_fields"} else value
                 if identity not in existing:
                     merged[key].append(value)
                     existing.add(identity)
@@ -3602,6 +3611,8 @@ async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db
         schema_out.update(merged_schema)
     if parsed_filters is not None:
         items, columns, _total = await _authorized_member_rows(authorized, keyword, sort_by, sort_order, context, db, merged_schema, export=export)
+        if any(condition["key"].startswith("history_rating:") for condition in parsed_filters["conditions"]):
+            await _cycle_member_history_filters(cycle_id, items, merged_schema, context, db, export=export)
         items = filter_member_rows(items, parsed_filters, merged_schema)
         total = len(items)
         if page is not None and not export:
@@ -3883,6 +3894,48 @@ async def cycle_project_members(
     return ProjectMemberPage(items=items, total=total, page=page, page_size=page_size, rating_columns=columns, **schema)
 
 
+async def _cycle_member_history_filters(cycle_id, items, schema, context, db, *, export=False):
+    from app.performance.member_filters_service import member_filter_values, OPERATORS
+
+    cycle = await db.get(PerformanceCycle, cycle_id)
+    if cycle is None or cycle.start_at is None:
+        return
+    actor = await resolve_trusted_performance_actor(db, context, cycle_ref=cycle.cycle_ref)
+    cycles = list((await db.execute(select(PerformanceCycle).where(
+        PerformanceCycle.start_at < cycle.start_at,
+    ).order_by(PerformanceCycle.start_at, PerformanceCycle.id))).scalars().all())
+    metadata = schema.setdefault("_filter_fields", [])
+    for history in cycles:
+        history_context = replace(context, management_cycle_id=history.id, management_project_id=None)
+        try:
+            history_actor = await resolve_trusted_performance_actor(db, history_context, cycle_ref=history.cycle_ref)
+            if history_actor != actor:
+                continue
+            historical_schema = {}
+            historical, _columns, _total = await _cycle_member_rows(
+                history.id, None, None, None, history_context, db, export=export, schema_out=historical_schema)
+        except (PerformanceIdentityMappingNotFound, HTTPException) as exc:
+            if isinstance(exc, HTTPException) and exc.status_code not in {403, 404}:
+                raise
+            continue
+        by_employee = {}
+        ambiguous = set()
+        for item in historical:
+            values = {f"history_rating:{history.id}:{key.removeprefix('rating:')}": value
+                      for key, value in member_filter_values(item).items() if key.startswith("rating:")}
+            if item.employee_no in by_employee:
+                ambiguous.add(item.employee_no)
+            by_employee[item.employee_no] = values
+        for column in historical_schema.get("columns", []):
+            if column["key"].startswith("rating:"):
+                metadata.append({"key": f"history_rating:{history.id}:{column['key'].removeprefix('rating:')}",
+                                 "label": column["label"], "kind": "select", "operators": OPERATORS,
+                                 "group": ["历史周期绩效结果", history.name], "options": []})
+        for item in items:
+            if item.employee_no not in ambiguous:
+                item.filter_values.update(by_employee.get(item.employee_no, {}))
+
+
 @router.get("/project-management/cycles/{cycle_id}/members/filter-options")
 async def cycle_member_filter_options(
     cycle_id: int,
@@ -3897,7 +3950,77 @@ async def cycle_member_filter_options(
         invalid_filter()
     schema = {}
     items, _columns, _total = await _cycle_member_rows(cycle_id, None, None, None, context, db, schema_out=schema)
+    if key is None or key.startswith("history_rating:"):
+        await _cycle_member_history_filters(cycle_id, items, schema, context, db)
     return member_filter_options(items, schema, key=key, keyword=keyword)
+
+
+async def _member_filter_preset_scope(cycle_id, context, db):
+    from app.performance.member_filter_presets_model import PerformanceMemberFilterPreset as Preset
+
+    await _cycle_member_rows(cycle_id, None, None, None, context, db, page=1, page_size=1)
+    cycle = await db.get(PerformanceCycle, cycle_id)
+    actor = await resolve_trusted_performance_actor(db, context, cycle_ref=cycle.cycle_ref)
+    return Preset, dict(owner_type=actor.actor_type, owner_ref=actor.actor_ref,
+                        cycle_id=cycle_id, management_role=context.management_role or "")
+
+
+@router.get("/project-management/cycles/{cycle_id}/members/filter-presets")
+async def list_member_filter_presets(
+    cycle_id: int, context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    model, scope = await _member_filter_preset_scope(cycle_id, context, db)
+    rows = list((await db.execute(select(model).where(
+        *[getattr(model, key) == value for key, value in scope.items()],
+    ).order_by(model.id))).scalars().all())
+    return {"items": [{"id": row.id, "name": row.name, "filters": row.filters} for row in rows]}
+
+
+@router.post("/project-management/cycles/{cycle_id}/members/filter-presets")
+async def create_member_filter_preset(
+    cycle_id: int, payload: object = Body(...),
+    context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session),
+):
+    from app.performance.member_filters_service import parse_member_filters, invalid_filter
+
+    model, scope = await _member_filter_preset_scope(cycle_id, context, db)
+    if not isinstance(payload, dict) or set(payload) != {"name", "filters"}:
+        invalid_filter()
+    name = payload["name"]
+    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 500:
+        invalid_filter()
+    try:
+        raw = json.dumps(payload["filters"], ensure_ascii=False)
+    except (ValueError, TypeError, RecursionError):
+        invalid_filter()
+    filters = parse_member_filters(raw)
+    if not filters["conditions"]:
+        invalid_filter()
+    await _cycle_member_rows(cycle_id, None, None, None, context, db, filters=raw)
+    insert = sqlite_insert if db.get_bind().dialect.name == "sqlite" else pg_insert
+    statement = insert(model).values(**scope, name=name.strip(), filters=filters).on_conflict_do_nothing(
+        index_elements=[*scope, "name"],
+    ).returning(model.id)
+    preset_id = (await db.execute(statement)).scalar_one_or_none()
+    if preset_id is None:
+        raise HTTPException(409, "MEMBER_FILTER_NAME_EXISTS")
+    await db.commit()
+    return {"id": preset_id, "name": name.strip(), "filters": filters}
+
+
+@router.delete("/project-management/cycles/{cycle_id}/members/filter-presets/{preset_id}")
+async def delete_member_filter_preset(
+    cycle_id: int, preset_id: int,
+    context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session),
+):
+    model, scope = await _member_filter_preset_scope(cycle_id, context, db)
+    statement = delete(model).where(model.id == preset_id,
+        *[getattr(model, key) == value for key, value in scope.items()]).returning(model.id)
+    if (await db.execute(statement)).scalar_one_or_none() is None:
+        raise HTTPException(404, "MEMBER_FILTER_PRESET_NOT_FOUND")
+    await db.commit()
+    return {"id": preset_id}
 
 
 @router.get("/project-management/cycles/{cycle_id}/members/export", response_model=ProjectMemberPage)
@@ -4028,6 +4151,11 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
         item["direct_supervisor"] = supervisor_names.get((member.snapshot_id, getattr(member, "direct_supervisor_employee_no", None)))
         visible_fields = visible_fields_by_member[member.id]
         item["visible_profile_fields"] = visible_fields
+        if "hrbp" in visible_fields:
+            hrbp_no = getattr(member, "hrbp_employee_no", None)
+            people = await _delegation_snapshot_people(db, member.snapshot_id, people_cache) if hrbp_no else {}
+            person = people.get(hrbp_no)
+            item["hrbp"] = getattr(person, "display_name", None) or hrbp_no
         item["project_name"] = getattr(project, "name", None)
         item["previous_position_level"] = previous_levels.get(member.employee_no) if "position_level" in visible_fields else None
         item["department_path"] = member.organization_ref if "department" in visible_fields else None
@@ -4058,9 +4186,11 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
             item["can_authorize"] = bool(options) and any(option.can_authorize for option in options)
             item["task_map"] = [option.model_dump() for option in options]
         from app.performance.member_columns_service import column_schema as build_column_schema, SNAPSHOT_PROFILE_FIELDS
-        row_schema = build_column_schema(rating_columns, visible_fields, nodes, available_profile_fields=SNAPSHOT_PROFILE_FIELDS | {"previous_position_level", "project_name"})
+        row_schema = build_column_schema(rating_columns, visible_fields, nodes, available_profile_fields=SNAPSHOT_PROFILE_FIELDS | {"previous_position_level", "project_name", "hrbp"})
         _member_row_column_values(item, row_schema, stages=_member_stage_values(by_employee.get(member.employee_no, []), nodes, project))
         filter_values = {}
+        if "hrbp" in item["column_values"] and getattr(member, "hrbp_employee_no", None):
+            filter_values["hrbp"] = {"value": member.hrbp_employee_no, "label": item["hrbp"]}
         if "direct_supervisor" in item["column_values"] and member.direct_supervisor_employee_no:
             filter_values["direct_supervisor"] = {"value": member.direct_supervisor_employee_no, "label": item["direct_supervisor"] or member.direct_supervisor_employee_no}
         answers = effective["answers"] if effective is not None else (latest_final.answers or {}) if latest_final is not None else {}

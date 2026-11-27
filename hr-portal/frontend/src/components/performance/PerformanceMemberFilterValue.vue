@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { projectManagementApi, type PerformanceMemberFilterField, type PerformanceMemberFilterOption, type PerformanceHrbpOrganizationNode } from '@/api/performance'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import PerformanceOrganizationSelect from './PerformanceOrganizationSelect.vue'
-import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
+import PerformanceDateRangeField from './PerformanceDateRangeField.vue'
 import PerformanceSelectShell from './PerformanceSelectShell.vue'
 import PerformanceRatingTag from './PerformanceRatingTag.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
@@ -57,23 +57,18 @@ const nodes = computed(() => {
 })
 const allSelected = computed(() => options.value.length > 0 && options.value.every(option => props.modelValue.includes(option.value)))
 function toggle(value: string) { emit('update:modelValue', props.modelValue.includes(value) ? props.modelValue.filter(item => item !== value) : [...props.modelValue, value]) }
-function dateValue(index: number, value: string) { const next = [...props.modelValue]; next[index] = value; emit('update:modelValue', next) }
 </script>
 
 <template>
   <div class="member-filter-value">
-    <div v-if="field.kind === 'date'" class="member-filter-value__dates">
-      <PerformanceDateTimeField :model-value="modelValue[0] || ''" date-only placeholder="开始日期" :aria-label="`${field.label}开始日期`" @update:model-value="dateValue(0, $event)" />
-      <span aria-hidden="true">—</span>
-      <PerformanceDateTimeField :model-value="modelValue[1] || ''" date-only placeholder="结束日期" :aria-label="`${field.label}结束日期`" @update:model-value="dateValue(1, $event)" />
-    </div>
-    <PerformanceOrganizationSelect v-else-if="field.kind === 'organization'" :model-value="modelValue" :nodes="nodes" :aria-label="field.label" placeholder="请选择" selection-indicator="checkbox" @update:model-value="emit('update:modelValue', $event)" />
+    <PerformanceDateRangeField v-if="field.kind === 'date'" :model-value="modelValue" :aria-label="field.label" @update:model-value="emit('update:modelValue', $event)" />
+    <PerformanceOrganizationSelect v-else-if="field.kind === 'organization' || field.kind === 'sequence'" :model-value="modelValue" :nodes="nodes" :aria-label="field.label" :popup-label="`${field.label}选项`" placeholder="" :selection-indicator="field.kind === 'sequence' ? 'checkmark' : 'checkbox'" @update:model-value="emit('update:modelValue', $event)" />
     <PerformanceSearchSelect v-else-if="field.kind === 'person'" :model-value="modelValue" :options="options" multiple remote-search :loading="loading" :aria-label="field.label" placeholder="搜索成员" @search="search" @update:model-value="emit('update:modelValue', Array.isArray($event) ? $event : [])" />
     <PerformanceSelectShell v-else :model-value="modelValue" :selected-items="selected" :aria-label="field.label" :popup-label="`${field.label}选项`" placeholder="请选择" @update:model-value="emit('update:modelValue', $event)">
       <template #default="{ query }">
         <div role="listbox" aria-multiselectable="true" :aria-label="`${field.label}选项`" class="member-filter-value__options">
           <UiButton v-for="option in options.filter(item => `${item.label} ${item.subLabel || ''}`.toLowerCase().includes(query.trim().toLowerCase()))" :key="option.value" variant="text" role="option" :aria-selected="modelValue.includes(option.value)" class="member-filter-value__option" @click="toggle(option.value)">
-            <PerformanceRatingTag v-if="field.key.startsWith('rating:')" :label="option.label" :color="option.color || undefined" />
+            <PerformanceRatingTag v-if="field.key.startsWith('rating:') || field.key.startsWith('history_rating:')" :label="option.label" :color="option.color || undefined" />
             <span v-else>{{ option.label }}</span>
             <span v-if="option.subLabel" class="member-filter-value__description">{{ option.subLabel }}</span>
             <span v-if="modelValue.includes(option.value)" class="member-filter-value__check" aria-hidden="true">✓</span>

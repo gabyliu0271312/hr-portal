@@ -58,7 +58,7 @@ def test_subject_visibility_get_returns_captured_defaults_and_pagination():
     assert [item["role_key"] for item in payload["items"]] == list(DEFAULT_SUBJECT_VISIBILITY_RULES)
     assert payload["items"][0]["visible_fields"] == ["department", "position_level", "job_sequence"]
     assert payload["items"][8]["visible_fields"][-1] == "employee_type"
-    assert [field["label"] for field in payload["field_options"]] == ["部门", "职级", "序列", "直属上级", "入职日期", "人员类型"]
+    assert [field["label"] for field in payload["field_options"]] == ["部门", "职级", "序列", "直属上级", "HRBP", "入职日期", "人员类型"]
 
 
 def test_subject_visibility_endpoints_require_configuration_permission():
