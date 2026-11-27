@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from app.performance import projects_router as routes
 from app.performance.member_columns_service import column_schema
 from app.performance.member_filters_service import (
-    filter_member_rows, member_filter_options, parse_member_filters, sequence_identity, stage_filter_field,
+    filter_member_rows, member_filter_options, parse_member_filters, sequence_identity, stage_filter_field, rating_filter_field, OPERATORS,
 )
 from app.performance.models import PerformanceProjectMember
 from tests.test_performance_management_scope import context, scope_db
@@ -267,6 +267,70 @@ async def test_api_options_use_full_authorized_cycle_and_reject_invalid_filters(
     assert all(response.status_code == 422 and response.json()["detail"] == "INVALID_MEMBER_FILTER" for response in [*invalid, unknown])
 
 
+def test_rating_candidates_use_full_local_configuration_even_when_no_member_has_option():
+    rating = {"key": "rating:grade", "label": "绩效评级", "options": [
+        {"id": "grade-b", "code": "B", "label": "良好", "description": "达到要求", "color": "#b"},
+        {"id": "grade-a", "code": "A", "label": "优秀", "color": "#a"},
+        {"id": "grade-c", "label": "一般"},
+    ]}
+    current_schema = schema()
+    current_schema["_filter_fields"] = [rating_filter_field(rating)]
+    options = member_filter_options([], current_schema, key="rating:grade")["fields"][0]["options"]
+    assert options == [
+        {"value": "grade-b", "label": "B", "subLabel": "达到要求", "color": "#b"},
+        {"value": "grade-a", "label": "A", "subLabel": "优秀", "color": "#a"},
+        {"value": "grade-c", "label": "一般"},
+    ]
+    item = row("A", **{"rating:grade": {"value": "grade-a", "label": "A"}})
+    assert member_filter_options([item], current_schema, key="rating:grade")["fields"][0]["options"] == options
+
+
+def test_historical_rating_filter_metadata_keeps_its_own_configuration():
+    from app.performance.member_filters_service import member_filter_fields
+    current = {"columns": [], "_filter_fields": [{
+        "key": "history_rating:12:grade", "label": "历史评级", "kind": "select",
+        "group": ["历史周期绩效结果", "Q4"], "operators": OPERATORS,
+        "options": [{"value": "old-b", "label": "B", "color": "blue"}, {"value": "old-a", "label": "A"}],
+    }]}
+    field = member_filter_fields(current)[0]
+    assert field["key"] == "history_rating:12:grade"
+    assert field["options"] == [{"value": "old-b", "label": "B", "color": "blue"}, {"value": "old-a", "label": "A"}]
+    assert member_filter_options([], current)["fields"] == [field]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("supplied_columns", [False, True])
+async def test_rating_configuration_survives_real_project_column_schema(management_member_data, monkeypatch, supplied_columns):
+    data = management_member_data
+    configured = [{"id": "unused-z", "code": "Z", "label": "尚无人取得", "color": "#z"},
+                  {"id": "used-a", "code": "A", "label": "优秀", "color": "#a"}]
+    monkeypatch.setattr(routes, "_matrix_node_schema", AsyncMock(return_value=[{"id": "final", "fields": [
+        {"id": "grade", "type": "rating", "label": "评级", "options": configured}]}]))
+    kwargs = {"rating_columns": [{"key": "rating:grade", "label": "评级"}]} if supplied_columns else {}
+    result = await routes._project_member_column_schema(data.project, None, legacy_context(), data.db, **kwargs)
+    field = member_filter_options([], result, key="rating:grade")["fields"][0]
+    assert [option["value"] for option in field["options"]] == ["unused-z", "used-a"]
+    assert field["options"][0] == {"value": "unused-z", "label": "Z", "subLabel": "尚无人取得", "color": "#z"}
+
+
+@pytest.mark.asyncio
+async def test_authorized_project_rating_configuration_merge_preserves_order_without_mutating_cache(monkeypatch):
+    from copy import deepcopy
+    schemas = []
+    for ids in (["b", "a"], ["a", "c"]):
+        value = schema()
+        value["_filter_fields"] = [rating_filter_field({"key": "rating:grade", "label": "评级",
+            "options": [{"id": option_id, "label": option_id.upper()} for option_id in ids]})]
+        schemas.append(value)
+    before = deepcopy(schemas)
+    monkeypatch.setattr(routes, "_project_member_column_schema", AsyncMock(side_effect=schemas))
+    merged = await routes._management_member_schema(context(), SimpleNamespace(), authorized=[
+        (SimpleNamespace(id=1), {"A"}), (SimpleNamespace(id=2), {"B"})])
+    options = member_filter_options([], merged, key="rating:grade")["fields"][0]["options"]
+    assert [option["value"] for option in options] == ["b", "a", "c"]
+    assert schemas == before
+
+
 def test_v2_groups_sequence_tree_and_boundary_matching():
     items = [row("A", job_family="技术", job_category="研发", job_sequence="后端"),
              row("B", job_family="技术二", job_category="研发", job_sequence="后端"),
@@ -407,12 +471,26 @@ async def test_v2_preset_rejects_invalid_name_empty_filters_and_hidden_fields(pr
 
 
 @pytest.mark.asyncio
-async def test_v2_history_reauthorizes_each_cycle_member_and_filters_before_pagination(api, monkeypatch):
+@pytest.mark.parametrize("dates", ["earlier", "same", "later", "current_missing"])
+async def test_v2_history_reauthorizes_each_cycle_member_and_filters_before_pagination(api, monkeypatch, dates):
     from datetime import UTC, datetime
     from app.performance.models import PerformanceCycle, PerformanceHrbpPermission
     db = api.db
     cycle = db.session.get(PerformanceCycle, 2)
-    cycle.start_at = datetime(2025, 1, 1, tzinfo=UTC)
+    cycle.start_at = datetime({"earlier": 2025, "same": 2026, "later": 2027, "current_missing": 2027}[dates], 1, 1, tzinfo=UTC)
+    if dates == "current_missing":
+        db.session.get(PerformanceCycle, 1).start_at = None
+    original_schema = routes._management_member_schema
+    async def configured_schema(*args, **kwargs):
+        result = {**await original_schema(*args, **kwargs)}
+        authorized = kwargs.get("authorized", [])
+        historical = any(project.id == 3 for project, _scope in authorized)
+        result["_filter_fields"] = [rating_filter_field({"key": "rating:grade", "label": "评级", "options": [
+            {"id": "historic-local-b" if historical else "current-local-b", "code": "B", "label": "良好"},
+            {"id": "historic-local-a" if historical else "current-local-a", "label": "历史优秀" if historical else "当前优秀"},
+        ]})]
+        return result
+    monkeypatch.setattr(routes, "_management_member_schema", configured_schema)
     db.insert(PerformanceProjectMember, id=301, snapshot_id=30, employee_no="VISIBLE1", display_name="VISIBLE1", organization_ref="集团/A")
     db.insert(PerformanceProjectMember, id=302, snapshot_id=30, employee_no="VISIBLE2", display_name="VISIBLE2", organization_ref="集团/B")
     db.session.commit()
@@ -435,7 +513,13 @@ async def test_v2_history_reauthorizes_each_cycle_member_and_filters_before_pagi
         allowed = await client.get(url + "/filter-options", params={"key": "history_rating:2:grade"})
         assert allowed.status_code == 200, allowed.text
         assert allowed.json()["fields"][0]["group"] == ["历史周期绩效结果", "其他周期"]
-        assert allowed.json()["fields"][0]["options"] == [{"value": "historic-local-a", "label": "历史优秀"}]
+        assert allowed.json()["fields"][0]["options"] == [
+            {"value": "historic-local-b", "label": "B", "subLabel": "良好"},
+            {"value": "historic-local-a", "label": "历史优秀"}]
+        all_options = await client.get(url + "/filter-options")
+        assert not any(field["key"].startswith("history_rating:1:") for field in all_options.json()["fields"])
+        current_options = next(field for field in all_options.json()["fields"] if field["key"] == "rating:grade")["options"]
+        assert [option["value"] for option in current_options] == ["current-local-b", "current-local-a"]
         positive = await client.get(url, params={"filters": payload(("history_rating:2:grade", "in", ["historic-local-a"])), "page_size": 1})
         negative = await client.get(url, params={"filters": payload(("history_rating:2:grade", "not_in", ["other"]))})
         assert positive.status_code == negative.status_code == 200
@@ -448,6 +532,42 @@ async def test_v2_history_reauthorizes_each_cycle_member_and_filters_before_pagi
         db.session.commit()
         assert (await client.get(url + "/filter-options", params={"key": "history_rating:2:grade"})).status_code == 403
     assert db.session.get(PerformanceProjectMember, 301).organization_ref == "集团/A"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("blocked", ["closed", "no_rating", "different_actor"])
+async def test_history_fields_never_bypass_project_configuration_or_actor_boundary(api, monkeypatch, blocked):
+    from app.performance.models import PerformanceHrbpPermission
+    db = api.db
+    db.insert(PerformanceHrbpPermission, id=99, cycle_ref="C2", hrbp_employee_no="ADMIN", scope=["集团/A"], invisible_people=[])
+    if blocked == "closed":
+        db.session.get(routes.PerformanceProject, 3).status = "CLOSED"
+    db.session.commit()
+    if blocked != "no_rating":
+        configured = schema()
+        configured["_filter_fields"] = [rating_filter_field({"key": "rating:grade", "label": "评级", "options": [{"id": "local-a", "label": "A"}]})]
+        monkeypatch.setattr(routes, "_management_member_schema", AsyncMock(return_value=configured))
+    else:
+        configured = schema()
+        configured["columns"] = [column for column in configured["columns"] if not column["key"].startswith("rating:")]
+        monkeypatch.setattr(routes, "_management_member_schema", AsyncMock(return_value=configured))
+    if blocked == "different_actor":
+        from app.performance.auth_context import TrustedPerformanceActor
+        original = routes.resolve_trusted_performance_actor
+        async def actor(db, ctx, **kwargs):
+            if kwargs.get("cycle_ref") == "C2":
+                return TrustedPerformanceActor("EMPLOYEE", "OTHER")
+            return await original(db, ctx, **kwargs)
+        monkeypatch.setattr(routes, "resolve_trusted_performance_actor", actor)
+    url = "/api/v1/performance/project-management/cycles/1/members"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api.app), base_url="http://test") as client:
+        options = await client.get(url + "/filter-options")
+        assert options.status_code == 200, options.text
+        assert not any(field["key"].startswith("history_rating:") for field in options.json()["fields"])
+        requested = await client.get(url + "/filter-options", params={"key": "history_rating:2:grade"})
+        assert requested.status_code == 422 and requested.json()["detail"] == "INVALID_MEMBER_FILTER"
+        filtered = await client.get(url, params={"filters": payload(("history_rating:2:grade", "not_in", ["local-a"]))})
+        assert filtered.status_code == 422 and filtered.json()["detail"] == "INVALID_MEMBER_FILTER"
 
 
 @pytest.mark.asyncio

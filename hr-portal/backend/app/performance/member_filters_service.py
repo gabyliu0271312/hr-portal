@@ -31,6 +31,20 @@ def stage_filter_field(node):
             "options": [{"value": state, "label": labels[state]} for state in states]}
 
 
+def rating_filter_field(rating):
+    options = []
+    for option in rating.get("options", []):
+        if option.get("id") is None:
+            continue
+        label = str(option.get("code") or option.get("label") or option["id"])
+        description = option.get("description") or (option.get("label") if option.get("code") else None)
+        options.append({"value": str(option["id"]), "label": label,
+                        **({"subLabel": str(description)} if description else {}),
+                        **({"color": option["color"]} if option.get("color") is not None else {})})
+    return {"key": rating["key"], "label": rating["label"], "kind": "select",
+            "group": ["当前周期绩效结果"], "operators": OPERATORS, "options": options}
+
+
 def invalid_filter():
     raise HTTPException(status_code=422, detail="INVALID_MEMBER_FILTER")
 
@@ -198,7 +212,10 @@ def member_filter_options(items, schema, *, key=None, keyword=None):
             invalid_filter()
     needle = (keyword or "").strip().casefold()
     values = [member_filter_values(item) for item in items]
+    configured = {field["key"] for field in schema.get("_filter_fields", [])}
     for field in fields:
+        if field["key"] in configured and field["key"].startswith(("rating:", "history_rating:")):
+            continue
         if field["key"].startswith("stage:") and field["options"]:
             continue
         if field["kind"] == "sequence":

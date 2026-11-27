@@ -155,6 +155,34 @@ describe('cycle member advanced filters', () => {
     rating.click(); await flushPromises()
     expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['history_rating:2:configured'])
   })
+  it('keeps the historical results entry visible when no authorized historical field is returned', async () => {
+    const wrapper = mount(PerformanceMemberFilterField, { props: { modelValue: field.key, fields: [field], ariaLabel: '字段' } })
+    wrapper.vm.open(); await flushPromises()
+    const history = [...document.querySelectorAll<HTMLButtonElement>('.member-filter-field__option')].find(button => button.textContent?.includes('历史周期绩效结果'))!
+    history.click(); await flushPromises()
+    expect(document.querySelector('.member-filter-field__empty')?.textContent).toBe('暂无可用周期')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+  it('renders every configured rating option in server order and uses a solid SVG tick', async () => {
+    const options = ['1星', '2星', '3星-', '3星', '3星+', '4星', '5星'].map((label, index) => ({ label, value: `option-${index}` }))
+    const wrapper = mount(PerformanceMemberFilterValue, { props: { field: { ...field, options }, modelValue: ['option-3'], cycleId: 1 } })
+    wrapper.findComponent(PerformanceSelectShell).vm.openMenu(); await flushPromises()
+    const candidates = [...document.querySelectorAll<HTMLButtonElement>('.member-filter-value__option')]
+    expect(candidates.map(button => button.textContent?.trim())).toEqual(options.map(option => option.label))
+    expect(candidates[3].querySelector('svg[data-icon="ListCheckBoldOutlined"]')?.getAttribute('width')).toBe('12')
+    expect(candidates[3].textContent).not.toContain('✓')
+    expect(document.querySelector('.member-filter-value__footer input[type="checkbox"]')).not.toBeNull()
+  })
+  it('uses the same solid tick for department and sequence tree candidates, not boxed checkboxes', async () => {
+    for (const kind of ['organization', 'sequence'] as const) {
+      const wrapper = mount(PerformanceMemberFilterValue, { props: { field: { ...field, kind, options: [{ value: 'node', label: '节点' }] }, modelValue: ['node'], cycleId: 1 } })
+      wrapper.findComponent(PerformanceSelectShell).vm.openMenu(); await flushPromises()
+      const tree = document.querySelector('.performance-organization-tree-nodes')!
+      expect(tree.querySelector('input[type="checkbox"]')).toBeNull()
+      expect(tree.querySelector('svg[data-icon="ListCheckBoldOutlined"]')?.getAttribute('width')).toBe('12')
+      wrapper.unmount()
+    }
+  })
   it('uses one dual-month range picker and clears invalid or pending ranges', async () => {
     const wrapper = mount(PerformanceDateRangeField, { props: { modelValue: ['2026-01-01', '2026-02-01'] } })
     const picker = wrapper.findComponent(ElDatePicker)
@@ -191,6 +219,16 @@ describe('saved member filters', () => {
   function mountPresets() {
     return mount(PerformanceMemberFilterPresets, { props: { cycleId: 1, contextKey: 'role-a', visible: true, filters: applied }, global: { stubs: { PerformancePopover: Popover } } })
   }
+  it('reuses the actual save and regular dropdown SVG icons instead of text characters', async () => {
+    const wrapper = mountPresets()
+    await flushPromises()
+    const buttons = wrapper.findAll('button')
+    expect(buttons.find(button => button.text().includes('保存条件'))!.find('svg[data-icon="FilelinkSaveOutlined"]').attributes('width')).toBe('12')
+    expect(buttons.find(button => button.text().includes('已存条件'))!.find('svg[data-icon="DownOutlined"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('＋')
+    expect(wrapper.text()).not.toContain('⌄')
+    expect(wrapper.find('button button').exists()).toBe(false)
+  })
   it('saves validated names and the actual filter IDs, and surfaces duplicate errors', async () => {
     vi.mocked(projectManagementApi.saveCycleMemberFilterPreset).mockRejectedValueOnce({ response: { status: 409 } }).mockResolvedValueOnce(preset)
     const wrapper = mountPresets()

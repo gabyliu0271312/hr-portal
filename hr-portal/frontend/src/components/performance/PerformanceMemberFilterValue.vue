@@ -7,6 +7,7 @@ import PerformanceDateRangeField from './PerformanceDateRangeField.vue'
 import PerformanceSelectShell from './PerformanceSelectShell.vue'
 import PerformanceRatingTag from './PerformanceRatingTag.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
+import PerformanceSymbol from './PerformanceSymbol.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 
 const props = defineProps<{ modelValue: string[]; field: PerformanceMemberFilterField; cycleId: number }>()
@@ -62,7 +63,7 @@ function toggle(value: string) { emit('update:modelValue', props.modelValue.incl
 <template>
   <div class="member-filter-value">
     <PerformanceDateRangeField v-if="field.kind === 'date'" :model-value="modelValue" :aria-label="field.label" @update:model-value="emit('update:modelValue', $event)" />
-    <PerformanceOrganizationSelect v-else-if="field.kind === 'organization' || field.kind === 'sequence'" :model-value="modelValue" :nodes="nodes" :aria-label="field.label" :popup-label="`${field.label}选项`" placeholder="" :selection-indicator="field.kind === 'sequence' ? 'checkmark' : 'checkbox'" @update:model-value="emit('update:modelValue', $event)" />
+    <PerformanceOrganizationSelect v-else-if="field.kind === 'organization' || field.kind === 'sequence'" :model-value="modelValue" :nodes="nodes" :aria-label="field.label" :popup-label="`${field.label}选项`" placeholder="" selection-indicator="checkmark" @update:model-value="emit('update:modelValue', $event)" />
     <PerformanceSearchSelect v-else-if="field.kind === 'person'" :model-value="modelValue" :options="options" multiple remote-search :loading="loading" :aria-label="field.label" placeholder="搜索成员" @search="search" @update:model-value="emit('update:modelValue', Array.isArray($event) ? $event : [])" />
     <PerformanceSelectShell v-else :model-value="modelValue" :selected-items="selected" :aria-label="field.label" :popup-label="`${field.label}选项`" placeholder="请选择" @update:model-value="emit('update:modelValue', $event)">
       <template #default="{ query }">
@@ -71,7 +72,7 @@ function toggle(value: string) { emit('update:modelValue', props.modelValue.incl
             <PerformanceRatingTag v-if="field.key.startsWith('rating:') || field.key.startsWith('history_rating:')" :label="option.label" :color="option.color || undefined" />
             <span v-else>{{ option.label }}</span>
             <span v-if="option.subLabel" class="member-filter-value__description">{{ option.subLabel }}</span>
-            <span v-if="modelValue.includes(option.value)" class="member-filter-value__check" aria-hidden="true">✓</span>
+            <span v-if="modelValue.includes(option.value)" class="member-filter-value__check" aria-hidden="true"><PerformanceSymbol name="ListCheckBoldOutlined" /></span>
           </UiButton>
           <p v-if="!options.length" class="member-filter-value__empty">暂无可选项</p>
         </div>
@@ -90,6 +91,7 @@ function toggle(value: string) { emit('update:modelValue', props.modelValue.incl
 .member-filter-value__dates>*{min-width:0}
 .member-filter-value__options{display:flex;flex-direction:column;max-height:var(--performance-select-popup-max-height);overflow:auto;padding:var(--spacing-1)}
 .member-filter-value__option{display:flex;justify-content:flex-start;width:100%;min-height:var(--performance-select-option-height);gap:var(--spacing-3);text-align:left;font-size:var(--font-size-md);line-height:var(--performance-popover-line-height);color:var(--color-text-primary)}
+.member-filter-value__option :deep(.performance-button__content){display:flex;width:100%;gap:var(--spacing-3)}
 .member-filter-value__option:hover{background:var(--performance-select-option-hover)}
 .member-filter-value__description{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary)}
 .member-filter-value__check{margin-left:auto;color:var(--color-primary)}

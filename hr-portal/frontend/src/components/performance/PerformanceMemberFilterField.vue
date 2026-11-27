@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import type { PerformanceMemberFilterField } from '@/api/performance'
 import PerformanceSelectShell from './PerformanceSelectShell.vue'
+import PerformanceSymbol from './PerformanceSymbol.vue'
 
 type FieldNode = { value: string; label: string; children?: FieldNode[] }
 const props = defineProps<{ modelValue: string; fields: PerformanceMemberFilterField[]; ariaLabel: string }>()
@@ -23,6 +24,10 @@ const tree = computed(() => {
       siblings = node.children!
     }
     siblings.push({ value: field.key, label: field.label })
+  }
+  if (!roots.some(node => node.value === 'group:历史周期绩效结果')) {
+    const index = roots.findIndex(node => node.value === 'group:环节状态')
+    roots.splice(index < 0 ? roots.length : index, 0, { value: 'group:历史周期绩效结果', label: '历史周期绩效结果', children: [] })
   }
   return roots
 })
@@ -67,9 +72,9 @@ defineExpose({ open })
         <div class="member-filter-field__columns" data-member-filter-layer>
           <div v-for="(nodes, depth) in columns" :key="depth" class="member-filter-field__column" role="listbox" :aria-label="depth ? '下级筛选字段' : '筛选字段'">
             <button v-for="node in nodes" :key="node.value" class="member-filter-field__option" type="button" role="option" :aria-selected="modelValue === node.value" :aria-expanded="node.children ? path[depth] === node.value : undefined" @mouseenter="node.children && choose(node, depth)" @click="choose(node, depth)">
-              <span>{{ node.label }}</span><span v-if="node.children" aria-hidden="true">›</span><span v-else-if="node.value === modelValue" aria-hidden="true">✓</span>
+              <span>{{ node.label }}</span><span v-if="node.children" aria-hidden="true">›</span><span v-else-if="node.value === modelValue" aria-hidden="true"><PerformanceSymbol name="ListCheckBoldOutlined" /></span>
             </button>
-            <div v-if="!nodes.length" class="member-filter-field__empty">没有找到相关结果</div>
+            <div v-if="!nodes.length" class="member-filter-field__empty" role="status">{{ path[depth - 1] === 'group:历史周期绩效结果' ? '暂无可用周期' : '没有找到相关结果' }}</div>
           </div>
         </div>
       </template>

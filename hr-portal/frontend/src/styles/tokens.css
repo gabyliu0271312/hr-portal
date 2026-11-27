@@ -473,6 +473,7 @@
   --performance-member-filter-control-height: 32px;
   --performance-member-filter-save-width: 418px;
   --performance-member-filter-action-width: 48px;
+  --performance-member-filter-relation-width: 68px;
   --performance-popover-background: var(--color-bg-card);
   --performance-popover-border: #dee0e3;
   --performance-popover-border-width: 1px;

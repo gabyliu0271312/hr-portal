@@ -40,7 +40,15 @@ REA 已确认：锚定筛选浮层、所有/任意、增删条件、清除、取
 - 测试：字段分组/树/状态、历史权限/候选、日期、保存CRUD隔离与重名；前端缓存/自动展开/取消/外部关闭/应用/回填/删除；定向pytest与Vitest、build、UI规则扫描、本地真实Vue浏览器及独立PNG。数据库迁移未实测不得声明完成。
 - 单链协调：用户明确要求不使用双head或新增merge。保留另一线程`0326_performance_manager_standard`不改，本轮尚未应用的筛选迁移顺延为`0327_member_filter_presets`，依赖`0326_performance_manager_standard`。Alembic ScriptDirectory读取迁移图，断言唯一head为`0327_member_filter_presets`通过；本次增量为线性链，仓库已有历史merge不改。仅验证迁移图，未执行数据库upgrade/downgrade，不据此提升真实数据库验收状态。
 
-## UI 交互基准 v1（历史记录，冲突以v2为准）
+## 2026-11-27 六项复核修订 v3
+
+用户确认历史周期问题是字段菜单没有该入口，并要求修复全部六项；本轮仍归CR-016-T01/T02/T03，不新增页面、迁移或权限。以当前/历史周期各自快照配置的完整评级档位和配置顺序为候选，不得按授权成员实际命中的档位裁剪；授权成员只决定匹配与计数。历史周期排除当前后按现有逐周期授权读取，不以开始日期先后判断是否可用；无授权或无评级配置不得生成可执行条件。字段菜单保留“历史周期绩效结果”根组，无可用历史字段时展示不可选择的“暂无可用周期”，不伪造字段key、默认不放开关闭项目权限。
+
+原站补采确认：保存条件使用12px `FilelinkSaveOutlined`；已存条件使用12px普通`DownOutlined`（不是选择框的粗箭头）；所有/任意默认68×28带框、12字号、6圆角；候选行右侧使用12px实心`ListCheckBoldOutlined`，底部全选仍保留方框复选框。前端复用现有DownOutlinedIcon，保存与点勾抽为共享SVG组件，禁止Unicode字符或嵌套按钮替代。
+
+v3验证：前端筛选20项+共享选择器15项+项目管理81项，合计116 passed（26.54s）；UI规则扫描本轮6个组件0违规；vue-tsc+Vite构建通过（3909模块45.71s），既有VueUse PURE/bundle提示。后端线程四组1351 passed/5 skipped/1 warning（41.34s）；主线程独立复跑筛选80 passed/1 warning（13.68s）及前端筛选20 passed（13.09s）。完整配置候选、配置顺序、日期为空/同日/更晚周期独立授权、closed和不同actor拒绝有回归；未扩大既有STARTED项目授权。浏览器受控API验证七档及说明、12px点勾、全选checkbox、历史根无授权空态、授权后三级历史评级按ID应用通过；截图`ui-blueprints/CR-016-T02-v3-rating-options.png`与`ui-blueprints/CR-016-T02-v3-history-entry.png`已读取。是合成API的真实Vue组件证据，不是用户现场真实JWT/PostgreSQL整链或全像素一致性证明。本轮无新迁移、无生产操作、无commit/push。
+
+## UI 交互基准 v1（历史记录，冲突以v2/v3为准）
 
 沿现有页面与已逐项确认的飞书浮层交互，不改页面信息架构。PerformancePopover 作壳，PerformanceSearchSelect / OrganizationTreeSelect / DateTimeField 作值控件；UiButton 作操作。新增条件行独立组件。
 界面布局：顶部“符合以下 [所有/任意] 条件”；中部多行“字段 / 操作符 / 值 / 删除”；底部添加条件、清除已选内容、取消、确定。加载/失败可重试/无可用字段/禁止状态有可见反馈；禁用状态不得显示假成功。

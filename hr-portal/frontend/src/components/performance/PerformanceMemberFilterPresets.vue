@@ -3,6 +3,8 @@ import { onBeforeUnmount, ref, watch } from 'vue'
 import { projectManagementApi, type PerformanceMemberFilters, type PerformanceMemberFilterPreset } from '@/api/performance'
 import PerformancePopover from './PerformancePopover.vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'
+import PerformanceSymbol from './PerformanceSymbol.vue'
+import DownOutlinedIcon from './DownOutlinedIcon.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 
 const props = defineProps<{ cycleId: number; contextKey: string; visible: boolean; filters: PerformanceMemberFilters; disabled?: boolean }>()
@@ -74,8 +76,8 @@ function select(item: PerformanceMemberFilterPreset) {
 
 <template>
   <div class="member-filter-presets">
-    <UiButton size="small" :disabled="loading || !items.length" @click="open('list', $event)">已存条件 ({{ items.length }})<span aria-hidden="true">⌄</span></UiButton>
-    <UiButton size="small" :disabled="disabled || !filters.conditions.length" @click="open('save', $event)"><span aria-hidden="true">＋</span>保存条件</UiButton>
+    <UiButton size="small" :disabled="loading || !items.length" :aria-expanded="mode === 'list'" @click="open('list', $event)">已存条件 ({{ items.length }})<DownOutlinedIcon class="member-filter-presets__arrow" :class="{ 'is-expanded': mode === 'list' }" /></UiButton>
+    <UiButton size="small" :disabled="disabled || !filters.conditions.length" @click="open('save', $event)"><PerformanceSymbol name="FilelinkSaveOutlined" class="member-filter-presets__save-icon" />保存条件</UiButton>
     <UiButton v-if="error && !mode" size="small" variant="text" @click="load">重试已存条件</UiButton>
     <PerformancePopover :visible="visible && mode !== null" :anchor="anchor" :width="mode === 'save' ? 'var(--performance-member-filter-save-width)' : 'var(--performance-member-filter-value-width)'" align="end" side="bottom" role="dialog" name="member-filter-presets-layer" data-member-filter-layer :show-arrow="false" @close="mode = null">
       <div v-if="mode === 'save'" class="member-filter-presets__save">
@@ -101,6 +103,9 @@ function select(item: PerformanceMemberFilterPreset) {
 
 <style scoped>
 .member-filter-presets{display:flex;align-items:center;gap:var(--spacing-2);margin-left:auto}
+.member-filter-presets__save-icon{margin-right:var(--spacing-2)}
+.member-filter-presets__arrow{width:var(--font-size-xs);height:var(--font-size-xs);margin-left:var(--spacing-2);transition:transform var(--duration-base) var(--ease-standard)}
+.member-filter-presets__arrow.is-expanded{transform:rotate(180deg)}
 .member-filter-presets__save{display:flex;flex-direction:column;gap:var(--spacing-2)}
 .member-filter-presets__required,.member-filter-presets p{color:var(--color-danger)}
 .member-filter-presets p{margin:0}

@@ -3466,7 +3466,7 @@ def _member_stage_values(tasks, nodes, project):
     return result
 
 
-async def _project_member_column_schema(project, scope, context, db, *, nodes=None, rating_columns=None, members=None, actor_ref=None, rules=None, readonly=False):
+async def _project_member_column_schema(project, scope, context, db, *, nodes=None, rating_columns=None, rating_metadata=None, members=None, actor_ref=None, rules=None, readonly=False):
     from app.performance.member_columns_service import column_schema, SNAPSHOT_PROFILE_FIELDS
     info = getattr(db, "info", None)
     cache = info.get("performance_member_read_columns") if isinstance(info, dict) else None
@@ -3477,7 +3477,6 @@ async def _project_member_column_schema(project, scope, context, db, *, nodes=No
         nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
             PerformanceProjectNodeSnapshot.project_id == project.id,
         ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
-    rating_metadata = None
     if rating_columns is None:
         final = _final_result_snapshot(nodes)
         rating_metadata = _task_rating_metadata(await _matrix_node_schema(final, project, db)) if final else []
@@ -3503,8 +3502,13 @@ async def _project_member_column_schema(project, scope, context, db, *, nodes=No
             role = await _member_visibility_role(context, project, None, scope, actor_ref, db)
             fields.update(rules[role])
     schema = column_schema(rating_columns, fields, nodes, "management", available_profile_fields=SNAPSHOT_PROFILE_FIELDS | {"previous_position_level", "project_name", "hrbp"})
-    from app.performance.member_filters_service import stage_filter_field
-    schema["_filter_fields"] = [stage_filter_field(node) for node in nodes]
+    from app.performance.member_filters_service import stage_filter_field, rating_filter_field
+    if rating_metadata is None:
+        final = _final_result_snapshot(nodes)
+        rating_metadata = _task_rating_metadata(await _matrix_node_schema(final, project, db)) if final else []
+    allowed_keys = set(schema["allowed_column_keys"])
+    schema["_filter_fields"] = [stage_filter_field(node) for node in nodes] + [
+        rating_filter_field(rating) for rating in rating_metadata if rating["key"] in allowed_keys]
     if isinstance(cache, dict):
         cache[key] = {"schema": schema, "nodes": nodes, "rating_columns": rating_columns, "metadata": rating_metadata, "rules": rules}
     return schema
@@ -3539,8 +3543,12 @@ async def _management_member_schema(context, db, *, project=None, scope=None, cy
             for value in schema.get(key, []):
                 identity = value["key"] if key in {"columns", "_filter_fields"} else value
                 if identity not in existing:
-                    merged[key].append(value)
+                    merged[key].append(deepcopy(value) if key == "_filter_fields" else value)
                     existing.add(identity)
+                elif key == "_filter_fields" and identity.startswith("rating:"):
+                    target = next(field for field in merged[key] if field["key"] == identity)
+                    option_ids = {option["value"] for option in target["options"]}
+                    target["options"] = target["options"] + [option for option in value["options"] if option["value"] not in option_ids]
     return merged
 
 
@@ -3895,15 +3903,15 @@ async def cycle_project_members(
 
 
 async def _cycle_member_history_filters(cycle_id, items, schema, context, db, *, export=False):
-    from app.performance.member_filters_service import member_filter_values, OPERATORS
+    from app.performance.member_filters_service import member_filter_values
 
     cycle = await db.get(PerformanceCycle, cycle_id)
-    if cycle is None or cycle.start_at is None:
+    if cycle is None:
         return
     actor = await resolve_trusted_performance_actor(db, context, cycle_ref=cycle.cycle_ref)
     cycles = list((await db.execute(select(PerformanceCycle).where(
-        PerformanceCycle.start_at < cycle.start_at,
-    ).order_by(PerformanceCycle.start_at, PerformanceCycle.id))).scalars().all())
+        PerformanceCycle.id != cycle_id,
+    ).order_by(PerformanceCycle.id))).scalars().all())
     metadata = schema.setdefault("_filter_fields", [])
     for history in cycles:
         history_context = replace(context, management_cycle_id=history.id, management_project_id=None)
@@ -3926,11 +3934,14 @@ async def _cycle_member_history_filters(cycle_id, items, schema, context, db, *,
             if item.employee_no in by_employee:
                 ambiguous.add(item.employee_no)
             by_employee[item.employee_no] = values
+        configured = {field["key"]: field for field in historical_schema.get("_filter_fields", [])}
         for column in historical_schema.get("columns", []):
             if column["key"].startswith("rating:"):
-                metadata.append({"key": f"history_rating:{history.id}:{column['key'].removeprefix('rating:')}",
-                                 "label": column["label"], "kind": "select", "operators": OPERATORS,
-                                 "group": ["历史周期绩效结果", history.name], "options": []})
+                field = configured.get(column["key"])
+                if field is None or not field.get("options"):
+                    continue
+                metadata.append({**field, "key": f"history_rating:{history.id}:{column['key'].removeprefix('rating:')}",
+                                 "group": ["历史周期绩效结果", history.name]})
         for item in items:
             if item.employee_no not in ambiguous:
                 item.filter_values.update(by_employee.get(item.employee_no, {}))
@@ -4089,7 +4100,7 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
     if metadata is None:
         metadata = _task_rating_metadata(await _matrix_node_schema(final_node, project, db)) if final_node is not None else []
     rating_columns = [{"key": item["key"], "label": item["label"]} for item in metadata]
-    column_schema = await _project_member_column_schema(project, scope, context, db, nodes=nodes, rating_columns=rating_columns, actor_ref=actor_ref, rules=visibility_rules, readonly=readonly)
+    column_schema = await _project_member_column_schema(project, scope, context, db, nodes=nodes, rating_columns=rating_columns, rating_metadata=metadata, actor_ref=actor_ref, rules=visibility_rules, readonly=readonly)
     if sort_by is not None and sort_by not in column_schema["sort_keys"]:
         raise HTTPException(status_code=422, detail="INVALID_MEMBER_SORT_KEY")
     previous_levels = await _previous_published_position_levels(db, project, {member.employee_no for member in members}) if members and "previous_position_level" in column_schema["allowed_column_keys"] else {}
