@@ -28,6 +28,15 @@ beforeEach(() => { setActivePinia(createPinia()); vi.spyOn(reportNotesApi, 'read
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
 
 describe('ProjectStatisticsReportPanel', () => {
+  it('does not mount comments or call note APIs when comments are disabled', async () => {
+    const provider = vi.fn(async query => apiReport(await mockProjectReportProvider(query)))
+    const wrapper = mount(ProjectStatisticsReportPanel, { props: { cycleId: 7, provider, allowComments: false }, global })
+    try {
+      await flushPromises()
+      expect(wrapper.findComponent(PerformanceReportCommentButton).exists()).toBe(false)
+      expect(reportNotesApi.read).not.toHaveBeenCalled()
+    } finally { wrapper.unmount() }
+  })
   it('shares the matrix people list, preserves scope and opens only permitted people', async () => {
     const provider = vi.fn(async query => ({ ...apiReport(await mockProjectReportProvider(query)), indicatorKey: 'chosen', indicatorLabel: '价值贡献' }))
     const member = { id: 1, employee_no: 'E1', display_name: '钻取人员', project_id: 9, root_review_id: 91, can_view_detail: true }

@@ -37,7 +37,7 @@
                   <ProjectReportComparison v-else-if="comparisons[section.key]" :kind="section.key" :cycle-name="cycleName" :comparison="comparisons[section.key]!" :load-history="loadHistoryOptions" :allow-examples="allowExamples" @cell="openComparisonPeople(section.key, $event)" @change="changeComparison(section.key, $event)" />
                   <p v-else class="report-placeholder">{{ section.label }}数据尚未加载</p>
                 </template>
-                <PerformanceReportCommentButton :cycle-id="cycleId" :section="section.key" :scope="noteScope" :identity-key="String(reportStore.cacheVersion)" />
+                <PerformanceReportCommentButton v-if="allowComments" :cycle-id="cycleId" :section="section.key" :scope="noteScope" :identity-key="String(reportStore.cacheVersion)" />
               </section>
             </template>
           </div>
@@ -66,7 +66,7 @@ import MatrixPeopleDialog from './MatrixPeopleDialog.vue'
 import { reportGroups, reportSectionInfo, type ProjectReportComparisonData, type ProjectReportComparisonKind, type ProjectReportComparisonProvider, type ProjectReportComparisonQuery, type ProjectReportDimension, type ProjectReportProvider, type ProjectStatisticsReport } from './projectStatisticsReport'
 import { useProjectReportNavigation } from './useProjectReportNavigation'
 
-const props = withDefaults(defineProps<{ cycleId: number; cycleName?: string; provider?: ProjectReportProvider; selfFinalProvider?: () => Promise<ProjectReportComparisonData>; comparisonProvider?: ProjectReportComparisonProvider; allowExamples?: boolean; embedded?: boolean; noteScope?: ReportNoteScope; peopleProvider?: (selection: ReportPeopleQuery, query: PeoplePageQuery) => ReturnType<PerformancePeopleProvider> }>(), { allowExamples: true, noteScope: () => ({}) })
+const props = withDefaults(defineProps<{ cycleId: number; cycleName?: string; provider?: ProjectReportProvider; selfFinalProvider?: () => Promise<ProjectReportComparisonData>; comparisonProvider?: ProjectReportComparisonProvider; allowExamples?: boolean; allowComments?: boolean; embedded?: boolean; noteScope?: ReportNoteScope; peopleProvider?: (selection: ReportPeopleQuery, query: PeoplePageQuery) => ReturnType<PerformancePeopleProvider> }>(), { allowExamples: true, allowComments: true, noteScope: () => ({}) })
 const reportStore = usePerformanceProjectContextStore()
 const emit = defineEmits<{ filter: []; compare: []; 'open-member': [member: ProjectMember] }>()
 const peopleOpen = ref(false)
@@ -253,29 +253,29 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.project-report-root { --report-sticky-offset: 68px; --report-sticky-top: calc(var(--report-sticky-offset) - var(--report-scroll-padding, 0px)); min-width: 0; margin-bottom: 20px; }
-.report-surface { padding: 0 20px 20px; }
+.project-report-root { --report-sticky-offset: var(--performance-header-back-width); --report-sticky-top: calc(var(--report-sticky-offset) - var(--report-scroll-padding, 0rem)); min-width: 0; margin-bottom: var(--spacing-5); }
+.report-surface { padding: 0 var(--spacing-5) var(--spacing-5); }
 .report-surface.surface-card--embedded { padding: 0; border-radius: 0; box-shadow: none; }
 .report-wrapper { position: relative; min-width: 0; }
-.report-top-spacer { position: sticky; top: calc(56px - var(--report-scroll-padding, 0px)); z-index: 10; height: 20px; background: #fff; }
+.report-top-spacer { position: sticky; top: calc(var(--ui-dialog-fullscreen-header-height) - var(--report-scroll-padding, 0rem)); z-index: calc(var(--performance-member-sticky-mask-z-index) - 9); height: var(--spacing-5); background: var(--color-bg-card); }
 .report-layout { display: flex; align-items: flex-start; min-width: 0; }
-.report-contents { display: flex; flex: 1 1 0%; min-width: 0; flex-direction: column; margin-right: 36px; }
+.report-contents { display: flex; flex: 1 1 0%; min-width: 0; flex-direction: column; margin-right: calc(var(--spacing-7) + var(--spacing-1)); }
 .directory-collapsed .report-contents { margin-right: 0; }
-.report-primary-heading { position: sticky; top: var(--report-sticky-top); z-index: 10; box-sizing: border-box; height: 48px; flex: 0 0 48px; margin: 0; padding: 0 0 16px; background: #fff; font-size: 18px; font-weight: 600; line-height: 32px; }
+.report-primary-heading { position: sticky; top: var(--report-sticky-top); z-index: calc(var(--performance-member-sticky-mask-z-index) - 9); box-sizing: border-box; height: calc(var(--spacing-6) * 2); flex: 0 0 calc(var(--spacing-6) * 2); margin: 0; padding: 0 0 var(--spacing-4); background: var(--color-bg-card); font-size: var(--performance-page-title-size); font-weight: var(--performance-page-title-weight); line-height: var(--spacing-7); }
 .project-report-root:not([data-report-scroll]) .report-top-spacer, .project-report-root:not([data-report-scroll]) .report-primary-heading { position: relative; top: auto; }
-.report-primary-heading span { display: block; max-width: calc(100% - 120px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.report-section { margin-bottom: 40px; min-width: 0; }
+.report-primary-heading span { display: block; max-width: calc(100% - var(--performance-calibration-empty-size)); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.report-section { margin-bottom: var(--spacing-8); min-width: 0; }
 .report-section:last-child { margin-bottom: 0; }
-.report-filter-overlay { position: absolute; inset: 20px 235px 0 120px; z-index: 19; padding-right: 1px; pointer-events: none; }
-.directory-collapsed .report-filter-overlay { right: 20px; }
-.report-sticky-filter { position: sticky; top: var(--report-sticky-top); display: flex; justify-content: flex-end; height: 32px; pointer-events: none; }
-.report-filter-button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: 0 0 80px; width: 80px; height: 32px; box-sizing: border-box; padding: 4px 11px; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #1f2329; font: inherit; line-height: 22px; cursor: pointer; pointer-events: auto; }
-.report-filter-button :deep(svg), .report-filter-button :deep(.filter-outlined-icon) { width: 14px; height: 14px; }
-.report-filter-button:hover { background: #f2f3f5; }
-.report-filter-button:focus-visible { outline: 2px solid #3370ff; outline-offset: 2px; }
-.report-source-notice { margin: 0 0 20px; color: #646a73; font-size: 12px; }
-.report-feedback { position: absolute; top: 36px; right: 0; width: max-content; max-width: 100%; box-sizing: border-box; padding: 10px 12px; margin: 0; background: #f5f7fa; border: 1px solid #dee0e3; border-radius: 6px; color: #646a73; font-size: 13px; }
-.report-state { padding: 24px 0; color: #646a73; text-align: center; }
-.report-state button { padding: 6px 12px; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: var(--color-primary); cursor: pointer; }
-.report-placeholder { display: flex; flex-direction: column; justify-content: center; gap: 8px; margin: 0; padding: 32px 20px; background: #f8f9fa; border-radius: 6px; color: #646a73; font-size: 14px; }
+.report-filter-overlay { position: absolute; inset: var(--spacing-5) calc(var(--spacing-8) * 6 - var(--spacing-5) / 4) 0 var(--performance-calibration-empty-size); z-index: var(--performance-member-sticky-mask-z-index); padding-right: var(--ui-control-border-width); pointer-events: none; }
+.directory-collapsed .report-filter-overlay { right: var(--spacing-5); }
+.report-sticky-filter { position: sticky; top: var(--report-sticky-top); display: flex; justify-content: flex-end; height: var(--spacing-7); pointer-events: none; }
+.report-filter-button { display: inline-flex; align-items: center; justify-content: center; gap: var(--spacing-1); flex: 0 0 calc(var(--spacing-8) * 2); width: calc(var(--spacing-8) * 2); height: var(--spacing-7); box-sizing: border-box; padding: var(--spacing-1) var(--performance-button-padding-x); border: var(--ui-control-border-width) solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-bg-card); color: var(--color-text-primary); font: inherit; line-height: var(--performance-button-line-height); cursor: pointer; pointer-events: auto; }
+.report-filter-button :deep(svg), .report-filter-button :deep(.filter-outlined-icon) { width: var(--font-size-md); height: var(--font-size-md); }
+.report-filter-button:hover { background: var(--color-bg-hover); }
+.report-filter-button:focus-visible { outline: var(--spacing-1) solid var(--color-primary); outline-offset: var(--radius-xs); }
+.report-source-notice { margin: 0 0 var(--spacing-5); color: var(--color-text-tertiary); font-size: var(--font-size-xs); }
+.report-feedback { position: absolute; top: calc(var(--spacing-7) + var(--spacing-1)); right: 0; width: max-content; max-width: 100%; box-sizing: border-box; padding: var(--spacing-25) var(--spacing-3); margin: 0; background: var(--color-bg-subtle); border: var(--ui-control-border-width) solid var(--color-border-light); border-radius: var(--radius-md); color: var(--color-text-tertiary); font-size: var(--font-size-sm); }
+.report-state { padding: var(--spacing-6) 0; color: var(--color-text-tertiary); text-align: center; }
+.report-state button { padding: var(--radius-md) var(--spacing-3); border: var(--ui-control-border-width) solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-bg-card); color: var(--color-primary); cursor: pointer; }
+.report-placeholder { display: flex; flex-direction: column; justify-content: center; gap: var(--spacing-2); margin: 0; padding: var(--spacing-7) var(--spacing-5); background: var(--color-bg-subtle); border-radius: var(--radius-md); color: var(--color-text-tertiary); font-size: var(--font-size-md); }
 </style>

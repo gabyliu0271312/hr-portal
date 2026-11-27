@@ -23,6 +23,14 @@ import SelfSummaryTask from './SelfSummaryTask.vue'
 import PerformanceDialogShell from '@/components/performance/PerformanceDialogShell.vue'
 import PerformanceResultScopeView from '@/components/performance/PerformanceResultScopeView.vue'
 import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
+import PerformanceReviewScopeAnalysis from '@/components/performance/PerformanceReviewScopeAnalysis.vue'
+import ProjectPerformanceMatrix from '@/components/performance/ProjectPerformanceMatrix.vue'
+import ProjectStatisticsReportPanel from '@/components/performance/ProjectStatisticsReportPanel.vue'
+import ProjectReportDistribution from '@/components/performance/ProjectReportDistribution.vue'
+import ProjectReportComparison from '@/components/performance/ProjectReportComparison.vue'
+import MatrixPeopleDialog from '@/components/performance/MatrixPeopleDialog.vue'
+import { reportNotesApi } from '@/api/performanceReportNotes'
+import { employeeSwitchEpoch } from '@/stores/identitySwitch'
 import ProjectMemberListPanel from '@/components/performance/ProjectMemberListPanel.vue'
 import PerformanceReview360FeedbackPanel from '@/components/performance/PerformanceReview360FeedbackPanel.vue'
 import PerformanceReview360InvitePanel from '@/components/performance/PerformanceReview360InvitePanel.vue'
@@ -1494,6 +1502,137 @@ describe('PerformanceReview', () => {
     expect(wrapper.find('.performance-review-completion-notice').exists()).toBe(true)
     expect(wrapper.text()).toContain('该环节已在 2026-07-10 23:59（GMT+8） 截止；如有疑问，请联系你的 HRBP。')
     expect(wrapper.find('.performance-review-completion-notice__edit').exists()).toBe(false)
+  })
+
+  it('接入真实上级评估矩阵和报表，仅请求当前任务分析并通过原Review打开成员抽屉', async () => {
+    const loaded = structuredClone(overview)
+    const node = { ...loaded.categories[0].nodes[0], node_id: 'manager-review', node_name: '上级评估', node_type: 'evaluation', task_kind: 'evaluation', executor_role_code: 'assessment.line_manager', phase_id: 'phase-a', status: 'pending' as const }
+    loaded.categories[2].nodes = [node]
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(loaded)
+    vi.mocked(performanceReviewApi.navigation).mockResolvedValue({ projects: loaded.projects, overviews: [loaded] })
+    Object.assign(routeQuery, { project_id: '1', node: node.node_id })
+    const matrix = { source: 'template_final_result', dimension: 'rating', display_modes: ['name', 'count'], total: 0, completed_count: 0, pending_count: 0, ratings: [], pending_rows: [], completed_rows: [] }
+    const report = { source: 'api', dimension: 'department', rowLabel: '部门', showSummary: true, totalParticipants: 1, ratings: [{ key: 'A', label: '优秀', color: null }], distribution: { A: 1 }, departments: [], indicatorKey: 'value' }
+    const comparison = { source: 'api', total: 1, ratings: report.ratings, xRatings: report.ratings, yRatings: report.ratings, counts: [[1]], heatLevels: [[1]], xKey: 'previous', yKey: 'value', historyCycleId: 8 }
+    const member = { id: 91, employee_no: 'E091', display_name: '范围内成员', project_id: 1, root_review_id: 91, can_view_detail: true }
+    const get = vi.spyOn(api, 'get').mockImplementation(async url => {
+      if (String(url).endsWith('/analysis/matrix')) return { data: matrix }
+      if (String(url).endsWith('/analysis/statistics')) return { data: report }
+      if (String(url).endsWith('/analysis/comparison')) return { data: comparison }
+      if (String(url).endsWith('-members')) return { data: { items: [member], total: 1, page: 1, page_size: 50 } }
+      return { data: { column_keys: null } }
+    })
+    const notes = vi.spyOn(reportNotesApi, 'read')
+    const wrapper = mount(Review, { global: { plugins: [pinia], stubs: { PerformanceReviewEvaluationDrawer: true, PerformanceMemberReminderDialog: true } } })
+    try {
+      await flushPromises()
+      const tab = (label: string) => wrapper.findAll('button').find(button => button.text() === label)!
+      await tab('矩阵分析').trigger('click'); await flushPromises()
+      expect(wrapper.getComponent(ProjectPerformanceMatrix).props()).toMatchObject({ projectId: 1, cycleId: 1, readonly: true })
+      expect(get).toHaveBeenCalledWith('/performance/workbench/tasks/manager-review/analysis/matrix', { params: { project_id: 1, phase_id: 'phase-a' } })
+      expect(wrapper.findComponent(MatrixPeopleDialog).exists()).toBe(false)
+      await tab('统计报表').trigger('click'); await flushPromises()
+      const panel = wrapper.getComponent(ProjectStatisticsReportPanel)
+      expect(panel.props()).toMatchObject({ allowExamples: false, allowComments: false, cycleId: 1 })
+      expect(get).toHaveBeenCalledWith('/performance/workbench/tasks/manager-review/analysis/statistics', { params: { project_id: 1, phase_id: 'phase-a', dimension: 'department' } })
+      expect(wrapper.getComponent(ProjectReportDistribution).props('report').ratings[0].color).toBeUndefined()
+      wrapper.getComponent(ProjectReportDistribution).vm.$emit('people', { dimension: 'department', rowLabel: '汇总', ratingKey: 'A', count: 1 })
+      await flushPromises()
+      expect(get).toHaveBeenCalledWith('/performance/workbench/tasks/manager-review/analysis/statistics-members', { params: expect.objectContaining({ project_id: 1, phase_id: 'phase-a', indicator_key: 'value', rating_key: 'A', page: 1, page_size: 50, sort_by: 'name', sort_order: 'asc' }) })
+      const dialog = wrapper.getComponent(MatrixPeopleDialog)
+      dialog.vm.$emit('select-member', { ...member, can_view_detail: false })
+      await flushPromises()
+      expect(wrapper.findComponent(PerformanceReviewEvaluationDrawer).exists()).toBe(false)
+      vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue({ items: [{ task_id: 707, employee_no: 'E091', display_name: '范围内成员', job_family: null, job_category: null, job_sequence: null, position_level: null, hire_date: null, department: null, employee_type: null, employment_status: null, status: 'completed', due_at: null }], total: 1, rating_columns: [] })
+      dialog.vm.$emit('select-member', member)
+      await flushPromises()
+      expect(performanceWorkbenchApi.taskPeople).toHaveBeenLastCalledWith(1, 'manager-review', 'all', 'E091', 'phase-a', 1, 50)
+      expect(wrapper.getComponent(PerformanceReviewEvaluationDrawer).props()).toMatchObject({ modelValue: true, taskId: 707, employeeNo: 'E091' })
+      await wrapper.get('[data-key="history"]').trigger('click'); await flushPromises()
+      const comparisonView = wrapper.getComponent(ProjectReportComparison)
+      expect(comparisonView.props('comparison').xRatings![0].color).toBeUndefined()
+      comparisonView.vm.$emit('cell', { rowKey: 'A', columnKey: 'A', count: 1 })
+      await flushPromises()
+      expect(get).toHaveBeenCalledWith('/performance/workbench/tasks/manager-review/analysis/comparison-members', { params: expect.objectContaining({ project_id: 1, phase_id: 'phase-a', kind: 'history', x_key: 'previous', y_key: 'value', history_cycle_id: 8, x_rating_key: 'A', y_rating_key: 'A' }) })
+      comparisonView.vm.$emit('change', { xKey: 'old-value', yKey: 'new-value', historyCycleId: 7 })
+      await flushPromises()
+      expect(get).toHaveBeenCalledWith('/performance/workbench/tasks/manager-review/analysis/comparison', { params: { project_id: 1, phase_id: 'phase-a', kind: 'history', x_key: 'old-value', y_key: 'new-value', history_cycle_id: 7 } })
+      expect(notes).not.toHaveBeenCalled()
+      for (const kind of ['self-final', 'dimension']) {
+        await wrapper.get(`[data-key="${kind}"]`).trigger('click'); await flushPromises()
+        expect(get).toHaveBeenCalledWith('/performance/workbench/tasks/manager-review/analysis/comparison', { params: expect.objectContaining({ project_id: 1, phase_id: 'phase-a', kind }) })
+      }
+      wrapper.getComponent(ProjectReportDistribution).vm.$emit('indicator-change', 'contribution')
+      await flushPromises()
+      expect(get).toHaveBeenCalledWith('/performance/workbench/tasks/manager-review/analysis/statistics', { params: { project_id: 1, phase_id: 'phase-a', dimension: 'department', indicator_key: 'contribution' } })
+      expect(get.mock.calls.some(([url]) => String(url).includes('/project-management/'))).toBe(false)
+      expect(wrapper.text()).not.toContain('查看示例')
+    } finally { wrapper.unmount() }
+  })
+
+  it.each(['project', 'cycle', 'node', 'phase', 'identity'] as const)('上级评估%s切换销毁旧分析组件并拒绝迟到报表回流', async change => {
+    let finish!: (value: any) => void
+    const report = { source: 'api', dimension: 'department', rowLabel: '部门', showSummary: true, totalParticipants: 0, ratings: [], distribution: {}, departments: [] }
+    const stats = vi.spyOn(performanceWorkbenchApi, 'taskAnalysisStatistics').mockImplementationOnce(() => new Promise(resolve => { finish = resolve })).mockResolvedValue(report as any)
+    const node = { ...overview.categories[0].nodes[0], node_type: 'evaluation', task_kind: 'evaluation', executor_role_code: 'assessment.line_manager', node_id: 'manager-review', phase_id: 'phase-a' }
+    const wrapper = mount(PerformanceReviewContent, { props: { loading: false, error: '', templateName: '', projectId: 9, memberPreferenceScope: { cycle_ref: 2, scene: 'evaluation' }, node }, global: { plugins: [pinia], stubs: { ProjectMemberListPanel: true } } })
+    try {
+      await wrapper.findAll('button').find(button => button.text() === '统计报表')!.trigger('click'); await flushPromises()
+      const previous = wrapper.getComponent(PerformanceReviewScopeAnalysis).vm
+      expect(wrapper.getComponent(ProjectStatisticsReportPanel).props('cycleId')).toBe(2)
+      if (change === 'project') await wrapper.setProps({ projectId: 10 })
+      else if (change === 'cycle') await wrapper.setProps({ memberPreferenceScope: { cycle_ref: 3, scene: 'evaluation' } })
+      else if (change === 'node') await wrapper.setProps({ node: { ...node, node_id: 'another-node' } })
+      else if (change === 'phase') await wrapper.setProps({ node: { ...node, phase_id: 'phase-b' } })
+      else { employeeSwitchEpoch.value++; await wrapper.vm.$nextTick() }
+      await flushPromises()
+      if (change === 'node') {
+        expect(wrapper.findComponent(PerformanceReviewScopeAnalysis).exists()).toBe(false)
+        await wrapper.findAll('button').find(button => button.text() === '统计报表')!.trigger('click'); await flushPromises()
+      }
+      expect(wrapper.getComponent(PerformanceReviewScopeAnalysis).vm).not.toBe(previous)
+      finish({ ...report, totalParticipants: 999 })
+      await flushPromises()
+      expect(wrapper.text()).not.toContain('999')
+      expect(stats).toHaveBeenLastCalledWith(change === 'project' ? 10 : 9, change === 'node' ? 'another-node' : 'manager-review', 'department', undefined, change === 'phase' ? 'phase-b' : 'phase-a')
+    } finally { wrapper.unmount() }
+  })
+
+  it('成员解析按工号精准分页，不使用root_review_id且拒绝跨phase迟到回调', async () => {
+    const node = { ...overview.categories[0].nodes[0], node_type: 'evaluation', phase_id: 'phase-a' }
+    const person = { task_id: 707, employee_no: 'E091', display_name: '范围内成员', job_family: null, job_category: null, job_sequence: null, position_level: null, hire_date: null, department: null, employee_type: null, employment_status: null, status: 'completed', due_at: null }
+    const people = vi.mocked(performanceWorkbenchApi.taskPeople)
+    people.mockResolvedValueOnce({ items: [{ ...person, employee_no: 'E0910', task_id: 808 }], total: 51, rating_columns: [] })
+      .mockResolvedValueOnce({ items: [person], total: 51, rating_columns: [] })
+    const opened = vi.fn()
+    const wrapper = mount(PerformanceReviewScopeAnalysis, { props: { projectId: 1, cycleId: 2, node, tab: 'matrix', onOpenMember: opened }, global: { stubs: { ProjectPerformanceMatrix: true } } })
+    try {
+      const select = () => wrapper.getComponent(ProjectPerformanceMatrix).vm.$emit('open-member', { project_id: 1, employee_no: 'E091', root_review_id: 91, can_view_detail: true })
+      select(); await flushPromises()
+      expect(people).toHaveBeenNthCalledWith(2, 1, node.node_id, 'all', 'E091', 'phase-a', 2, 50)
+      expect(wrapper.emitted('open-member')?.[0]?.[0]).toMatchObject({ employee_no: 'E091', task_id: 707, status: 'completed' })
+      let finish!: (value: any) => void
+      people.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+      select(); await flushPromises()
+      await wrapper.setProps({ node: { ...node, phase_id: 'phase-b' } })
+      finish({ items: [person], total: 1, rating_columns: [] }); await flushPromises()
+      expect(wrapper.emitted('open-member')).toHaveLength(1)
+      people.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+      select(); await flushPromises()
+      wrapper.unmount()
+      finish({ items: [person], total: 1, rating_columns: [] }); await flushPromises()
+      expect(opened).toHaveBeenCalledTimes(1)
+    } finally { if (wrapper.exists()) wrapper.unmount() }
+  })
+
+  it('周期未就绪时不伪造cycleId、不调用分析接口', async () => {
+    const stats = vi.spyOn(performanceWorkbenchApi, 'taskAnalysisStatistics')
+    const wrapper = mount(PerformanceReviewContent, { props: { loading: false, error: '', templateName: '', projectId: 9, node: { ...overview.categories[0].nodes[0], node_type: 'evaluation', task_kind: 'evaluation', executor_role_code: 'assessment.line_manager' } }, global: { plugins: [pinia], stubs: { ProjectMemberListPanel: true } } })
+    try {
+      await wrapper.findAll('button').find(button => button.text() === '统计报表')!.trigger('click')
+      expect(wrapper.text()).toContain('当前周期信息尚未就绪')
+      expect(stats).not.toHaveBeenCalled()
+    } finally { wrapper.unmount() }
   })
 
   it('keeps the member list when every direct-report evaluation is completed', async () => {

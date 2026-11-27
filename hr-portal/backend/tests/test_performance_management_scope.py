@@ -16,7 +16,7 @@ from app.performance.management_scope import MANAGEMENT_FEATURES, management_pro
 from app.performance.models import (
     PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle,
     PerformanceHrbpPermission, PerformanceProject, PerformanceProjectMember,
-    PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceRole,
+    PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceRole, PerformanceNodeTask, PerformanceNodeTaskAuthorization,
 )
 
 
@@ -36,7 +36,7 @@ def scope_db(monkeypatch):
     metadata = MetaData()
     models = [PerformanceCycle, PerformanceProject, PerformanceAuthorizationSnapshot,
               PerformanceAuthorizationSnapshotPerson, PerformanceHrbpPermission, PerformanceRole,
-              PerformanceProjectMemberSnapshot, PerformanceProjectMember, PerformanceProjectNodeSnapshot]
+              PerformanceProjectMemberSnapshot, PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceNodeTaskAuthorization]
     tables = {model: Table(model.__tablename__, metadata, *[
         Column(column.name, JSON() if isinstance(column.type, JSONB) else column.type,
                primary_key=column.primary_key, nullable=True) for column in model.__table__.columns
@@ -336,3 +336,128 @@ async def test_cycle_member_sql_pagination_filters_before_count_and_skips_empty_
     assert all({column.key for column in page.rating_columns} == {"rating:first", "rating:second"} for page in pages)
     filtered = await router.cycle_project_members(1, "VISIBLE2", 1, 1, None, None, context(), db)
     assert filtered.total == 1 and filtered.items[0].employee_no == "VISIBLE2"
+
+
+def seed_review_analysis(db, monkeypatch):
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="ADMIN")))
+    for node_id, project_id, kind in ((11, 1, "evaluation"), (12, 1, "work_summary"), (21, 2, "evaluation")):
+        db.insert(PerformanceProjectNodeSnapshot, id=node_id, project_id=project_id, node_id=f"N{node_id}", node_type=kind,
+                  node_order=1, config={"template": {"executor_role_code": "assessment.direct_manager"}})
+    for task_id, node, snapshot, employee, handler, phase, revoked in (
+        (1, 11, 10, "VISIBLE1", "ADMIN", "P1", None),
+        (2, 11, 10, "OUTSIDE1", "OTHER", "P1", None),
+        (3, 11, 10, "HIDDEN", "ADMIN", "P2", None),
+        (4, 11, 10, "GLOBAL_HIDDEN", "ADMIN", "P1", datetime(2026, 1, 1)),
+        (5, 11, 1, "OLD", "ADMIN", "P1", None),
+        (6, 12, 10, "OUTSIDE1", "ADMIN", "P1", None),
+        (7, 21, 20, "VISIBLE2", "ADMIN", "P1", None),
+    ):
+        db.insert(PerformanceNodeTask, id=task_id, project_id=2 if node == 21 else 1, cycle_ref="C1",
+                  node_snapshot_id=node, member_snapshot_id=snapshot, target_employee_no=employee,
+                  handler_ref=handler, phase_id=phase, revoked_at=revoked, status="completed" if task_id == 1 else "pending")
+    db.session.commit()
+
+
+@pytest.mark.asyncio
+async def test_review_analysis_scope_uses_handler_phase_and_current_snapshot_not_management(scope_db, monkeypatch):
+    seed_review_analysis(scope_db, monkeypatch)
+    _, projects, scopes = await router._review_analysis_scope(1, context(None), scope_db, project_id=1, node_id="N11", phase_id="P1")
+    assert [project.id for project in projects] == [1]
+    assert scopes == {1: {"VISIBLE1"}}
+    _, _, all_phases = await router._review_analysis_scope(1, context(None), scope_db, project_id=1, node_id="N11")
+    assert all_phases == {1: {"VISIBLE1", "HIDDEN"}}
+    with pytest.raises(HTTPException) as mixed:
+        await router._review_analysis_scope(1, context("project_admin"), scope_db, project_id=1, node_id="N11")
+    assert mixed.value.detail == "MANAGEMENT_REVIEW_SCOPE_CONFLICT"
+
+
+@pytest.mark.asyncio
+async def test_review_analysis_respects_effective_transfer_and_authorization(scope_db, monkeypatch):
+    seed_review_analysis(scope_db, monkeypatch)
+    scope_db.insert(PerformanceNodeTaskAuthorization, id=1, task_id=1, project_id=1, cycle_ref="C1", status="ACTIVE", authorization_type="TRANSFER", recipient_employee_no="OTHER")
+    scope_db.insert(PerformanceNodeTaskAuthorization, id=2, task_id=2, project_id=1, cycle_ref="C1", status="ACTIVE", authorization_type="AUTHORIZE", recipient_employee_no="ADMIN")
+    scope_db.session.commit()
+    _, _, scopes = await router._review_analysis_scope(1, context(None), scope_db, project_id=1, node_id="N11", phase_id="P1")
+    assert scopes == {1: {"OUTSIDE1"}}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("project_id,node_id,phase_id", [(1, "N12", "P1"), (1, "N11", "missing"), (2, "N11", "P1"), (3, "N11", "P1")])
+async def test_review_analysis_scope_rejects_self_cross_project_phase_and_cycle(scope_db, monkeypatch, project_id, node_id, phase_id):
+    seed_review_analysis(scope_db, monkeypatch)
+    with pytest.raises(HTTPException) as denied:
+        await router._review_analysis_scope(1, context(None), scope_db, project_id=project_id, node_id=node_id, phase_id=phase_id)
+    assert denied.value.status_code == 403
+
+
+def test_review_analysis_actual_api_reuses_matrix_reports_and_blocks_scope_tampering(scope_db, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.core.db import get_session
+    from app.performance.auth_context import get_performance_access_context
+    seed_review_analysis(scope_db, monkeypatch)
+    monkeypatch.setattr(router, "hydrate_member_identities", AsyncMock())
+    monkeypatch.setattr(router, "_project_report_indicators", AsyncMock(return_value=[{"key": "rating:R", "label": "绩效评级"}]))
+    final = AsyncMock(return_value=([{"key": "A", "label": "A"}], {"VISIBLE1": (1, 1, "", {"key": "A"})}, []))
+    monkeypatch.setattr(router, "_project_final_ratings", final)
+    member_page = AsyncMock(return_value=router.ProjectMemberPage(items=[], total=0, page=1, page_size=50, rating_columns=[]))
+    monkeypatch.setattr(router, "_report_member_page", member_page)
+    app = FastAPI()
+    app.include_router(router.router, prefix="/api/v1")
+    app.dependency_overrides[get_performance_access_context] = lambda: context(None)
+    app.dependency_overrides[get_session] = lambda: scope_db
+    url = "/api/v1/performance/workbench/tasks/N11/analysis/"
+    query = "?project_id=1&phase_id=P1"
+    with TestClient(app) as client:
+        matrix = client.get(url + "matrix" + query)
+        assert matrix.status_code == 200
+        assert matrix.json()["total"] == matrix.json()["completed_count"] == 1
+        report = client.get(url + "statistics" + query + "&dimension=level")
+        assert report.status_code == 200
+        assert report.json()["totalParticipants"] == 1 and report.json()["distribution"] == {"A": 1}
+        assert all(call.args[1] == {"VISIBLE1"} for call in final.await_args_list)
+        assert client.get(url + "statistics-members" + query + "&dimension=level&rating_key=A").status_code == 200
+        assert member_page.await_args.args[2] == {"VISIBLE1"}
+        assert member_page.await_args.args[1] == {1: {"VISIBLE1"}}
+        assert member_page.await_args.kwargs == {"readonly": True}
+        assert client.get(url + "comparison" + query + "&kind=dimension").status_code == 200
+        assert client.get(url + "statistics" + query + "&indicator_key=forged").status_code == 422
+        assert client.get(url + "statistics-members" + query + "&row_key=forged").status_code == 422
+        assert client.get(url + "matrix?project_id=1&phase_id=P2").json()["total"] == 1
+        assert client.get(url + "matrix?project_id=2&phase_id=P1").status_code == 403
+        assert client.get(url + "matrix?project_id=1&phase_id=missing").status_code == 403
+        assert client.get(url + "matrix?project_id=999").status_code == 404
+        assert client.get(url + "statistics" + query + "&dimension=forged").status_code == 422
+        assert client.get(url + "statistics-members" + query + "&page_size=201").status_code == 422
+        scope_db.session.get(PerformanceNodeTask, 1).revoked_at = datetime(2026, 1, 1)
+        scope_db.session.commit()
+        assert client.get(url + "matrix" + query).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_review_comparison_history_resolves_each_cycle_separately(scope_db, monkeypatch):
+    seed_review_analysis(scope_db, monkeypatch)
+    db = scope_db
+    db.session.get(PerformanceCycle, 2).start_at = datetime(2025, 1, 1)
+    db.session.commit()
+    authorized = await router._review_analysis_scope(1, context(None), db, project_id=1, node_id="N11", phase_id="P1")
+    monkeypatch.setattr(router, "_project_report_indicators", AsyncMock(return_value=[{"key": "rating:R", "label": "绩效评级"}]))
+    monkeypatch.setattr(router, "_project_final_ratings", AsyncMock(return_value=([{"key": "A", "label": "A"}], {}, [])))
+    history = AsyncMock()
+    async def load_previous(cycle_id):
+        await history(cycle_id)
+        return await router._review_analysis_scope(cycle_id, context(None), db)
+    report, *_ = await router._report_comparison_data(1, "history", context(None), db, None, 1, None, None, None,
+        authorized_scope=authorized, history_scope_loader=load_previous)
+    assert report.emptyReason == "NO_HISTORY" and report.historyCycles == []
+    history.assert_awaited_once_with(2)
+    db.insert(PerformanceProjectNodeSnapshot, id=31, project_id=3, node_id="old-manager", node_type="evaluation", node_order=1, config={"template": {"executor_role_code": "assessment.direct_manager"}})
+    db.insert(PerformanceNodeTask, id=31, project_id=3, cycle_ref="C2", node_snapshot_id=31, member_snapshot_id=30,
+              target_employee_no="VISIBLE3", handler_ref="ADMIN", phase_id="old-phase", status="completed", revoked_at=None)
+    db.session.commit()
+    report, *_ = await router._report_comparison_data(1, "history", context(None), db, None, 1, None, None, 2,
+        authorized_scope=authorized, history_scope_loader=load_previous)
+    assert report.historyCycleId == 2 and report.total == 0
+    calls = router._project_final_ratings.await_args_list
+    assert any(call.args[0].id == 3 and call.args[1] == {"VISIBLE3"} for call in calls)
+    assert all(call.args[1] <= ({"VISIBLE3"} if call.args[0].id == 3 else {"VISIBLE1"}) for call in calls)

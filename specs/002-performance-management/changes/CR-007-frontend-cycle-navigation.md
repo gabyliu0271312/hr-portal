@@ -660,6 +660,19 @@
 - 用户要求待评人员点击与已完成人员按姓名展示时完全复用同一弹窗。ProjectPerformanceMatrix 的 pending PeopleCell 补接既有 select-person→onPersonSelect→open-member，沿父级原详情弹窗及 can_view_detail 权限，不新建组件、API、token或迁移，不改变评估状态。
 - 新增既有矩阵测试覆盖待评/已评相同事件合同及无权不跳转；矩阵＋ProjectManagement 两文件98 passed，类型检查初次发现测试夹具缺employment_status，补齐后vue-tsc通过、矩阵18项复跑通过、diff --check通过。未运行浏览器/完整构建，未提交推送部署或操作生产。
 
+## CR-007-F20-R01 上级评估分析接入（2026-11-27）
+
+- 授权与口径：用户明确要求完成上级评估矩阵／统计占位接入，并确认沿用团队结果／项目管理的共享指标口径和选择能力，仅将人员范围限定为当前可信处理人在当前项目／节点／阶段负责的人员；包含待评和已评，不将当前节点评分冒充最终有效结果。复用原页签／布局，不新增信息架构或整页蓝图；012 N000／N0005沿用原共享组件和全局token。
+- [x] CR-007-F20-R01-T01 后端任务范围分析接口。必读：Spec 002基线、F16/F17/F20/F23、execution-contract／acceptance-evidence及实际任务人员查询。允许修改`backend/app/performance/projects_router.py`、既有`tests/test_performance_management_scope.py`；不改模型、迁移、原评分算法或管理授权。GET `/performance/workbench/tasks/{node_id}/analysis/{analysis_kind}`，kind为matrix/statistics/comparison/statistics-members/comparison-members，project_id必填、phase_id可选，指标／分组／对比／分页参数复用共享报表。由可信actor及task_handler_condition、项目、节点、阶段、非撤销任务和当前项目成员快照取交集，不接受前端人员名单；无合法范围403 REVIEW_ANALYSIS_FORBIDDEN，混用management_role为422 MANAGEMENT_REVIEW_SCOPE_CONFLICT。矩阵复用_aggregate_project_matrix；统计／对比复用_report_statistics_data／_report_comparison_data；钻取重算同一范围后复用_report_member_page只读投影。历史周期独立按当期任务处理人授权，不能借当前身份或管理权限放大历史范围。无写入／通知／迁移。
+- [x] CR-007-F20-R01-T02 前端薄适配接入。允许修改api/performance.ts及既有镜像、PerformanceReviewContent、Review.vue周期透传、共享ProjectStatisticsReportPanel可选评论开关、新PerformanceReviewScopeAnalysis薄provider组件及既有Review/Panel测试。实际矩阵与报表仍使用ProjectPerformanceMatrix／ProjectStatisticsReportPanel，不复制图表或聚合；所有报表附属请求含人数钻取均走独立任务范围API。未定义的私有评论入口关闭，不误走管理接口；身份／项目／节点／阶段变化卸载旧内容并丢弃迟到数据。人员详情沿原评估任务抽屉，不新增详情路径。保留原空态、错误／重试、无权反馈，不改其他角色入口。
+- 测试合同：Given不同处理人／阶段／项目／历史快照任务，When请求矩阵、统计及钻取，Then只能返回合法交集；撤销最后一条任务立即403，非法指标／行／评级／分页422。Given切换页签与身份，When共享组件发出请求，Then仅调用任务范围provider且不落入管理／评论API。执行既有管理范围后端测试、Review/共享报表/矩阵前端回归、vue-tsc＋Vite和UI规则检查；未运行、跳过、环境阻塞分别记录，不计通过。
+- 影响面与停止方式：仅原上级评估工作区和共享组件可选参数；新增参数默认保留其他入口原行为。停止可撤回本卡独立增量，不整包回滚并行修改；不commit/push/deploy、不操作生产数据。
+- REA依据：定向请求Evidence `ev_6e32d15f5ce76deeecae554f0bc2a7c1a18d1bbdc9ca6d5a36effd764f2d37b1` 实采matrix_header／2d/detail、1d／2d返回200，请求包含header_leader_review_matrix或header_leader_review_report及stageIds；当前指标为finalReviewScoreGroup，不据此推断当前节点草稿纳入统计。采集整体标记incomplete，不能作为全部响应或所有交互完整性证明。
+- 后端本地证据：`DB_HOST=127.0.0.1 DB_PORT=1 PYTHONPATH=hr-portal/backend hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_management_scope.py -q --tb=short` → **1256 passed、5 skipped、1既有python_multipart警告，35.12秒**。随后增加历史周期独立允许范围断言，management_scope整文件复跑**32 passed，9.56秒**。包含实际FastAPI HTTP＋SQLite任务查询，非真实JWT或PostgreSQL验收。最初双head由迁移实际负责人协调解除，本卡未改迁移。
+- UI本地证据：既有Vite实际Vue组件＋Chrome 1440×1000，所有业务API隔离为合成数据；矩阵切报表请求均为任务analysis路径并带project_id=1／phase_id=P1，姓名点击从root_review_id=201解析taskPeople真实task_id=901后沿原事件打开，无管理／评论请求、pageerror=0。独立PNG `ui-blueprints/CR-007-F20-R01-matrix-implemented-20261127.png`、`ui-blueprints/CR-007-F20-R01-report-implemented-20261127.png`均已读取；仅组件实现证据，不冒充完整登录路由或像素对齐。首轮隔离拦截误覆盖前端api源码模块而超时，已停止；修正仅拦截/api/v1业务请求后通过。未创建测试脚本文件。
+- 前端最终证据：`npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/components/performance/ProjectStatisticsReportPanel.spec.ts src/components/performance/ProjectPerformanceMatrix.spec.ts src/api/performanceManagementContext.spec.ts --silent --maxWorkers=2 --minWorkers=1` → **4文件237 passed，30.59秒**；Review184、Panel24、Matrix19、API10。覆盖真实任务ID≠成员ID、独立五接口／指标与三类对比、原抽屉、迟到响应隔离及禁评论请求。`npm --prefix hr-portal/frontend run build` → **vue-tsc＋Vite exit0**，仅既有VueUse PURE注释提示；首次build被并行筛选ariaLabel类型问题阻塞，负责人修复后完整重跑通过。本地T01/T02完成，不提升F20整体生产验收状态。
+- UI规则：PerformanceReviewContent／PerformanceReviewScopeAnalysis／ProjectStatisticsReportPanel三组件**0违规**，目标文件git diff --check通过。成员筛选并行类型错误由其负责人修复，本卡未改成员筛选组件。真实JWT→API→PostgreSQL、生产部署尚未运行；不声明生产完成。
+
 ## CR-007-F19 多项目时间轴与评估菜单修复（2026-11-19）
 
 ### F19-T02 未开始空态修复（2026-11-23）

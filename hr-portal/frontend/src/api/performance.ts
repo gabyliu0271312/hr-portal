@@ -1877,6 +1877,26 @@ export type SelfSummaryTask = PerformanceTemplateTask
 export type SelfSummarySaveResult = { reviewer_360?: PerformanceReview360InviteList; reviewer_360_version?: string; comparison?: PerformanceComparisonResult | null; draft_diff_reason?: string | null; draft_comparison_context?: string | null; draft_comparison_reasons?: PerformanceComparisonReason[]; answers: Record<string, unknown>; version?: number; result_version?: number | null; draft_base_result_version?: number | null; answer_submissions?: Array<{ display_name: string; submitted_at: string }>; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean; reconsideration_closed?: boolean }
 
 export const performanceWorkbenchApi = {
+  async taskAnalysisMatrix(projectId: number, nodeId: string, phaseId?: string | null): Promise<ProjectMatrix> {
+    const { data } = await api.get<ProjectMatrix>(`/performance/workbench/tasks/${encodeURIComponent(nodeId)}/analysis/matrix`, { params: { project_id: projectId, ...(phaseId ? { phase_id: phaseId } : {}) } })
+    return data
+  },
+  async taskAnalysisStatistics(projectId: number, nodeId: string, dimension: ProjectStatisticsReport['dimension'] = 'department', indicatorKey?: string, phaseId?: string | null): Promise<ProjectStatisticsReport> {
+    const { data } = await api.get<ProjectStatisticsReport>(`/performance/workbench/tasks/${encodeURIComponent(nodeId)}/analysis/statistics`, { params: { project_id: projectId, ...(phaseId ? { phase_id: phaseId } : {}), dimension, ...(indicatorKey ? { indicator_key: indicatorKey } : {}) } })
+    return data
+  },
+  async taskAnalysisComparison(projectId: number, nodeId: string, query: ProjectReportComparisonQuery, phaseId?: string | null): Promise<ProjectReportComparisonData> {
+    const { data } = await api.get<ProjectReportComparisonData>(`/performance/workbench/tasks/${encodeURIComponent(nodeId)}/analysis/comparison`, { params: { project_id: projectId, ...(phaseId ? { phase_id: phaseId } : {}), kind: query.kind, x_key: query.xKey, y_key: query.yKey, history_cycle_id: query.historyCycleId } })
+    return data
+  },
+  async taskAnalysisPeople(projectId: number, nodeId: string, selection: ReportPeopleQuery, query: PeoplePageQuery, phaseId?: string | null): Promise<ProjectMemberPage> {
+    const { data } = await api.get<ProjectMemberPage>(`/performance/workbench/tasks/${encodeURIComponent(nodeId)}/analysis/${selection.type}-members`, { params: {
+      project_id: projectId, ...(phaseId ? { phase_id: phaseId } : {}), keyword: query.keyword, page: query.page, page_size: query.pageSize, sort_by: query.sortBy, sort_order: query.sortOrder,
+      ...(selection.type === 'statistics' ? { dimension: selection.dimension, indicator_key: selection.indicatorKey, row_key: selection.rowKey, rating_key: selection.ratingKey }
+        : { kind: selection.kind, x_key: selection.xKey, y_key: selection.yKey, history_cycle_id: selection.historyCycleId, x_rating_key: selection.xRatingKey, y_rating_key: selection.yRatingKey }),
+    } })
+    return data
+  },
   async summary(cycleId: number): Promise<{ projects: PerformanceWorkbenchProject[]; snapshots: Record<number, { timeline: PerformanceWorkbenchTimelineNode[]; pending: PerformanceWorkbenchTaskGroup[]; completed: PerformanceWorkbenchTaskGroup[] }> }> {
     const path = '/performance/workbench/summary'
     const params = { cycle_id: cycleId }

@@ -7440,8 +7440,9 @@ async def _report_statistics_data(
     result_kind: Literal["team", "focus"] | None = Query(default=None),
     project_id: int | None = None,
     indicator_key: str | None = None,
+    *, authorized_scope=None,
 ):
-    cycle, projects, scopes = await _report_project_scope(cycle_id, context, db, result_kind, project_id)
+    cycle, projects, scopes = authorized_scope if authorized_scope is not None else await _report_project_scope(cycle_id, context, db, result_kind, project_id)
     indicators = []
     for project in projects:
         _merge_report_indicators(indicators, await _project_report_indicators(project, db))
@@ -7651,8 +7652,9 @@ async def _report_comparison_data(
     x_key: str | None = None,
     y_key: str | None = None,
     history_cycle_id: int | None = None,
+    *, authorized_scope=None, history_scope_loader=None,
 ):
-    cycle, projects, scopes = await _report_project_scope(cycle_id, context, db, result_kind, project_id)
+    cycle, projects, scopes = authorized_scope if authorized_scope is not None else await _report_project_scope(cycle_id, context, db, result_kind, project_id)
     y_options, y_axes = await _report_comparison_axis(projects, scopes, db)
 
     def finish(x, y, x_options, y_options, **kwargs):
@@ -7679,7 +7681,7 @@ async def _report_comparison_data(
     permitted = {}
     for previous in candidates:
         try:
-            _, previous_projects, previous_scopes = await _report_project_scope(previous.id, historical_context, db, result_kind)
+            _, previous_projects, previous_scopes = await history_scope_loader(previous.id) if history_scope_loader is not None else await _report_project_scope(previous.id, historical_context, db, result_kind)
         except HTTPException as exc:
             if exc.status_code not in {403, 404}:
                 raise
@@ -8491,6 +8493,117 @@ async def _communication_final_rating_values(project, rows, db):
     return metadata, {key: _rating_values_from_answers(result["answers"], metadata) for key, result in results.items()}
 
 
+def _review_task_scope_conditions(project_id, node_id, phase_id):
+    conditions = (
+        PerformanceNodeTask.project_id == project_id,
+        PerformanceProjectNodeSnapshot.project_id == project_id,
+        PerformanceProjectNodeSnapshot.node_id == node_id,
+    )
+    if isinstance(phase_id, str) and phase_id:
+        conditions += (PerformanceNodeTask.phase_id == phase_id,)
+    return conditions
+
+
+async def _review_analysis_scope(cycle_id, context, db, *, project_id=None, node_id=None, phase_id=None):
+    if context.management_role:
+        raise HTTPException(422, "MANAGEMENT_REVIEW_SCOPE_CONFLICT")
+    actor = await resolve_trusted_performance_actor(db, context)
+    cycle = await db.get(PerformanceCycle, cycle_id)
+    if cycle is None:
+        raise HTTPException(404, "CYCLE_NOT_FOUND")
+    statement = select(PerformanceProject).where(
+        PerformanceProject.cycle_ref == cycle.cycle_ref,
+        PerformanceProject.status == PROJECT_STATUS_STARTED,
+    )
+    if project_id is not None:
+        statement = statement.where(PerformanceProject.id == project_id)
+    projects = list((await db.execute(statement)).scalars().all())
+    scopes, visible = {}, []
+    for project in projects:
+        snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
+        conditions = _review_task_scope_conditions(project.id, node_id, phase_id) if node_id is not None else (
+            PerformanceNodeTask.project_id == project.id,
+            PerformanceProjectNodeSnapshot.project_id == project.id,
+        )
+        rows = (await db.execute(select(PerformanceNodeTask, PerformanceProjectNodeSnapshot)
+            .join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id)
+            .where(*conditions, task_handler_condition(str(actor.actor_ref)),
+                   PerformanceNodeTask.member_snapshot_id == snapshot_id,
+                   PerformanceNodeTask.cycle_ref == cycle.cycle_ref,
+                   PerformanceNodeTask.revoked_at.is_(None)))).all() if snapshot_id is not None else []
+        employees = {task.target_employee_no for task, node in rows
+                     if node.node_type in {"evaluation", "manager_review", "project_review"}
+                     and not _report_self_node(node)
+                     and ((node.config or {}).get("template") or {}).get("executor_role_code") != "assessment.reviewer_360"}
+        if employees:
+            scopes[project.id] = employees
+            visible.append(project)
+    if not visible:
+        raise HTTPException(403, "REVIEW_ANALYSIS_FORBIDDEN")
+    return cycle, visible, scopes
+
+
+@router.get("/workbench/tasks/{node_id}/analysis/{analysis_kind}")
+async def workbench_task_analysis(
+    node_id: str,
+    analysis_kind: Literal["matrix", "statistics", "comparison", "statistics-members", "comparison-members"],
+    project_id: int = Query(..., ge=1),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+    phase_id: str | None = Query(default=None, max_length=96),
+    dimension: Literal["level", "tenure", "department", "team", "sequence"] = "department",
+    indicator_key: str | None = None,
+    kind: Literal["self-final", "dimension", "history"] = "self-final",
+    x_key: str | None = None,
+    y_key: str | None = None,
+    history_cycle_id: int | None = Query(default=None, ge=1),
+    row_key: str | None = None,
+    rating_key: str | None = None,
+    x_rating_key: str | None = None,
+    y_rating_key: str | None = None,
+    keyword: str | None = Query(default=None, max_length=100),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    sort_by: str | None = None,
+    sort_order: Literal["asc", "desc"] | None = None,
+):
+    project = await _get_project(db, project_id)
+    cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
+    if cycle is None:
+        raise HTTPException(404, "CYCLE_NOT_FOUND")
+    authorized = await _review_analysis_scope(cycle.id, context, db, project_id=project_id, node_id=node_id, phase_id=phase_id)
+    _, projects, scopes = authorized
+    if analysis_kind == "matrix":
+        return await _aggregate_project_matrix(projects, scopes, context, db, reject_conflicts=True)
+    if analysis_kind in {"statistics", "statistics-members"}:
+        report, _, _, rated, rows, summary = await _report_statistics_data(
+            cycle.id, dimension, context, db, None, project_id, indicator_key, authorized_scope=authorized,
+        )
+        if analysis_kind == "statistics":
+            return report
+        if row_key is not None and row_key not in rows:
+            raise HTTPException(422, "INVALID_STATISTICS_ROW_KEY")
+        if rating_key is not None and rating_key not in {rating.key for rating in report.ratings}:
+            raise HTTPException(422, "INVALID_RATING_KEY")
+        employees = summary if row_key is None else rows[row_key]
+        if rating_key is not None:
+            employees = {employee for employee in employees if rated[employee] == rating_key}
+    else:
+        async def history_scope_loader(previous_id):
+            return await _review_analysis_scope(previous_id, context, db)
+        report, _, _, x, y = await _report_comparison_data(
+            cycle.id, kind, context, db, None, project_id, x_key, y_key, history_cycle_id,
+            authorized_scope=authorized, history_scope_loader=history_scope_loader,
+        )
+        if analysis_kind == "comparison":
+            return report
+        if x_rating_key not in {rating.key for rating in report.xRatings} or y_rating_key not in {rating.key for rating in report.yRatings}:
+            raise HTTPException(422, "INVALID_RATING_KEY")
+        employees = {employee for employee in x["values"].keys() & y["values"].keys()
+                     if x["values"][employee] == x_rating_key and y["values"][employee] == y_rating_key}
+    return await _report_member_page(projects, scopes, employees, keyword, page, page_size, sort_by, sort_order, context, db, readonly=True)
+
+
 @router.get("/workbench/tasks/{node_id}/people")
 async def workbench_task_people(node_id: str, project_id: int, state: str = Query(default="pending", pattern="^(pending|completed|all)$"), context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), keyword: str | None = Query(default=None, max_length=100), phase_id: str | None = Query(default=None, max_length=96), page: int | None = Query(default=None, ge=1), page_size: int = Query(default=50, ge=1, le=100), sort_by: str = Query(default="task_id", max_length=256), sort_order: str = Query(default="asc", pattern="^(asc|desc)$"), scope_key: str | None = Query(default=None, max_length=128)):
     paged = isinstance(page, int)
@@ -8500,13 +8613,7 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
     actor = await resolve_trusted_performance_actor(db, context)
     handler = str(actor.actor_ref)
     is_admin_preview = False
-    scope = (
-        PerformanceNodeTask.project_id == project_id,
-        PerformanceProjectNodeSnapshot.project_id == project_id,
-        PerformanceProjectNodeSnapshot.node_id == node_id,
-    )
-    if isinstance(phase_id, str) and phase_id:
-        scope += (PerformanceNodeTask.phase_id == phase_id,)
+    scope = _review_task_scope_conditions(project_id, node_id, phase_id)
     if isinstance(scope_key, str):
         from app.performance.calibration_workspace_service import resolve_scope
         _project, _node, _actor, business_scope, _records = await resolve_scope(db, project_id, node_id, scope_key, context, phase_id=phase_id if isinstance(phase_id, str) else None)

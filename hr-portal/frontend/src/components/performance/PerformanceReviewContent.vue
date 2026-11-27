@@ -3,7 +3,7 @@
     <div v-if="loading" class="review-state">正在加载绩效评估…</div>
     <div v-else-if="error" class="review-state error-state">
       <p>{{ error }}</p>
-      <button type="button" @click="emit('retry')">重新加载</button>
+      <UiButton variant="primary" @click="emit('retry')">重新加载</UiButton>
     </div>
     <div v-else-if="!node" class="review-state">
       <div class="state-illustration" aria-hidden="true">⌁</div>
@@ -75,7 +75,16 @@
                 @select-member="emit('open-member', { node, member: $event })"
                 @remind-evaluate="emit('remind-evaluate', { node, ...$event })"
               />
-              <p v-else class="evaluation-pane-hint">该页签内容将在后续迭代中开发</p>
+              <PerformanceReviewScopeAnalysis
+                v-else-if="props.projectId && analysisCycleId && (evaluationTab === 'matrix' || evaluationTab === 'reports')"
+                :key="analysisScopeKey"
+                :project-id="props.projectId"
+                :cycle-id="analysisCycleId"
+                :node="node"
+                :tab="evaluationTab"
+                @open-member="emit('open-member', { node, member: $event })"
+              />
+              <p v-else class="evaluation-pane-hint">当前周期信息尚未就绪</p>
             </PerformanceLineTabs>
           </div>
         </template>
@@ -93,7 +102,7 @@
           <img v-else src="/performance-no-submit.svg" alt="" width="120" height="120">
         </div>
         <p>{{ isNotStarted ? '暂未启动' : node.status === 'overdue' ? '该环节已逾期' : '暂未填写' }}</p>
-        <button v-if="!isNotStarted" type="button" class="primary-button" @click="emit('open-node', node)">去完成</button>
+        <UiButton v-if="!isNotStarted" class="primary-button" variant="primary" @click="emit('open-node', node)">去完成</UiButton>
         </template>
         </div>
       </div>
@@ -112,6 +121,7 @@ import PerformanceDisabledReason from './PerformanceDisabledReason.vue'
 import UiButton from '../ui/UiButton.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from './PerformanceLineTabs.vue'
 import ProjectMemberListPanel from './ProjectMemberListPanel.vue'
+import PerformanceReviewScopeAnalysis from './PerformanceReviewScopeAnalysis.vue'
 import PerformanceReview360FeedbackPanel from './PerformanceReview360FeedbackPanel.vue'
 import PerformanceDistributionTipsPanel from './PerformanceDistributionTips.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
@@ -126,6 +136,7 @@ const props = defineProps<{
   feedbackSources?: PerformanceReview360Source[]
   feedbackState?: 'not_started' | 'started'
   projectId?: number | null
+  cycleId?: number | null
   memberPreferenceScope?: PerformanceColumnPreferenceScope
   contentTitle?: string
   resultUnavailable?: boolean
@@ -149,6 +160,11 @@ const evaluationTabs: PerformanceLineTab[] = [
   { key: 'reports', label: '统计报表' },
 ]
 const evaluationTab = ref('members')
+const analysisCycleId = computed(() => {
+  const id = Number(props.cycleId ?? props.memberPreferenceScope?.cycle_ref)
+  return Number.isSafeInteger(id) && id > 0 ? id : null
+})
+const analysisScopeKey = computed(() => JSON.stringify([props.projectId, analysisCycleId.value, props.node?.node_id, props.node?.phase_id, employeeSwitchEpoch.value]))
 watch(() => props.node?.node_id, () => { evaluationTab.value = 'members' })
 
 const isCalibrationNode = computed(() => props.node?.node_type === 'calibration')
@@ -214,24 +230,24 @@ function formatStartTime(value: string) {
 <style scoped>
 .review-content { display: flex; min-width: 0; min-height: 0; height: 100%; flex: 1; flex-direction: column; overflow: auto; padding: var(--performance-review-surface-inset) var(--performance-review-surface-inset) 0; box-sizing: border-box; background: var(--performance-review-page-bg); scrollbar-width: none; }
 .review-content::-webkit-scrollbar { display: none; }
-.review-heading { display: flex; flex: none; align-items: flex-start; margin: 0; max-width: none; }.review-heading-copy { flex: 1; min-width: 0; margin-right: 40px; box-sizing: border-box; color: #1f2329; font-size: 14px; font-weight: 400; line-height: 21px; }.review-heading-actions { display: flex; flex: none; align-items: center; gap: 8px; }.review-heading-copy h2 { min-width: 0; min-height: 0; margin: 0; box-sizing: border-box; color: rgba(0,0,0,.85); font-size: 18px; font-weight: 600; line-height: 26px; }.review-deadline { display: block; min-width: 0; min-height: 0; box-sizing: border-box; color: #646a73; font-size: 12px; font-weight: 400; line-height: 22px; }
+.review-heading { display: flex; flex: none; align-items: flex-start; margin: 0; max-width: none; }
+.review-heading-copy { flex: 1; min-width: 0; margin-right: var(--spacing-8); box-sizing: border-box; color: var(--color-text-primary); font-size: var(--font-size-md); font-weight: var(--font-weight-normal); line-height: var(--line-height-base); }
+.review-heading-actions { display: flex; flex: none; align-items: center; gap: var(--spacing-2); }
+.review-heading-copy h2 { min-width: 0; min-height: 0; margin: 0; box-sizing: border-box; color: var(--color-text-primary); font-size: var(--performance-page-title-size); font-weight: var(--performance-page-title-weight); line-height: var(--page-title-line-height); }
+.review-deadline { display: block; min-width: 0; min-height: 0; box-sizing: border-box; color: var(--color-text-tertiary); font-size: var(--font-size-xs); font-weight: var(--font-weight-normal); line-height: var(--performance-button-line-height); }
 .evaluation-workspace { display: flex; width: 100%; min-width: 0; align-self: stretch; flex: none; flex-direction: column; --performance-line-tabs-surface: var(--performance-content-surface-background); }
-.evaluation-pane-hint { display: grid; min-height: 360px; place-items: center; margin: 0; color: #8f959e; font-size: 14px; }
-.heading-status { padding: 5px 9px; border-radius: 4px; background: #f1f2f4; color: #646a73; font-size: 12px; }
-.heading-status.status-pending { background: #fff0df; color: #d46b08; }
-.heading-status.status-overdue { background: #ffe8e8; color: #d14343; }
-.review-body { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; flex-direction: column; margin: 16px 0 20px; }
-.review-panel { display: flex; flex: 1 1 auto; min-height: 100%; max-width: none; flex-direction: column; align-items: center; justify-content: center; margin: 0; padding: var(--performance-review-surface-inset); box-sizing: border-box; border-radius: var(--performance-content-surface-radius); background: var(--performance-content-surface-background); color: #646a73; box-shadow: var(--shadow-dialog); }
+.evaluation-pane-hint { display: grid; min-height: calc(var(--spacing-8) * 9); place-items: center; margin: 0; color: var(--color-text-placeholder); font-size: var(--font-size-md); }
+.review-body { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; flex-direction: column; margin: var(--spacing-4) 0 var(--spacing-5); }
+.review-panel { display: flex; flex: 1 1 auto; min-height: 100%; max-width: none; flex-direction: column; align-items: center; justify-content: center; margin: 0; padding: var(--performance-review-surface-inset); box-sizing: border-box; border-radius: var(--performance-content-surface-radius); background: var(--performance-content-surface-background); color: var(--color-text-tertiary); box-shadow: var(--shadow-dialog); }
 .review-body--completed { flex: 1 0 auto; }
 .review-panel.completed { flex: 1 0 auto; min-height: 0; align-items: stretch; justify-content: flex-start; padding: var(--performance-review-surface-inset); }
 .review-body--workspace { flex: 1 0 auto; }
 .review-panel.evaluation, .review-panel.feedback { flex: 1 0 auto; min-height: 0; align-items: stretch; justify-content: flex-start; }
 .completed-content { flex: none; min-width: 0; width: 100%; max-width: var(--performance-review-content-max-width); margin: 0 auto; }
 .completed-fallback { margin: auto !important; }
-.review-panel > p, .review-state p { margin: 8px 0 20px; color: #646a73; font-size: 16px; font-weight: 400; line-height: 24px; text-align: center; }
-.state-illustration { display: grid; width: 120px; height: 121px; place-items: center; }
-.primary-button, .review-state button { min-width: 80px; height: 32px; padding: 0 16px; border: 0; border-radius: 6px; background: #3370ff; color: #fff; cursor: pointer; font-size: 14px; line-height: 22px; }
-.review-state { display: flex; min-height: 640px; flex-direction: column; align-items: center; justify-content: center; color: #646a73; }
-.error-state { color: #d14343; }
-@media (max-width: 720px) { .review-content { padding: 24px 14px 32px; } .review-panel { min-height: 360px; } }
+.review-panel > p, .review-state p { margin: var(--spacing-2) 0 var(--spacing-5); color: var(--color-text-tertiary); font-size: var(--font-size-lg); font-weight: var(--font-weight-normal); line-height: var(--line-height-base); text-align: center; }
+.state-illustration { display: grid; width: var(--performance-calibration-empty-size); height: var(--performance-calibration-empty-size); place-items: center; }
+.review-state { display: flex; min-height: calc(var(--spacing-8) * 16); flex-direction: column; align-items: center; justify-content: center; color: var(--color-text-tertiary); }
+.error-state { color: var(--color-text-danger-strong); }
+@media (max-width: 45rem) { .review-content { padding: var(--spacing-6) var(--spacing-4) var(--spacing-7); } .review-panel { min-height: calc(var(--spacing-8) * 9); } }
 </style>
