@@ -37,9 +37,9 @@ def rating_filter_field(rating):
         if option.get("id") is None:
             continue
         label = str(option.get("code") or option.get("label") or option["id"])
-        description = option.get("description") or (option.get("label") if option.get("code") else None)
+        name = option.get("name") or (option.get("label") if option.get("code") else None)
         options.append({"value": str(option["id"]), "label": label,
-                        **({"subLabel": str(description)} if description else {}),
+                        **({"subLabel": str(name)} if name and str(name) != label else {}),
                         **({"color": option["color"]} if option.get("color") is not None else {})})
     return {"key": rating["key"], "label": rating["label"], "kind": "select",
             "group": ["当前周期绩效结果"], "operators": OPERATORS, "options": options}

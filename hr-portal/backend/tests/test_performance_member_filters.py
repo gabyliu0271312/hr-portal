@@ -277,12 +277,27 @@ def test_rating_candidates_use_full_local_configuration_even_when_no_member_has_
     current_schema["_filter_fields"] = [rating_filter_field(rating)]
     options = member_filter_options([], current_schema, key="rating:grade")["fields"][0]["options"]
     assert options == [
-        {"value": "grade-b", "label": "B", "subLabel": "达到要求", "color": "#b"},
+        {"value": "grade-b", "label": "B", "subLabel": "良好", "color": "#b"},
         {"value": "grade-a", "label": "A", "subLabel": "优秀", "color": "#a"},
         {"value": "grade-c", "label": "一般"},
     ]
     item = row("A", **{"rating:grade": {"value": "grade-a", "label": "A"}})
     assert member_filter_options([item], current_schema, key="rating:grade")["fields"][0]["options"] == options
+
+
+@pytest.mark.parametrize("option, expected", [
+    ({"id": "g", "code": "3星", "label": "符合预期", "description": "详细绩效说明"}, {"value": "g", "label": "3星", "subLabel": "符合预期"}),
+    ({"id": "g", "code": "3星", "label": "其他标签", "name": "符合预期", "description": "详细绩效说明"}, {"value": "g", "label": "3星", "subLabel": "符合预期"}),
+    ({"id": "g", "label": "3星", "name": "符合预期", "description": "详细绩效说明"}, {"value": "g", "label": "3星", "subLabel": "符合预期"}),
+    ({"id": "g", "label": "3星", "description": "详细绩效说明"}, {"value": "g", "label": "3星"}),
+])
+def test_rating_candidate_suffix_is_grade_name_not_description(option, expected):
+    current = rating_filter_field({"key": "rating:grade", "label": "绩效评级", "options": [option]})
+    current_schema = schema()
+    current_schema["_filter_fields"] = [current]
+    assert member_filter_options([], current_schema, key="rating:grade")["fields"][0]["options"] == [expected]
+    history = {**current, "key": "history_rating:2:grade", "group": ["历史周期绩效结果", "上年度"]}
+    assert member_filter_options([], {"columns": [], "_filter_fields": [history]})["fields"][0]["options"] == [expected]
 
 
 def test_historical_rating_filter_metadata_keeps_its_own_configuration():

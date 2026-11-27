@@ -48,6 +48,10 @@ REA 已确认：锚定筛选浮层、所有/任意、增删条件、清除、取
 
 v3验证：前端筛选20项+共享选择器15项+项目管理81项，合计116 passed（26.54s）；UI规则扫描本轮6个组件0违规；vue-tsc+Vite构建通过（3909模块45.71s），既有VueUse PURE/bundle提示。后端线程四组1351 passed/5 skipped/1 warning（41.34s）；主线程独立复跑筛选80 passed/1 warning（13.68s）及前端筛选20 passed（13.09s）。完整配置候选、配置顺序、日期为空/同日/更晚周期独立授权、closed和不同actor拒绝有回归；未扩大既有STARTED项目授权。浏览器受控API验证七档及说明、12px点勾、全选checkbox、历史根无授权空态、授权后三级历史评级按ID应用通过；截图`ui-blueprints/CR-016-T02-v3-rating-options.png`与`ui-blueprints/CR-016-T02-v3-history-entry.png`已读取。是合成API的真实Vue组件证据，不是用户现场真实JWT/PostgreSQL整链或全像素一致性证明。本轮无新迁移、无生产操作、无commit/push。
 
+等级候选文案修正：用户明确“绩效等级后接等级名称，不是等级描述”。当前与历史评级共用候选转换，等级标识仍用code/label，右侧subLabel优先name、兼容本地code+label格式中的label；不再读取description，无名称时不回退长描述。筛选专项84 passed/1 warning（13.10s）；新增覆盖name/label/description同时存在、旧格式、仅描述以及历史候选。此次未自动commit/push。
+
+日期弹层层级修正：原日期popup与外层筛选使用相同z-index，现仅将日期子层调整为`calc(var(--performance-popover-z-index) + 1)`，不改变其他弹窗层级。本地真实Vue受控API浏览器测得外层2301/日期2302，两个日期单元的elementFromPoint均命中日期层，真实鼠标选中2026-11-01至2026-12-01后筛选仍打开且按日期区间正确应用。应用回显截图`ui-blueprints/CR-016-T02-v4-date-layer-applied.png`，不将该已收起日历截图冒充展开层级截图。筛选专项21 passed（13.52s），UI扫描0违规；未commit/push或部署。
+
 ## UI 交互基准 v1（历史记录，冲突以v2/v3为准）
 
 沿现有页面与已逐项确认的飞书浮层交互，不改页面信息架构。PerformancePopover 作壳，PerformanceSearchSelect / OrganizationTreeSelect / DateTimeField 作值控件；UiButton 作操作。新增条件行独立组件。

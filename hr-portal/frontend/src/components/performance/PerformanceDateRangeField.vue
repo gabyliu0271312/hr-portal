@@ -122,7 +122,7 @@ async function markPopup(visible: boolean) {
   --el-border-color-light: var(--performance-popover-border);
   --el-text-color-regular: var(--color-text-primary);
   --el-text-color-placeholder: var(--color-text-placeholder);
-  z-index: var(--performance-popover-z-index) !important;
+  z-index: calc(var(--performance-popover-z-index) + 1) !important;
   font-family: var(--font-sans);
   font-size: var(--font-size-md);
   border-radius: var(--performance-popover-radius);

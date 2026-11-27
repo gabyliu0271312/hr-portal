@@ -10,6 +10,7 @@ import ProjectMemberListPanel from './ProjectMemberListPanel.vue'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import PerformanceExportButton from './PerformanceExportButton.vue'
 import PerformanceDateRangeField from './PerformanceDateRangeField.vue'
+import dateRangeSource from './PerformanceDateRangeField.vue?raw'
 import PerformanceOrganizationSelect from './PerformanceOrganizationSelect.vue'
 import PerformanceSelectShell from './PerformanceSelectShell.vue'
 import { ElDatePicker } from 'element-plus'
@@ -182,6 +183,10 @@ describe('cycle member advanced filters', () => {
       expect(tree.querySelector('svg[data-icon="ListCheckBoldOutlined"]')?.getAttribute('width')).toBe('12')
       wrapper.unmount()
     }
+  })
+  it('places the teleported date panel above the parent filter rather than sharing its layer', () => {
+    expect(dateRangeSource).toMatch(/z-index:\s*calc\(var\(--performance-popover-z-index\)\s*\+\s*1\)\s*!important/)
+    expect(dateRangeSource).toContain('data-member-filter-layer')
   })
   it('uses one dual-month range picker and clears invalid or pending ranges', async () => {
     const wrapper = mount(PerformanceDateRangeField, { props: { modelValue: ['2026-01-01', '2026-02-01'] } })
