@@ -10,7 +10,16 @@ import CalibrationScopeContent from './CalibrationScopeContent.vue'
 import CalibrationTaskSidebar from './CalibrationTaskSidebar.vue'
 import { performanceCalibrationApi, type PerformanceCalibrationTaskScope } from '@/api/performanceCalibration'
 import { employeeSwitchEpoch } from '@/stores/identitySwitch'
-vi.mock('@/api/performanceCalibration', async importOriginal => ({ ...await importOriginal<typeof import('@/api/performanceCalibration')>(), performanceCalibrationApi: { tasks: vi.fn() } }))
+import { api } from '@/api/client'
+import { performanceWorkbenchApi } from '@/api/performance'
+import PerformanceReviewContent from '../PerformanceReviewContent.vue'
+import PerformanceReviewScopeAnalysis from '../PerformanceReviewScopeAnalysis.vue'
+import ProjectMemberListPanel from '../ProjectMemberListPanel.vue'
+import CalibrationScopeAnalysis from './CalibrationScopeAnalysis.vue'
+vi.mock('@/api/performanceCalibration', async importOriginal => {
+  const original = await importOriginal<typeof import('@/api/performanceCalibration')>()
+  return { ...original, performanceCalibrationApi: { ...original.performanceCalibrationApi, tasks: vi.fn() } }
+})
 const task = (key: string, project = 1): PerformanceCalibrationTaskScope => ({ scope_key: key, project_id: project, project_name: `项目${project}`, node_id: 'calibration', node_name: '校准', phase_id: `phase-${key}`, source_rule_id: `rule-${key}`, task_number: 3, scope_label: `范围${key}`, rule: { scope: 'PROJECT_ALL' } as any, status: 'pending', start_at: null, end_at: null, member_count: 1, can_complete: true, read_only: false })
 const a = task('a'), b = task('b', 2)
 async function setup(path = '/performance/review?calibration_filter=pending', slots = {}) {
@@ -21,7 +30,93 @@ async function setup(path = '/performance/review?calibration_filter=pending', sl
   return { wrapper, router }
 }
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(performanceCalibrationApi.tasks).mockResolvedValue({ tasks: [a, b], pending_member_count: 2 }) })
-afterEach(() => { document.body.innerHTML = '' })
+afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = '' })
+describe('single calibration real content analysis routing', () => {
+  const page = { items: [{ task_id: 1, employee_no: 'E1', display_name: '成员1', status: 'pending', due_at: null, ratings: { 'rating:grade': { label: '达预期' } } }], total: 1, rating_columns: [{ key: 'rating:grade', label: '绩效评级' }] }
+  const mountSingle = () => mount(CalibrationSingleTask, { props: { scope: a, cycleId: 1 }, global: { stubs: { ProjectMemberListPanel: true, CalibrationTaskCompletion: true, ProjectPerformanceMatrix: { name: 'ProjectPerformanceMatrix', props: ['provider'], template: '<div class="scoped-matrix" />' }, ProjectStatisticsReportPanel: { name: 'ProjectStatisticsReportPanel', props: ['provider', 'allowExamples', 'allowComments'], template: '<div class="scoped-report" />' } } } })
+  const selectTab = async (wrapper: ReturnType<typeof mountSingle>, label: string) => {
+    const tab = wrapper.findAll('[role="tab"]').find(tab => tab.text() === label)
+    expect(tab).toBeTruthy()
+    await tab!.trigger('click'); await flushPromises()
+  }
+  beforeEach(() => {
+    vi.spyOn(performanceWorkbenchApi, 'taskDistributionTips').mockResolvedValue({ enabled: false, total_people: 1, rated_people: 1, rules: [], lines: [] })
+  })
+
+  it('routes members, matrix and reports through the exact calibration scope, not review analysis', async () => {
+    const get = vi.spyOn(api, 'get').mockResolvedValue({ data: page })
+    const wrapper = mountSingle(); await flushPromises()
+    expect(wrapper.findComponent(PerformanceReviewContent).exists()).toBe(true)
+    const provider = wrapper.getComponent(ProjectMemberListPanel).props('provider')!
+    await provider({ page: 2, pageSize: 20, keyword: '成员', sortBy: 'employee_no', sortOrder: 'desc' })
+    expect(get).toHaveBeenLastCalledWith('/performance/workbench/tasks/calibration/people', expect.objectContaining({ params: expect.objectContaining({ project_id: 1, scope_key: 'a', phase_id: 'phase-a', state: 'all', page: 2, page_size: 20, keyword: '成员', sort_by: 'employee_no', sort_order: 'desc' }) }))
+    get.mockClear()
+    await selectTab(wrapper, '矩阵分析')
+    expect(wrapper.getComponent(CalibrationScopeAnalysis).props()).toMatchObject({ scope: a, cycleId: 1, tab: 'matrix' })
+    expect(wrapper.find('.scoped-matrix').exists()).toBe(true)
+    const matrix = await wrapper.getComponent({ name: 'ProjectPerformanceMatrix' }).props('provider')()
+    expect(matrix.total).toBe(1)
+    await selectTab(wrapper, '统计报表')
+    expect(wrapper.getComponent(CalibrationScopeAnalysis).props('tab')).toBe('report')
+    expect(wrapper.find('.scoped-report').exists()).toBe(true)
+    expect(wrapper.getComponent({ name: 'ProjectStatisticsReportPanel' }).props('allowExamples')).toBe(false)
+    expect(wrapper.getComponent({ name: 'ProjectStatisticsReportPanel' }).props('allowComments')).toBe(false)
+    expect(wrapper.findComponent(PerformanceReviewScopeAnalysis).exists()).toBe(false)
+    expect(get).toHaveBeenCalledTimes(1)
+    expect(get).toHaveBeenCalledWith('/performance/workbench/tasks/calibration/people', expect.objectContaining({ params: { project_id: 1, phase_id: 'phase-a', scope_key: 'a', state: 'all', page: 1, page_size: 100 }, signal: expect.any(AbortSignal) }))
+    wrapper.unmount()
+  })
+
+  it('shows scoped 403 on either analysis tab without falling back to general analysis', async () => {
+    const get = vi.spyOn(api, 'get').mockRejectedValue({ response: { status: 403 } })
+    const wrapper = mountSingle(); await flushPromises()
+    await selectTab(wrapper, '矩阵分析')
+    expect(wrapper.get('[role="alert"]').text()).toContain('无权查看当前校准范围的分析数据')
+    await selectTab(wrapper, '统计报表')
+    expect(wrapper.get('[role="alert"]').text()).toContain('无权查看当前校准范围的分析数据')
+    expect(wrapper.findComponent(PerformanceReviewScopeAnalysis).exists()).toBe(false)
+    expect(get).toHaveBeenCalledTimes(1)
+    expect(get.mock.calls.every(([url]) => url === '/performance/workbench/tasks/calibration/people')).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('destroys prior analysis on identity change and ignores its late response', async () => {
+    let resolveOld!: (value: { data: typeof page }) => void
+    const get = vi.spyOn(api, 'get').mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve })).mockResolvedValue({ data: { ...page, items: [], total: 0 } })
+    const wrapper = mountSingle(); await flushPromises()
+    await selectTab(wrapper, '统计报表')
+    const oldAnalysis = wrapper.getComponent(CalibrationScopeAnalysis).vm
+    const oldSignal = get.mock.calls[0][1]!.signal!
+    employeeSwitchEpoch.value++; await flushPromises()
+    expect(wrapper.getComponent(CalibrationScopeAnalysis).vm).not.toBe(oldAnalysis)
+    expect(oldSignal.aborted).toBe(true)
+    resolveOld({ data: page }); await flushPromises()
+    expect(wrapper.text()).toContain('当前合法校准范围暂无可用分析数据')
+    expect(wrapper.find('.scoped-report').exists()).toBe(false)
+    expect(get.mock.calls.every(([url, config]) => url === '/performance/workbench/tasks/calibration/people' && config?.params.scope_key === 'a')).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('replaces scope and ignores a late response while retaining the active analysis tab', async () => {
+    let resolveOld!: (value: { data: typeof page }) => void
+    const get = vi.spyOn(api, 'get').mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve })).mockResolvedValue({ data: { ...page, items: [], total: 0 } })
+    const wrapper = mountSingle(); await flushPromises()
+    await selectTab(wrapper, '矩阵分析')
+    const oldSignal = get.mock.calls[0][1]!.signal!
+    await wrapper.setProps({ scope: { ...b, node_id: a.node_id, phase_id: a.phase_id } }); await flushPromises()
+    expect(oldSignal.aborted).toBe(true)
+    expect(get).toHaveBeenLastCalledWith('/performance/workbench/tasks/calibration/people', expect.objectContaining({ params: expect.objectContaining({ project_id: 2, scope_key: 'b', phase_id: 'phase-a' }) }))
+    resolveOld({ data: page }); await flushPromises()
+    expect(wrapper.text()).toContain('当前合法校准范围暂无可用分析数据')
+    expect(wrapper.find('.scoped-matrix').exists()).toBe(false)
+    await selectTab(wrapper, '成员列表')
+    const provider = wrapper.getComponent(ProjectMemberListPanel).props('provider')!
+    await provider({ page: 1, pageSize: 20 })
+    expect(get).toHaveBeenLastCalledWith('/performance/workbench/tasks/calibration/people', expect.objectContaining({ params: expect.objectContaining({ project_id: 2, scope_key: 'b', phase_id: 'phase-a' }) }))
+    wrapper.unmount()
+  })
+})
+
 describe('calibration workspace route and scope isolation', () => {
   it.each(['pending', 'completed', 'overdue'] as const)('keeps the existing direct single-task UI for %s, including old fullscreen links', async status => {
     vi.mocked(performanceCalibrationApi.tasks).mockResolvedValueOnce({ tasks: [{ ...a, status }], pending_member_count: 1 })

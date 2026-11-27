@@ -27,8 +27,8 @@
         </div>
       </div>
       <div class="review-body" :class="{ 'review-body--completed': !resultUnavailable && (node.node_type === 'result_view' || node.status === 'completed' && !showsEvaluationWorkspace), 'review-body--workspace': showsEvaluationWorkspace || showsFeedbackTable }">
-        <PerformanceTabbedSurface v-if="showsTabbedWorkspace" v-model="evaluationTab" :tabs="performanceAnalysisTabs">
-          <template v-if="isCalibrationNode && props.projectId && node.node_id">
+        <PerformanceTabbedSurface v-if="showsTabbedWorkspace" v-model="evaluationTab" :tabs="performanceAnalysisTabs" :contained="isCalibrationNode">
+          <template v-if="isCalibrationNode && props.projectId && node.node_id" #before-tabs>
             <p v-if="distributionLoading" role="status">正在加载分布提示…</p>
             <p v-else-if="distributionError" role="alert">{{ distributionError }} <UiButton variant="text" @click="loadDistributionTips">重试</UiButton></p>
             <PerformanceDistributionTipsPanel v-else :tips="distributionTips" />
@@ -36,23 +36,27 @@
           <ProjectMemberListPanel
             v-if="evaluationTab === 'members' && props.projectId && node.node_id"
             :project-id="props.projectId"
-            :key="`${props.projectId}-${node.node_id}-${node.phase_id || ''}`"
+            :key="analysisScopeKey"
             :review-context="{ nodeId: node.node_id, state: 'all', phaseId: node.phase_id }"
             :preference-scope="props.memberPreferenceScope"
+            :provider="props.memberProvider"
             variant="review"
             :show-export="false"
             @select-member="emit('open-member', { node, member: $event })"
             @remind-evaluate="emit('remind-evaluate', { node, ...$event })"
           />
-          <PerformanceReviewScopeAnalysis
-            v-else-if="props.projectId && analysisCycleId && (evaluationTab === 'matrix' || evaluationTab === 'reports')"
-            :key="analysisScopeKey"
-            :project-id="props.projectId"
-            :cycle-id="analysisCycleId"
-            :node="node"
-            :tab="evaluationTab"
-            @open-member="emit('open-member', { node, member: $event })"
-          />
+          <slot v-else-if="evaluationTab === 'matrix' || evaluationTab === 'reports'" name="analysis" :key="analysisScopeKey" :tab="evaluationTab === 'matrix' ? 'matrix' : 'report'">
+            <PerformanceReviewScopeAnalysis
+              v-if="props.projectId && analysisCycleId"
+              :key="analysisScopeKey"
+              :project-id="props.projectId"
+              :cycle-id="analysisCycleId"
+              :node="node"
+              :tab="evaluationTab"
+              @open-member="emit('open-member', { node, member: $event })"
+            />
+            <p v-else class="evaluation-pane-hint">当前周期信息尚未就绪</p>
+          </slot>
           <p v-else class="evaluation-pane-hint">当前周期信息尚未就绪</p>
         </PerformanceTabbedSurface>
         <div v-else class="review-panel" :class="{ completed: !resultUnavailable && (node.node_type === 'result_view' || node.status === 'completed' && !showsEvaluationWorkspace), evaluation: showsEvaluationWorkspace, feedback: showsFeedbackTable }">
@@ -81,6 +85,7 @@
               :key="`${props.projectId}-${node.node_id}`"
               :review-context="{ nodeId: node.node_id, state: 'all', phaseId: node.phase_id }"
               :preference-scope="props.memberPreferenceScope"
+              :provider="props.memberProvider"
               variant="review"
               :show-export="false"
               @select-member="emit('open-member', { node, member: $event })"
@@ -138,6 +143,7 @@ const props = defineProps<{
   projectId?: number | null
   cycleId?: number | null
   memberPreferenceScope?: PerformanceColumnPreferenceScope
+  memberProvider?: InstanceType<typeof ProjectMemberListPanel>['$props']['provider']
   contentTitle?: string
   resultUnavailable?: boolean
 }>()
@@ -160,7 +166,7 @@ const analysisCycleId = computed(() => {
   const id = Number(props.cycleId ?? props.memberPreferenceScope?.cycle_ref)
   return Number.isSafeInteger(id) && id > 0 ? id : null
 })
-const analysisScopeKey = computed(() => JSON.stringify([props.projectId, analysisCycleId.value, props.node?.node_id, props.node?.phase_id, employeeSwitchEpoch.value]))
+const analysisScopeKey = computed(() => JSON.stringify([props.projectId, analysisCycleId.value, props.node?.node_id, props.node?.phase_id, props.node?.scope_key, employeeSwitchEpoch.value]))
 watch(() => props.node?.node_id, () => { evaluationTab.value = 'members' })
 
 const isCalibrationNode = computed(() => props.node?.node_type === 'calibration')

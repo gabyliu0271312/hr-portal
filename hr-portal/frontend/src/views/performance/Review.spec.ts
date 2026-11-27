@@ -2165,7 +2165,7 @@ describe('PerformanceReview', () => {
     await flushPromises()
     expect(wrapper.findComponent({ name: 'ProjectMemberListPanel' }).exists()).toBe(true)
     expect(wrapper.text()).not.toContain('去完成')
-    expect(performanceWorkbenchApi.taskPeople).toHaveBeenCalledWith(1, 'calibration', 'all', undefined, 'phase-2', 1, 50, undefined, undefined)
+    expect(performanceCalibrationApi.members).toHaveBeenCalledWith(expect.objectContaining({ project_id: 1, node_id: 'calibration', phase_id: 'phase-2', scope_key: 'scope-rule-2' }), expect.objectContaining({ page: 1, pageSize: 50 }))
     wrapper.unmount()
   })
 

@@ -274,6 +274,8 @@
   --performance-line-tabs-surface: var(--performance-page-surface);
   /* 吸附式 line-tabs 的可视高度（padding-top 12 + tab 36 + margin-bottom 12）；tab 吸附位=content padding 顶（holder top:-20 抵消 padding-top），表头 sticky=该值减 28px（对齐飞书 header top 76 = Tab 区 84 - 8，再抵消 content padding-top 20），遮罩=表头 sticky 再减 20px */
   --performance-tab-area-height: 60px;
+  --performance-review-cycle-divider-offset: 52px;
+  --performance-review-tabs-alignment-offset: calc(var(--performance-review-cycle-divider-offset) - var(--ui-tabs-holder-padding-top) - var(--ui-tabs-divider-top));
   --performance-page-title-size: 18px;
   --performance-page-title-weight: 600;
   --performance-page-title-line-height: 32px;

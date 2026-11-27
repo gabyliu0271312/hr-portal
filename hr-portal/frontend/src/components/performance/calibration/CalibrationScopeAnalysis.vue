@@ -12,7 +12,7 @@
         </label>
         <ProjectPerformanceMatrix embedded :key="`${generation}:${indicatorKey}`" :project-id="projectId" :cycle-id="cycleId" :scope-key="scopeKey" :provider="matrixProvider" readonly @open-member="openMember" />
       </template>
-      <ProjectStatisticsReportPanel v-else embedded :key="generation" :cycle-id="cycleId" :provider="scopeStatsProvider" :comparison-provider="scopeComparisonProvider" :allow-examples="false" @filter="emit('filter')" />
+      <ProjectStatisticsReportPanel v-else embedded :key="generation" :cycle-id="cycleId" :provider="scopeStatsProvider" :comparison-provider="scopeComparisonProvider" :allow-examples="false" :allow-comments="false" @filter="emit('filter')" />
     </template>
   </section>
 </template>
@@ -115,9 +115,9 @@ onBeforeUnmount(() => { generation.value++; controller?.abort() })
 
 <style scoped>
 .calibration-scope-analysis { min-width: 0; }
-.analysis-observed-notice { margin: 0; padding: 12px 20px; color: var(--color-text-secondary); font-size: 12px; }
-.analysis-state { display: flex; min-height: 220px; flex-direction: column; align-items: center; justify-content: center; color: var(--color-text-secondary); }
-.analysis-state button { padding: 6px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-card); color: var(--color-primary); font: inherit; cursor: pointer; }
-.analysis-indicator { display: flex; align-items: center; gap: 12px; padding: 12px 20px; color: var(--color-text-secondary); }
-.analysis-indicator :deep(.perf-search-select) { max-width: 280px; }
+.analysis-observed-notice { margin: 0; padding: var(--spacing-3) var(--spacing-5); color: var(--color-text-secondary); font-size: var(--font-size-xs); }
+.analysis-state { display: flex; min-height: calc(var(--spacing-5) * 11); flex-direction: column; align-items: center; justify-content: center; color: var(--color-text-secondary); }
+.analysis-state button { padding: calc(var(--spacing-3) / 2) var(--spacing-3); border: var(--ui-control-border-width) solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-card); color: var(--color-primary); font: inherit; cursor: pointer; }
+.analysis-indicator { display: flex; align-items: center; gap: var(--spacing-3); padding: var(--spacing-3) var(--spacing-5); color: var(--color-text-secondary); }
+.analysis-indicator :deep(.perf-search-select) { max-width: calc(var(--spacing-8) * 7); }
 </style>

@@ -2,6 +2,8 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import PerformanceLineTabs from './PerformanceLineTabs.vue'
 import performanceLineTabsSource from './PerformanceLineTabs.vue?raw'
+import PerformanceTabbedSurface, { performanceAnalysisTabs } from './PerformanceTabbedSurface.vue'
+import tabbedSurfaceSource from './PerformanceTabbedSurface.vue?raw'
 import { readFileSync } from 'node:fs'
 
 const tokensSource = readFileSync('src/styles/tokens.css', 'utf8')
@@ -21,6 +23,22 @@ function mountTabs(modelValue = 'overview', props: Record<string, unknown> = {})
 }
 
 describe('PerformanceLineTabs', () => {
+  it.each(['members', 'matrix', 'reports'])('keeps %s tabs sticky with the same divider and aligned table offset', key => {
+    const wrapper = mount(PerformanceTabbedSurface, { props: { modelValue: key, tabs: performanceAnalysisTabs, contained: true }, slots: { 'before-tabs': '<p class="distribution-fixture">强制分布提示</p>', default: '<p>内容</p>' } })
+    expect(wrapper.get('.tabbed-contained-surface > .distribution-fixture').text()).toBe('强制分布提示')
+    expect(wrapper.get('.tabbed-contained-surface > .distribution-fixture').element.nextElementSibling).toBe(wrapper.get('.line-tabs').element)
+    expect(wrapper.find('.tabbed-surface-card').exists()).toBe(false)
+    expect(wrapper.getComponent(PerformanceLineTabs).props('sticky')).toBe(true)
+    expect(wrapper.get('.line-tabs').classes()).toContain('sticky')
+    expect(wrapper.findAll('.line-tabs-divider')).toHaveLength(1)
+    expect(wrapper.get(`[role="tab"][aria-selected="true"]`).text()).toBe(performanceAnalysisTabs.find(tab => tab.key === key)?.label)
+    expect(tabbedSurfaceSource).toContain('top: calc(var(--performance-review-tabs-alignment-offset) - var(--performance-review-surface-inset))')
+    expect(tabbedSurfaceSource).toContain('--performance-review-table-sticky-top: calc(var(--performance-tab-area-height) + var(--performance-review-tabs-alignment-offset))')
+    expect(tokensSource).toContain('--performance-review-cycle-divider-offset: 52px')
+    expect(tokensSource).toContain('--performance-review-tabs-alignment-offset: calc(var(--performance-review-cycle-divider-offset) - var(--ui-tabs-holder-padding-top) - var(--ui-tabs-divider-top))')
+    wrapper.unmount()
+  })
+
   it('renders the captured tab labels in order with active state on the first tab', () => {
     const wrapper = mountTabs()
     const labels = wrapper.findAll('.line-tab').map(item => item.text())

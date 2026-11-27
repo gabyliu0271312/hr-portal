@@ -116,6 +116,15 @@
 - 交互：建议分布存在SOFT违规时，完成弹窗直接复用页面现有PerformanceDistributionTips及同一任务分布响应，沿用完整规则、符合状态、当前／目标人数、增减方向、取整和展开收起逻辑；仍提供取消／确定，不因SOFT违规阻断。HARD阻断标题、分布明细及仅“继续校准”保持不变。无新蓝图、API、数据库、权限或生产操作。
 - 实现：共享CalibrationTaskCompletion及既有CalibrationTaskCompletion.spec.ts、CalibrationSingleTask.spec.ts、Review.spec.ts。`npm.cmd --prefix hr-portal/frontend test -- src/components/performance/calibration src/views/performance/Review.spec.ts --silent` → **9文件253 passed**；覆盖统一普通／授权提示、缺结果、SOFT明细增减与可确认、HARD阻断、409、范围切换。UI规则检查0违规，git diff --check通过，仅既有换行告警。`npm.cmd --prefix hr-portal/frontend run build` → **vue-tsc与Vite通过，3906模块，43.45s**，仅既有VueUse PURE注释告警；未执行真实浏览器、真实API／SQL或生产验收，不提升历史PG阻塞任务状态。
 
+## F06 单任务分析范围与白卡内页签修复（2026-11-27）
+
+- 用户确认：单任务直接成员工作区保留；强制／建议分布提示在三个选项卡上方，两者在同一个白色容器内。页签吸顶时，其下方分隔线与左侧周期选择器下方分隔线水平对齐；成员表头在页签下方。
+- 关联 CR-014-T04。复用 CalibrationScopeAnalysis、performanceCalibrationApi.members 与现有 scope_key 成员接口，替代单任务误走的通用 review analysis（该接口不接受 calibration 节点）。Content 通过可选成员 provider 与分析插槽保留普通评估默认行为；项目、周期、scope、phase、身份变化隔离旧实例／旧请求。403 不回退、不扩大范围，不改后端权限或结果计算。
+- PerformanceTabbedSurface 增加 contained 变体及 before-tabs 插槽，仅校准启用：同一白卡内依次分布提示、吸顶页签、成员／分析内容，移除重复内卡。页签和成员表头共用对齐偏移 token；普通评估／结果页与多任务全屏布局不变。统计关闭示例及无范围合同的管理报表评论，避免 report-note 请求再次触发权限错误。
+- 自动回归：`npm --prefix hr-portal/frontend test -- src/components/performance/calibration src/components/performance/PerformanceLineTabs.spec.ts src/views/performance/Review.spec.ts --silent` → **10 文件 272 passed**。涵盖精确 scope 参数、matrix/report 路由、403 不回退、身份／范围迟到响应隔离、三页签同分隔线及白卡内提示顺序、allowComments=false。首次联合回归有 1 项旧 taskPeople 调用断言失败，已更新为校准 members scope 合同后复验通过。
+- 本地真实 Vue＋隔离浏览器＋受控 API：40 人长列表，强制分布提示与页签同白卡，提示底 y276／页签顶 y292；滚动 400/800/1400px 后左右分隔线均 y52、偏差 0，页签可点击，成员表头 y85.67 位于页签底 y65 下方。真实矩阵及统计可切换，仅请求带 scope_key 的校准 people 数据；统计滚动后分隔线偏差 0，最终无 report-note 请求和评论按钮。短矩阵本身不够长时不强制产生吸顶，保持正常文档流。
+- UI 规则：4 个修改 Vue 文件 **0 违规**。无数据库迁移、后端改动、生产写入或生产发布；生产页面当前诊断浏览器未登录，真实生产 JWT／SQL／发布后验收 **not-run**。历史 T02/T05/T06 的 PG 阻塞状态不变。最终 `npm --prefix hr-portal/frontend run build` → **vue-tsc 与 Vite 通过，3909 模块、42.99s**；仅既有 VueUse PURE 注释告警。`git diff --check` 通过，仅换行提示。
+
 ## 验收记录
 
 2026-11-22，本地代码开发与前端验收完成，真实PostgreSQL迁移／并发尚未验收，未发布。
