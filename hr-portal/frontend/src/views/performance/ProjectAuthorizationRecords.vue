@@ -82,6 +82,13 @@ interface AuthorizationFilterDraft {
   status: string | null
 }
 
+interface AuthorizationRecordColumn {
+  key: string
+  label: string
+  width: number
+  fixed?: 'left' | 'right'
+}
+
 const route = useRoute()
 const router = useRouter()
 const root = ref<HTMLElement | null>(null)
@@ -102,10 +109,20 @@ const emptyFilters = (): AuthorizationFilterDraft => ({ from: [], to: [], review
 const cloneFilters = (filters: AuthorizationFilterDraft): AuthorizationFilterDraft => ({ from: [...filters.from], to: [...filters.to], reviewee: [...filters.reviewee], status: filters.status })
 const appliedFilters = ref<AuthorizationFilterDraft>(emptyFilters())
 const draftFilters = ref<AuthorizationFilterDraft>(emptyFilters())
-const statusOptions = computed(() => activeTab.value === 'transfer'
+const isTransferTab = computed(() => activeTab.value === 'transfer')
+const statusOptions = computed(() => isTransferTab.value
   ? [{ value: 'transferred', label: '已转交' }, { value: 'revoked', label: '已撤销' }]
   : [{ value: 'authorized', label: '已授权' }, { value: 'revoked', label: '已撤销' }])
-const recipientFilterLabel = computed(() => activeTab.value === 'transfer' ? '被转交人' : '被授权人')
+const recipientFilterLabel = computed(() => isTransferTab.value ? '被转交人' : '被授权人')
+const columns = computed<AuthorizationRecordColumn[]>(() => [
+  { key: 'initiator', label: '发起人', width: 180, fixed: 'left' },
+  { key: 'status', label: '状态', width: 120 },
+  { key: 'authorized_person', label: isTransferTab.value ? '被转交人' : '被授权人', width: 180 },
+  { key: 'stages', label: isTransferTab.value ? '转交环节' : '授权环节', width: 240 },
+  { key: 'reviewees', label: '被评估人', width: 200 },
+  { key: 'submitted_at', label: '授权提交时间', width: 180 },
+  { key: 'action', label: '操作', width: 150, fixed: 'right' },
+])
 const filterCount = computed(() => [appliedFilters.value.from.length, appliedFilters.value.to.length, appliedFilters.value.reviewee.length, appliedFilters.value.status].filter(Boolean).length)
 let sequence = 0
 const cycleId = computed(() => Number(route.query.cycle_id || 0))
@@ -115,11 +132,6 @@ const highlightKey = ref('')
 const highlightRow = computed(() => rows.value.find(row => String(row.authorization_id ?? '') === highlightId.value))
 const rows = computed(() => activeTab.value === 'authorization' ? data.value.authorization_records : data.value.transfer_records)
 const pageRows = computed(() => rows.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
-const columns = [
-  { key: 'initiator', label: '发起人', width: 180 }, { key: 'status', label: '状态', width: 120 },
-  { key: 'authorized_person', label: '被授权人', width: 180 }, { key: 'stages', label: '授权环节', width: 240 },
-  { key: 'reviewees', label: '被评估人', width: 200 }, { key: 'submitted_at', label: '授权提交时间', width: 180 }, { key: 'action', label: '操作', width: 150 },
-]
 function filterParams(): AuthorizationRecordFilters | undefined {
   const filters = appliedFilters.value
   const params: AuthorizationRecordFilters = {}

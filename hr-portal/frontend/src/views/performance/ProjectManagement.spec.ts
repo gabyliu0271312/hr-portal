@@ -1403,6 +1403,36 @@ describe('authorization workspaces', () => {
     }
   })
 
+  it('uses transfer column labels and pins initiator and action columns in both tabs', async () => {
+    const { default: Records } = await import('./ProjectAuthorizationRecords.vue')
+    const { default: Table } = await import('@/components/performance/PerformanceManagementTable.vue')
+    routeQuery.cycle_id = '1'
+    const rows = [{ id: '1', initiator: '发起人', authorized_person: '接收人', status: '已授权', stages: ['上级评估'], reviewees: ['员工一'], submitted_at: '', can_revoke: false }]
+    const records = vi.spyOn(projectManagementApi, 'authorizationRecords').mockResolvedValue({ cycle_id: 1, authorization_records: rows, transfer_records: rows })
+    const wrapper = mount(Records)
+    const table = wrapper.getComponent(Table)
+    const readColumns = () => table.props('columns') as Array<{ key: string; label: string; fixed?: string }>
+    try {
+      await flushPromises()
+      expect(readColumns().find(column => column.key === 'initiator')?.fixed).toBe('left')
+      expect(readColumns().find(column => column.key === 'action')?.fixed).toBe('right')
+      expect(readColumns().find(column => column.key === 'authorized_person')?.label).toBe('被授权人')
+      expect(readColumns().find(column => column.key === 'stages')?.label).toBe('授权环节')
+      expect(table.get('thead th:first-child').classes()).toContain('is-fixed-left')
+      expect(table.get('thead th:last-child').classes()).toContain('is-fixed-right')
+      await wrapper.findAll('[role="tab"]')[1].trigger('click')
+      await flushPromises()
+      expect(readColumns().find(column => column.key === 'authorized_person')?.label).toBe('被转交人')
+      expect(readColumns().find(column => column.key === 'stages')?.label).toBe('转交环节')
+      expect(readColumns().find(column => column.key === 'initiator')?.fixed).toBe('left')
+      expect(readColumns().find(column => column.key === 'action')?.fixed).toBe('right')
+      expect(table.get('thead th:first-child').classes()).toContain('is-fixed-left')
+      expect(table.get('thead th:last-child').classes()).toContain('is-fixed-right')
+    } finally {
+      wrapper.unmount(); records.mockRestore(); delete routeQuery.cycle_id
+    }
+  })
+
   it('shows authorization read failure rather than stale or fabricated rows', async () => {
     const { default: Records } = await import('./ProjectAuthorizationRecords.vue')
     routeQuery.cycle_id = '1'
