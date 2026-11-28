@@ -120,7 +120,7 @@ const columns = computed<AuthorizationRecordColumn[]>(() => [
   { key: 'authorized_person', label: isTransferTab.value ? '被转交人' : '被授权人', width: 180 },
   { key: 'stages', label: isTransferTab.value ? '转交环节' : '授权环节', width: 240 },
   { key: 'reviewees', label: '被评估人', width: 200 },
-  { key: 'submitted_at', label: '授权提交时间', width: 180 },
+  { key: 'submitted_at', label: isTransferTab.value ? '转交提交时间' : '授权提交时间', width: 180 },
   { key: 'action', label: '操作', width: 150, fixed: 'right' },
 ])
 const filterCount = computed(() => [appliedFilters.value.from.length, appliedFilters.value.to.length, appliedFilters.value.reviewee.length, appliedFilters.value.status].filter(Boolean).length)
