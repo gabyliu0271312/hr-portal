@@ -1,5 +1,5 @@
 <template>
-  <div ref="root" class="performance-select-shell" :class="{ 'is-open': open }" @keydown="emit('keydown', $event)">
+  <div ref="root" class="performance-select-shell" :class="{ 'is-open': open, 'performance-select-shell--tag-round': tagShape === 'round' }" @keydown="emit('keydown', $event)">
     <div class="performance-select-shell__selector" :class="[$attrs.class, { 'has-value': selectedItems.length, disabled, 'disabled-white': disabledSurface === 'white', 'is-plain': selectionStyle === 'plain' }]" :aria-invalid="$attrs['aria-invalid'] === true || $attrs['aria-invalid'] === 'true' ? 'true' : undefined" @click="openMenu">
       <div ref="content" class="performance-select-shell__content">
         <span v-if="!selectedItems.length && !query" class="performance-select-shell__placeholder">{{ placeholder }}</span>
@@ -48,6 +48,8 @@ const props = withDefaults(defineProps<{
   popupWidth?: number
   popupMaxHeight?: number
   selectionStyle?: 'tags' | 'plain'
+  /** 已选标签形态：员工多选使用 round（REA 实测胶囊 chip） */
+  tagShape?: 'default' | 'round'
   openOnFocus?: boolean
   /** 远程搜索模式：仅当输入搜索词后才打开弹层（REA 员工选择器 active 态不弹层） */
   openOnSearch?: boolean
@@ -57,7 +59,7 @@ const props = withDefaults(defineProps<{
   lockedValues?: string[]
 }>(), {
   selectedItems: () => [], placeholder: '请选择', ariaLabel: '选择器', popupLabel: '选项', clearLabel: '清空已选',
-  popupHeight: 'auto', popupWidth: undefined, popupMaxHeight: 320, selectionStyle: 'tags', openOnFocus: true, openOnSearch: false, hideArrow: false, disabledSurface: 'muted', disabled: false, lockedValues: () => [],
+  popupHeight: 'auto', popupWidth: undefined, popupMaxHeight: 320, selectionStyle: 'tags', tagShape: 'default', openOnFocus: true, openOnSearch: false, hideArrow: false, disabledSurface: 'muted', disabled: false, lockedValues: () => [],
 })
 const emit = defineEmits<{ 'update:modelValue': [value: string[]]; 'update:query': [value: string]; open: []; close: []; keydown: [event: KeyboardEvent] }>()
 const root = ref<HTMLElement | null>(null)
@@ -191,6 +193,9 @@ onBeforeUnmount(() => {
 .performance-select-shell__content { position: relative; display: flex; overflow: hidden; min-width: 0; flex: 1; flex-wrap: nowrap; align-items: center; height: var(--performance-select-content-height); }
 .performance-select-shell__placeholder { overflow: hidden; min-width: 0; max-width: 100%; color: var(--color-text-placeholder); line-height: var(--performance-select-content-height); text-overflow: ellipsis; white-space: nowrap; }
 .performance-select-shell__overflow-count { display: inline-flex; align-items: center; height: var(--performance-select-tag-height); flex: 0 0 auto; margin: 2px var(--performance-select-tag-gap) 2px 0; padding: 0 var(--performance-select-tag-padding-x); border: 0; border-radius: var(--performance-select-tag-radius); background: var(--performance-select-tag-background); color: var(--performance-select-tag-text); font: inherit; white-space: nowrap; cursor: pointer; }
+.performance-select-shell--tag-round :deep(.performance-select-shell__tag) { padding-right: var(--performance-select-tag-round-padding-right); padding-left: var(--performance-select-tag-round-padding-left); border-radius: var(--performance-select-tag-round-radius); }
+.performance-select-shell--tag-round :deep(.performance-select-shell__tag-avatar) { width: var(--performance-select-tag-round-avatar-size); height: var(--performance-select-tag-round-avatar-size); flex-basis: var(--performance-select-tag-round-avatar-size); }
+.performance-select-shell--tag-round .performance-select-shell__overflow-count { border-radius: var(--performance-select-tag-round-radius); }
 .performance-select-shell__input { height: var(--performance-select-content-height); min-width: 6px; max-width: 100%; flex-shrink: 0; margin: 0; padding: 0; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; cursor: text; }
 .performance-select-shell__input::-webkit-search-cancel-button { display: none; }
 .performance-select-shell__placeholder ~ .performance-select-shell__input::placeholder { color: transparent; }

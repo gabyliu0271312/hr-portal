@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, date, timedelta
 import json
 import math
-from typing import Callable, Literal
+from typing import Annotated, Callable, Literal
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
@@ -7034,7 +7034,18 @@ async def project_management_authorization_records(
     cycle_id: int = Query(..., ge=1),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    from_ids: Annotated[list[str] | None, Query()] = None,
+    to_ids: Annotated[list[str] | None, Query()] = None,
+    reviewee_user_ids: Annotated[list[str] | None, Query()] = None,
+    authorization_status: Annotated[Literal["authorized", "transferred", "revoked"] | None, Query()] = None,
 ):
+    for values in (from_ids, to_ids, reviewee_user_ids):
+        if values and (len(values) > 200 or any(not value.strip() or len(value) > 64 for value in values)):
+            raise HTTPException(status_code=422, detail="INVALID_FILTER_PEOPLE")
+    from_ids = {value.strip() for value in from_ids} if from_ids else set()
+    to_ids = {value.strip() for value in to_ids} if to_ids else set()
+    reviewee_ids = {value.strip() for value in reviewee_user_ids} if reviewee_user_ids else set()
+    status_label = {"authorized": "已授权", "transferred": "已转交", "revoked": "已撤销"}.get(authorization_status)
     projects = await _task_authorization_projects(cycle_id, context, db, TASK_EVALUATION_AUTHORIZATION_KEY)
     result = {"cycle_id": cycle_id, "authorization_records": [], "transfer_records": []}
     for project, scope in projects:
@@ -7087,12 +7098,78 @@ async def project_management_authorization_records(
                 "id": str(event.id), "initiator": state.get("initiator_name") or event.actor_ref,
                 "status": "已撤销" if record_id in revoked or (persisted and persisted.status != "ACTIVE") else "已转交" if transfer else "已授权",
                 "authorized_person": state.get("recipient_name") or state.get("recipient_ref"),
+                "initiator_employee_no": event.actor_ref or "",
+                "authorized_person_employee_no": state.get("recipient_employee_no") or state.get("recipient_ref") or "",
+                "reviewee_employee_nos": [event.employee_no] if event.employee_no else [],
                 "stages": state.get("stage_names") or [],
                 "reviewees": reviewees,
                 "submitted_at": event.event_at, "can_revoke": bool(persisted and persisted.status == "ACTIVE" and await _can_revoke_management_authorization(context, project, persisted, db)),
                 "authorization_id": persisted.id if persisted else None, "task_id": int(event.subject_ref) if str(getattr(event, "subject_ref", "")).isdigit() else None, "project_id": project.id,
             })
+    if from_ids or to_ids or reviewee_ids or status_label:
+        def matches(record):
+            if from_ids and record["initiator_employee_no"] not in from_ids:
+                return False
+            if to_ids and record["authorized_person_employee_no"] not in to_ids:
+                return False
+            if reviewee_ids and not reviewee_ids.intersection(record["reviewee_employee_nos"]):
+                return False
+            return not status_label or record["status"] == status_label
+        result["authorization_records"] = [record for record in result["authorization_records"] if matches(record)]
+        result["transfer_records"] = [record for record in result["transfer_records"] if matches(record)]
+    for collection in (result["authorization_records"], result["transfer_records"]):
+        for record in collection:
+            record.pop("initiator_employee_no", None)
+            record.pop("authorized_person_employee_no", None)
+            record.pop("reviewee_employee_nos", None)
     return result
+
+
+class AuthorizationEmployeeOption(BaseModel):
+    value: str
+    label: str
+    sub_label: str | None = None
+
+
+class AuthorizationEmployeeOptions(BaseModel):
+    items: list[AuthorizationEmployeeOption]
+
+
+@router.get("/project-management/authorization-records/employee-options", response_model=AuthorizationEmployeeOptions)
+async def project_management_authorization_employee_options(
+    cycle_id: int = Query(..., ge=1),
+    keyword: str = Query(default="", max_length=128),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    projects = await _task_authorization_projects(cycle_id, context, db, TASK_EVALUATION_AUTHORIZATION_KEY)
+    needle = keyword.strip().casefold()
+    if not needle:
+        return AuthorizationEmployeeOptions(items=[])
+    cycle = await db.get(PerformanceCycle, cycle_id)
+    if cycle is None:
+        raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
+    snapshot = await db.scalar(select(PerformanceAuthorizationSnapshot).where(PerformanceAuthorizationSnapshot.cycle_ref == cycle.cycle_ref))
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="CYCLE_SNAPSHOT_NOT_FOUND")
+    scopes = [scope for _project, scope in projects]
+    allowed = None if any(scope is None for scope in scopes) else set().union(*scopes) if scopes else set()
+    if allowed is not None and not allowed:
+        return AuthorizationEmployeeOptions(items=[])
+    statement = select(PerformanceAuthorizationSnapshotPerson).where(PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.id)
+    if allowed is not None:
+        statement = statement.where(PerformanceAuthorizationSnapshotPerson.employee_no.in_(allowed))
+    statement = statement.where(or_(
+        func.lower(PerformanceAuthorizationSnapshotPerson.display_name).contains(needle, autoescape=True),
+        func.lower(PerformanceAuthorizationSnapshotPerson.employee_no).contains(needle, autoescape=True),
+        func.lower(PerformanceAuthorizationSnapshotPerson.department).contains(needle, autoescape=True),
+        func.lower(PerformanceAuthorizationSnapshotPerson.organization_ref).contains(needle, autoescape=True),
+    )).order_by(PerformanceAuthorizationSnapshotPerson.display_name, PerformanceAuthorizationSnapshotPerson.employee_no).limit(50)
+    people = list((await db.execute(statement)).scalars().all())
+    return AuthorizationEmployeeOptions(items=[
+        AuthorizationEmployeeOption(value=person.employee_no, label=person.display_name or person.employee_no, sub_label=person.organization_ref or person.department or None)
+        for person in people
+    ])
 
 
 async def _first_started_calibration_project(projects, db):

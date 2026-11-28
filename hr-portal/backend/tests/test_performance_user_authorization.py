@@ -398,6 +398,22 @@ def test_authorization_records_display_task_snapshot_names_for_both_tabs(api, mo
     assert session.get(PerformanceProjectMember, 1).display_name == '历史显示名'
 
 
+def test_authorization_record_employee_options_scope_and_keyword(member_actions_api, monkeypatch):
+    from app.performance import projects_router as projects
+    client, _db, session, _app, _context = member_actions_api
+    project = session.get(PerformanceProject, 1)
+    async def permitted(*_args): return [(project, {'OWNER'})]
+    monkeypatch.setattr(projects, '_task_authorization_projects', permitted)
+    url = '/api/v1/performance/project-management/authorization-records/employee-options?cycle_id=1&keyword=人'
+    response = client.get(url)
+    assert response.status_code == 200, response.text
+    assert response.json() == {'items': [{'value': 'OWNER', 'label': '原处理人', 'sub_label': None}]}
+    assert client.get('/api/v1/performance/project-management/authorization-records/employee-options?cycle_id=1&keyword=').json() == {'items': []}
+    filtered = client.get('/api/v1/performance/project-management/authorization-records?cycle_id=1&from_ids=E8&to_ids=OWNER&reviewee_user_ids=TARGET&authorization_status=revoked')
+    assert filtered.status_code == 200, filtered.text
+    assert client.get('/api/v1/performance/project-management/authorization-records?cycle_id=1&authorization_status=unknown').status_code == 422
+
+
 @pytest.fixture
 def member_actions_api(api):
     from datetime import timedelta

@@ -223,6 +223,15 @@ HR Portal 是平台入口，不是单一工具页面集合。绩效管理、招�
 <PerformanceSearchSelect v-model="selectedValue" :options="options" selection-style="plain" aria-label="选择类型" />
 ```
 
+### 固定字段筛选浮层（2026-11-28）
+
+- 通用外壳 `PerformanceFilterPopover`：复用 `PerformancePopover` 的 Teleport/定位/翻转/滚动/Escape；宽 `--performance-filter-popover-width`（348px，max 420），内容 padding 12/16、边框/圆角/阴影沿用 popover token；`close-on-outside` 忽略锚点与 `.performance-select-shell__popup` 远程下拉。
+- 字段使用 `PerformanceFormItem compact`（标签 14/600/22，块距 16px）；页脚 `PerformanceFilterActions`（row-reverse，清除/取消/确定，60×28，padding 8/8/12，sticky）。
+- 人员多选 `PerformancePersonFilterSelect`：基于 `PerformancePersonSelect`，`remote-search` 空关键词不请求/不展示，输入 250ms 后请求；选项 52 高、32 头像、14 姓名 + 12 部门；已选 chip 24 高、pill、头像 20（`tag-shape="round"`）。
+- 状态单选 `PerformanceSearchSelect selection-style="plain"`：只读输入、点击展开，选项 30 高，hover 0.08。
+- 触发按钮 `PerformanceFilterButton` 增加 `active/count`：激活底 `--performance-filter-active-background`（#E1EAFF），边框/文字主色，文案“筛选 (n)”；n 为非空字段数。
+- 新增 token 集中在 `--performance-filter-*` 与 `--performance-select-tag-round-*`；主按钮 hover 统一 #336DF4，link hover 同色，控件边框 #D0D3D6。
+
 ### PermissionButton
 
 [src/components/PermissionButton.vue](../src/components/PermissionButton.vue) 是按钮级权限封装。

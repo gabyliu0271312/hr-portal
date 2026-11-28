@@ -50,6 +50,7 @@ defineEmits<{ click: [event: MouseEvent] }>()
   transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
 }
 .performance-button__content { display: inline-flex; align-items: center; min-width: 0; }
+.performance-button.is-small { height: var(--performance-button-height-small); line-height: var(--performance-button-line-height-small); }
 .performance-button:focus-visible { outline: 0; box-shadow: var(--performance-button-focus-ring); }
 .performance-button:disabled { cursor: not-allowed; opacity: .6; }
 .performance-button--primary { border-color: var(--performance-button-primary-background); background: var(--performance-button-primary-background); color: var(--performance-button-primary-text); }
@@ -68,6 +69,7 @@ defineEmits<{ click: [event: MouseEvent] }>()
 .performance-button--text:hover:not(:disabled) { background: var(--performance-button-text-hover-background); }
 .performance-button--text:active:not(:disabled) { background: var(--performance-button-text-active-background); }
 .performance-button--link { min-width: 0; height: var(--performance-button-line-height); padding: 0; border: 0; background: transparent; color: var(--performance-button-text-color); }
+.performance-button--link:hover:not(:disabled) { color: var(--performance-button-link-hover-color); }
 .performance-button--text:disabled, .performance-button--link:disabled { color: var(--performance-button-link-disabled-color); opacity: 1; }
 .performance-button--danger { border-color: var(--performance-button-danger-background); background: var(--performance-button-danger-background); color: var(--performance-button-danger-text); }
 .performance-button--danger:hover:not(:disabled) { border-color: var(--performance-button-danger-hover-background); background: var(--performance-button-danger-hover-background); }

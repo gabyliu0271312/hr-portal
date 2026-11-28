@@ -268,6 +268,23 @@ export interface ProjectAuthorizationRecords {
   transfer_records: ProjectAuthorizationRecord[]
 }
 
+export interface AuthorizationRecordFilters {
+  from_ids?: string[]
+  to_ids?: string[]
+  reviewee_user_ids?: string[]
+  status?: 'authorized' | 'transferred' | 'revoked'
+}
+
+export interface AuthorizationEmployeeOption {
+  value: string
+  label: string
+  sub_label?: string | null
+}
+
+export interface AuthorizationEmployeeOptions {
+  items: AuthorizationEmployeeOption[]
+}
+
 export interface PerformancePeopleGroup {
   id: string
   parent_id: string | null
@@ -1514,8 +1531,20 @@ export const projectManagementApi = {
   async revokeTaskAuthorization(projectId: number, taskId: number, authorizationId: number): Promise<void> {
     await api.delete(`/performance/projects/${projectId}/tasks/${taskId}/delegations/${authorizationId}`)
   },
-  async authorizationRecords(cycleId: number): Promise<ProjectAuthorizationRecords> {
-    const { data } = await api.get<ProjectAuthorizationRecords>('/performance/project-management/authorization-records', { params: { cycle_id: cycleId } })
+  async authorizationRecords(cycleId: number, filters?: AuthorizationRecordFilters): Promise<ProjectAuthorizationRecords> {
+    const params: Record<string, unknown> = { cycle_id: cycleId }
+    if (filters?.from_ids?.length) params.from_ids = filters.from_ids
+    if (filters?.to_ids?.length) params.to_ids = filters.to_ids
+    if (filters?.reviewee_user_ids?.length) params.reviewee_user_ids = filters.reviewee_user_ids
+    if (filters?.status) params.authorization_status = filters.status
+    const { data } = await api.get<ProjectAuthorizationRecords>('/performance/project-management/authorization-records', {
+      params,
+      ...(filters ? { paramsSerializer: { indexes: null } } : {}),
+    })
+    return data
+  },
+  async authorizationRecordEmployeeOptions(cycleId: number, keyword: string): Promise<AuthorizationEmployeeOptions> {
+    const { data } = await api.get<AuthorizationEmployeeOptions>('/performance/project-management/authorization-records/employee-options', { params: { cycle_id: cycleId, keyword } })
     return data
   },
   async calibrationAuthorization(cycleId: number): Promise<{ cycle_id: number; cycle_name: string; start_at?: string | null; end_at?: string | null; items: ProjectCalibrationAuthorization[] }> {

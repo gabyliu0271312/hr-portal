@@ -248,7 +248,7 @@
   --performance-formula-resource-hover-bg: #e1eaff;
   --performance-formula-example-number: #de7802;
   --performance-control-radius: var(--radius-md);
-  --performance-control-border: var(--color-line-control);
+  --performance-control-border: #d0d3d6;
   --performance-control-focus-border: #336df4;
   --performance-control-focus-ring: var(--shadow-focus);
   --performance-input-height: 31px;
@@ -485,6 +485,21 @@
   --performance-member-filter-save-width: 418px;
   --performance-member-filter-action-width: 48px;
   --performance-member-filter-relation-width: 68px;
+  /* 固定字段筛选浮层（REA 实测飞书授权记录筛选：348×394、字段块 62/间距 16、页脚 48） */
+  --performance-filter-popover-width: 348px;
+  --performance-filter-popover-max-width: 420px;
+  --performance-filter-field-gap: var(--spacing-4);
+  --performance-filter-body-padding-block: var(--spacing-3);
+  --performance-filter-body-padding-inline: var(--spacing-2);
+  --performance-filter-footer-padding: var(--spacing-2) var(--spacing-2) var(--spacing-3);
+  --performance-filter-action-width: 60px;
+  --performance-filter-action-gap: var(--spacing-3);
+  --performance-filter-active-background: #e1eaff;
+  --performance-filter-icon-size: 14px;
+  --performance-authorization-toolbar-height: 68px;
+  --performance-authorization-status-dot-size: var(--spacing-2);
+  --performance-authorization-count-radius: 14px;
+  --performance-authorization-count-padding-block: 2px;
   --performance-popover-background: var(--color-bg-card);
   --performance-popover-border: #dee0e3;
   --performance-popover-border-width: 1px;
@@ -604,6 +619,7 @@
   --performance-button-gap: var(--spacing-3);
   --performance-button-font-size: var(--font-size-md);
   --performance-button-line-height: 22px;
+  --performance-button-line-height-small: 18px;
   --performance-button-font-weight: 400;
   --performance-button-focus-ring: var(--shadow-focus);
   --performance-icon-button-color: #646a73;
@@ -612,7 +628,7 @@
   --performance-action-menu-icon-size: var(--font-size-md);
   --performance-action-menu-trigger-hover-background: var(--performance-button-secondary-active-background);
   --performance-button-primary-background: var(--color-primary-hover);
-  --performance-button-primary-hover-background: var(--color-primary-hover);
+  --performance-button-primary-hover-background: #336df4;
   --performance-button-primary-active-background: var(--color-primary-active);
   --performance-button-primary-disabled-background: #bbbfc4;
   --performance-button-primary-disabled-text: #fff;
@@ -621,7 +637,7 @@
   --performance-button-secondary-background: var(--color-bg-card);
   --performance-button-secondary-hover-background: #f2f3f5;
   --performance-button-secondary-active-background: #dee0e3;
-  --performance-button-secondary-border: var(--color-line-control);
+  --performance-button-secondary-border: var(--performance-control-border);
   --performance-button-secondary-text: var(--color-text-primary);
   --performance-button-outline-primary-background: var(--color-bg-card);
   --performance-button-outline-primary-hover-background: #e0e9ff;
@@ -634,6 +650,7 @@
   --performance-button-continue-hover-border: #adc5ff;
   --performance-button-continue-text: var(--color-primary-hover);
   --performance-button-text-color: var(--color-primary-hover);
+  --performance-button-link-hover-color: #336df4;
   --performance-button-link-disabled-color: #bbbfc4;
   --performance-button-text-hover-background: rgba(20, 86, 240, 0.1);
   --performance-button-text-active-background: rgba(20, 86, 240, 0.2);
@@ -723,6 +740,11 @@
   --performance-select-tag-background: rgba(31, 35, 41, 0.1);
   --performance-select-tag-text: var(--color-text-primary);
   --performance-select-tag-radius: var(--radius-sm);
+  /* 员工多选胶囊变体（REA 实测：圆角 pill、内距 2/8、头像 20） */
+  --performance-select-tag-round-radius: var(--radius-pill);
+  --performance-select-tag-round-padding-left: 2px;
+  --performance-select-tag-round-padding-right: var(--spacing-2);
+  --performance-select-tag-round-avatar-size: 20px;
   --performance-select-tag-content-max-width: 144px;
   --performance-select-tag-close-size: 12px;
   --performance-select-icon-color: #646a73;

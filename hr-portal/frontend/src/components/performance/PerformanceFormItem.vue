@@ -1,5 +1,5 @@
 <template>
-  <div class="performance-form-item" :class="{ 'performance-form-item--invalid': invalid }">
+  <div class="performance-form-item" :class="{ 'performance-form-item--invalid': invalid, 'performance-form-item--compact': compact }">
     <div class="performance-form-item__label"><label v-if="inputId" :for="inputId"><PerformanceRequiredLabel :label="label" :required="required" /></label><PerformanceRequiredLabel v-else :label="label" :required="required" /><slot name="label-extra" /></div>
     <div v-if="$slots.description" class="performance-form-item__description"><slot name="description" /></div>
     <div class="performance-form-item__control" :aria-describedby="describedBy">
@@ -22,6 +22,7 @@ withDefaults(defineProps<{
   hint?: string
   errorId?: string
   describedBy?: string
+  compact?: boolean
 }>(), {
   required: false,
   invalid: false,
@@ -29,11 +30,13 @@ withDefaults(defineProps<{
   hint: '',
   errorId: undefined,
   describedBy: undefined,
+  compact: false,
 })
 </script>
 
 <style scoped>
 .performance-form-item { min-width: 0; margin-bottom: var(--performance-input-field-gap); }
+.performance-form-item--compact { margin-bottom: 0; }
 .performance-form-item__label { display: flex; align-items: baseline; min-height: 22px; margin-bottom: var(--performance-field-label-gap); column-gap: var(--performance-info-icon-gap); color: var(--color-text-primary); font-size: var(--font-size-md); font-weight: 600; line-height: var(--performance-input-line-height); }
 .performance-form-item__description { margin: 0 0 var(--spacing-2); color: var(--performance-field-help-color); font-size: var(--font-size-sm); line-height: var(--performance-field-error-line-height); }
 .performance-form-item__control { min-width: 0; }

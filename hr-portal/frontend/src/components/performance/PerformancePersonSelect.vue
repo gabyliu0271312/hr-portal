@@ -12,6 +12,7 @@
     :hide-arrow="hideArrow"
     :remote-search="remoteSearch"
     :option-style="optionStyle"
+    :tag-shape="tagShape"
     @open="$emit('open')"
     @search="$emit('search', $event)"
     @update:model-value="$emit('update:modelValue', $event)"
@@ -36,6 +37,7 @@ const props = withDefaults(defineProps<{
    *  默认开启，所有使用方一致；个别场景需点击即展开时传 false。 */
   remoteSearch?: boolean
   optionStyle?: 'checkmark' | 'none'
+  tagShape?: 'default' | 'round'
 }>(), {
   options: () => [],
   placeholder: '请选择',
@@ -46,6 +48,7 @@ const props = withDefaults(defineProps<{
   hideArrow: false,
   remoteSearch: true,
   optionStyle: 'checkmark',
+  tagShape: 'default',
 })
 const selectedPeople = shallowRef<PerformanceSearchSelectOption[]>([])
 const selectedValues = computed(() => Array.isArray(props.modelValue) ? props.modelValue : props.modelValue ? [props.modelValue] : [])

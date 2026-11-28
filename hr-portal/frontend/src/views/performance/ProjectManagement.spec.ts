@@ -1339,6 +1339,45 @@ describe('authorization workspaces', () => {
     wrapper.unmount(); records.mockRestore(); revoking.mockRestore(); delete routeQuery.cycle_id
   })
 
+  it('filters authorization records and reflects the active field count', async () => {
+    const { default: Records } = await import('./ProjectAuthorizationRecords.vue')
+    const { default: PersonFilter } = await import('@/components/performance/PerformancePersonFilterSelect.vue')
+    const { default: FilterActions } = await import('@/components/performance/PerformanceFilterActions.vue')
+    const { default: SearchSelect } = await import('@/components/performance/PerformanceSearchSelect.vue')
+    routeQuery.cycle_id = '1'
+    const rows = [{ id: '1', initiator: '发起人', authorized_person: '被授权人', status: '已授权', stages: ['上级评估'], reviewees: ['员工一'], submitted_at: '', can_revoke: false }]
+    const records = vi.spyOn(projectManagementApi, 'authorizationRecords').mockResolvedValue({ cycle_id: 1, authorization_records: rows, transfer_records: [] })
+    const wrapper = mount(Records, { attachTo: document.body })
+    try {
+      await flushPromises()
+      expect(records).toHaveBeenCalledWith(1)
+      await wrapper.findAll('button').find(button => button.text().includes('筛选'))!.trigger('click')
+      await flushPromises()
+      wrapper.findAllComponents(PersonFilter)[0].vm.$emit('update:modelValue', [{ value: 'E1', label: '员工一', subLabel: '研发部' }])
+      await flushPromises()
+      wrapper.getComponent(FilterActions).vm.$emit('confirm')
+      await flushPromises()
+      expect(records).toHaveBeenLastCalledWith(1, { from_ids: ['E1'] })
+      expect(wrapper.findAll('button').find(button => button.text().includes('筛选'))!.text()).toContain('筛选 (1)')
+      await wrapper.findAll('button').find(button => button.text().includes('筛选'))!.trigger('click')
+      await flushPromises()
+      wrapper.getComponent(FilterActions).vm.$emit('clear')
+      await flushPromises()
+      expect(records).toHaveBeenLastCalledWith(1)
+      expect(wrapper.findAll('button').find(button => button.text().includes('筛选'))!.text()).not.toContain('筛选 (1)')
+      wrapper.findAllComponents(SearchSelect).at(-1)!.vm.$emit('update:modelValue', 'revoked')
+      await flushPromises()
+      wrapper.getComponent(FilterActions).vm.$emit('confirm')
+      await flushPromises()
+      expect(records).toHaveBeenLastCalledWith(1, { status: 'revoked' })
+      await wrapper.findAll('[role="tab"]')[1].trigger('click')
+      await flushPromises()
+      expect(records).toHaveBeenLastCalledWith(1)
+    } finally {
+      wrapper.unmount(); records.mockRestore(); delete routeQuery.cycle_id
+    }
+  })
+
   it('shows authorization read failure rather than stale or fabricated rows', async () => {
     const { default: Records } = await import('./ProjectAuthorizationRecords.vue')
     routeQuery.cycle_id = '1'

@@ -73,3 +73,13 @@ PM-001 先确认授权模型和后端授权契约，不直接实现新的业务 
 - 2026-11-10用户明确查看/操作分离：总览两个“查看”不受独立任务授权功能限制，仍按原项目管理查看范围过滤真实记录/校准任务；成员列表及详情更多菜单“授权他人处理/转交他人处理”在缺评估授权功能时保持显示并disabled，不开启弹窗；校准工作区“协助授权/撤销授权”按后端can_authorize/can_revoke置灰，allow_authorize列只展示原冻结配置。按钮缺失能力字段按不可操作处理，加载/保存中禁用；菜单键盘跳过disabled项。无新路由/布局/样式系统，不需要新增完整蓝图；后端独立操作鉴权不因可查看而放宽。
 - 2026-11-20用户明确校准授权查看页固定列：被授权人保持左侧固定，操作列固定在右侧；表头和行单元格同步固定，横向滚动只移动中间数据列。复用 PerformanceManagementTable → UiTable 的 fixed 配置，不新增 CSS 或修改共享表格内核；原协助/撤销按钮及权限禁用行为不变。关联 CR-007-F04，小范围 UI 修复，无新蓝图。
 - 2026-11-20被评估人显示修复（PM-001-T11）：总览授权管理查看后的“授权记录”“转交记录”两Tab，`reviewees`统一优先展示对应任务的项目成员快照`display_name`，与发起人、被授权人的名称展示一致。按task.member_snapshot_id＋target_employee_no关联，并校验项目及现有人员范围；不按姓名匹配、不使用最新快照或实时花名册覆盖历史姓名。历史快照姓名缺失时沿既有兜底：有限范围仅返回该记录工号，完整范围保留审计reviewee_names/工号。前端原表格/空态/错误态/定位/撤销契约保持，接口字段结构不变，历史审计及快照不写回，无新蓝图。真实接口与SQLite隔离读回、组件回归证据见atomic-tasks.md；浏览器视觉/生产未验收。
+
+## PM-001-T11 授权及转交记录筛选（2026-11-28用户“按建议执行”确认）
+
+- 入口不变：项目管理总览 → 授权管理 → 授权及转交记录，工具条右侧「筛选」按钮打开浮层；两 Tab 共用同一组筛选。
+- 浮层复用 `PerformancePopover` 外壳：右对齐、底边距10、宽348（max420）、内容padding 12/16、边框 `#DEE0E3`、圆角8、三层阴影；字段使用 `PerformanceFormItem compact`，块距16。
+- 字段顺序：发起人、被授权人、被评估人（均多选人员）→ 状态（单选）。人员控件 text 光标，未输入不展示候选，输入后远程搜索；状态 pointer 光标，点击展开，授权Tab选项为已授权/已撤销，转交Tab为已转交/已撤销。
+- 已选人员为24高胶囊chip、20头像、可移除；下拉选项52高、32头像、姓名14、部门12；选项hover `rgba(31,35,41,.08)`。
+- 页脚：清除（link）/取消（outlined）/确定（primary），60×28，row-reverse；确定关闭并重查，取消只关闭不请求，清除清空并立即重查且保持浮层打开；点击外部或Escape等同取消。
+- 「筛选」按钮在有条件时显示主色浅底与“筛选 (n)”，n为非空字段数；切Tab时状态条件清空并重查，人员条件保留。
+- 复用 `PerformanceFilterPopover`/`PerformanceFilterActions`/`PerformancePersonFilterSelect` 与既有 Popover/FormItem/SearchSelect/PersonSelect/UiButton/FilterButton；颜色、间距、圆角、阴影全部来自 `tokens.css` 的 `--performance-filter-*`/`--performance-select-tag-round-*`/popover/select token，无硬编码。无新页面、路由或完整蓝图。

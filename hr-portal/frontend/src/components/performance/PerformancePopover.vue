@@ -28,7 +28,8 @@ const props = withDefaults(defineProps<{
   align?: 'center' | 'end'
   side?: 'auto' | 'bottom' | 'right'
   showArrow?: boolean
-}>(), { name: 'performance-popover', role: 'tooltip', align: 'center', side: 'auto', showArrow: true })
+  closeOnOutside?: boolean
+}>(), { name: 'performance-popover', role: 'tooltip', align: 'center', side: 'auto', showArrow: true, closeOnOutside: false })
 const emit = defineEmits<{ close: []; mouseenter: []; mouseleave: [] }>()
 const popover = ref<HTMLElement | null>(null)
 const placement = ref<'top' | 'bottom' | 'right' | 'left'>('top')
@@ -86,14 +87,23 @@ function updatePosition() {
   arrowLeft.value = Math.max(Math.min(inset, size.width / 2), Math.min(center - left, size.width - inset))
 }
 function onKeydown(event: KeyboardEvent) { if (event.key === 'Escape') emit('close') }
+function onPointerDown(event: PointerEvent) {
+  const target = event.target
+  if (!(target instanceof Node)) return
+  if (popover.value?.contains(target)) return
+  if (props.anchor instanceof HTMLElement && props.anchor.contains(target)) return
+  if (target instanceof Element && target.closest('.performance-select-shell__popup, .performance-select-overflow-popper')) return
+  emit('close')
+}
 function cleanup() {
   observer?.disconnect()
   observer = undefined
   window.removeEventListener('resize', updatePosition)
   window.removeEventListener('scroll', updatePosition, true)
   window.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('pointerdown', onPointerDown, true)
 }
-watch(() => [props.visible, props.anchor, props.width, props.maxWidth, props.gap, props.viewportMargin, props.align, props.side], () => {
+watch(() => [props.visible, props.anchor, props.width, props.maxWidth, props.gap, props.viewportMargin, props.align, props.side, props.closeOnOutside], () => {
   cleanup()
   if (!props.visible || !props.anchor) return
   position.value = { visibility: 'hidden' }
@@ -101,6 +111,7 @@ watch(() => [props.visible, props.anchor, props.width, props.maxWidth, props.gap
   window.addEventListener('resize', updatePosition)
   window.addEventListener('scroll', updatePosition, true)
   window.addEventListener('keydown', onKeydown)
+  if (props.closeOnOutside) document.addEventListener('pointerdown', onPointerDown, true)
   if (typeof ResizeObserver !== 'undefined' && popover.value) {
     observer = new ResizeObserver(updatePosition)
     observer.observe(popover.value)
@@ -124,5 +135,5 @@ onBeforeUnmount(cleanup)
 .performance-popover[data-placement="right"]>.performance-popover__arrow svg,.performance-popover[data-placement="left"]>.performance-popover__arrow svg{width:var(--performance-popover-arrow-height);height:var(--performance-popover-arrow-width)}
 .performance-popover[data-placement="right"]>.performance-popover__arrow svg{transform:translate(calc(-100% + 1px),-50%) rotate(180deg)}
 .performance-popover[data-placement="left"]>.performance-popover__arrow svg{transform:translate(-1px,-50%)}
-.performance-popover.is-dark { --performance-popover-background: #1f2329; --performance-popover-border: #1f2329; --performance-popover-border-width: 0px; --performance-popover-radius: 4px; --performance-popover-padding-y: 4px; --performance-popover-padding-x: 8px; --performance-popover-shadow: none; --performance-popover-min-width: 0; color: #fff; }
+.performance-popover.is-dark { --performance-popover-background: var(--color-text-primary); --performance-popover-border: var(--color-text-primary); --performance-popover-border-width: 0px; --performance-popover-radius: 4px; --performance-popover-padding-y: 4px; --performance-popover-padding-x: 8px; --performance-popover-shadow: none; --performance-popover-min-width: 0; color: var(--color-bg-card); }
 </style>

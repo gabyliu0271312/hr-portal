@@ -12602,6 +12602,39 @@ async def test_authorization_records_apply_project_employee_scope_and_revoke_eve
     assert result["authorization_records"][0]["can_revoke"] is False
 
 
+@pytest.mark.asyncio
+async def test_authorization_records_filter_by_people_and_status(monkeypatch):
+    from app.performance import projects_router as router
+    from datetime import UTC, datetime
+    project = SimpleNamespace(id=3, cycle_ref="cycle:1")
+    async def managed(*args): return [(project, {"E1"})]
+    monkeypatch.setattr(router, "_task_authorization_projects", managed)
+    async def scope(*args): return {"E1"}
+    monkeypatch.setattr(router, "_task_management_scope", scope)
+    events = [
+        SimpleNamespace(id=1, subject_ref="7", employee_no="E1", actor_ref="A1", event_type="PERFORMANCE_TASK_AUTHORIZED", after_state={"project_id": 3, "recipient_ref": "M1", "recipient_employee_no": "M1", "stage_names": ["上级评估"]}, event_at=datetime(2026, 11, 1, tzinfo=UTC)),
+    ]
+    class Db:
+        async def scalar(self, query): return SimpleNamespace(node_type="evaluation")
+        async def get(self, model, key): return None
+        async def execute(self, query):
+            if "performance_audit_events" in str(query):
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: events))
+            return SimpleNamespace(all=lambda: [(7, "员工一")])
+    matched = await router.project_management_authorization_records(
+        1, context("performance.projects.manage"), Db(),
+        from_ids=["A1"], to_ids=["M1"], reviewee_user_ids=["E1"], authorization_status="authorized",
+    )
+    assert len(matched["authorization_records"]) == 1
+    assert "initiator_employee_no" not in matched["authorization_records"][0]
+    assert "authorized_person_employee_no" not in matched["authorization_records"][0]
+    assert "reviewee_employee_nos" not in matched["authorization_records"][0]
+    assert (await router.project_management_authorization_records(1, context("performance.projects.manage"), Db(), from_ids=["A2"]))["authorization_records"] == []
+    assert (await router.project_management_authorization_records(1, context("performance.projects.manage"), Db(), to_ids=["M2"]))["authorization_records"] == []
+    assert (await router.project_management_authorization_records(1, context("performance.projects.manage"), Db(), reviewee_user_ids=["E2"]))["authorization_records"] == []
+    assert (await router.project_management_authorization_records(1, context("performance.projects.manage"), Db(), authorization_status="revoked"))["authorization_records"] == []
+
+
 def test_task_authorization_migration_and_effective_handler_sql_round_trip():
     import importlib.util
     from pathlib import Path
