@@ -22,7 +22,11 @@ from app.performance.auth_context import (
     resolve_trusted_performance_actor,
 )
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
-from app.performance.models import PerformanceFilterConditionSetting, PerformanceManagerStandardSetting
+from app.performance.models import (
+    PerformanceDetailFieldSetting,
+    PerformanceFilterConditionSetting,
+    PerformanceManagerStandardSetting,
+)
 
 router = APIRouter(prefix="/performance/system-settings/fields", tags=["performance-field-settings"])
 
@@ -102,6 +106,64 @@ class FilterConditionItem(BaseModel):
 
 class FilterConditionsPayload(BaseModel):
     filter_conditions: list[FilterConditionItem]
+
+
+DETAIL_FIELD_CATALOG: tuple[tuple[str, str, str, bool], ...] = (
+    ("department", "部门", "部门", True),
+    ("level", "职级", "职级", False),
+    ("category", "序列", "序列", False),
+    ("directLeader", "直属上级", "直属上级", False),
+    ("dottedLeaders", "虚线上级", "虚线上级", False),
+    ("joinDate", "入职日期", "2021-01-01入职日期", False),
+    ("jobTitle", "职务", "职务", False),
+    ("employeeType", "人员类型", "人员类型", False),
+)
+DETAIL_FIELD_BY_ID = {field_id: (name, preview_name, disabled) for field_id, name, preview_name, disabled in DETAIL_FIELD_CATALOG}
+DEFAULT_DETAIL_FIELD_IDS = ("department", "level", "category", "directLeader", "joinDate")
+
+
+class DetailFieldOption(BaseModel):
+    id: str
+    name: str
+    preview_name: str
+    disabled: bool
+
+
+class DetailFieldOptionsPayload(BaseModel):
+    options: list[DetailFieldOption]
+
+
+class DetailFieldsPayload(BaseModel):
+    field: list[str]
+
+
+class DetailFieldsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field: list[StrictStr]
+
+    @model_validator(mode="after")
+    def normalize_catalog(self) -> "DetailFieldsInput":
+        selected = set(self.field)
+        unknown = selected - set(DETAIL_FIELD_BY_ID)
+        if unknown:
+            raise ValueError("未知展示字段: " + ", ".join(sorted(unknown)))
+        selected.add("department")
+        self.field = [field_id for field_id, _, _, _ in DETAIL_FIELD_CATALOG if field_id in selected]
+        return self
+
+
+def _detail_options() -> DetailFieldOptionsPayload:
+    return DetailFieldOptionsPayload(options=[
+        DetailFieldOption(id=field_id, name=name, preview_name=preview_name, disabled=disabled)
+        for field_id, name, preview_name, disabled in DETAIL_FIELD_CATALOG
+    ])
+
+
+def _detail_payload(ids: list) -> DetailFieldsPayload:
+    selected = {value for value in ids or [] if isinstance(value, str) and value in DETAIL_FIELD_BY_ID}
+    selected.add("department")
+    return DetailFieldsPayload(field=[field_id for field_id, _, _, _ in DETAIL_FIELD_CATALOG if field_id in selected])
 
 
 class FilterConditionUpdate(BaseModel):
@@ -269,3 +331,52 @@ async def update_filter_conditions(
     await db.commit()
     await db.refresh(setting)
     return _filter_payload(setting.filter_conditions)
+
+
+@router.get("/detail-field-options", response_model=DetailFieldOptionsPayload)
+async def get_detail_field_options(
+    _: PerformanceAccessContext = Depends(_context),
+) -> DetailFieldOptionsPayload:
+    return _detail_options()
+
+
+@router.get("/detail-visible-fields", response_model=DetailFieldsPayload)
+async def get_detail_visible_fields(
+    _: PerformanceAccessContext = Depends(_context),
+    db: AsyncSession = Depends(get_session),
+) -> DetailFieldsPayload:
+    setting = await db.get(PerformanceDetailFieldSetting, 1)
+    return _detail_payload(list(DEFAULT_DETAIL_FIELD_IDS) if setting is None else setting.field)
+
+
+@router.put("/detail-visible-fields", response_model=DetailFieldsPayload)
+async def update_detail_visible_fields(
+    payload: DetailFieldsInput,
+    context: PerformanceAccessContext = Depends(_context),
+    db: AsyncSession = Depends(get_session),
+) -> DetailFieldsPayload:
+    actor = await resolve_trusted_performance_actor(db, context)
+    await db.execute(
+        insert(PerformanceDetailFieldSetting)
+        .values(id=1, field=list(DEFAULT_DETAIL_FIELD_IDS), updated_by_type=actor.actor_type, updated_by_ref=actor.actor_ref)
+        .on_conflict_do_nothing(index_elements=["id"])
+    )
+    setting = (await db.execute(
+        select(PerformanceDetailFieldSetting)
+        .where(PerformanceDetailFieldSetting.id == 1).with_for_update()
+    )).scalar_one()
+    before = _detail_payload(setting.field).model_dump()
+    after = _detail_payload(payload.field).model_dump()
+    if before != after:
+        setting.field = payload.field
+        setting.updated_by_type = actor.actor_type
+        setting.updated_by_ref = actor.actor_ref
+        PerformanceAuditService(db).append_event(AuditEventInput(
+            event_type="PERFORMANCE_DETAIL_VISIBLE_FIELDS_UPDATED",
+            actor_type=actor.actor_type, actor_ref=actor.actor_ref,
+            subject_type="DETAIL_FIELD_SETTINGS", subject_ref="1",
+            before_state=before, after_state=after,
+        ))
+    await db.commit()
+    await db.refresh(setting)
+    return _detail_payload(setting.field)

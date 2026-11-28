@@ -140,6 +140,21 @@ class PerformanceFilterConditionSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
+class PerformanceDetailFieldSetting(Base):
+    __tablename__ = "performance_detail_field_settings"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_performance_detail_field_singleton"),
+        CheckConstraint("jsonb_typeof(field) = 'array'", name="ck_performance_detail_field_array"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    field: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    updated_by_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    updated_by_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
 class PerformanceOtherSetting(Base):
     __tablename__ = "performance_other_settings"
     __table_args__ = (CheckConstraint("id = 1", name="ck_performance_other_settings_singleton"),)

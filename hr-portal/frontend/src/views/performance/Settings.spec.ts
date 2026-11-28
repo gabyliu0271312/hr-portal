@@ -2,18 +2,22 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Settings from './Settings.vue'
-import { createFieldSettingsPreview } from '@/components/performance/performanceFieldSettings'
+import { createFieldSettingsPreview, detailFieldOptions } from '@/components/performance/performanceFieldSettings'
 
 const message = vi.hoisted(() => ({ info: vi.fn() }))
 vi.mock('element-plus', () => ({ ElMessage: message }))
 const managerApi = vi.hoisted(() => ({ get: vi.fn(), types: vi.fn(), save: vi.fn() }))
 const filterApi = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn() }))
+const detailApi = vi.hoisted(() => ({ options: vi.fn(), get: vi.fn(), save: vi.fn() }))
 vi.mock('@/api/performanceFieldSettings', () => ({
   getPerformanceManagerStandard: managerApi.get,
   getPerformanceEmployeeTypes: managerApi.types,
   savePerformanceManagerStandard: managerApi.save,
   getPerformanceFilterConditions: filterApi.get,
   savePerformanceFilterConditions: filterApi.save,
+  getPerformanceDetailFieldOptions: detailApi.options,
+  getPerformanceDetailVisibleFields: detailApi.get,
+  savePerformanceDetailVisibleFields: detailApi.save,
 }))
 
 function mountPage(settings = createFieldSettingsPreview()) {
@@ -34,6 +38,11 @@ beforeEach(() => {
   managerApi.save.mockResolvedValue({ manager_standard: 'specific_employee_type_underling', specific_employee_types: ['正式'] })
   filterApi.get.mockResolvedValue(createFieldSettingsPreview().default_filter_condition.filter_conditions)
   filterApi.save.mockImplementation(async (items: unknown) => items)
+  detailApi.options.mockResolvedValue(detailFieldOptions.map(option => ({
+    id: option.id, name: option.label, preview_name: option.previewLabel || option.label, disabled: !!option.disabled,
+  })))
+  detailApi.get.mockResolvedValue(createFieldSettingsPreview().review_detail_visible_fields.field)
+  detailApi.save.mockImplementation(async (field: string[]) => field)
 })
 
 describe('字段设置主页面', () => {
@@ -44,7 +53,9 @@ describe('字段设置主页面', () => {
     expect(wrapper.findAll('h2').map(node => node.text())).toEqual([
       '详情页顶部字段设置', '筛选设置', '部门字段搜索设置', '管理者的判定标准设置',
     ])
-    expect(wrapper.findAll('.field-settings-summary')[0].text()).toContain('部门、职级、序列、直属上级、入职日期')
+    expect(wrapper.findAll('.field-settings-summary')[0].findAll('.ui-tag').map(node => node.text())).toEqual([
+      '部门', '职级', '序列', '直属上级', '入职日期',
+    ])
     expect(wrapper.get('.field-settings-summary__filters').text()).toContain('直属上级（默认筛选）')
     expect(wrapper.get('.field-settings-summary__filters').text()).toContain('绩效结果最近变更时间')
     expect(wrapper.text()).toContain('有在职直属下级时，可被认定为管理者。')
@@ -53,13 +64,50 @@ describe('字段设置主页面', () => {
     wrapper.unmount()
   })
 
-  it('reserves the detail field entry without claiming to save or opening a dialog', async () => {
+  it('opens the detail field dialog with the saved selection and applies the readback', async () => {
     const wrapper = mountPage()
     await flushPromises()
     await wrapper.get('button[aria-label="设置详情页顶部字段"]').trigger('click')
     expect(wrapper.emitted('request-edit')).toEqual([['review_detail_visible_fields']])
-    expect(message.info).toHaveBeenCalledWith('当前为配置预览，设置弹窗及保存功能将在后续开放')
-    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(message.info).not.toHaveBeenCalled()
+    const dialog = wrapper.findComponent({ name: 'PerformanceDetailFieldDialog' })
+    expect(dialog.props('modelValue')).toBe(true)
+    expect(dialog.props('value')).toEqual(['department', 'level', 'category', 'directLeader', 'joinDate'])
+    expect(dialog.props('options')).toHaveLength(detailFieldOptions.length)
+    const saved = ['department', 'level', 'category', 'directLeader', 'joinDate', 'jobTitle']
+    detailApi.get.mockResolvedValueOnce(saved)
+    dialog.vm.$emit('save', saved)
+    await flushPromises()
+    expect(detailApi.save).toHaveBeenCalledWith(saved)
+    expect(detailApi.get).toHaveBeenCalledTimes(2)
+    expect(wrapper.findAll('.field-settings-summary')[0].findAll('.ui-tag').map(node => node.text())).toEqual([
+      '部门', '职级', '序列', '直属上级', '入职日期', '职务',
+    ])
+    expect(dialog.props('modelValue')).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps the detail dialog open and the old tags when saving fails', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.get('button[aria-label="设置详情页顶部字段"]').trigger('click')
+    const dialog = wrapper.findComponent({ name: 'PerformanceDetailFieldDialog' })
+    detailApi.save.mockRejectedValueOnce(new Error('failed'))
+    dialog.vm.$emit('save', ['department', 'level', 'jobTitle'])
+    await flushPromises()
+    expect(dialog.props('modelValue')).toBe(true)
+    expect(dialog.props('error')).toContain('已保留')
+    expect(dialog.props('value')).toEqual(['department', 'level', 'category', 'directLeader', 'joinDate'])
+    wrapper.unmount()
+  })
+
+  it('blocks the detail dialog when the initial load is denied', async () => {
+    detailApi.get.mockRejectedValueOnce(new Error('403'))
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.text()).toContain('展示字段加载失败')
+    await wrapper.get('button[aria-label="设置详情页顶部字段"]').trigger('click')
+    expect(wrapper.findComponent({ name: 'PerformanceDetailFieldDialog' }).exists()).toBe(false)
     wrapper.unmount()
   })
 
@@ -198,6 +246,7 @@ describe('字段设置主页面', () => {
     wrapper.unmount()
   })
 
+
   it('keeps department selection read-only and previews both search modes', async () => {
     const settings = createFieldSettingsPreview()
     const wrapper = mountPage(settings)
@@ -223,6 +272,7 @@ describe('字段设置主页面', () => {
     settings.default_filter_condition.filter_conditions = []
     settings.department_tree_view_all.enabled = false
     filterApi.get.mockResolvedValueOnce([])
+    detailApi.get.mockResolvedValueOnce([])
     const wrapper = mountPage(settings)
     await flushPromises()
     expect(wrapper.text()).toContain('暂无展示字段')

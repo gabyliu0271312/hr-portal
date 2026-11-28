@@ -24,3 +24,22 @@ export async function getPerformanceFilterConditions(): Promise<PerformanceFilte
 export async function savePerformanceFilterConditions(items: PerformanceFilterConditionUpdate[]): Promise<PerformanceFilterCondition[]> {
   return (await api.put(`${path}/filter-conditions`, { filter_conditions: items })).data.filter_conditions
 }
+
+export interface PerformanceDetailFieldOptionDto {
+  id: string
+  name: string
+  preview_name: string
+  disabled: boolean
+}
+
+export async function getPerformanceDetailFieldOptions(): Promise<PerformanceDetailFieldOptionDto[]> {
+  return (await api.get(`${path}/detail-field-options`)).data.options
+}
+
+export async function getPerformanceDetailVisibleFields(): Promise<string[]> {
+  return (await api.get(`${path}/detail-visible-fields`)).data.field
+}
+
+export async function savePerformanceDetailVisibleFields(field: string[]): Promise<string[]> {
+  return (await api.put(`${path}/detail-visible-fields`, { field })).data.field
+}

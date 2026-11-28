@@ -122,6 +122,14 @@
 
   --ui-tag-color-control-height: 24px;
   --ui-tag-color-preview-width: 40px;
+  /* 中性标签（REA 实测飞书 ud__tag-md + neutral-option：24 高 / 左右 6 / 圆角 4 / 10% 中性底） */
+  --ui-tag-height: 24px;
+  --ui-tag-padding-x: 6px;
+  --ui-tag-radius: var(--radius-sm);
+  --ui-tag-background: rgba(31, 35, 41, 0.1);
+  --ui-tag-text: var(--color-text-primary);
+  --ui-tag-font-size: var(--font-size-md);
+  --ui-tag-line-height: 22px;
   --ui-option-detail-background: var(--performance-page-surface);
   --ui-option-detail-inset: var(--spacing-6);
   --ui-option-detail-padding: var(--spacing-4);
@@ -192,8 +200,9 @@
   --performance-review-completion-bg: #e4fae1;
   --performance-review-completion-icon: #32a645;
   --performance-review-readonly-surface: #f5f6f7;
-  /* REA 飞书色板（100% 还原：N-0/N-100/N-300/N-600/N-900 + B-500） */
+  /* REA 飞书色板（100% 还原：N-0/N-50/N-100/N-300/N-600/N-900 + B-500） */
   --perf-n-0: #ffffff;
+  --perf-n-50: #f8f9fa;
   --perf-n-100: #f5f6f7;
   --perf-n-200: #eff0f1;
   --perf-n-300: #dee0e3;
@@ -214,6 +223,7 @@
   --performance-result-view-tag-inset-block: var(--spacing-2);
   --performance-rating-result-gap: var(--spacing-2);
   --performance-settings-text-secondary: #646a73;
+  --performance-settings-summary-label-gap: 6px;
   --performance-settings-list-row-surface: #f8f9fa;
   --performance-settings-list-row-gap: 5px;
   --performance-settings-list-row-padding-block: 6px;
@@ -770,6 +780,33 @@
   --performance-select-footer-height: 28px;
   --performance-select-overflow-popup-max-width: 320px;
   --performance-select-overflow-popup-padding: var(--spacing-3);
+
+  /* 详情页顶部字段效果预览（REA 实测 ud__dialog 预览块：外框 552×127 / 顶栏 28 / 头像 40 / 分隔线 1×0.9em） */
+  --performance-preview-border: var(--perf-n-300);
+  --performance-preview-radius: var(--radius-lg);
+  --performance-preview-padding: var(--spacing-4);
+  --performance-preview-shadow: rgba(31, 35, 41, 0.03) 0 -6px 18px 6px, rgba(31, 35, 41, 0.05) 0 -3px 6px -6px, rgba(31, 35, 41, 0.03) 0 -4px 8px 0;
+  --performance-preview-bar-height: 28px;
+  --performance-preview-bar-background: var(--perf-n-50);
+  --performance-preview-dot-size: 12px;
+  --performance-preview-dot-gap: var(--spacing-1);
+  --performance-preview-dot-inset-top: var(--spacing-2);
+  --performance-preview-dot-inset-left: var(--spacing-3);
+  --performance-preview-dot-red: #f98e8b;
+  --performance-preview-dot-yellow: #ffba6b;
+  --performance-preview-dot-green: #8ee085;
+  --performance-preview-body-padding: var(--spacing-4);
+  --performance-preview-avatar-size: 40px;
+  --performance-preview-avatar-gap: var(--spacing-3);
+  --performance-preview-avatar-fallback-background: var(--perf-n-200);
+  --performance-preview-avatar-fallback-color: var(--perf-n-600);
+  --performance-preview-name-line-height: 1.5715;
+  --performance-preview-fields-color: var(--perf-n-600);
+  --performance-preview-divider-width: 1px;
+  --performance-preview-divider-height: 0.9em;
+  --performance-preview-divider-gap: var(--spacing-2);
+  --performance-preview-divider-offset: -0.06em;
+  --performance-preview-divider-color: var(--color-line-divider);
 
   /* Shared field states: the field shell owns visual state, business controls own value logic. */
   --performance-field-border: var(--performance-control-border);

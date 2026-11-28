@@ -2,10 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import PerformanceManagerStandardDialog from '@/components/performance/PerformanceManagerStandardDialog.vue'
 import PerformanceFilterConditionSettingsDialog from '@/components/performance/PerformanceFilterConditionSettingsDialog.vue'
-import { getPerformanceManagerStandard, getPerformanceEmployeeTypes, getPerformanceFilterConditions, savePerformanceManagerStandard, savePerformanceFilterConditions } from '@/api/performanceFieldSettings'
+import PerformanceDetailFieldDialog from '@/components/performance/PerformanceDetailFieldDialog.vue'
+import { getPerformanceManagerStandard, getPerformanceEmployeeTypes, getPerformanceFilterConditions, savePerformanceManagerStandard, savePerformanceFilterConditions, getPerformanceDetailFieldOptions, getPerformanceDetailVisibleFields, savePerformanceDetailVisibleFields } from '@/api/performanceFieldSettings'
 import type { PerformanceFilterConditionUpdate } from '@/api/performanceFieldSettings'
 import { ElMessage } from 'element-plus'
 import UiButton from '@/components/ui/UiButton.vue'
+import UiTag from '@/components/ui/UiTag.vue'
 import PerformancePageTitle from '@/components/performance/PerformancePageTitle.vue'
 import PerformanceFieldSettingsSection from '@/components/performance/PerformanceFieldSettingsSection.vue'
 import PerformanceDepartmentSearchOptions from '@/components/performance/PerformanceDepartmentSearchOptions.vue'
@@ -30,7 +32,44 @@ const props = withDefaults(defineProps<{
   fieldOptions: () => detailFieldOptions,
 })
 const emit = defineEmits<{ 'request-edit': [section: SectionKey]; 'request-example': [] }>()
-const visibleFields = computed(() => props.settings.review_detail_visible_fields.field.map(id => props.fieldOptions.find(field => field.id === id)?.label || id))
+
+const detailOptions = ref<PerformanceFieldOption[]>([...props.fieldOptions])
+const detailFields = ref<string[]>([...props.settings.review_detail_visible_fields.field])
+const detailLoading = ref(true)
+const detailError = ref('')
+const detailOpen = ref(false)
+const savingDetail = ref(false)
+const detailSaveError = ref('')
+const visibleFields = computed(() => detailFields.value.map(id => detailOptions.value.find(field => field.id === id)?.label || id))
+
+async function loadDetailFields() {
+  detailLoading.value = true
+  detailError.value = ''
+  try {
+    const [options, fields] = await Promise.all([getPerformanceDetailFieldOptions(), getPerformanceDetailVisibleFields()])
+    detailOptions.value = options.map(option => ({ id: option.id, label: option.name, previewLabel: option.preview_name, disabled: option.disabled }))
+    detailFields.value = fields
+  } catch {
+    detailError.value = '展示字段加载失败'
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+async function saveDetailFields(field: string[]) {
+  if (savingDetail.value) return
+  savingDetail.value = true
+  detailSaveError.value = ''
+  try {
+    await savePerformanceDetailVisibleFields(field)
+    detailFields.value = await getPerformanceDetailVisibleFields()
+    detailOpen.value = false
+  } catch {
+    detailSaveError.value = '保存或回读失败，请重试；当前编辑内容已保留'
+  } finally {
+    savingDetail.value = false
+  }
+}
 
 const filterConditions = ref<PerformanceFilterCondition[]>(props.settings.default_filter_condition.filter_conditions.map(condition => ({ ...condition })))
 const filterLoading = ref(true)
@@ -116,9 +155,16 @@ async function saveManager(value: PerformanceManagerStandard) {
 onMounted(() => {
   void loadManager()
   void loadFilterConditions()
+  void loadDetailFields()
 })
 function requestEdit(section: SectionKey) {
   emit('request-edit', section)
+  if (section === 'review_detail_visible_fields') {
+    if (detailLoading.value || detailError.value) return
+    detailSaveError.value = ''
+    detailOpen.value = true
+    return
+  }
   if (section === 'default_filter_condition') {
     if (filterLoading.value || filterError.value) return
     filterSaveError.value = ''
@@ -147,9 +193,14 @@ function requestExample() {
       <template #description>
         设置人员详情页顶部展示哪些字段，对全局生效。如果你需要配置不同角色可见不同字段，请跳转至<RouterLink :to="{ name: 'PerformancePermissionSubjectVisibility' }">被评估人可见性设置</RouterLink>。
       </template>
-      <div class="field-settings-summary">
+      <div class="field-settings-summary field-settings-summary--detail">
         <div class="field-settings-summary__label">展示字段</div>
-        <div>{{ visibleFields.join('、') || '暂无展示字段' }}</div>
+        <div v-if="detailLoading">加载中…</div>
+        <div v-else-if="detailError" role="alert">{{ detailError }} <UiButton variant="link" :disabled="detailLoading" @click="loadDetailFields">重试</UiButton></div>
+        <div v-else class="field-settings-summary__tags">
+          <UiTag v-for="label in visibleFields" :key="label">{{ label }}</UiTag>
+          <span v-if="!visibleFields.length">暂无展示字段</span>
+        </div>
       </div>
     </PerformanceFieldSettingsSection>
 
@@ -184,6 +235,7 @@ function requestExample() {
       </div>
     </PerformanceFieldSettingsSection>
     <PerformanceManagerStandardDialog v-if="manager" v-model="managerOpen" :value="manager" :options="managerOptions" :saving="savingManager" :error="saveError" @save="saveManager" />
+    <PerformanceDetailFieldDialog v-if="!detailLoading && !detailError" v-model="detailOpen" :value="detailFields" :options="detailOptions" :saving="savingDetail" :error="detailSaveError" @save="saveDetailFields" />
     <PerformanceFilterConditionSettingsDialog v-if="!filterLoading && !filterError" v-model="filterOpen" :value="filterConditions" :saving="savingFilter" :error="filterSaveError" @save="saveFilterConditions" />
   </div>
 </template>
@@ -193,5 +245,9 @@ function requestExample() {
 .field-settings-page :deep(a) { color: var(--color-primary); text-decoration: none; }
 .field-settings-page :deep(a:hover) { text-decoration: none; }
 .field-settings-summary { padding: var(--spacing-3) var(--spacing-4); border-radius: var(--radius-md); background: var(--performance-review-readonly-surface); overflow-wrap: anywhere; }
+.field-settings-summary--detail { background: var(--perf-n-50); }
+.field-settings-summary--detail .field-settings-summary__label { margin-bottom: var(--performance-settings-summary-label-gap); }
+.field-settings-summary__tags { display: flex; flex-wrap: wrap; gap: 0 var(--spacing-2); }
+.field-settings-summary__tags :deep(.ui-tag) { margin-bottom: var(--spacing-2); }
 .field-settings-summary__label { margin-bottom: var(--spacing-2); color: var(--performance-settings-text-secondary); }
 </style>

@@ -1,6 +1,7 @@
 export interface PerformanceFieldOption {
   id: string
   label: string
+  previewLabel?: string
   disabled?: boolean
 }
 
@@ -36,7 +37,7 @@ export const detailFieldOptions: PerformanceFieldOption[] = [
   { id: 'category', label: '序列' },
   { id: 'directLeader', label: '直属上级' },
   { id: 'dottedLeaders', label: '虚线上级' },
-  { id: 'joinDate', label: '入职日期' },
+  { id: 'joinDate', label: '入职日期', previewLabel: '2021-01-01入职日期' },
   { id: 'jobTitle', label: '职务' },
   { id: 'employeeType', label: '人员类型' },
 ]
