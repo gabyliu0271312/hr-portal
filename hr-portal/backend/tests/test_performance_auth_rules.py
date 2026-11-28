@@ -17,11 +17,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.core.db import Base, get_session
-from app.performance import auth_rules_router as rules
+from app.performance import auth_rules_router as rules, auth_rule_service as rule_service
 from app.performance.auth_context import PerformanceAccessContext, get_performance_access_context
 from app.performance.models import (
     PerformanceAuditEvent, PerformanceAuthRule, PerformanceIdentityLink,
-    PerformanceRole, PerformanceSystemAccount,
+    PerformanceRole, PerformanceSystemAccount, PerformanceRoleAssignment,
+    PerformancePermission, PerformanceRolePermission,
 )
 from app.users.models import User
 
@@ -59,7 +60,8 @@ def api(monkeypatch):
     engine = create_engine('sqlite://', connect_args={'check_same_thread': False}, poolclass=StaticPool)
     tables = [model.__table__ for model in (
         User, PerformanceRole, PerformanceIdentityLink, PerformanceSystemAccount,
-        PerformanceAuditEvent, PerformanceAuthRule,
+        PerformanceAuditEvent, PerformanceAuthRule, PerformanceRoleAssignment,
+        PerformancePermission, PerformanceRolePermission,
     )]
     Base.metadata.create_all(engine, tables=tables)
     session = Session(engine, expire_on_commit=False)
@@ -225,7 +227,7 @@ async def test_rule_roster_options_use_physical_columns(api, monkeypatch):
         'employment_status': '在职', 'company_org': '公司', 'department': '研发',
     }])
     session.commit()
-    monkeypatch.setattr(rules, 'employee_roster_table', lambda: table)
+    monkeypatch.setattr(rule_service, 'employee_roster_table', lambda: table)
     response = client.get(PATH + '/options')
     assert response.status_code == 200, response.text
     options = response.json()
@@ -236,7 +238,7 @@ async def test_rule_roster_options_use_physical_columns(api, monkeypatch):
     scope = [{'conditions': [{'field': 'position_level', 'operator': 'include', 'values': ['P5']}]}]
     assert client.post(PATH + '/resolve-scope', json={'or_scope': scope}).json()['user_ids'] == ['E20']
     broken = Table('broken_rule_roster', MetaData(), Column('employee_no', String))
-    monkeypatch.setattr(rules, 'employee_roster_table', lambda: broken)
+    monkeypatch.setattr(rule_service, 'employee_roster_table', lambda: broken)
     assert client.get(PATH + '/options').status_code == 503
 
 
