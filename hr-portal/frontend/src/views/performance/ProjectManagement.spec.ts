@@ -1378,6 +1378,31 @@ describe('authorization workspaces', () => {
     }
   })
 
+  it('uses the transfer-specific recipient label in the filter popover', async () => {
+    const { default: Records } = await import('./ProjectAuthorizationRecords.vue')
+    const { default: FilterActions } = await import('@/components/performance/PerformanceFilterActions.vue')
+    const { default: FormItem } = await import('@/components/performance/PerformanceFormItem.vue')
+    routeQuery.cycle_id = '1'
+    const records = vi.spyOn(projectManagementApi, 'authorizationRecords').mockResolvedValue({ cycle_id: 1, authorization_records: [], transfer_records: [] })
+    const wrapper = mount(Records, { attachTo: document.body })
+    const labels = () => wrapper.findAllComponents(FormItem).map(item => item.props('label'))
+    try {
+      await flushPromises()
+      await wrapper.findAll('button').find(button => button.text().includes('筛选'))!.trigger('click')
+      await flushPromises()
+      expect(labels()).toEqual(['发起人', '被授权人', '被评估人', '状态'])
+      wrapper.getComponent(FilterActions).vm.$emit('cancel')
+      await flushPromises()
+      await wrapper.findAll('[role="tab"]')[1].trigger('click')
+      await flushPromises()
+      await wrapper.findAll('button').find(button => button.text().includes('筛选'))!.trigger('click')
+      await flushPromises()
+      expect(labels()).toEqual(['发起人', '被转交人', '被评估人', '状态'])
+    } finally {
+      wrapper.unmount(); records.mockRestore(); delete routeQuery.cycle_id
+    }
+  })
+
   it('shows authorization read failure rather than stale or fabricated rows', async () => {
     const { default: Records } = await import('./ProjectAuthorizationRecords.vue')
     routeQuery.cycle_id = '1'

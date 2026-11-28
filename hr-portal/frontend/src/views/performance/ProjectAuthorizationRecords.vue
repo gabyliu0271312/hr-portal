@@ -39,12 +39,12 @@
         <p v-if="notice" class="notice" role="status">{{ notice }}</p>
       </section>
     </PerformanceLineTabs>
-    <PerformanceFilterPopover :visible="filterOpen" :anchor="filterAnchor" aria-label="授权记录筛选" @close="cancelFilter">
+    <PerformanceFilterPopover :visible="filterOpen" :anchor="filterAnchor" :aria-label="`${activeTab === 'transfer' ? '转交记录' : '授权记录'}筛选`" @close="cancelFilter">
       <PerformanceFormItem compact label="发起人">
         <PerformancePersonFilterSelect v-model="draftFilters.from" :cycle-id="cycleId" aria-label="发起人" />
       </PerformanceFormItem>
-      <PerformanceFormItem compact label="被授权人">
-        <PerformancePersonFilterSelect v-model="draftFilters.to" :cycle-id="cycleId" aria-label="被授权人" />
+      <PerformanceFormItem compact :label="recipientFilterLabel">
+        <PerformancePersonFilterSelect v-model="draftFilters.to" :cycle-id="cycleId" :aria-label="recipientFilterLabel" />
       </PerformanceFormItem>
       <PerformanceFormItem compact label="被评估人">
         <PerformancePersonFilterSelect v-model="draftFilters.reviewee" :cycle-id="cycleId" aria-label="被评估人" />
@@ -105,6 +105,7 @@ const draftFilters = ref<AuthorizationFilterDraft>(emptyFilters())
 const statusOptions = computed(() => activeTab.value === 'transfer'
   ? [{ value: 'transferred', label: '已转交' }, { value: 'revoked', label: '已撤销' }]
   : [{ value: 'authorized', label: '已授权' }, { value: 'revoked', label: '已撤销' }])
+const recipientFilterLabel = computed(() => activeTab.value === 'transfer' ? '被转交人' : '被授权人')
 const filterCount = computed(() => [appliedFilters.value.from.length, appliedFilters.value.to.length, appliedFilters.value.reviewee.length, appliedFilters.value.status].filter(Boolean).length)
 let sequence = 0
 const cycleId = computed(() => Number(route.query.cycle_id || 0))
