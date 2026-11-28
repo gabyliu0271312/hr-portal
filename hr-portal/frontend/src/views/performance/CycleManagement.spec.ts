@@ -727,7 +727,7 @@ describe('CycleManagement', () => {
     expect(wrapper.find('.project-tools .primary-button').text()).toContain('新建')
     expect(wrapper.findAll('.project-table-wrap')).toHaveLength(1)
     expect(wrapper.find('.project-settings .project-table-wrap').exists()).toBe(true)
-    expect(wrapper.find('.project-settings .fixed-operation').exists()).toBe(true)
+    expect(wrapper.find('.project-settings .is-fixed-right').exists()).toBe(true)
     expect(wrapper.find('.list-page-title').text()).toBe('周期与项目')
   })
 
@@ -1143,7 +1143,7 @@ describe('CycleManagement', () => {
     expect(wrapper.get('.project-tools .primary-button').text()).toContain('新建')
     wrapper.get('.project-table-wrap')
     wrapper.get('.project-table-wrap table')
-    wrapper.get('.project-table-wrap .fixed-operation')
+    wrapper.get('.project-table-wrap .is-fixed-right')
   })
 
   it('includes the 360 delete policy in cycle create and edit payloads', async () => {

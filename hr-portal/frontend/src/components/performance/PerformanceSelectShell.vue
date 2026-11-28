@@ -1,5 +1,5 @@
 <template>
-  <div ref="root" class="performance-select-shell" :class="{ 'is-open': open, 'performance-select-shell--tag-round': tagShape === 'round' }" @keydown="emit('keydown', $event)">
+  <div ref="root" class="performance-select-shell" :class="{ 'is-open': open, 'performance-select-shell--tag-round': tagShape === 'round', 'performance-select-shell--auto-height': autoHeight }" @keydown="emit('keydown', $event)">
     <div class="performance-select-shell__selector" :class="[$attrs.class, { 'has-value': selectedItems.length, disabled, 'disabled-white': disabledSurface === 'white', 'is-plain': selectionStyle === 'plain' }]" :aria-invalid="$attrs['aria-invalid'] === true || $attrs['aria-invalid'] === 'true' ? 'true' : undefined" @click="openMenu">
       <div ref="content" class="performance-select-shell__content">
         <span v-if="!selectedItems.length && !query" class="performance-select-shell__placeholder">{{ placeholder }}</span>
@@ -47,6 +47,8 @@ const props = withDefaults(defineProps<{
   popupHeight?: number | 'auto'
   popupWidth?: number
   popupMaxHeight?: number
+  /** 多选时按内容换行展示全部标签（筛选弹窗多选状态实测行为） */
+  autoHeight?: boolean
   selectionStyle?: 'tags' | 'plain'
   /** 已选标签形态：员工多选使用 round（REA 实测胶囊 chip） */
   tagShape?: 'default' | 'round'
@@ -59,7 +61,7 @@ const props = withDefaults(defineProps<{
   lockedValues?: string[]
 }>(), {
   selectedItems: () => [], placeholder: '请选择', ariaLabel: '选择器', popupLabel: '选项', clearLabel: '清空已选',
-  popupHeight: 'auto', popupWidth: undefined, popupMaxHeight: 320, selectionStyle: 'tags', tagShape: 'default', openOnFocus: true, openOnSearch: false, hideArrow: false, disabledSurface: 'muted', disabled: false, lockedValues: () => [],
+  popupHeight: 'auto', popupWidth: undefined, popupMaxHeight: 320, autoHeight: false, selectionStyle: 'tags', tagShape: 'default', openOnFocus: true, openOnSearch: false, hideArrow: false, disabledSurface: 'muted', disabled: false, lockedValues: () => [],
 })
 const emit = defineEmits<{ 'update:modelValue': [value: string[]]; 'update:query': [value: string]; open: []; close: []; keydown: [event: KeyboardEvent] }>()
 const root = ref<HTMLElement | null>(null)
@@ -78,6 +80,7 @@ const visibleItems = computed(() => props.selectedItems.slice(0, props.selection
 const overflowItems = computed(() => props.selectionStyle === 'plain' ? [] : props.selectedItems.slice(visibleCount.value))
 
 function measureVisibleItems() {
+  if (props.autoHeight) { visibleCount.value = props.selectedItems.length; return }
   const width = content.value?.getBoundingClientRect().width
   if (!width || props.selectionStyle === 'plain') { visibleCount.value = props.selectedItems.length; return }
   const tags = Array.from(measureRoot.value?.querySelectorAll<HTMLElement>('.performance-select-shell__measure-tag') || [])
@@ -178,6 +181,9 @@ onBeforeUnmount(() => {
 .performance-select-shell { position: relative; width: 100%; min-width: 0; }
 .performance-select-shell__selector { position: relative; display: flex; align-items: center; overflow: hidden; width: 100%; height: var(--performance-select-height); padding: 1px var(--performance-select-padding-x); box-sizing: border-box; border: 1px solid var(--performance-field-border); border-radius: var(--performance-control-radius); background: var(--color-bg-card); color: var(--color-text-primary); font: 400 var(--font-size-md)/22px var(--font-sans); cursor: text; transition: border-color var(--duration-base) var(--ease-standard), background-color var(--duration-base) var(--ease-standard); }
 .performance-select-shell__selector.has-value { padding-left: var(--performance-select-padding-value-left); }
+.performance-select-shell--auto-height .performance-select-shell__selector { height: auto; min-height: var(--performance-select-height); max-height: var(--performance-select-multiple-max-height); overflow: hidden auto; }
+.performance-select-shell--auto-height .performance-select-shell__content { flex-wrap: wrap; height: auto; min-height: var(--performance-select-content-height); align-items: flex-start; overflow: visible; }
+.performance-select-shell--auto-height .performance-select-shell__input { height: var(--performance-select-content-height); }
 .performance-select-shell__selector.is-plain { cursor: pointer; }
 .performance-select-shell__selector.is-plain.has-value { padding-left: var(--performance-select-padding-x); }
 .performance-select-shell__selector.is-plain :deep(.performance-select-shell__tag) { flex-shrink: 1; margin: 0; padding: 0; background: transparent; }

@@ -11,6 +11,7 @@
     :tag-shape="tagShape"
     :disabled-surface="disabledSurface"
     :hide-arrow="hideArrow"
+    :auto-height="autoHeight"
     :open-on-search="remoteSearch"
     class="performance-search-select__trigger"
     :disabled="disabled"
@@ -40,7 +41,15 @@
           <img v-if="option.avatarUrl" class="performance-flat-option-list__avatar" :src="option.avatarUrl" alt="" aria-hidden="true" />
           <span v-else-if="option.avatarFallback" class="performance-flat-option-list__avatar performance-flat-option-list__avatar--fallback" aria-hidden="true">{{ option.avatarFallback }}</span>
           <span class="performance-flat-option-list__body">
-            <span class="performance-flat-option-list__name" :class="{ 'has-sub': Boolean(option.subLabel) }">{{ option.label }}</span>
+            <span class="performance-flat-option-list__name" :class="{ 'has-sub': Boolean(option.subLabel) }">
+              <template v-if="highlightQuery && searchQuery">
+                <template v-for="(part, index) in highlightParts(option.label)" :key="index">
+                  <mark v-if="part.match" class="performance-flat-option-list__highlight">{{ part.text }}</mark>
+                  <template v-else>{{ part.text }}</template>
+                </template>
+              </template>
+              <template v-else>{{ option.label }}</template>
+            </span>
             <span v-if="option.subLabel" class="performance-flat-option-list__sub">{{ option.subLabel }}</span>
           </span>
           <span v-if="optionStyle === 'checkmark'" class="performance-flat-option-list__check" aria-hidden="true"><svg v-if="selectedValues.includes(option.value)" class="performance-flat-option-list__checkmark" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M4 11.293a1 1 0 0 1 1.414 0l4.072 4.07 9.07-9.07a1 1 0 0 1 1.415 0l.706.707a1 1 0 0 1 0 1.414L10.193 18.9a1 1 0 0 1-1.415 0l-5.485-5.485a1 1 0 0 1 0-1.414L4 11.293Z" fill="currentColor" /></svg></span>
@@ -93,6 +102,10 @@ const props = withDefaults(defineProps<{
   tagShape?: 'default' | 'round'
   disabledSurface?: 'muted' | 'white'
   hideArrow?: boolean
+  /** 多选时按内容换行展示全部标签（筛选弹窗多选状态实测行为） */
+  autoHeight?: boolean
+  /** 远程搜索时高亮匹配关键词（员工搜索项实测行为） */
+  highlightQuery?: boolean
   ariaLabel?: string
 }>(), {
   options: () => [],
@@ -109,6 +122,8 @@ const props = withDefaults(defineProps<{
   tagShape: 'default',
   disabledSurface: 'muted',
   hideArrow: false,
+  autoHeight: false,
+  highlightQuery: false,
   ariaLabel: '选择器',
 })
 const emit = defineEmits<{ 'update:modelValue': [value: SelectValue]; search: [value: string]; open: []; close: [] }>()
@@ -131,6 +146,17 @@ function filteredOptions(query: string) {
     result = !keyword ? props.options : props.options.filter(option => (option.searchText || option.label).toLowerCase().includes(keyword))
   }
   return result
+}
+function highlightParts(label: string) {
+  const query = searchQuery.value.trim()
+  if (!query) return [{ text: label, match: false }]
+  const index = label.toLowerCase().indexOf(query.toLowerCase())
+  if (index < 0) return [{ text: label, match: false }]
+  const parts: Array<{ text: string; match: boolean }> = []
+  if (index > 0) parts.push({ text: label.slice(0, index), match: false })
+  parts.push({ text: label.slice(index, index + query.length), match: true })
+  if (index + query.length < label.length) parts.push({ text: label.slice(index + query.length), match: false })
+  return parts
 }
 const visibleOptions = computed(() => filteredOptions(searchQuery.value))
 watch(visibleOptions, options => {
@@ -213,6 +239,7 @@ function select(value: string, close: () => void, focus: () => void) {
 .performance-flat-option-list__body { display: flex; min-width: 0; flex: 1; flex-direction: column; }
 .performance-flat-option-list__name { overflow: hidden; color: inherit; font-size: var(--font-size-md); line-height: var(--performance-scope-search-name-line-height); text-overflow: ellipsis; white-space: nowrap; }
 .performance-flat-option-list__name.has-sub { line-height: var(--performance-scope-search-name-line-height); }
+.performance-flat-option-list__highlight { background: transparent; color: var(--performance-select-check-color); }
 .performance-flat-option-list__sub { overflow: hidden; color: var(--performance-scope-search-dept-color); font-size: var(--font-size-xs); line-height: var(--performance-scope-search-dept-line-height); text-overflow: ellipsis; white-space: nowrap; }
 .performance-flat-option-list__check { display: flex; align-items: center; flex: 0 0 var(--performance-select-check-size); width: var(--performance-select-check-size); height: 22px; margin-left: auto; color: var(--performance-select-check-color); }
 .performance-flat-option-list__checkmark { width: var(--performance-select-check-size); height: var(--performance-select-check-size); }

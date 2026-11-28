@@ -276,4 +276,31 @@ describe('shared performance selectors', () => {
     expect(searches).toContain('周2')
     wrapper.unmount()
   })
+
+  it('highlights the matched search keyword when enabled', async () => {
+    const wrapper = mount(PerformanceSearchSelect, {
+      props: {
+        modelValue: [], multiple: true, remoteSearch: true, highlightQuery: true,
+        options: [{ value: '1', label: 'gaby.liu刘琦' }],
+      },
+      global: { stubs },
+    })
+    await wrapper.get('input').setValue('gaby')
+    await flushPromises()
+    expect(wrapper.get('.performance-flat-option-list__highlight').text()).toBe('gaby')
+    wrapper.unmount()
+  })
+
+  it('keeps every tag visible in auto-height mode', async () => {
+    mockLayout(50)
+    const wrapper = mount(PerformanceSearchSelect, {
+      props: { modelValue: ['1', '2', '3'], options, multiple: true, autoHeight: true },
+      global: { stubs },
+    })
+    await flushPromises()
+    expect(visibleLabels(wrapper)).toEqual(['周1', '周2', '周3'])
+    expect(wrapper.find('.performance-select-shell__content .performance-select-shell__overflow-count').exists()).toBe(false)
+    expect(wrapper.get('.performance-select-shell').classes()).toContain('performance-select-shell--auto-height')
+    wrapper.unmount()
+  })
 })

@@ -61,6 +61,7 @@
           <PerformanceProjectSettings
             :projects="selected?.projects || []"
             :project-count="selected?.project_count || 0"
+            :cycle-id="selected?.id"
             :can-create="canManageCycles && Boolean(selected)"
             :managed-project-refs="managedProjectRefs"
             @create="openProjectCreate"

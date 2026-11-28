@@ -598,6 +598,7 @@
   --performance-project-search-width: 227px;
   --performance-project-administrator-gap: 8px;
   --performance-project-administrator-name-width: 100px;
+  --performance-project-status-dot-size: 6px;
 
   /* Shared performance prompt menu and display tokens. */
   --performance-menu-width: 65px;
@@ -744,6 +745,7 @@
   --performance-select-content-height: 28px;
   --performance-select-padding-x: 11px;
   --performance-select-padding-value-left: 3px;
+  --performance-select-multiple-max-height: 188px;
   --performance-select-tag-height: 24px;
   --performance-select-tag-padding-x: 6px;
   --performance-select-tag-gap: var(--spacing-1);
