@@ -20,6 +20,7 @@ vi.mock('vue-router', () => ({
 vi.mock('@/api/performance', () => ({
   performanceReviewQuestionApi: { list, remove },
   performanceReviewRuleApi: { list: vi.fn().mockResolvedValue([]) },
+  performanceTemplateApi: { peopleOptions: vi.fn().mockResolvedValue([]) },
 }))
 
 vi.mock('element-plus', async () => ({
@@ -163,6 +164,51 @@ describe('ReviewQuestionManagement', () => {
 
   it('does not mount a second filter panel below the toolbar', () => {
     expect(reviewQuestionManagementSource).not.toContain('ReviewQuestionFilterPanel')
+  })
+
+  it('opens the question filter popover and applies the selected type to the list', async () => {
+    const wrapper = mount(ReviewQuestionManagement, {
+      global: {
+        stubs: {
+          PerformanceListPage: {
+            props: ['title'],
+            template: '<main><h1>{{ title }}</h1><slot name="header" /><slot /></main>',
+          },
+          PerformanceFilterPopover: {
+            props: ['visible'],
+            template: '<div v-if="visible" class="filter-popover"><slot /><slot name="footer" /></div>',
+          },
+          PerformanceFilterField: {
+            props: ['field', 'modelValue'],
+            emits: ['update:modelValue'],
+            template: '<button class="filter-field" :data-key="field.key" @click="$emit(\'update:modelValue\', field.key === \'creator\' ? [\'E1\'] : field.key === \'type\' ? [\'1\'] : [\'9\'])">{{ field.label }}</button>',
+          },
+          PerformanceFilterActions: {
+            emits: ['confirm', 'cancel', 'clear'],
+            template: '<div class="filter-actions"><button class="confirm" @click="$emit(\'confirm\')">确定</button><button class="cancel" @click="$emit(\'cancel\')">取消</button><button class="clear" @click="$emit(\'clear\')">清除</button></div>',
+          },
+          ReviewQuestionTable: { template: '<div data-testid="question-table" />' },
+          ReviewRuleManagement: { template: '<div />' },
+          ReviewQuestionEditModal: { template: '<div />' },
+          'el-dropdown': { template: '<div><slot /><slot name="dropdown" /></div>' },
+          'el-dropdown-menu': { template: '<div><slot /></div>' },
+          'el-dropdown-item': { template: '<button><slot /></button>' },
+          'el-button': { template: '<button><slot /></button>' },
+        },
+      },
+    })
+    await flushPromises()
+    await wrapper.get('.filter-button').trigger('click')
+    expect(wrapper.get('.filter-popover').text()).toContain('类型')
+    expect(wrapper.get('.filter-popover').text()).toContain('评估规则')
+    expect(wrapper.get('.filter-popover').text()).toContain('创建人')
+
+    await wrapper.get('.filter-field[data-key="type"]').trigger('click')
+    await wrapper.get('.filter-actions .confirm').trigger('click')
+    await flushPromises()
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ is_sub_question: true }))
+    expect(wrapper.get('.filter-button').text()).toContain('筛选 (1)')
+    wrapper.unmount()
   })
   it('switches from the question table to the review-rule list', async () => {
     const wrapper = mountView()

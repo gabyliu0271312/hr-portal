@@ -2,13 +2,19 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { performanceReviewQuestionApi } from '@/api/performance'
+import { performanceReviewQuestionApi, performanceReviewRuleApi, performanceTemplateApi } from '@/api/performance'
+import { usePerformanceFilterDraft } from '@/composables/usePerformanceFilterDraft'
 import AddOutlinedIcon from '@/components/performance/AddOutlinedIcon.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceListPage from '@/components/performance/PerformanceListPage.vue'
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
+import PerformanceFilterPopover from '@/components/performance/PerformanceFilterPopover.vue'
+import PerformanceFilterField from '@/components/performance/PerformanceFilterField.vue'
+import PerformanceFilterActions from '@/components/performance/PerformanceFilterActions.vue'
 import ReviewQuestionTable from '@/components/performance/ReviewQuestionTable.vue'
 import ReviewRuleManagement from './ReviewRuleManagement.vue'
+import type { PerformanceSearchSelectOption } from '@/components/performance/PerformanceSearchSelect.vue'
+import type { PerformanceFilterField as PerformanceFilterFieldDescriptor } from '@/components/performance/performanceFilterTypes'
 import type { ReviewQuestion } from '@/components/performance/reviewQuestionTypes'
 import type { ReviewRule } from '@/components/performance/reviewRuleTypes'
 
@@ -22,12 +28,47 @@ const loading = ref(false)
 const questions = ref<ReviewQuestion[]>([])
 const page = ref(1)
 const pageSize = ref(10)
+const ruleOptions = ref<PerformanceSearchSelectOption[]>([])
 
+const filterDraft = usePerformanceFilterDraft<Record<string, string[]>>(() => ({ type: [], rule: [], creator: [] }))
+const { applied: appliedFilters, draft: draftFilters, activeCount: filterCount, open: openFilterDraft, confirm: confirmFilterDraft, cancel: cancelFilterDraft, clear: clearFilterDraft } = filterDraft
+const filterOpen = ref(false)
+const filterAnchor = ref<HTMLElement | null>(null)
+
+const TYPE_OPTIONS: PerformanceSearchSelectOption[] = [
+  { value: '0', label: '评估项' },
+  { value: '1', label: '子评估题' },
+]
+const filterFields = ref<PerformanceFilterFieldDescriptor[]>([])
+
+async function loadRuleOptions() {
+  try {
+    const items = await performanceReviewRuleApi.list()
+    ruleOptions.value = items.map((item) => ({ value: String(item.id), label: item.name }))
+  } catch {
+    ruleOptions.value = []
+  }
+}
+
+function syncFilterFields() {
+  filterFields.value = [
+    { key: 'type', label: '类型', type: 'select', options: TYPE_OPTIONS, placeholder: '请选择' },
+    { key: 'rule', label: '评估规则', type: 'select', options: ruleOptions.value, placeholder: '请选择' },
+    { key: 'creator', label: '创建人', type: 'person', placeholder: '请搜索', emptyText: '暂无匹配人员', loadingText: '搜索中', loadOptions: loadCreatorOptions },
+  ]
+}
 
 async function loadQuestions() {
   loading.value = true
   try {
-    const items = await performanceReviewQuestionApi.list()
+    const type = appliedFilters.value.type[0]
+    const rule = appliedFilters.value.rule[0]
+    const creator = appliedFilters.value.creator[0]
+    const items = await performanceReviewQuestionApi.list({
+      ...(type ? { is_sub_question: type === '1' } : {}),
+      ...(rule ? { rule_id: Number(rule) } : {}),
+      ...(creator ? { creator } : {}),
+    })
     questions.value = items.map((item) => ({
       id: String(item.id),
       name: item.name,
@@ -49,7 +90,49 @@ async function loadQuestions() {
   }
 }
 
-onMounted(() => { void loadQuestions() })
+async function loadCreatorOptions(query: string): Promise<PerformanceSearchSelectOption[]> {
+  const people = await performanceTemplateApi.peopleOptions(query)
+  const options: PerformanceSearchSelectOption[] = []
+  const seen = new Set<string>()
+  for (const person of people) {
+    const name = person.display_name?.trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    options.push({
+      value: person.employee_no,
+      label: name,
+      avatarFallback: name.slice(-1),
+      searchText: `${name} ${person.employee_no}`,
+    })
+  }
+  return options
+}
+
+onMounted(async () => {
+  await loadRuleOptions()
+  syncFilterFields()
+  void loadQuestions()
+})
+
+function toggleFilter(anchor?: HTMLElement) {
+  if (filterOpen.value) { cancelFilter(); return }
+  if (anchor instanceof HTMLElement) filterAnchor.value = anchor
+  openFilterDraft()
+  filterOpen.value = true
+}
+function confirmFilter() {
+  confirmFilterDraft()
+  filterOpen.value = false
+  page.value = 1
+  void loadQuestions()
+}
+function cancelFilter() {
+  cancelFilterDraft()
+  filterOpen.value = false
+}
+function clearFilter() {
+  clearFilterDraft()
+}
 
 function selectTab(tab: TabKey) {
   activeTab.value = tab
@@ -116,7 +199,7 @@ async function handleRemove(question: ReviewQuestion) {
     </template>
 
     <template v-if="activeTab === 'question'">
-      <PerformanceListToolbar v-model:keyword="keyword">
+      <PerformanceListToolbar v-model:keyword="keyword" :filter-active="filterCount > 0" :filter-count="filterCount" @filter="toggleFilter">
         <template #left>
           <el-dropdown trigger="click" @command="handleCreate">
             <UiButton variant="primary" class="create-button">
@@ -130,6 +213,12 @@ async function handleRemove(question: ReviewQuestion) {
           </el-dropdown>
         </template>
       </PerformanceListToolbar>
+      <PerformanceFilterPopover :visible="filterOpen" :anchor="filterAnchor" aria-label="评估题筛选" @close="cancelFilter">
+        <PerformanceFilterField v-for="field in filterFields" :key="field.key" v-model="draftFilters[field.key]" :field="field" />
+        <template #footer>
+          <PerformanceFilterActions @confirm="confirmFilter" @cancel="cancelFilter" @clear="clearFilter" />
+        </template>
+      </PerformanceFilterPopover>
 
       <ReviewQuestionTable
         :questions="questions"

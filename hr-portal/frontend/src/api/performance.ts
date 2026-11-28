@@ -2108,9 +2108,21 @@ export interface PerformanceReviewRulePayload {
   remark: string
 }
 
+export interface PerformanceReviewRuleListParams {
+  review_type?: PerformanceReviewRuleOption['review_type']
+  creator?: string
+}
+
+export interface PerformanceReviewQuestionListParams {
+  review_type?: PerformanceReviewRuleOption['review_type']
+  is_sub_question?: boolean
+  rule_id?: number
+  creator?: string
+}
+
 export const performanceReviewRuleApi = {
-  async list(): Promise<PerformanceReviewRuleOption[]> {
-    const { data } = await api.get<{ items: PerformanceReviewRuleOption[] }>('/performance/review-rules')
+  async list(params?: PerformanceReviewRuleListParams): Promise<PerformanceReviewRuleOption[]> {
+    const { data } = await api.get<{ items: PerformanceReviewRuleOption[] }>('/performance/review-rules', { params })
     return data.items
   },
   async get(id: number): Promise<PerformanceReviewRuleDetail> {
@@ -2131,9 +2143,9 @@ export const performanceReviewRuleApi = {
 }
 
 export const performanceReviewQuestionApi = {
-  async list(reviewType?: PerformanceReviewRuleOption['review_type']): Promise<PerformanceReviewQuestion[]> {
+  async list(params?: PerformanceReviewRuleOption['review_type'] | PerformanceReviewQuestionListParams): Promise<PerformanceReviewQuestion[]> {
     const { data } = await api.get<{ items: PerformanceReviewQuestion[] }>('/performance/review-questions', {
-      params: reviewType ? { review_type: reviewType } : undefined,
+      params: typeof params === 'string' ? { review_type: params } : params,
     })
     return data.items
   },
@@ -2309,8 +2321,8 @@ export interface PerformanceTemplateCopyResponse {
 }
 
 export const performanceTemplateApi = {
-  async peopleOptions(): Promise<PerformanceExecutorPerson[]> {
-    const { data } = await api.get<PerformanceExecutorPerson[]>('/performance/templates/people/options')
+  async peopleOptions(keyword?: string): Promise<PerformanceExecutorPerson[]> {
+    const { data } = await api.get<PerformanceExecutorPerson[]>('/performance/templates/people/options', { params: keyword ? { keyword } : undefined })
     return data
   },
   async list(kind?: 'performance' | 'metric'): Promise<PerformanceTemplateListItem[]> {

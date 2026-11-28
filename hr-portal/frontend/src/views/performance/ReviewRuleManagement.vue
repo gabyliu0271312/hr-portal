@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { performanceReviewRuleApi } from '@/api/performance'
+import { performanceReviewRuleApi, performanceTemplateApi, type PerformanceReviewRuleOption } from '@/api/performance'
+import { usePerformanceFilterDraft } from '@/composables/usePerformanceFilterDraft'
 import AddOutlinedIcon from '@/components/performance/AddOutlinedIcon.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
+import PerformanceFilterPopover from '@/components/performance/PerformanceFilterPopover.vue'
+import PerformanceFilterField from '@/components/performance/PerformanceFilterField.vue'
+import PerformanceFilterActions from '@/components/performance/PerformanceFilterActions.vue'
 import ReviewRuleTable from '@/components/performance/ReviewRuleTable.vue'
+import type { PerformanceSearchSelectOption } from '@/components/performance/PerformanceSearchSelect.vue'
+import type { PerformanceFilterField as PerformanceFilterFieldDescriptor } from '@/components/performance/performanceFilterTypes'
 import type { ReviewRule } from '@/components/performance/reviewRuleTypes'
 
 const emit = defineEmits<{
   create: []
-  filter: []
   edit: [rule: ReviewRule]
 }>()
 
@@ -20,10 +25,30 @@ const rules = ref<ReviewRule[]>([])
 const page = ref(1)
 const pageSize = ref(10)
 
+const filterDraft = usePerformanceFilterDraft<Record<string, string[]>>(() => ({ method: [], creator: [] }))
+const { applied: appliedFilters, draft: draftFilters, activeCount: filterCount, open: openFilterDraft, confirm: confirmFilterDraft, cancel: cancelFilterDraft, clear: clearFilterDraft } = filterDraft
+const filterOpen = ref(false)
+const filterAnchor = ref<HTMLElement | null>(null)
+
+const METHOD_OPTIONS: PerformanceSearchSelectOption[] = [
+  { value: '评级', label: '评级' },
+  { value: '评分', label: '评分' },
+  { value: '评分映射等级型', label: '评分映射等级型' },
+]
+const filterFields: PerformanceFilterFieldDescriptor[] = [
+  { key: 'method', label: '评估方式', type: 'select', options: METHOD_OPTIONS, placeholder: '请选择' },
+  { key: 'creator', label: '创建人', type: 'person', placeholder: '请搜索', emptyText: '暂无匹配人员', loadingText: '搜索中', loadOptions: loadCreatorOptions },
+]
+
 async function loadRules() {
   loading.value = true
   try {
-    const items = await performanceReviewRuleApi.list()
+    const reviewType = appliedFilters.value.method[0]
+    const creator = appliedFilters.value.creator[0]
+    const items = await performanceReviewRuleApi.list({
+      ...(reviewType ? { review_type: reviewType as PerformanceReviewRuleOption['review_type'] } : {}),
+      ...(creator ? { creator } : {}),
+    })
     rules.value = items.map((item) => ({
       id: String(item.id),
       name: item.name,
@@ -39,6 +64,44 @@ async function loadRules() {
   } finally {
     loading.value = false
   }
+}
+
+async function loadCreatorOptions(query: string): Promise<PerformanceSearchSelectOption[]> {
+  const people = await performanceTemplateApi.peopleOptions(query)
+  const options: PerformanceSearchSelectOption[] = []
+  const seen = new Set<string>()
+  for (const person of people) {
+    const name = person.display_name?.trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    options.push({
+      value: person.employee_no,
+      label: name,
+      avatarFallback: name.slice(-1),
+      searchText: `${name} ${person.employee_no}`,
+    })
+  }
+  return options
+}
+
+function toggleFilter(anchor?: HTMLElement) {
+  if (filterOpen.value) { cancelFilter(); return }
+  if (anchor instanceof HTMLElement) filterAnchor.value = anchor
+  openFilterDraft()
+  filterOpen.value = true
+}
+function confirmFilter() {
+  confirmFilterDraft()
+  filterOpen.value = false
+  page.value = 1
+  void loadRules()
+}
+function cancelFilter() {
+  cancelFilterDraft()
+  filterOpen.value = false
+}
+function clearFilter() {
+  clearFilterDraft()
 }
 
 async function removeRule(rule: ReviewRule) {
@@ -64,12 +127,18 @@ onMounted(() => { void loadRules() })
 
 <template>
   <div class="review-rule-management">
-    <PerformanceListToolbar v-model:keyword="keyword" @filter="emit('filter')">
+    <PerformanceListToolbar v-model:keyword="keyword" :filter-active="filterCount > 0" :filter-count="filterCount" @filter="toggleFilter">
       <template #left>
         <UiButton variant="primary" class="rule-create-button" @click="emit('create')">
           <AddOutlinedIcon class="rule-create-icon" /><span class="rule-create-label">新建</span></UiButton>
       </template>
     </PerformanceListToolbar>
+    <PerformanceFilterPopover :visible="filterOpen" :anchor="filterAnchor" aria-label="评估规则筛选" @close="cancelFilter">
+      <PerformanceFilterField v-for="field in filterFields" :key="field.key" v-model="draftFilters[field.key]" :field="field" />
+      <template #footer>
+        <PerformanceFilterActions @confirm="confirmFilter" @cancel="cancelFilter" @clear="clearFilter" />
+      </template>
+    </PerformanceFilterPopover>
 
     <ReviewRuleTable
       :rules="rules"

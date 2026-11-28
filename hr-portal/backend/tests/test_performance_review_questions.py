@@ -17,6 +17,7 @@ from app.performance.review_router import (
     delete_review_question,
     delete_review_rule,
     list_review_questions,
+    list_review_rules,
     update_review_question,
     update_review_rule,
 )
@@ -65,6 +66,9 @@ class _Result:
 class _QuestionListResult:
     def all(self):
         return []
+
+    def scalars(self):
+        return self
 
 
 class _QuestionListDb:
@@ -468,11 +472,44 @@ async def test_used_mapping_allows_content_changes_but_locks_bounds_and_interval
 async def test_list_review_questions_applies_review_type_filter():
     db = _QuestionListDb()
 
-    result = await list_review_questions("评级", _context(), db)
+    result = await list_review_questions(review_type="评级", _=_context(), db=db)
 
     assert result.items == []
     assert "performance_review_rules.review_type = :review_type_1" in str(db.statement)
     assert "performance_review_rules.status = :status_1" in str(db.statement)
+
+
+@pytest.mark.asyncio
+async def test_list_review_questions_applies_sub_rule_and_creator_filters():
+    db = _QuestionListDb()
+
+    result = await list_review_questions(
+        review_type=None,
+        is_sub_question=True,
+        rule_id=101,
+        creator="1",
+        _=_context(),
+        db=db,
+    )
+
+    assert result.items == []
+    statement = str(db.statement)
+    assert "performance_review_questions.is_sub_question IS true" in statement
+    assert "performance_review_questions.rule_id =" in statement
+    assert "performance_review_rules.created_by_ref =" in statement
+
+
+@pytest.mark.asyncio
+async def test_list_review_rules_applies_review_type_and_creator_filters():
+    db = _QuestionListDb()
+
+    result = await list_review_rules(review_type="评分", creator="7", _=_context(), db=db)
+
+    assert result.items == []
+    statement = str(db.statement)
+    assert "performance_review_rules.review_type =" in statement
+    assert "performance_review_rules.created_by_ref =" in statement
+    assert "performance_review_rules.status =" in statement
 
 
 class _DeleteResult:
@@ -562,7 +599,7 @@ async def test_delete_unused_question_persists_and_list_does_not_return_it():
     assert db.deleted is question
     assert db.commits == 1
     assert db.get_calls[0][2] == {"with_for_update": True}
-    assert (await list_review_questions(None, _context(), db)).items == []
+    assert (await list_review_questions(review_type=None, _=_context(), db=db)).items == []
 
 
 @pytest.mark.asyncio
@@ -638,7 +675,7 @@ async def test_list_delete_availability_matches_delete_guard(usage, expected_cod
         workflows=[_workflow(library=[{"ratingOptionId": "201"}], cycle_count=1 if usage == "cycle" else 0)] if usage in {"template", "cycle"} else [],
         snapshots=[{"template": {"content": [{"ratingOptionId": "201"}]}}] if usage == "snapshot" else [],
     )
-    item = (await list_review_questions(None, _context(), db)).items[0]
+    item = (await list_review_questions(review_type=None, _=_context(), db=db)).items[0]
     assert item.deletable is (expected_code is None)
     assert bool(item.delete_reason) is (expected_code is not None)
     if expected_code:
@@ -663,7 +700,7 @@ async def test_non_calculating_rating_can_be_deleted_when_unreferenced():
         return await execute(statement)
 
     db.execute = with_non_calculating_rule
-    item = (await list_review_questions(None, _context(), db)).items[0]
+    item = (await list_review_questions(review_type=None, _=_context(), db=db)).items[0]
     assert item.deletable is True
     assert (await delete_review_question(201, _context(), db)).status_code == 204
 

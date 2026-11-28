@@ -5,7 +5,7 @@ from copy import deepcopy
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -211,13 +211,22 @@ async def _validate_metric_dimensions(db: AsyncSession, dimensions: list[MetricT
 
 @router.get("/people/options")
 async def template_people_options(
+    keyword: str = Query(default="", max_length=128),
     _: PerformanceAccessContext = Depends(require_performance_permission("performance.configuration.manage")),
     db: AsyncSession = Depends(get_session),
 ):
     from app.performance.cycles_router import _load_hrbp_options
 
     options = await _load_hrbp_options(db)
-    return [{"employee_no": person.value, "display_name": person.label} for person in options.people]
+    people = options.people
+    needle = keyword.strip().casefold()
+    if needle:
+        people = [
+            person
+            for person in people
+            if needle in (person.label or "").casefold() or needle in (person.value or "").casefold()
+        ]
+    return [{"employee_no": person.value, "display_name": person.label} for person in people]
 
 
 @router.get("", response_model=list[TemplateListItem])

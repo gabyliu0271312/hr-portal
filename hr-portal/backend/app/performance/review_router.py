@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -414,16 +414,21 @@ async def _active_rule(db: AsyncSession, rule_id: int, *, for_update: bool = Fal
 
 @router.get("/review-rules", response_model=ReviewRuleListResponse)
 async def list_review_rules(
+    review_type: ReviewType | None = None,
+    creator: str | None = Query(default=None, max_length=128),
     _: PerformanceAccessContext = Depends(
         require_performance_permission("performance.configuration.manage")
     ),
     db: AsyncSession = Depends(get_session),
 ) -> ReviewRuleListResponse:
+    statement = select(PerformanceReviewRule).where(PerformanceReviewRule.status == "active")
+    if review_type is not None:
+        statement = statement.where(PerformanceReviewRule.review_type == review_type)
+    if creator:
+        statement = statement.where(PerformanceReviewRule.created_by_ref == creator)
     rules = (
         await db.execute(
-            select(PerformanceReviewRule)
-            .where(PerformanceReviewRule.status == "active")
-            .order_by(PerformanceReviewRule.created_at.desc(), PerformanceReviewRule.id.desc())
+            statement.order_by(PerformanceReviewRule.created_at.desc(), PerformanceReviewRule.id.desc())
         )
     ).scalars().all()
     used_rule_ids = set()
@@ -538,6 +543,9 @@ async def get_review_rule(
 @router.get("/review-questions", response_model=ReviewQuestionListResponse)
 async def list_review_questions(
     review_type: ReviewType | None = None,
+    is_sub_question: bool | None = None,
+    rule_id: int | None = Query(default=None, ge=1),
+    creator: str | None = Query(default=None, max_length=128),
     _: PerformanceAccessContext = Depends(
         require_performance_permission("performance.configuration.manage")
     ),
@@ -552,6 +560,13 @@ async def list_review_questions(
             PerformanceReviewRule.review_type == review_type,
             PerformanceReviewRule.status == "active",
         )
+    if is_sub_question is not None:
+        statement = statement.where(PerformanceReviewQuestion.is_sub_question.is_(is_sub_question))
+    if rule_id is not None:
+        statement = statement.where(PerformanceReviewQuestion.rule_id == rule_id)
+    if creator:
+        # 创建人列展示规则创建人（前端 creator 取自 rule.creator），过滤保持一致
+        statement = statement.where(PerformanceReviewRule.created_by_ref == creator)
     rows = (
         await db.execute(
             statement.order_by(PerformanceReviewQuestion.created_at.desc(), PerformanceReviewQuestion.id.desc())
