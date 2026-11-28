@@ -467,6 +467,7 @@ def _role_out(role: PerformanceRole) -> PerformanceRoleOut:
 async def list_performance_roles(
     keyword: str | None = None,
     role_type: str = "MANAGEMENT",
+    is_active: bool | None = None,
     page: int = 1,
     page_size: int = 10,
     _: PerformanceAccessContext = Depends(_context),
@@ -482,6 +483,9 @@ async def list_performance_roles(
     if role_type == "ASSESSMENT":
         statement = statement.where(PerformanceRole.is_system.is_(True))
         count_statement = count_statement.where(PerformanceRole.is_system.is_(True))
+    if is_active is not None:
+        statement = statement.where(PerformanceRole.is_active.is_(is_active))
+        count_statement = count_statement.where(PerformanceRole.is_active.is_(is_active))
     normalized_keyword = keyword.strip() if keyword else ""
     if normalized_keyword:
         pattern = f"%{normalized_keyword}%"

@@ -1,0 +1,148 @@
+[
+ {
+  "opt": {
+   "cls": "perf-web__ud__select__list__item perf-web__ud__select__list__item-active",
+   "text": "已停用",
+   "rect": {
+    "x": 2989,
+    "y": 319,
+    "w": 290,
+    "h": 30
+   }
+  },
+  "hover": {
+   "color": "rgb(31, 35, 41)",
+   "backgroundColor": "rgba(31, 35, 41, 0.08)",
+   "fontSize": "14px",
+   "fontWeight": "400",
+   "border": "0px none rgb(31, 35, 41)",
+   "borderRadius": "4px",
+   "padding": "4px 8px",
+   "cursor": "pointer",
+   "transition": "0.12s cubic-bezier(0.34, 0.69, 0.1, 1)",
+   "lineHeight": "22.001px",
+   "height": "30px",
+   "margin": "1px 3px"
+  }
+ },
+ {
+  "opt": {
+   "cls": "perf-web__ud__text perf-web__ud__select__list__item__content ud-typography-body-0 uhx3js9 uokg9q4 uses1vf u82itaf u71fsbu u10tiqix",
+   "text": "已停用",
+   "rect": {
+    "x": 2997,
+    "y": 323,
+    "w": 254,
+    "h": 22
+   }
+  },
+  "hover": {
+   "color": "rgb(31, 35, 41)",
+   "backgroundColor": "rgba(0, 0, 0, 0)",
+   "fontSize": "14px",
+   "fontWeight": "400",
+   "border": "0px none rgb(31, 35, 41)",
+   "cursor": "pointer",
+   "transition": "all",
+   "lineHeight": "22px",
+   "height": "22px"
+  }
+ },
+ {
+  "opt": {
+   "cls": "perf-web__ud__select__list__item__check",
+   "text": "",
+   "rect": {
+    "x": 3259,
+    "y": 323,
+    "w": 12,
+    "h": 22
+   }
+  },
+  "hover": {
+   "color": "rgb(31, 35, 41)",
+   "backgroundColor": "rgba(0, 0, 0, 0)",
+   "fontSize": "12px",
+   "fontWeight": "400",
+   "border": "0px none rgb(31, 35, 41)",
+   "cursor": "pointer",
+   "transition": "all",
+   "lineHeight": "12px",
+   "height": "22px",
+   "margin": "0px 0px 0px 8px"
+  }
+ },
+ {
+  "opt": {
+   "cls": "perf-web__ud__select__list__item",
+   "text": "已启用",
+   "rect": {
+    "x": 2989,
+    "y": 351,
+    "w": 290,
+    "h": 30
+   }
+  },
+  "hover": {
+   "color": "rgb(31, 35, 41)",
+   "backgroundColor": "rgb(255, 255, 255)",
+   "fontSize": "14px",
+   "fontWeight": "400",
+   "border": "0px none rgb(31, 35, 41)",
+   "borderRadius": "4px",
+   "padding": "4px 8px",
+   "cursor": "pointer",
+   "transition": "0.12s cubic-bezier(0.34, 0.69, 0.1, 1)",
+   "lineHeight": "22.001px",
+   "height": "30px",
+   "margin": "1px 3px"
+  }
+ },
+ {
+  "opt": {
+   "cls": "perf-web__ud__text perf-web__ud__select__list__item__content ud-typography-body-0 uhx3js9 uokg9q4 uses1vf u82itaf u71fsbu u10tiqix",
+   "text": "已启用",
+   "rect": {
+    "x": 2997,
+    "y": 355,
+    "w": 254,
+    "h": 22
+   }
+  },
+  "hover": {
+   "color": "rgb(31, 35, 41)",
+   "backgroundColor": "rgba(0, 0, 0, 0)",
+   "fontSize": "14px",
+   "fontWeight": "400",
+   "border": "0px none rgb(31, 35, 41)",
+   "cursor": "pointer",
+   "transition": "all",
+   "lineHeight": "22px",
+   "height": "22px"
+  }
+ },
+ {
+  "opt": {
+   "cls": "perf-web__ud__select__list__item__check",
+   "text": "",
+   "rect": {
+    "x": 3259,
+    "y": 355,
+    "w": 12,
+    "h": 22
+   }
+  },
+  "hover": {
+   "color": "rgb(31, 35, 41)",
+   "backgroundColor": "rgba(0, 0, 0, 0)",
+   "fontSize": "12px",
+   "fontWeight": "400",
+   "border": "0px none rgb(31, 35, 41)",
+   "cursor": "pointer",
+   "transition": "all",
+   "lineHeight": "12px",
+   "height": "22px",
+   "margin": "0px 0px 0px 8px"
+  }
+ }
+]

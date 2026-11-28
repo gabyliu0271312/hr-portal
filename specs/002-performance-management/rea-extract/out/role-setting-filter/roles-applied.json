@@ -1,0 +1,14 @@
+{
+ "pick": "已启用",
+ "requests": [
+  {
+   "method": "POST",
+   "url": "https://idreamsky.feishu.cn/perf/api/permission/roles/list",
+   "postData": "{\"page_size\":10,\"current_page\":0,\"filter\":{\"enable_status\":1,\"role_name\":\"\"}}",
+   "status": 200
+  }
+ ],
+ "bodies": [
+  "(unavail)"
+ ]
+}

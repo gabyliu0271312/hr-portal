@@ -20,4 +20,14 @@ describe('PerformanceFilterActions', () => {
     expect(wrapper.findAll('button').map(button => button.text())).toEqual(['确定', '取消'])
     expect(wrapper.get('button').attributes('disabled')).toBeDefined()
   })
+
+  it('uses small buttons by default and default-size buttons when requested', () => {
+    const small = mount(PerformanceFilterActions)
+    expect(small.get('.performance-filter-actions').classes()).not.toContain('performance-filter-actions--wide')
+    expect(small.findAll('.performance-button').every(button => button.classes().includes('is-small'))).toBe(true)
+
+    const wide = mount(PerformanceFilterActions, { props: { size: 'default' } })
+    expect(wide.get('.performance-filter-actions').classes()).toContain('performance-filter-actions--wide')
+    expect(wide.findAll('.performance-button').every(button => !button.classes().includes('is-small'))).toBe(true)
+  })
 })

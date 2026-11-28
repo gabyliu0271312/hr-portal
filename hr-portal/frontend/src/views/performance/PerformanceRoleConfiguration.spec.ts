@@ -12,9 +12,9 @@ vi.mock('vue-router', () => ({
 
 const stubs = {
   PerformanceListToolbar: {
-    props: ['keyword', 'searchPlaceholder', 'searchAriaLabel'],
+    props: ['keyword', 'searchPlaceholder', 'searchAriaLabel', 'filterActive', 'filterCount'],
     emits: ['update:keyword', 'filter'],
-    template: '<div class="role-toolbar"><slot name="left" /><input :value="keyword" :placeholder="searchPlaceholder" :aria-label="searchAriaLabel" @input="$emit(\'update:keyword\', $event.target.value)" /><button type="button" @click="$emit(\'filter\')">筛选</button><slot name="actions" /></div>',
+    template: '<div class="role-toolbar" :data-filter-count="filterCount"><slot name="left" /><input :value="keyword" :placeholder="searchPlaceholder" :aria-label="searchAriaLabel" @input="$emit(\'update:keyword\', $event.target.value)" /><button class="toolbar-filter" type="button" @click="$emit(\'filter\', $event.target)">筛选</button><slot name="actions" /></div>',
   },
   PerformanceCreateButton: {
     template: '<button class="create-button"><slot /><span>{{ label }}</span></button>',
@@ -26,8 +26,8 @@ const stubs = {
     template: '<button class="performance-button" :disabled="disabled"><slot /></button>',
   },
   PerformanceManagementTable: {
-    props: ['rows', 'emptyText', 'total'],
-    template: '<div class="role-table" :data-total="total"><div v-for="row in rows" :key="row.id" class="role-row">{{ row.name }} {{ row.memberSource }}</div><div v-if="!rows.length" class="empty">{{ emptyText }}</div><slot :rows="rows" /></div>',
+    props: ['rows', 'columns', 'emptyText', 'total'],
+    template: '<div class="role-table" :data-total="total"><div v-for="col in columns" :key="col.key" class="table-column">{{ col.label }}</div><div v-for="row in rows" :key="row.id" class="role-row"><template v-for="col in columns" :key="col.key"><slot name="cell" :row="row" :column="col" :value="row[col.key]"></slot></template></div><div v-if="!rows.length" class="empty">{{ emptyText }}</div></div>',
   },
   PerformancePermissionButton: {
     props: ['disabled'],
@@ -45,9 +45,20 @@ const stubs = {
     template: '<button class="dropdown-item" :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
   },
   ElTooltip: { template: '<div><slot /></div>' },
-  ElTableColumn: {
-    props: ['label'],
-    template: '<div class="table-column">{{ label }}<slot v-for="row in $parent.$props.rows" :row="row" /></div>',
+  PerformanceFilterPopover: {
+    props: ['visible', 'anchor', 'width', 'bodyPadding'],
+    emits: ['close'],
+    template: '<div v-if="visible" class="filter-popover" :data-width="width" :data-body-padding="bodyPadding"><slot /><slot name="footer" /></div>',
+  },
+  PerformanceFilterField: {
+    props: ['field', 'modelValue'],
+    emits: ['update:modelValue'],
+    template: '<div class="filter-field"><span>{{ field.label }}</span><button v-for="o in field.options" :key="o.value" class="field-option" :class="{ selected: modelValue.includes(o.value) }" :data-value="o.value" @click="$emit(\'update:modelValue\', [$event.currentTarget.dataset.value])">{{ o.label }}</button></div>',
+  },
+  PerformanceFilterActions: {
+    props: ['size', 'showClear'],
+    emits: ['confirm', 'cancel', 'clear'],
+    template: '<div class="filter-actions" :data-size="size"><button class="fa-confirm" @click="$emit(\'confirm\')">确定</button><button class="fa-cancel" @click="$emit(\'cancel\')">取消</button><button v-if="showClear" class="fa-clear" @click="$emit(\'clear\')">清除</button></div>',
   },
 }
 
@@ -89,7 +100,7 @@ describe('PerformanceRoleConfiguration', () => {
     const rows = await loadRows()
     expect(rows).toHaveLength(102)
     expect(rows.at(-1)?.[0]).toBe('角色100')
-    expect(performanceRoleApi.list).toHaveBeenLastCalledWith('角色', 2, 100, 'MANAGEMENT')
+    expect(performanceRoleApi.list).toHaveBeenLastCalledWith('角色', 2, 100, 'MANAGEMENT', undefined)
     performanceRoleApi.list.mockResolvedValueOnce({ items: all.slice(0, 100), total: 101 }).mockRejectedValueOnce(new Error('network'))
     await expect(loadRows()).rejects.toThrow('network')
     wrapper.unmount()
@@ -111,7 +122,7 @@ describe('PerformanceRoleConfiguration', () => {
     )
     expect(wrapper.text()).toContain('被评估人')
     expect(wrapper.text()).toContain('员工本人')
-    expect(performanceRoleApi.list).toHaveBeenCalledWith('', 1, 10, 'ASSESSMENT')
+    expect(performanceRoleApi.list).toHaveBeenCalledWith('', 1, 10, 'ASSESSMENT', undefined)
     expect(wrapper.find('.create-button').exists()).toBe(false)
     expect(wrapper.findAll('.performance-button').every(button => button.attributes('disabled') !== undefined)).toBe(true)
     expect(wrapper.findAll('.permission-button')).toHaveLength(0)
@@ -147,6 +158,89 @@ describe('PerformanceRoleConfiguration', () => {
     expect(performanceRoleApi.remove).toHaveBeenCalledOnce()
     expect(performanceRoleApi.remove).toHaveBeenCalledWith(8)
     expect(wrapper.text()).toContain('暂无管理角色')
+    wrapper.unmount()
+  })
+
+  it('applies a status filter on the management tab and marks the filter active', async () => {
+    performanceRoleApi.list.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 10 })
+    const wrapper = mount(PerformanceRoleConfiguration, { global: { stubs } })
+    await flushPromises()
+    await wrapper.get('.toolbar-filter').trigger('click')
+
+    expect(wrapper.find('.filter-popover').exists()).toBe(true)
+    expect(wrapper.find('.filter-field').text()).toContain('状态')
+    expect(wrapper.get('.filter-actions').attributes('data-size')).toBe('small')
+    expect(wrapper.find('.fa-clear').exists()).toBe(true)
+
+    await wrapper.get('.field-option[data-value="active"]').trigger('click')
+    await wrapper.get('.fa-confirm').trigger('click')
+    await flushPromises()
+
+    expect(performanceRoleApi.list).toHaveBeenLastCalledWith('', 1, 10, 'MANAGEMENT', true)
+    expect(wrapper.find('.filter-popover').exists()).toBe(false)
+    expect(wrapper.get('.role-toolbar').attributes('data-filter-count')).toBe('1')
+    wrapper.unmount()
+  })
+
+  it('cancels the filter draft without reloading and keeps the applied list untouched', async () => {
+    performanceRoleApi.list.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 10 })
+    const wrapper = mount(PerformanceRoleConfiguration, { global: { stubs } })
+    await flushPromises()
+    await wrapper.get('.toolbar-filter').trigger('click')
+    await wrapper.get('.field-option[data-value="inactive"]').trigger('click')
+    await wrapper.get('.fa-cancel').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.filter-popover').exists()).toBe(false)
+    expect(performanceRoleApi.list).toHaveBeenLastCalledWith('', 1, 10, 'MANAGEMENT', undefined)
+    expect(wrapper.get('.role-toolbar').attributes('data-filter-count')).toBe('0')
+    wrapper.unmount()
+  })
+
+  it('clears the draft and keeps the popover open', async () => {
+    performanceRoleApi.list.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 10 })
+    const wrapper = mount(PerformanceRoleConfiguration, { global: { stubs } })
+    await flushPromises()
+    await wrapper.get('.toolbar-filter').trigger('click')
+    await wrapper.get('.field-option[data-value="active"]').trigger('click')
+    expect(wrapper.findAll('.field-option.selected')).toHaveLength(1)
+    await wrapper.get('.fa-clear').trigger('click')
+
+    expect(wrapper.find('.filter-popover').exists()).toBe(true)
+    expect(wrapper.findAll('.field-option.selected')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('renders the assessment tab filter popover with wide actions and no clear button', async () => {
+    performanceRoleApi.list.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 10 })
+    const wrapper = mount(PerformanceRoleConfiguration, { global: { stubs } })
+    await flushPromises()
+    await wrapper.get('[role="tab"][aria-selected="false"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('.toolbar-filter').trigger('click')
+
+    expect(wrapper.get('.filter-popover').attributes('data-width')).toBe('var(--performance-filter-popover-max-width)')
+    expect(wrapper.get('.filter-popover').attributes('data-body-padding')).toBe('var(--performance-filter-body-padding-compact)')
+    expect(wrapper.get('.filter-actions').attributes('data-size')).toBe('default')
+    expect(wrapper.find('.fa-clear').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('resets the applied status filter when switching tabs', async () => {
+    performanceRoleApi.list.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 10 })
+    const wrapper = mount(PerformanceRoleConfiguration, { global: { stubs } })
+    await flushPromises()
+    await wrapper.get('.toolbar-filter').trigger('click')
+    await wrapper.get('.field-option[data-value="active"]').trigger('click')
+    await wrapper.get('.fa-confirm').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.role-toolbar').attributes('data-filter-count')).toBe('1')
+
+    await wrapper.get('[role="tab"][aria-selected="false"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.role-toolbar').attributes('data-filter-count')).toBe('0')
+    expect(performanceRoleApi.list).toHaveBeenLastCalledWith('', 1, 10, 'ASSESSMENT', undefined)
     wrapper.unmount()
   })
 })

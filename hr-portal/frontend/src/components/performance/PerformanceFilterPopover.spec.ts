@@ -49,4 +49,20 @@ describe('PerformanceFilterPopover', () => {
     popup.remove()
     wrapper.unmount()
   })
+
+  it('applies width and compact body-padding overrides', async () => {
+    anchor = document.createElement('button')
+    document.body.appendChild(anchor)
+    const wrapper = mount(PerformanceFilterPopover, {
+      props: { visible: true, anchor, width: 'var(--performance-filter-popover-max-width)', bodyPadding: 'var(--performance-filter-body-padding-compact)' },
+      slots: { default: '<div class="filter-body">内容</div>' },
+      attachTo: document.body,
+    })
+    await nextTick()
+    const panel = document.querySelector('.performance-popover') as HTMLElement
+    expect(panel.style.width).toBe('var(--performance-filter-popover-max-width)')
+    const body = document.querySelector('.filter-body') as HTMLElement
+    expect(body.parentElement!.style.padding).toBe('var(--performance-filter-body-padding-compact)')
+    wrapper.unmount()
+  })
 })

@@ -829,9 +829,9 @@ export interface PerformanceRoleUpdatePayload {
 }
 
 export const performanceRoleApi = {
-  async list(keyword = '', page = 1, pageSize = 10, roleType: PerformanceRoleListItem['role_type'] = 'MANAGEMENT'): Promise<PerformanceRoleListPage> {
+  async list(keyword = '', page = 1, pageSize = 10, roleType: PerformanceRoleListItem['role_type'] = 'MANAGEMENT', isActive?: boolean): Promise<PerformanceRoleListPage> {
     const { data } = await api.get<PerformanceRoleListPage>('/performance/permission-settings/roles', {
-      params: { keyword: keyword || undefined, role_type: roleType, page, page_size: pageSize },
+      params: { keyword: keyword || undefined, role_type: roleType, page, page_size: pageSize, is_active: isActive },
     })
     return data
   },

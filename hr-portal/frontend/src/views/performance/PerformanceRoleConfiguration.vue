@@ -23,8 +23,10 @@
         :keyword="keyword"
         :search-placeholder="activeTab === 'assessment' ? '通过角色类型搜索' : '通过角色名称搜索'"
         :search-aria-label="activeTab === 'assessment' ? '通过角色类型搜索' : '通过角色名称搜索'"
+        :filter-active="filterCount > 0"
+        :filter-count="filterCount"
         @update:keyword="keyword = $event"
-        @filter="notifyUnavailable('筛选')"
+        @filter="toggleFilter"
       >
         <template #left>
           <PerformanceCreateButton v-if="activeTab === 'management'" label="新建角色" @click="goCreate" />
@@ -34,8 +36,29 @@
         </template>
       </PerformanceListToolbar>
 
+      <PerformanceFilterPopover
+        :visible="filterOpen"
+        :anchor="filterAnchor"
+        aria-label="角色筛选"
+        :width="activeTab === 'assessment' ? 'var(--performance-filter-popover-max-width)' : 'var(--performance-filter-popover-width)'"
+        :body-padding="activeTab === 'assessment' ? 'var(--performance-filter-body-padding-compact)' : undefined"
+        @close="cancelFilter"
+      >
+        <PerformanceFilterField v-for="field in filterFields" :key="field.key" v-model="draftFilters[field.key]" :field="field" />
+        <template #footer>
+          <PerformanceFilterActions
+            :size="activeTab === 'assessment' ? 'default' : 'small'"
+            :show-clear="activeTab === 'management'"
+            @confirm="confirmFilter"
+            @cancel="cancelFilter"
+            @clear="clearFilter"
+          />
+        </template>
+      </PerformanceFilterPopover>
+
       <PerformanceManagementTable
         :rows="filteredRows"
+        :columns="tableColumns"
         :loading="loading"
         loading-text="正在加载角色"
         :empty-text="activeTab === 'management' ? '暂无管理角色' : '暂无评估角色'"
@@ -47,65 +70,47 @@
         @page-change="page = $event; void loadRoles()"
         @page-size-change="pageSize = $event; page = 1; void loadRoles()"
       >
-        <el-table-column prop="name" :label="activeTab === 'assessment' ? '角色类型' : '角色'" min-width="180">
-          <template #default="{ row }">
+        <template #cell="{ row, column, value }">
+          <template v-if="column.key === 'name'">
             <span v-if="activeTab === 'assessment'">{{ row.name }}</span>
-            <button v-else class="role-name-button" type="button" @click="notifyUnavailable(`查看${row.name}`)">
-              {{ row.name }}
-            </button>
+            <button v-else class="role-name-button" type="button" @click="notifyUnavailable(`查看${row.name}`)">{{ row.name }}</button>
           </template>
-        </el-table-column>
-        <el-table-column prop="description" label="描述" :min-width="activeTab === 'assessment' ? 180 : 280" />
-        <el-table-column v-if="activeTab === 'assessment'" label="如何指定角色成员" min-width="220">
-          <template #default="{ row }">{{ row.memberSource }}</template>
-        </el-table-column>
-        <el-table-column label="状态" min-width="120">
-          <template #default="{ row }">
-            <span class="role-status"><i aria-hidden="true" />{{ row.status }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="更新人" :min-width="activeTab === 'assessment' ? 120 : 180">
-          <template #default="{ row }">
-            <span class="role-updater">{{ row.updatedBy }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column v-if="activeTab === 'management'" prop="updatedAt" label="最近更新时间" min-width="180" />
-        <el-table-column label="操作" width="180" fixed="right">
-          <template #default="{ row }">
-            <div class="role-actions">
-              <template v-if="activeTab === 'assessment'">
-                <UiButton variant="text" aria-label="编辑角色" disabled>编辑</UiButton>
-                <UiButton variant="text" aria-label="停用角色" disabled>停用</UiButton>
-              </template>
-              <template v-else>
-                <PerformancePermissionButton allowed op="U" aria-label="编辑角色" @click="goEdit(row)">编辑</PerformancePermissionButton>
-                <PerformancePermissionButton
-                  allowed
-                  op="U"
-                  :aria-label="row.isActive ? '停用角色' : '启用角色'"
-                  :disabled="row.isSystem || updatingRoleId === row.id"
-                  :title="row.isSystem ? '系统创建的角色不支持停用' : undefined"
-                  @click="toggleRoleStatus(row)"
-                >{{ row.isActive ? '停用' : '启用' }}</PerformancePermissionButton>
-                <div class="role-more-wrap">
-                  <el-dropdown trigger="click" :disabled="updatingRoleId === row.id" placement="bottom-end" popper-class="performance-role-action-popper">
-                    <button class="role-more-button" type="button" aria-label="更多操作" :disabled="updatingRoleId === row.id">···</button>
-                    <template #dropdown>
-                      <el-dropdown-menu>
-                        <PerformanceDisabledReason
-                          :disabled="row.isSystem || row.isActive"
-                          :reason="row.isSystem ? '系统创建的角色不支持删除' : '需要先停用角色，再进行删除'"
-                        >
-                          <el-dropdown-item :disabled="row.isSystem || row.isActive || updatingRoleId === row.id" @click="openDeleteDialog(row)">删除</el-dropdown-item>
-                        </PerformanceDisabledReason>
-                      </el-dropdown-menu>
-                    </template>
-                  </el-dropdown>
-                </div>
-              </template>
-            </div>
-          </template>
-        </el-table-column>
+          <span v-else-if="column.key === 'status'" class="role-status"><i aria-hidden="true" />{{ row.status }}</span>
+          <span v-else-if="column.key === 'updatedBy'" class="role-updater">{{ value }}</span>
+          <div v-else-if="column.key === 'action'" class="role-actions">
+            <template v-if="activeTab === 'assessment'">
+              <UiButton variant="text" aria-label="编辑角色" disabled>编辑</UiButton>
+              <UiButton variant="text" aria-label="停用角色" disabled>停用</UiButton>
+            </template>
+            <template v-else>
+              <PerformancePermissionButton allowed op="U" aria-label="编辑角色" @click="goEdit(row)">编辑</PerformancePermissionButton>
+              <PerformancePermissionButton
+                allowed
+                op="U"
+                :aria-label="row.isActive ? '停用角色' : '启用角色'"
+                :disabled="row.isSystem || updatingRoleId === row.id"
+                :title="row.isSystem ? '系统创建的角色不支持停用' : undefined"
+                @click="toggleRoleStatus(row)"
+              >{{ row.isActive ? '停用' : '启用' }}</PerformancePermissionButton>
+              <div class="role-more-wrap">
+                <el-dropdown trigger="click" :disabled="updatingRoleId === row.id" placement="bottom-end" popper-class="performance-role-action-popper">
+                  <button class="role-more-button" type="button" aria-label="更多操作" :disabled="updatingRoleId === row.id">···</button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <PerformanceDisabledReason
+                        :disabled="row.isSystem || row.isActive"
+                        :reason="row.isSystem ? '系统创建的角色不支持删除' : '需要先停用角色，再进行删除'"
+                      >
+                        <el-dropdown-item :disabled="row.isSystem || row.isActive || updatingRoleId === row.id" @click="openDeleteDialog(row)">删除</el-dropdown-item>
+                      </PerformanceDisabledReason>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
+            </template>
+          </div>
+          <span v-else>{{ value }}</span>
+        </template>
       </PerformanceManagementTable>
     </section>
     <PerformanceConfirmDialog
@@ -120,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { formatDisplayDateTime } from '@/utils/datetime'
@@ -128,6 +133,7 @@ import {
   performanceRoleApi,
   type PerformanceRoleListItem,
 } from '@/api/performance'
+import type { PerformanceTableColumn } from '@/components/performance/performanceTableColumns'
 import PerformanceCreateButton from '@/components/performance/PerformanceCreateButton.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
@@ -136,6 +142,12 @@ import PerformanceManagementTable from '@/components/performance/PerformanceMana
 import PerformancePermissionButton from '@/components/performance/PerformancePermissionButton.vue'
 import PerformanceDisabledReason from '@/components/performance/PerformanceDisabledReason.vue'
 import PerformanceExportButton from '@/components/performance/PerformanceExportButton.vue'
+import PerformanceFilterPopover from '@/components/performance/PerformanceFilterPopover.vue'
+import PerformanceFilterField from '@/components/performance/PerformanceFilterField.vue'
+import PerformanceFilterActions from '@/components/performance/PerformanceFilterActions.vue'
+import type { PerformanceFilterField as PerformanceFilterFieldConfig, PerformanceFilterValues } from '@/components/performance/performanceFilterTypes'
+import type { PerformanceSearchSelectOption } from '@/components/performance/PerformanceSearchSelect.vue'
+import { usePerformanceFilterDraft } from '@/composables/usePerformanceFilterDraft'
 
 type RoleTab = 'management' | 'assessment'
 
@@ -156,6 +168,22 @@ const tabs: Array<{ key: RoleTab; label: string }> = [
   { key: 'assessment', label: '评估角色' },
 ]
 
+const tableColumns = computed<PerformanceTableColumn[]>(() => {
+  const isAssessment = activeTab.value === 'assessment'
+  const columns: PerformanceTableColumn[] = [
+    { key: 'name', label: isAssessment ? '角色类型' : '角色', width: 180 },
+    { key: 'description', label: '描述', width: isAssessment ? 180 : 280 },
+  ]
+  if (isAssessment) columns.push({ key: 'memberSource', label: '如何指定角色成员', width: 220 })
+  columns.push(
+    { key: 'status', label: '状态', width: 120 },
+    { key: 'updatedBy', label: '更新人', width: isAssessment ? 120 : 180 },
+  )
+  if (!isAssessment) columns.push({ key: 'updatedAt', label: '最近更新时间', width: 180 })
+  columns.push({ key: 'action', label: '操作', width: 180, fixed: 'right' })
+  return columns
+})
+
 const router = useRouter()
 const activeTab = ref<RoleTab>('management')
 const keyword = ref('')
@@ -170,6 +198,39 @@ const deleteDialogVisible = ref(false)
 const deleteError = ref('')
 const deleting = ref(false)
 let requestId = 0
+
+const STATUS_OPTIONS: PerformanceSearchSelectOption[] = [
+  { value: 'active', label: '已启用' },
+  { value: 'inactive', label: '已停用' },
+]
+const filterFields: PerformanceFilterFieldConfig[] = [
+  { key: 'status', label: '状态', type: 'select', options: STATUS_OPTIONS, placeholder: '请选择' },
+]
+type RoleFilterValues = PerformanceFilterValues & { status: string[] }
+const filterDraft = usePerformanceFilterDraft<RoleFilterValues>(() => ({ status: [] }))
+const { applied: appliedFilters, draft: draftFilters, activeCount: filterCount, open: openFilterDraft, confirm: confirmFilterDraft, cancel: cancelFilterDraft, clear: clearFilterDraft, reset: resetFilterDraft } = filterDraft
+const filterOpen = ref(false)
+const filterAnchor = ref<HTMLElement | null>(null)
+
+function toggleFilter(anchor?: HTMLElement) {
+  if (filterOpen.value) { cancelFilter(); return }
+  if (anchor instanceof HTMLElement) filterAnchor.value = anchor
+  openFilterDraft()
+  filterOpen.value = true
+}
+function confirmFilter() {
+  confirmFilterDraft()
+  filterOpen.value = false
+  page.value = 1
+  void loadRoles()
+}
+function cancelFilter() {
+  cancelFilterDraft()
+  filterOpen.value = false
+}
+function clearFilter() {
+  clearFilterDraft()
+}
 
 function toRoleRow(item: PerformanceRoleListItem): RoleRow {
   return {
@@ -190,7 +251,9 @@ async function loadRoles() {
   loading.value = true
   try {
     const roleType = activeTab.value === 'assessment' ? 'ASSESSMENT' : 'MANAGEMENT'
-    const result = await performanceRoleApi.list(keyword.value, page.value, pageSize.value, roleType)
+    const status = appliedFilters.value.status[0]
+    const isActive = status === 'active' ? true : status === 'inactive' ? false : undefined
+    const result = await performanceRoleApi.list(keyword.value, page.value, pageSize.value, roleType, isActive)
     if (currentRequest !== requestId) return
     filteredRows.value = result.items.map(toRoleRow)
     total.value = result.total
@@ -204,7 +267,13 @@ async function loadRoles() {
   }
 }
 
-watch([keyword, activeTab], () => {
+watch(keyword, () => {
+  page.value = 1
+  void loadRoles()
+})
+
+watch(activeTab, () => {
+  resetFilterDraft()
   page.value = 1
   void loadRoles()
 })
@@ -216,8 +285,10 @@ async function exportRows() {
   let currentPage = 1
   let expected: number | undefined
   let count = 0
+  const status = appliedFilters.value.status[0]
+  const isActive = status === 'active' ? true : status === 'inactive' ? false : undefined
   do {
-    const result = await performanceRoleApi.list(keyword.value, currentPage, 100, 'MANAGEMENT')
+    const result = await performanceRoleApi.list(keyword.value, currentPage, 100, 'MANAGEMENT', isActive)
     if (expected === undefined) expected = result.total
     if (result.total !== expected || (count < expected && !result.items.length)) throw new Error('角色列表已变化，请刷新后重试')
     exported.push(...result.items.map(item => [item.name, item.description || '--', item.is_active ? '已启用' : '已停用', '--', formatDisplayDateTime(item.updated_at)]))
@@ -286,24 +357,24 @@ function notifyUnavailable(action: string) {
 </script>
 
 <style scoped>
-.performance-role-configuration { min-height: 0; color: #1f2329; font-family: var(--font-sans); }
+.performance-role-configuration { min-height: 0; color: var(--color-text-primary); font-family: var(--font-sans); }
 .role-page-title { margin: 0 0 16px; font-size: 20px; font-weight: 600; line-height: 28px; }
 .role-tabs { display: flex; height: 48px; align-items: stretch; border-bottom: 1px solid rgba(31, 35, 41, .15); }
-.role-tab { position: relative; min-width: 104px; padding: 0 16px; border: 0; background: transparent; color: #646a73; cursor: pointer; font: 400 16px/24px var(--font-sans); }
+.role-tab { position: relative; min-width: 104px; padding: 0 16px; border: 0; background: transparent; color: var(--color-text-tertiary); cursor: pointer; font: 400 16px/24px var(--font-sans); }
 .role-tab.active { color: var(--color-primary); font-weight: 600; }
-.role-tab.active::after { position: absolute; right: 16px; bottom: -1px; left: 16px; height: 3px; border-radius: 3px 3px 0 0; background: #3370ff; content: ''; }
-.role-card { box-sizing: border-box; margin-top: 16px; padding: 10px; border-radius: 8px; background: #fff; box-shadow: rgba(31, 35, 41, .02) 0 1px 2px -2px, rgba(31, 35, 41, .02) 0 2px 4px, rgba(31, 35, 41, .02) 0 2px 8px 2px; }
+.role-tab.active::after { position: absolute; right: 16px; bottom: -1px; left: 16px; height: 3px; border-radius: 3px 3px 0 0; background: var(--color-primary); content: ''; }
+.role-card { box-sizing: border-box; margin-top: 16px; padding: 10px; border-radius: 8px; background: var(--color-bg-card); box-shadow: rgba(31, 35, 41, .02) 0 1px 2px -2px, rgba(31, 35, 41, .02) 0 2px 4px, rgba(31, 35, 41, .02) 0 2px 8px 2px; }
 .role-toolbar :deep(.list-toolbar) { margin-bottom: 8px; }
 .role-name-button { padding: 0; border: 0; background: transparent; color: var(--color-primary); cursor: pointer; font: inherit; text-align: left; }
-.role-name-button:hover { color: #3370ff; }
+.role-name-button:hover { color: var(--color-primary); }
 .role-status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.role-status i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #34c759; }
+.role-status i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--color-success); }
 .role-updater { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .role-actions { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 .role-actions :deep(.performance-button--text:disabled) { color: var(--performance-button-link-disabled-color); opacity: 1; }
 .role-actions :deep(.performance-button--text[title]) { cursor: not-allowed; }
 .role-more-wrap { position: relative; }
-.role-more-button { width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--performance-button-radius); background: transparent; color: #646a73; cursor: pointer; font-size: 16px; line-height: 18px; }
+.role-more-button { width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--performance-button-radius); background: transparent; color: var(--color-text-tertiary); cursor: pointer; font-size: 16px; line-height: 18px; }
 .role-more-button:hover:not(:disabled), .role-more-button:focus-visible { background: var(--performance-button-text-hover-background); outline: 0; }
 .role-more-button:disabled { color: var(--performance-button-link-disabled-color); cursor: not-allowed; }
 @media (max-width: 720px) { .role-toolbar :deep(.list-toolbar) { flex-wrap: wrap; }.role-card { padding: 8px; } }

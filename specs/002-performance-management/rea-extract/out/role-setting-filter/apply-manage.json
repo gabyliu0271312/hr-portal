@@ -1,0 +1,38 @@
+{
+ "pick": "已停用",
+ "tableBefore": {
+  "url": "https://idreamsky.feishu.cn/perf/admin/permission/role-setting/list/manage-role?currentPage=1&pageSize=10",
+  "rows": 4,
+  "head": [
+   "新建角色",
+   "筛选",
+   "导出",
+   "角色",
+   "\t"
+  ],
+  "firstCols": [
+   "",
+   "绩效管理员",
+   "项目管理员",
+   "HRBP"
+  ]
+ },
+ "after": {
+  "url": "https://idreamsky.feishu.cn/perf/admin/permission/role-setting/list/manage-role?currentPage=1&pageSize=10",
+  "rows": 4,
+  "head": [
+   "新建角色",
+   "筛选",
+   "导出",
+   "角色",
+   "\t"
+  ],
+  "firstCols": [
+   "",
+   "绩效管理员",
+   "项目管理员",
+   "HRBP"
+  ]
+ },
+ "requests": []
+}

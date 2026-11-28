@@ -1,0 +1,104 @@
+{
+ "btn": {
+  "count": 1,
+  "hits": [
+   {
+    "x": 3320,
+    "y": 238,
+    "w": 80,
+    "h": 32,
+    "cls": "perf-web__ud__button perf-web__ud__button--outlined perf-web__ud__button--outlined-default perf-web_"
+   }
+  ]
+ },
+ "pv": [
+  {
+   "cls": "perf-web__ud__popover perf-web__ud__popover--mode-normal",
+   "rect": {
+    "x": 2980,
+    "y": 280,
+    "w": 420,
+    "h": 156
+   },
+   "text": "状态\n \n请选择\n取消\n确定",
+   "inputs": [
+    {
+     "ph": "",
+     "type": "search",
+     "cls": "perf-web__ud__select__selector__search__input perf-web__ud__native-input"
+    }
+   ],
+   "selects": 10,
+   "buttons": [
+    "取消",
+    "确定"
+   ]
+  },
+  {
+   "cls": "perf-web__ud__popover__content perf-web__ud__zoom-300-300-200-enter-done",
+   "rect": {
+    "x": 2980,
+    "y": 280,
+    "w": 420,
+    "h": 156
+   },
+   "text": "状态\n \n请选择\n取消\n确定",
+   "inputs": [
+    {
+     "ph": "",
+     "type": "search",
+     "cls": "perf-web__ud__select__selector__search__input perf-web__ud__native-input"
+    }
+   ],
+   "selects": 10,
+   "buttons": [
+    "取消",
+    "确定"
+   ]
+  },
+  {
+   "cls": "perf-web__ud__popover-content",
+   "rect": {
+    "x": 2980,
+    "y": 280,
+    "w": 420,
+    "h": 156
+   },
+   "text": "状态\n \n请选择\n取消\n确定",
+   "inputs": [
+    {
+     "ph": "",
+     "type": "search",
+     "cls": "perf-web__ud__select__selector__search__input perf-web__ud__native-input"
+    }
+   ],
+   "selects": 10,
+   "buttons": [
+    "取消",
+    "确定"
+   ]
+  },
+  {
+   "cls": "perf-web__ud__popover__overlay-content",
+   "rect": {
+    "x": 2997,
+    "y": 293,
+    "w": 386,
+    "h": 130
+   },
+   "text": "状态\n \n请选择\n取消\n确定",
+   "inputs": [
+    {
+     "ph": "",
+     "type": "search",
+     "cls": "perf-web__ud__select__selector__search__input perf-web__ud__native-input"
+    }
+   ],
+   "selects": 10,
+   "buttons": [
+    "取消",
+    "确定"
+   ]
+  }
+ ]
+}

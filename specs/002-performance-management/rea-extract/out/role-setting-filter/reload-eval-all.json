@@ -1,0 +1,102 @@
+[
+ {
+  "method": "POST",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/custom_settings",
+  "postData": "{\"config_keys\":[\"indicator_level_reverse\"]}"
+ },
+ {
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/v2/stage_indicators",
+  "postData": null
+ },
+ {
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/settings",
+  "postData": null
+ },
+ {
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/custom_text_setting",
+  "postData": null
+ },
+ {
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/template/indicators",
+  "postData": null
+ },
+ {
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/coefficients",
+  "postData": null
+ },
+ {
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/auth",
+  "postData": null
+ },
+ {
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/v2/auth",
+  "postData": null
+ },
+ {
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/manager/isManager",
+  "postData": null
+ },
+ {
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/release",
+  "postData": null
+ },
+ {
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/okr/custom_setting",
+  "postData": null
+ },
+ {
+  "method": "POST",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/licenses",
+  "postData": null
+ },
+ {
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/foundation/translation/get_supported_languages",
+  "postData": null
+ },
+ {
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/license_status",
+  "postData": null
+ },
+ {
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/mark",
+  "postData": null
+ },
+ {
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/mark",
+  "postData": null
+ },
+ {
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/custom_review_roles?keyword=&enable_status=0&offset=0&limit=10",
+  "postData": null
+ },
+ {
+  "method": "POST",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/custom_settings",
+  "postData": "{\"config_keys\":[\"enable_kpi\"]}"
+ },
+ {
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/translation/get_translation_setting",
+  "postData": null
+ },
+ {
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/release",
+  "postData": null
+ }
+]

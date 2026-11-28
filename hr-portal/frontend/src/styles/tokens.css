@@ -511,6 +511,8 @@
   --performance-filter-field-gap: var(--spacing-4);
   --performance-filter-body-padding-block: var(--spacing-3);
   --performance-filter-body-padding-inline: var(--spacing-2);
+  /* 评估角色筛选弹窗内层 8px 全边距（REA 实测 review-role：`!p-4` 8px） */
+  --performance-filter-body-padding-compact: var(--spacing-2);
   --performance-filter-footer-padding: var(--spacing-2) var(--spacing-2) var(--spacing-3);
   --performance-filter-action-width: 60px;
   --performance-filter-action-gap: var(--spacing-3);

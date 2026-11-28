@@ -1,0 +1,26 @@
+[
+ {
+  "text": "已停用",
+  "cls": "perf-web__ud__select__list__item perf-web__ud__select__list__item-active",
+  "rect": {
+   "x": 2989,
+   "y": 319,
+   "w": 290,
+   "h": 30
+  },
+  "cx": 3134,
+  "cy": 334
+ },
+ {
+  "text": "已启用",
+  "cls": "perf-web__ud__select__list__item",
+  "rect": {
+   "x": 2989,
+   "y": 351,
+   "w": 290,
+   "h": 30
+  },
+  "cx": 3134,
+  "cy": 366
+ }
+]

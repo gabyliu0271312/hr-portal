@@ -1,0 +1,50 @@
+{
+ "rootRect": {
+  "x": 3005,
+  "y": 367,
+  "w": 370,
+  "h": 70
+ },
+ "opts": [
+  {
+   "text": "已启用",
+   "cls": "perf-web__ud__select__list__item perf-web__ud__select__list__item-active",
+   "rect": {
+    "x": 3009,
+    "y": 371,
+    "w": 362,
+    "h": 30
+   }
+  },
+  {
+   "text": "已启用",
+   "cls": "perf-web__ud__text perf-web__ud__select__list__item__content ud-typography-body-0 uhx3js9 uokg9q4 uses1vf u82itaf u71fsb",
+   "rect": {
+    "x": 3017,
+    "y": 375,
+    "w": 326,
+    "h": 22
+   }
+  },
+  {
+   "text": "已停用",
+   "cls": "perf-web__ud__select__list__item",
+   "rect": {
+    "x": 3009,
+    "y": 403,
+    "w": 362,
+    "h": 30
+   }
+  },
+  {
+   "text": "已停用",
+   "cls": "perf-web__ud__text perf-web__ud__select__list__item__content ud-typography-body-0 uhx3js9 uokg9q4 uses1vf u82itaf u71fsb",
+   "rect": {
+    "x": 3017,
+    "y": 407,
+    "w": 326,
+    "h": 22
+   }
+  }
+ ]
+}

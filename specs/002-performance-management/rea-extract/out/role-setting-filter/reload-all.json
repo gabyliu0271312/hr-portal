@@ -1,0 +1,176 @@
+[
+ {
+  "id": "8ED59B53CCD522F7B78EC3F295C7ED7C",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/admin/permission/role-setting/list/manage-role?currentPage=1&pageSize=10",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.561",
+  "method": "POST",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/custom_settings",
+  "postData": "{\"config_keys\":[\"indicator_level_reverse\"]}",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.562",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/v2/stage_indicators",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.563",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/settings",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.571",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/custom_text_setting",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.573",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/template/indicators",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.574",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/coefficients",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.577",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/auth",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.578",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/v2/auth",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.579",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/manager/isManager",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.580",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/release",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.581",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/okr/custom_setting",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.582",
+  "method": "POST",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/licenses",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.590",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/foundation/translation/get_supported_languages",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.591",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/license_status",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.592",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/mark",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.593",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/mark",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.619",
+  "method": "POST",
+  "url": "https://idreamsky.feishu.cn/perf/api/permission/roles/list",
+  "postData": "{\"page_size\":10,\"current_page\":0,\"filter\":{\"enable_status\":null,\"role_name\":\"\"}}",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.620",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/permission/roles/can_refer_roles",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.621",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/translation/get_translation_setting",
+  "postData": "",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.622",
+  "method": "POST",
+  "url": "https://idreamsky.feishu.cn/perf/api/user/custom_settings",
+  "postData": "{\"config_keys\":[\"enable_kpi\"]}",
+  "status": 200,
+  "body": "(unavail)"
+ },
+ {
+  "id": "33008.636",
+  "method": "GET",
+  "url": "https://idreamsky.feishu.cn/perf/api/review/release",
+  "postData": ""
+ }
+]
