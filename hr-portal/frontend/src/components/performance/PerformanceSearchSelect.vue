@@ -9,6 +9,8 @@
     :clear-label="`${ariaLabel}清空已选`"
     :selection-style="selectionStyle"
     :tag-shape="tagShape"
+    :search-prefix="searchPrefix"
+    :tag-closable="tagClosable"
     :disabled-surface="disabledSurface"
     :hide-arrow="hideArrow"
     :auto-height="autoHeight"
@@ -100,6 +102,10 @@ const props = withDefaults(defineProps<{
   selectionStyle?: 'tags' | 'plain'
   /** 已选标签形态：员工多选使用 round（REA 实测胶囊 chip） */
   tagShape?: 'default' | 'round'
+  /** 前置放大镜（搜索成员 combobox） */
+  searchPrefix?: boolean
+  /** 是否在标签上渲染单个移除 ×（单选用 false，仅右侧整体清除） */
+  tagClosable?: boolean
   disabledSurface?: 'muted' | 'white'
   hideArrow?: boolean
   /** 多选时按内容换行展示全部标签（筛选弹窗多选状态实测行为） */
@@ -120,6 +126,8 @@ const props = withDefaults(defineProps<{
   disabled: false,
   selectionStyle: 'tags',
   tagShape: 'default',
+  searchPrefix: false,
+  tagClosable: true,
   disabledSurface: 'muted',
   hideArrow: false,
   autoHeight: false,

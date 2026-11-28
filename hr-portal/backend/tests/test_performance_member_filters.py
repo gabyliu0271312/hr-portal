@@ -720,3 +720,31 @@ async def test_v2_saved_condition_is_revalidated_after_field_permission_revoked(
         saved = (await client.get(url + "/filter-presets")).json()["items"][0]
         response = await client.get(url, params={"filters": json.dumps(saved["filters"])})
         assert response.status_code == 422 and response.json()["detail"] == "INVALID_MEMBER_FILTER"
+
+
+@pytest.mark.asyncio
+async def test_search_cycle_member_people_filters_and_maps(preset_api, monkeypatch):
+    from app.performance.project_service import PerformanceProjectService
+
+    api = preset_api
+    url = "/api/v1/performance/project-management/cycles/1/members/search-people"
+    people = [
+        SimpleNamespace(employee_no="sam.yu", display_name="喻舵", organization_ref="美术组", department="美术组"),
+        SimpleNamespace(employee_no="zhang.san", display_name="张三", organization_ref="研发", department="研发"),
+    ]
+
+    async def fake_snapshot(_self, cycle):
+        assert cycle is not None
+        return None, people
+
+    monkeypatch.setattr(PerformanceProjectService, "_cycle_snapshot_people", fake_snapshot)
+    api.app.dependency_overrides[routes.get_performance_access_context] = lambda: context()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api.app), base_url="http://test") as client:
+        result = await client.post(url, json={"keyword": "sam"})
+        assert result.status_code == 200, result.text
+        assert result.json() == [{"value": "sam.yu", "label": "sam.yu喻舵", "sub_label": "美术组", "department": "美术组"}]
+        all_result = await client.post(url, json={"keyword": ""})
+        assert all_result.status_code == 200
+        assert [item["label"] for item in all_result.json()] == ["sam.yu喻舵", "zhang.san张三"]
+        unknown = await client.post(url, json={"keyword": "不在"})
+        assert unknown.status_code == 200 and unknown.json() == []

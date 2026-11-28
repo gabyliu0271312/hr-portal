@@ -1,9 +1,12 @@
 <template>
   <div ref="root" class="performance-select-shell" :class="{ 'is-open': open, 'performance-select-shell--tag-round': tagShape === 'round', 'performance-select-shell--auto-height': autoHeight }" @keydown="emit('keydown', $event)">
-    <div class="performance-select-shell__selector" :class="[$attrs.class, { 'has-value': selectedItems.length, disabled, 'disabled-white': disabledSurface === 'white', 'is-plain': selectionStyle === 'plain' }]" :aria-invalid="$attrs['aria-invalid'] === true || $attrs['aria-invalid'] === 'true' ? 'true' : undefined" @click="openMenu">
+    <div class="performance-select-shell__selector" :class="[$attrs.class, { 'has-value': selectedItems.length, disabled, 'disabled-white': disabledSurface === 'white', 'is-plain': selectionStyle === 'plain', 'has-search-prefix': searchPrefix }]" :aria-invalid="$attrs['aria-invalid'] === true || $attrs['aria-invalid'] === 'true' ? 'true' : undefined" @click="openMenu">
+      <span v-if="searchPrefix" class="performance-select-shell__search-icon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M16.473 17.887A9.46 9.46 0 0 1 10.5 20a9.5 9.5 0 1 1 9.5-9.5 9.46 9.46 0 0 1-2.113 5.973l3.773 3.773a.996.996 0 0 1-.007 1.407.996.996 0 0 1-1.407.007l-3.773-3.773ZM18 10.5a7.5 7.5 0 1 0-15 0 7.5 7.5 0 0 0 15 0Z" fill="currentColor" /></svg>
+      </span>
       <div ref="content" class="performance-select-shell__content">
         <span v-if="!selectedItems.length && !query" class="performance-select-shell__placeholder">{{ placeholder }}</span>
-        <PerformanceSelectTag v-for="item in visibleItems" :key="item.value" :label="item.label" :avatar-url="item.avatarUrl" :avatar-fallback="item.avatarFallback" :closable="selectionStyle !== 'plain'" :disabled="disabled || lockedValues.includes(item.value)" @remove="removeValue(item.value)" />
+        <PerformanceSelectTag v-for="item in visibleItems" :key="item.value" :label="item.label" :avatar-url="item.avatarUrl" :avatar-fallback="item.avatarFallback" :closable="tagClosable && selectionStyle !== 'plain'" :disabled="disabled || lockedValues.includes(item.value)" @remove="removeValue(item.value)" />
         <ElPopover v-if="overflowItems.length" placement="top" trigger="hover" :width="'auto'" :show-after="0" :hide-after="100" :teleported="true" :popper-style="{ zIndex: 'calc(var(--performance-popover-z-index) + 1)' }" popper-class="performance-select-overflow-popper">
           <template #reference><button class="performance-select-shell__overflow-count" type="button" :aria-label="`${ariaLabel}还有${overflowItems.length}项`" @click.stop>+{{ overflowItems.length }}</button></template>
           <div class="performance-select-shell__overflow-items" :aria-label="`${ariaLabel}已选隐藏项`" @pointerdown.stop>
@@ -61,9 +64,13 @@ const props = withDefaults(defineProps<{
   disabledSurface?: 'muted' | 'white'
   disabled?: boolean
   lockedValues?: string[]
+  /** 前置放大镜（搜索成员 combobox，REA 实采：左内距 35 + 图标 16 偏移 13，色 placeholder） */
+  searchPrefix?: boolean
+  /** 是否在标签上渲染单个移除 ×（单选用飞书行为：仅右侧整体清除，标签无 ×） */
+  tagClosable?: boolean
 }>(), {
   selectedItems: () => [], placeholder: '请选择', ariaLabel: '选择器', popupLabel: '选项', clearLabel: '清空已选',
-  popupHeight: 'auto', popupWidth: undefined, popupMaxHeight: 320, maxVisibleTags: 0, autoHeight: false, selectionStyle: 'tags', tagShape: 'default', openOnFocus: true, openOnSearch: false, hideArrow: false, disabledSurface: 'muted', disabled: false, lockedValues: () => [],
+  popupHeight: 'auto', popupWidth: undefined, popupMaxHeight: 320, maxVisibleTags: 0, autoHeight: false, selectionStyle: 'tags', tagShape: 'default', openOnFocus: true, openOnSearch: false, hideArrow: false, disabledSurface: 'muted', disabled: false, lockedValues: () => [], searchPrefix: false, tagClosable: true,
 })
 const emit = defineEmits<{ 'update:modelValue': [value: string[]]; 'update:query': [value: string]; open: []; close: []; keydown: [event: KeyboardEvent] }>()
 const root = ref<HTMLElement | null>(null)
@@ -200,6 +207,9 @@ onBeforeUnmount(() => {
 .performance-select-shell__selector.disabled { background: var(--performance-field-disabled-background); color: var(--performance-field-disabled-text); cursor: not-allowed; }
 .performance-select-shell__selector.disabled.disabled-white { background: var(--color-bg-card); color: var(--color-text-primary); }
 .performance-select-shell__selector:not(.disabled):hover, .performance-select-shell.is-open .performance-select-shell__selector { border-color: var(--performance-field-border-focus); }
+.performance-select-shell__selector.has-search-prefix { padding-left: var(--performance-select-search-prefix-padding-left); }
+.performance-select-shell__search-icon { position: absolute; left: var(--performance-select-search-prefix-icon-left); top: 50%; display: flex; width: var(--icon-size); height: var(--icon-size); transform: translateY(-50%); color: var(--color-text-placeholder); pointer-events: none; }
+.performance-select-shell__search-icon svg { width: var(--icon-size); height: var(--icon-size); }
 .performance-select-shell__selector[aria-invalid="true"] { border-color: var(--performance-field-border-invalid); }
 .performance-select-shell__content { position: relative; display: flex; overflow: hidden; min-width: 0; flex: 1; flex-wrap: nowrap; align-items: center; height: var(--performance-select-content-height); }
 .performance-select-shell__placeholder { overflow: hidden; min-width: 0; max-width: 100%; color: var(--color-text-placeholder); line-height: var(--performance-select-content-height); text-overflow: ellipsis; white-space: nowrap; }
@@ -213,7 +223,8 @@ onBeforeUnmount(() => {
 .performance-select-shell__selector:not(.has-value) .performance-select-shell__input { position: absolute; inset: 0; width: 100% !important; }
 .performance-select-shell__clear { position: absolute; right: var(--performance-select-padding-x); display: flex; width: 12px; height: 28px; flex: 0 0 12px; align-items: center; margin-left: var(--spacing-2); padding: 0; border: 0; background: transparent; color: var(--performance-select-icon-color); cursor: pointer; opacity: 0; pointer-events: none; }
 .performance-select-shell__clear svg { width: 12px; height: 12px; }
-.performance-select-shell__selector:hover .performance-select-shell__clear, .performance-select-shell__clear:focus-visible { opacity: 1; pointer-events: auto; }
+.performance-select-shell__selector:hover .performance-select-shell__clear, .performance-select-shell__selector:focus-within .performance-select-shell__clear, .performance-select-shell__clear:focus-visible { opacity: 1; pointer-events: auto; }
+.performance-select-shell__clear:hover { color: var(--performance-control-focus-border); }
 .performance-select-shell__selector.has-value:not(.is-plain):hover .performance-select-shell__arrow { visibility: hidden; }
 .performance-select-shell__arrow { flex: 0 0 12px; margin-left: var(--spacing-2); color: var(--performance-select-icon-color); }
 .performance-select-shell__popup { z-index: var(--performance-popover-z-index); display: flex; flex-direction: column; box-sizing: border-box; }

@@ -63,7 +63,8 @@ function onFilterClick() {
   >
     <template v-if="$slots.left" #left><slot name="left" /></template>
     <template #search>
-      <PerformanceSearchInput :model-value="keyword" class="search-input" :class="{ 'search-input--fill': searchFill }" :width="searchFill ? 'auto' : searchWidth" :placeholder="searchPlaceholder" :aria-label="searchAriaLabel" :variant="searchVariant" @update:model-value="emit('update:keyword', $event)" @search="emit('search')" @clear="emit('clear')" />
+      <slot v-if="$slots.search" name="search" />
+      <PerformanceSearchInput v-else :model-value="keyword" class="search-input" :class="{ 'search-input--fill': searchFill }" :width="searchFill ? 'auto' : searchWidth" :placeholder="searchPlaceholder" :aria-label="searchAriaLabel" :variant="searchVariant" @update:model-value="emit('update:keyword', $event)" @search="emit('search')" @clear="emit('clear')" />
     </template>
     <template #filters>
       <PerformanceFilterButton v-if="showFilter" ref="filterButton" class="filter-button" :label="filterLabel" :variant="filterVariant" :disabled="filterDisabled" :active="filterActive" :count="filterCount" @click="onFilterClick" />

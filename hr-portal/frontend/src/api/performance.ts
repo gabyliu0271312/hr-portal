@@ -1610,6 +1610,10 @@ export const projectManagementApi = {
     const { data } = await api.get(`/performance/project-management/cycles/${cycleId}/members/filter-options`, { params: { key, keyword } })
     return data
   },
+  async searchCyclePeople(cycleId: number, keyword: string): Promise<Array<{ value: string; label: string; sub_label?: string; department?: string | null }>> {
+    const { data } = await api.post(`/performance/project-management/cycles/${cycleId}/members/search-people`, { keyword })
+    return data
+  },
   async cycleMemberFilterPresets(cycleId: number): Promise<{ items: PerformanceMemberFilterPreset[] }> {
     const { data } = await api.get(`/performance/project-management/cycles/${cycleId}/members/filter-presets`)
     return data

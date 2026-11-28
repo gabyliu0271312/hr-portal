@@ -3942,6 +3942,56 @@ async def result_view_member_detail(
     )
 
 
+class CycleMemberSearchQuery(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    keyword: str = Field(default="", max_length=128)
+
+
+class CycleMemberSearchItem(BaseModel):
+    value: str
+    label: str
+    sub_label: str | None = None
+    department: str | None = None
+
+
+@router.post("/project-management/cycles/{cycle_id}/members/search-people", response_model=list[CycleMemberSearchItem])
+async def search_cycle_member_people(
+    cycle_id: int,
+    payload: CycleMemberSearchQuery,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+) -> list[CycleMemberSearchItem]:
+    """成员列表「搜索成员」人员模糊搜索（对齐飞书 review/snapshot/emp/query）。
+
+    搜索池 = 周期授权快照全部人员；按 账号/姓名/部门 子串匹配（忽略大小写），
+    返回 label = 账号+中文名（飞书 name 行格式）。鉴权与成员列表同源。
+    """
+    del context  # 能进入成员列表 = 具备查看上下文；搜索不额外改变数据范围
+    cycle = await db.get(PerformanceCycle, cycle_id)
+    if cycle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="周期不存在")
+    try:
+        _, people = await PerformanceProjectService(db)._cycle_snapshot_people(cycle)
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    keyword = payload.keyword.strip().casefold()
+    result: list[CycleMemberSearchItem] = []
+    for person in people:
+        searchable = " ".join(
+            value for value in (person.employee_no, person.display_name, person.organization_ref, person.department) if value
+        ).casefold()
+        if keyword and keyword not in searchable:
+            continue
+        department = person.organization_ref or person.department
+        result.append(CycleMemberSearchItem(
+            value=person.employee_no,
+            label=f"{person.employee_no}{person.display_name}",
+            sub_label=department,
+            department=department,
+        ))
+    return result[:50]
+
+
 @router.get("/project-management/cycles/{cycle_id}/members", response_model=ProjectMemberPage)
 async def cycle_project_members(
     cycle_id: int,

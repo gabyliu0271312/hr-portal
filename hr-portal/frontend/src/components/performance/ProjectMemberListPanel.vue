@@ -4,6 +4,7 @@ import { projectManagementApi, performanceWorkbenchApi, fetchPerformanceColumnPr
 import { employeeSwitchEpoch } from '@/stores/identitySwitch'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import PerformanceMemberFilter from './PerformanceMemberFilter.vue'
+import PerformanceSearchSelect, { type PerformanceSearchSelectOption } from './PerformanceSearchSelect.vue'
 import type { PerformanceMemberFilters } from '@/api/performance'
 import UiButton from '../ui/UiButton.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
@@ -68,6 +69,52 @@ const filterOpen = ref(false)
 const filterAnchor = ref<HTMLElement | null>(null)
 const memberFilters = ref<PerformanceMemberFilters>({ logic: 'and', conditions: [] })
 const supportsMemberFilters = computed(() => Boolean(props.cycleId) && !props.provider && !props.reviewContext && (!props.variant || props.variant === 'default'))
+/** 成员列表「搜索成员」= 人员单选 combobox（对齐飞书：输入弹下拉选人，选中后列表按人过滤） */
+const supportsMemberPicker = computed(() => supportsMemberFilters.value)
+const memberPickerValue = ref<string | null>(null)
+const memberPickerSearchOptions = ref<PerformanceSearchSelectOption[]>([])
+const memberPickerSelected = ref<PerformanceSearchSelectOption | null>(null)
+const memberPickerLoading = ref(false)
+const memberPickerError = ref('')
+let memberPickerRequest = 0
+const memberPickerOptions = computed<PerformanceSearchSelectOption[]>(() => {
+  if (memberPickerSelected.value && !memberPickerSearchOptions.value.some(option => option.value === memberPickerValue.value)) {
+    return [memberPickerSelected.value, ...memberPickerSearchOptions.value]
+  }
+  return memberPickerSearchOptions.value
+})
+async function searchCyclePeople(keyword: string) {
+  const cycleId = props.cycleId
+  if (!cycleId || !keyword.trim()) return
+  const request = ++memberPickerRequest
+  memberPickerLoading.value = true
+  memberPickerError.value = ''
+  try {
+    const people = await projectManagementApi.searchCyclePeople(cycleId, keyword.trim())
+    if (request !== memberPickerRequest) return
+    memberPickerSearchOptions.value = people.map(person => ({
+      value: person.value,
+      label: person.label,
+      searchText: `${person.label} ${person.sub_label || ''}`,
+      subLabel: person.sub_label || undefined,
+      avatarFallback: (person.label || '').slice(-1),
+    }))
+  } catch {
+    if (request === memberPickerRequest) memberPickerError.value = '成员搜索失败，请重试'
+  } finally {
+    if (request === memberPickerRequest) memberPickerLoading.value = false
+  }
+}
+function onMemberPickerChange(value: string | string[] | null) {
+  const picked = typeof value === 'string' ? value : null
+  if (picked) memberPickerSelected.value = memberPickerSearchOptions.value.find(option => option.value === picked) || null
+  memberPickerValue.value = picked
+  page.value = 1
+  selectedKeys.value = []
+  selectedRows.value = {}
+  void loadMembers()
+}
+const memberKeyword = computed(() => supportsMemberPicker.value ? (memberPickerValue.value || '') : keyword.value.trim())
 function openMemberFilter() {
   if (!supportsMemberFilters.value) { emit('filter'); return }
   filterAnchor.value = memberToolbar.value?.$el?.querySelector('.filter-button') || null
@@ -263,7 +310,7 @@ const loadMembers = async () => {
       total.value = Array.isArray(result) ? members.value.length : result.total
     } else {
       const result = props.cycleId
-        ? await projectManagementApi.cycleMembers(props.cycleId, keyword.value.trim() || undefined, page.value, pageSize.value, sortBy.value || undefined, sortOrder.value || undefined, ...(memberFilters.value.conditions.length ? [memberFilters.value] : []))
+        ? await projectManagementApi.cycleMembers(props.cycleId, memberKeyword.value || undefined, page.value, pageSize.value, sortBy.value || undefined, sortOrder.value || undefined, ...(memberFilters.value.conditions.length ? [memberFilters.value] : []))
         : await projectManagementApi.members(props.projectId, keyword.value.trim() || undefined, page.value, pageSize.value, sortBy.value || undefined, sortOrder.value || undefined)
       if (sequence !== requestSequence) return
       updateSchema(result)
@@ -365,7 +412,7 @@ async function exportRows() {
     : context
       ? sortPerformanceRows((Array.isArray(result) ? result : ((result as { items?: PerformanceWorkbenchTaskPerson[] } | null)?.items || [])) as MemberRow[], sortBy.value, sortOrder.value, memberSortValue)
       : (props.cycleId
-        ? await projectManagementApi.cycleExportMembers(props.cycleId, keyword.value.trim() || undefined, sortBy.value || undefined, sortOrder.value || undefined, ...(memberFilters.value.conditions.length ? [memberFilters.value] : []))
+        ? await projectManagementApi.cycleExportMembers(props.cycleId, memberKeyword.value || undefined, sortBy.value || undefined, sortOrder.value || undefined, ...(memberFilters.value.conditions.length ? [memberFilters.value] : []))
         : await projectManagementApi.exportMembers(props.projectId, keyword.value.trim() || undefined, sortBy.value || undefined, sortOrder.value || undefined)).items
   return [
     visibleColumns.value.map(column => column.label),
@@ -449,6 +496,27 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
       @clear="page = 1; loadMembers()"
       @filter="variant === 'calibration' || variant === 'embedded' ? (page = 1, loadMembers()) : openMemberFilter()"
     >
+      <template v-if="supportsMemberPicker" #search>
+        <div class="search-input search-input--fill">
+          <PerformanceSearchSelect
+            v-model="memberPickerValue"
+            :options="memberPickerOptions"
+            placeholder="搜索成员"
+            aria-label="搜索成员"
+            remote-search
+            option-style="none"
+            option-layout="detailed"
+            tag-shape="round"
+            search-prefix
+            :tag-closable="false"
+            hide-arrow
+            :loading="memberPickerLoading"
+            :empty-text="memberPickerError || '暂无可选项'"
+            @search="searchCyclePeople"
+            @update:model-value="onMemberPickerChange"
+          />
+        </div>
+      </template>
       <template v-if="showExport" #actions>
         <PerformanceExportButton :load-rows="exportRows" :filename="`成员列表_${props.cycleId || props.projectId}`" :disabled="loading || Boolean(error) || !total" @success="exportNotice = '导出成功'" @error="exportNotice = '导出失败，请稍后重试'" />
       </template>

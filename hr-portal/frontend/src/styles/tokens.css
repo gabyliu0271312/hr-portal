@@ -765,6 +765,7 @@
   --performance-select-tag-padding-x: 6px;
   --performance-select-tag-gap: var(--spacing-1);
   --performance-select-tag-background: rgba(31, 35, 41, 0.1);
+  --performance-select-tag-background-hover: rgba(31, 35, 41, 0.15);
   --performance-select-tag-text: var(--color-text-primary);
   --performance-select-tag-radius: var(--radius-sm);
   /* 员工多选胶囊变体（REA 实测：圆角 pill、内距 2/8、头像 20） */
@@ -775,6 +776,9 @@
   --performance-select-tag-content-max-width: 144px;
   --performance-select-tag-close-size: 12px;
   --performance-select-icon-color: #646a73;
+  /* 「搜索成员」combobox 前置放大镜（REA 实采：左内距 35 让位，图标左偏移 13，色=placeholder） */
+  --performance-select-search-prefix-padding-left: 35px;
+  --performance-select-search-prefix-icon-left: 13px;
   --performance-select-option-height: 30px;
   --performance-select-option-padding-x: 8px;
   --performance-select-option-hover: rgba(31, 35, 41, 0.08);
