@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -32,7 +33,10 @@ class PerformanceRoleCreateIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(..., min_length=1, max_length=64)
+    name_en: str | None = Field(default=None, max_length=64)
     description: str | None = Field(default=None, max_length=2000)
+    description_en: str | None = Field(default=None, max_length=2000)
+    role_type: Literal["MANAGEMENT", "ASSESSMENT"] = "MANAGEMENT"
     function_permission_keys: list[str] = Field(default_factory=list, max_length=256)
 
     @field_validator("name")
@@ -43,9 +47,25 @@ class PerformanceRoleCreateIn(BaseModel):
             raise ValueError("角色名称不能为空白")
         return value
 
+    @field_validator("name_en")
+    @classmethod
+    def normalize_name_en(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
     @field_validator("description")
     @classmethod
     def normalize_description(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+    @field_validator("description_en")
+    @classmethod
+    def normalize_description_en(cls, value: str | None) -> str | None:
         if value is None:
             return None
         value = value.strip()
@@ -56,7 +76,9 @@ class PerformanceRoleUpdateIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = Field(default=None, min_length=1, max_length=64)
+    name_en: str | None = Field(default=None, max_length=64)
     description: str | None = Field(default=None, max_length=2000)
+    description_en: str | None = Field(default=None, max_length=2000)
     function_permission_keys: list[str] | None = Field(default=None, max_length=256)
 
     @field_validator("name")
@@ -69,9 +91,25 @@ class PerformanceRoleUpdateIn(BaseModel):
             raise ValueError("角色名称不能为空白")
         return value
 
+    @field_validator("name_en")
+    @classmethod
+    def normalize_name_en(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
     @field_validator("description")
     @classmethod
     def normalize_description(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+    @field_validator("description_en")
+    @classmethod
+    def normalize_description_en(cls, value: str | None) -> str | None:
         if value is None:
             return None
         value = value.strip()
@@ -88,7 +126,9 @@ class PerformanceRoleListItem(BaseModel):
     id: int
     code: str
     name: str
+    name_en: str | None
     description: str | None
+    description_en: str | None
     role_type: str
     member_source: str | None
     is_system: bool
@@ -453,7 +493,9 @@ def _role_out(role: PerformanceRole) -> PerformanceRoleOut:
         id=role.id,
         code=role.code,
         name=role.name,
+        name_en=role.name_en,
         description=role.description,
+        description_en=role.description_en,
         role_type=role.role_type,
         member_source=role.member_source,
         is_system=role.is_system,
@@ -480,9 +522,6 @@ async def list_performance_roles(
 
     statement = select(PerformanceRole).where(PerformanceRole.role_type == role_type)
     count_statement = select(func.count()).select_from(PerformanceRole).where(PerformanceRole.role_type == role_type)
-    if role_type == "ASSESSMENT":
-        statement = statement.where(PerformanceRole.is_system.is_(True))
-        count_statement = count_statement.where(PerformanceRole.is_system.is_(True))
     if is_active is not None:
         statement = statement.where(PerformanceRole.is_active.is_(is_active))
         count_statement = count_statement.where(PerformanceRole.is_active.is_(is_active))
@@ -535,10 +574,12 @@ async def create_performance_role(
     role = PerformanceRole(
         code=f"custom.{uuid4().hex}",
         name=payload.name,
+        name_en=payload.name_en,
         description=payload.description,
+        description_en=payload.description_en,
         function_permission_keys=list(dict.fromkeys(payload.function_permission_keys)),
-        role_type="MANAGEMENT",
-        member_source=None,
+        role_type=payload.role_type,
+        member_source="在周期中导入" if payload.role_type == "ASSESSMENT" else None,
         is_system=False,
         is_active=True,
     )
@@ -555,7 +596,11 @@ async def create_performance_role(
             after_state={
                 "code": role.code,
                 "name": role.name,
+                "name_en": role.name_en,
                 "description": role.description,
+                "description_en": role.description_en,
+                "role_type": role.role_type,
+                "member_source": role.member_source,
                 "function_permission_keys": role.function_permission_keys,
                 "is_system": role.is_system,
                 "is_active": role.is_active,
@@ -577,8 +622,8 @@ async def update_performance_role(
     role = await db.get(PerformanceRole, role_id)
     if role is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="角色不存在")
-    if role.role_type != "MANAGEMENT":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="评估角色不可编辑")
+    if role.is_system:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="系统角色不可编辑")
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
         return _role_out(role)
@@ -597,7 +642,9 @@ async def update_performance_role(
         changes["function_permission_keys"] = list(dict.fromkeys(changes["function_permission_keys"] or []))
     before_state = {
         "name": role.name,
+        "name_en": role.name_en,
         "description": role.description,
+        "description_en": role.description_en,
         "function_permission_keys": role.function_permission_keys,
     }
     for key, value in changes.items():
@@ -629,8 +676,6 @@ async def update_performance_role_status(
     role = await db.get(PerformanceRole, role_id)
     if role is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="角色不存在")
-    if role.role_type != "MANAGEMENT":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="评估角色不可操作")
     if role.is_system and not payload.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="系统角色不可停用")
     if role.is_active == payload.is_active:
@@ -665,8 +710,6 @@ async def delete_performance_role(
     role = await db.get(PerformanceRole, role_id)
     if role is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="角色不存在")
-    if role.role_type != "MANAGEMENT":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="评估角色不可删除")
     if role.is_system:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="系统角色不可删除")
     if role.is_active:
@@ -681,7 +724,9 @@ async def delete_performance_role(
     before_state = {
         "code": role.code,
         "name": role.name,
+        "name_en": role.name_en,
         "description": role.description,
+        "description_en": role.description_en,
         "function_permission_keys": role.function_permission_keys,
         "is_system": role.is_system,
         "is_active": role.is_active,

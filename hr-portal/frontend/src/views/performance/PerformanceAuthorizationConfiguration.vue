@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { performanceUserAuthorizationApi, type PerformanceUserAuthorization } from '@/api/performance'
+import {
+  performanceAuthRuleApi,
+  performanceUserAuthorizationApi,
+  type PerformanceAuthRule,
+  type PerformanceUserAuthorization,
+} from '@/api/performance'
 import { formatDisplayDateTime } from '@/utils/datetime'
 import PerformanceAuthorizationDialog from '@/components/performance/PerformanceAuthorizationDialog.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
@@ -13,6 +18,7 @@ import PerformanceLineTabs from '@/components/performance/PerformanceLineTabs.vu
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
 import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'
 import PerformancePermissionButton from '@/components/performance/PerformancePermissionButton.vue'
+import MetricTemplateEmptyIllustration from '@/components/performance/MetricTemplateEmptyIllustration.vue'
 
 const tabs = [{ key: 'users', label: '指定用户授权' }, { key: 'rules', label: '按规则授权' }]
 const activeTab = ref('users')
@@ -23,35 +29,52 @@ const keyword = computed({
 })
 const isRuleTab = computed(() => activeTab.value === 'rules')
 const pageSize = ref(10)
-const searchPlaceholder = computed(() => isRuleTab.value ? '通过用户范围、授权角色搜索' : '通过用户、授权角色搜索')
+const searchPlaceholder = computed(() => isRuleTab.value ? '通过角色名称搜索' : '通过用户、授权角色搜索')
 const dialogVisible = ref(false)
 const dialogMode = ref<'users' | 'rules'>('users')
-const rows = ref<PerformanceUserAuthorization[]>([])
+const userRows = ref<PerformanceUserAuthorization[]>([])
+const ruleRows = ref<PerformanceAuthRule[]>([])
 const total = ref(0)
 const page = ref(1)
 const loading = ref(false)
 const loadError = ref('')
 const editing = ref<PerformanceUserAuthorization | null>(null)
+const editingRule = ref<PerformanceAuthRule | null>(null)
 const pendingRevoke = ref<PerformanceUserAuthorization | null>(null)
 const revokeVisible = ref(false)
 const revoking = ref(false)
 const revokeError = ref('')
+const pendingDeleteRule = ref<PerformanceAuthRule | null>(null)
+const deleteRuleVisible = ref(false)
+const deletingRule = ref(false)
+const deleteRuleError = ref('')
 let sequence = 0
+
+function ruleScopeLabel(orScope: PerformanceAuthRule['or_scope']) {
+  return orScope.length ? `${orScope.length} 组范围条件` : '--'
+}
 
 async function loadRows() {
   const current = ++sequence
-  rows.value = []
+  if (isRuleTab.value) ruleRows.value = []
+  else userRows.value = []
   total.value = 0
   loadError.value = ''
-  if (isRuleTab.value) { loading.value = false; return }
   loading.value = true
   try {
-    const result = await performanceUserAuthorizationApi.list(keyword.value, page.value, pageSize.value)
-    if (current !== sequence) return
-    rows.value = result.items
-    total.value = result.total
+    if (isRuleTab.value) {
+      const result = await performanceAuthRuleApi.list(keyword.value, page.value, pageSize.value)
+      if (current !== sequence) return
+      ruleRows.value = result.items
+      total.value = result.total
+    } else {
+      const result = await performanceUserAuthorizationApi.list(keyword.value, page.value, pageSize.value)
+      if (current !== sequence) return
+      userRows.value = result.items
+      total.value = result.total
+    }
   } catch (e: any) {
-    if (current === sequence) loadError.value = e?.response?.data?.detail || e?.message || '授权列表加载失败'
+    if (current === sequence) loadError.value = e?.response?.data?.detail || e?.message || (isRuleTab.value ? '规则列表加载失败' : '授权列表加载失败')
   } finally {
     if (current === sequence) loading.value = false
   }
@@ -59,9 +82,16 @@ async function loadRows() {
 
 watch([activeTab, keyword], () => { page.value = 1; dialogVisible.value = false; void loadRows() }, { immediate: true })
 
-function openCreateDialog() { editing.value = null; dialogMode.value = isRuleTab.value ? 'rules' : 'users'; dialogVisible.value = true }
-function openEdit(row: PerformanceUserAuthorization) { editing.value = row; dialogMode.value = 'users'; dialogVisible.value = true }
+function openCreateDialog() {
+  editing.value = null
+  editingRule.value = null
+  dialogMode.value = isRuleTab.value ? 'rules' : 'users'
+  dialogVisible.value = true
+}
+function openEditUser(row: PerformanceUserAuthorization) { editing.value = row; editingRule.value = null; dialogMode.value = 'users'; dialogVisible.value = true }
+function openEditRule(row: PerformanceAuthRule) { editing.value = null; editingRule.value = row; dialogMode.value = 'rules'; dialogVisible.value = true }
 function openRevoke(row: PerformanceUserAuthorization) { pendingRevoke.value = row; revokeError.value = ''; revokeVisible.value = true }
+function openDeleteRule(row: PerformanceAuthRule) { pendingDeleteRule.value = row; deleteRuleError.value = ''; deleteRuleVisible.value = true }
 
 async function revoke() {
   if (!pendingRevoke.value || revoking.value) return
@@ -69,7 +99,7 @@ async function revoke() {
   try {
     await performanceUserAuthorizationApi.revoke(pendingRevoke.value.user_id)
     revokeVisible.value = false
-    if (rows.value.length === 1 && page.value > 1) page.value -= 1
+    if (userRows.value.length === 1 && page.value > 1) page.value -= 1
     await loadRows()
   } catch (e: any) {
     revokeError.value = e?.response?.data?.detail || e?.message || '撤销授权失败'
@@ -78,7 +108,29 @@ async function revoke() {
   }
 }
 
+async function deleteRule() {
+  if (!pendingDeleteRule.value || deletingRule.value) return
+  deletingRule.value = true
+  try {
+    await performanceAuthRuleApi.remove(pendingDeleteRule.value.id)
+    deleteRuleVisible.value = false
+    if (ruleRows.value.length === 1 && page.value > 1) page.value -= 1
+    await loadRows()
+  } catch (e: any) {
+    deleteRuleError.value = e?.response?.data?.detail || e?.message || '删除规则失败'
+  } finally {
+    deletingRule.value = false
+  }
+}
+
 async function exportRows() {
+  if (isRuleTab.value) {
+    const result = await performanceAuthRuleApi.exportAll(keyword.value)
+    return [
+      ['用户范围', '授权角色', '更新人', '最近更新时间'],
+      ...result.items.map(item => [ruleScopeLabel(item.or_scope), item.role_name, item.updated_by || '--', formatDisplayDateTime(item.updated_at)]),
+    ]
+  }
   const result = await performanceUserAuthorizationApi.exportAll(keyword.value)
   return [
     ['选择用户', '授权角色', '更新人', '最近更新时间'],
@@ -86,7 +138,9 @@ async function exportRows() {
   ]
 }
 
-function notifyUnavailable(action: string) { ElMessage.info(`${action}功能将在后续任务接入`) }
+function scopeCell(orScope: PerformanceAuthRule['or_scope']) {
+  return ruleScopeLabel(orScope)
+}
 </script>
 
 <template>
@@ -97,36 +151,51 @@ function notifyUnavailable(action: string) { ElMessage.info(`${action}功能将�
         <PerformanceListToolbar v-model:keyword="keyword" :search-placeholder="searchPlaceholder" :search-aria-label="searchPlaceholder" :show-filter="false">
           <template #left><PerformanceCreateButton :label="isRuleTab ? '添加规则' : '添加授权'" @click="openCreateDialog" /></template>
           <template #actions>
-            <PerformanceExportButton v-if="!isRuleTab" :load-rows="exportRows" filename="绩效用户授权" :disabled="loading || !total" @success="ElMessage.success('导出成功')" @error="ElMessage.error('导出失败，请稍后重试')" />
+            <PerformanceExportButton :load-rows="exportRows" :filename="isRuleTab ? '绩效规则授权' : '绩效用户授权'" :disabled="loading || !total" @success="ElMessage.success('导出成功')" @error="ElMessage.error('导出失败，请稍后重试')" />
           </template>
         </PerformanceListToolbar>
         <p v-if="loadError" role="alert">{{ loadError }} <UiButton variant="text" @click="loadRows">重试</UiButton></p>
         <PerformanceManagementTable
-          :key="activeTab" :rows="isRuleTab ? [] : rows" :loading="loading" loading-text="正在加载授权配置"
+          :key="activeTab" :rows="isRuleTab ? ruleRows : userRows" :loading="loading" loading-text="正在加载授权配置"
           :empty-text="keyword.trim() ? '暂无匹配结果' : isRuleTab ? '暂无授权规则' : '暂无用户授权'"
           :table-aria-label="`${isRuleTab ? '按规则授权' : '指定用户授权'}列表`" pagination-aria-label="授权配置分页"
-          :page="page" :page-size="pageSize" :total="isRuleTab ? 0 : total"
+          :page="page" :page-size="pageSize" :total="total"
           @page-change="page = $event; void loadRows()" @page-size-change="pageSize = $event; page = 1; void loadRows()"
         >
-          <el-table-column :key="activeTab" :prop="isRuleTab ? 'userScope' : 'users'" :label="isRuleTab ? '用户范围' : '选择用户'" min-width="240"><template #default="{ row }">{{ row?.display_name ? `${row.display_name}（${row.employee_no}）` : '' }}</template></el-table-column>
+          <template #empty="{ loading: isLoading, text }">
+            <div class="authorization-empty">
+              <MetricTemplateEmptyIllustration v-if="!isLoading" />
+              <span>{{ text }}</span>
+            </div>
+          </template>
+          <el-table-column :key="activeTab" :prop="isRuleTab ? 'orScope' : 'users'" :label="isRuleTab ? '用户范围' : '选择用户'" min-width="240">
+            <template #default="{ row }">
+              <template v-if="isRuleTab">{{ row?.or_scope ? scopeCell(row.or_scope) : '' }}</template>
+              <template v-else>{{ row?.display_name ? `${row.display_name}（${row.employee_no}）` : '' }}</template>
+            </template>
+          </el-table-column>
           <el-table-column prop="roles" label="授权角色" min-width="200">
-            <template #default="{ row }">{{ row?.roles?.map((role: any) => role.name).join('、') || '' }}</template>
+            <template #default="{ row }">
+              <template v-if="isRuleTab">{{ row?.role_name || '' }}</template>
+              <template v-else>{{ row?.roles?.map((role: any) => role.name).join('、') || '' }}</template>
+            </template>
           </el-table-column>
           <el-table-column prop="updatedBy" label="更新人" min-width="160"><template #default="{ row }">{{ row?.updated_by || '--' }}</template></el-table-column>
           <el-table-column prop="updatedAt" label="最近更新时间" min-width="200"><template #default="{ row }">{{ row?.updated_at ? formatDisplayDateTime(row.updated_at) : '' }}</template></el-table-column>
           <el-table-column label="操作" :width="isRuleTab ? 160 : 180" fixed="right">
             <template #default="{ row }"><div class="authorization-actions">
-              <PerformancePermissionButton v-if="!isRuleTab" allowed op="U" aria-label="编辑授权" @click="openEdit(row)">编辑</PerformancePermissionButton>
+              <PerformancePermissionButton v-if="!isRuleTab" allowed op="U" aria-label="编辑授权" @click="openEditUser(row)">编辑</PerformancePermissionButton>
               <PerformancePermissionButton v-if="!isRuleTab" allowed op="D" aria-label="撤销授权" @click="openRevoke(row)">撤销</PerformancePermissionButton>
-              <PerformancePermissionButton v-if="isRuleTab" allowed op="U" aria-label="编辑规则" @click="notifyUnavailable('编辑规则弹窗')">编辑</PerformancePermissionButton>
-              <PerformancePermissionButton v-if="isRuleTab" allowed op="D" aria-label="删除规则" @click="notifyUnavailable('删除规则')">删除</PerformancePermissionButton>
+              <PerformancePermissionButton v-if="isRuleTab" allowed op="U" aria-label="编辑规则" @click="openEditRule(row)">编辑</PerformancePermissionButton>
+              <PerformancePermissionButton v-if="isRuleTab" allowed op="D" aria-label="删除规则" @click="openDeleteRule(row)">删除</PerformancePermissionButton>
             </div></template>
           </el-table-column>
         </PerformanceManagementTable>
       </PerformanceContentSurface>
     </PerformanceLineTabs>
-    <PerformanceAuthorizationDialog v-model="dialogVisible" :mode="dialogMode" :authorization="editing" @saved="loadRows" />
+    <PerformanceAuthorizationDialog v-model="dialogVisible" :mode="dialogMode" :authorization="editing" :rule="editingRule" @saved="loadRows" />
     <PerformanceConfirmDialog v-model="revokeVisible" message="确定撤销授权吗？" :description="`撤销${pendingRevoke?.display_name || ''}的自定义管理角色授权，不影响系统角色、其他范围授权及历史任务。`" cancel-text="取消" confirm-text="撤销" :loading="revoking" :error-message="revokeError" @confirm="revoke" />
+    <PerformanceConfirmDialog v-model="deleteRuleVisible" message="确定删除此授权规则吗？" :description="`删除后，满足该规则范围的用户将不再获得「${pendingDeleteRule?.role_name || ''}」角色的授权。`" cancel-text="保留" confirm-text="确定" :loading="deletingRule" :error-message="deleteRuleError" @confirm="deleteRule" />
   </section>
 </template>
 
@@ -137,5 +206,6 @@ function notifyUnavailable(action: string) { ElMessage.info(`${action}功能将�
 .authorization-surface { margin-top: var(--spacing-4); padding: var(--spacing-25); }
 .authorization-surface :deep(.list-toolbar) { margin-bottom: var(--spacing-2); }
 .authorization-actions { display: inline-flex; align-items: center; gap: var(--spacing-2); white-space: nowrap; }
+.authorization-empty { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-3); padding: var(--spacing-8) 0; color: var(--color-text-secondary); }
 @media (max-width: 720px) { .authorization-surface :deep(.list-toolbar) { flex-wrap: wrap; } }
 </style>

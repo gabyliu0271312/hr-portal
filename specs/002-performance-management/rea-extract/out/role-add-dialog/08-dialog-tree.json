@@ -1,0 +1,573 @@
+{
+  "found": true,
+  "boxCls": "perf-web__ud__modal__content perf-web__ud__modal-closable ud-typography-body-0 u1ewtqcl ugr6219 u11qmguv u10jk5vf u1tyq0we u1nbblvp uifp7yv u1ov4xf1 u1asdtw4 u22iagw umb70yw u1spoy8 u1erghxr u1ehz9de u10pi13n u1vx9l62 uly5x3f u1immsc2 uses1vf u82itaf u71fsbu",
+  "lines": [
+    {
+      "d": 0,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__content perf-web__ud__modal-closable ud-typography-body-0 u1ewtqcl ugr6219 u11q",
+      "rect": {
+        "x": 1420,
+        "y": 415.5,
+        "w": 600,
+        "h": 482
+      },
+      "t": "添加评估角色 名称*中文英文描述中文0/",
+      "kids": 4,
+      "st": {
+        "bg": "rgb(255, 255, 255)",
+        "color": "rgb(31, 35, 41)",
+        "radius": "8px",
+        "pad": "0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22px",
+        "border": "rgb(31, 35, 41)",
+        "justify": "normal",
+        "align": "normal",
+        "display": "flex",
+        "position": "relative"
+      }
+    },
+    {
+      "d": 1,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__header",
+      "rect": {
+        "x": 1420,
+        "y": 415.5,
+        "w": 600,
+        "h": 72
+      },
+      "t": "添加评估角色",
+      "kids": 1,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "24px 56px 24px 24px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22px",
+        "border": "rgb(31, 35, 41)",
+        "justify": "normal",
+        "align": "normal",
+        "display": "block",
+        "position": "relative"
+      }
+    },
+    {
+      "d": 2,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__title ud-typography-title-4 u1ewtqcl u1lmfglv uibjyge u1abmfm4 u9yszdx u1nbblvp",
+      "rect": {
+        "x": 1444,
+        "y": 439.5,
+        "w": 520,
+        "h": 24
+      },
+      "t": "添加评估角色",
+      "kids": 2,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "16px",
+        "fw": "600",
+        "lh": "24px",
+        "border": "rgb(31, 35, 41)",
+        "justify": "normal",
+        "align": "baseline",
+        "display": "flex",
+        "position": "static"
+      }
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__titleContent",
+      "rect": {
+        "x": 1444,
+        "y": 439.5,
+        "w": 520,
+        "h": 24
+      },
+      "t": "添加评估角色",
+      "kids": 0,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "16px",
+        "fw": "600",
+        "lh": "24px",
+        "border": "rgb(31, 35, 41)",
+        "justify": "normal",
+        "align": "normal",
+        "display": "block",
+        "position": "static"
+      }
+    },
+    {
+      "d": 3,
+      "tag": "span",
+      "cls": "perf-web__ud__empty-inline-element u1j7mq28 u1a3p1vp u14t3ns0",
+      "rect": {
+        "x": 1964,
+        "y": 439.5,
+        "w": 0,
+        "h": 24
+      },
+      "t": "",
+      "kids": 0,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "16px",
+        "fw": "600",
+        "lh": "24px",
+        "border": "rgb(31, 35, 41)",
+        "justify": "normal",
+        "align": "normal",
+        "display": "block",
+        "position": "static"
+      }
+    },
+    {
+      "d": 1,
+      "tag": "button",
+      "cls": "perf-web__ud__button perf-web__ud__button--icon perf-web__ud__button--icon-default perf-web__ud__but",
+      "rect": {
+        "x": 1972,
+        "y": 437.5,
+        "w": 28,
+        "h": 28
+      },
+      "t": "",
+      "kids": 1,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(100, 106, 115)",
+        "radius": "6px",
+        "pad": "4px",
+        "fs": "20px",
+        "fw": "400",
+        "lh": "0px",
+        "border": "rgba(0, 0, 0, 0)",
+        "justify": "center",
+        "align": "center",
+        "display": "flex",
+        "position": "absolute"
+      }
+    },
+    {
+      "d": 2,
+      "tag": "span",
+      "cls": "universe-icon",
+      "rect": {
+        "x": 1976,
+        "y": 441.5,
+        "w": 20,
+        "h": 20
+      },
+      "t": "",
+      "kids": 1,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(100, 106, 115)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "20px",
+        "fw": "400",
+        "lh": "0px",
+        "border": "rgb(100, 106, 115)",
+        "justify": "normal",
+        "align": "normal",
+        "display": "block",
+        "position": "static"
+      }
+    },
+    {
+      "d": 3,
+      "tag": "svg",
+      "cls": "[object SVGAnimatedString]",
+      "rect": {
+        "x": 1976,
+        "y": 441.5,
+        "w": 20,
+        "h": 20
+      },
+      "t": "",
+      "kids": 1,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(100, 106, 115)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "20px",
+        "fw": "400",
+        "lh": "20px",
+        "border": "rgb(100, 106, 115)",
+        "justify": "normal",
+        "align": "normal",
+        "display": "inline-block",
+        "position": "static"
+      }
+    },
+    {
+      "d": 4,
+      "tag": "path",
+      "cls": "[object SVGAnimatedString]",
+      "rect": {
+        "x": 1978.9,
+        "y": 444.4,
+        "w": 14.2,
+        "h": 14.2
+      },
+      "t": "",
+      "kids": 0,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(100, 106, 115)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "20px",
+        "fw": "400",
+        "lh": "20px",
+        "border": "rgb(100, 106, 115)",
+        "justify": "normal",
+        "align": "normal",
+        "display": "inline",
+        "position": "static"
+      }
+    },
+    {
+      "d": 1,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__body",
+      "rect": {
+        "x": 1420,
+        "y": 487.5,
+        "w": 600,
+        "h": 330
+      },
+      "t": "名称*中文英文描述中文0/2000添加英",
+      "kids": 1,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "0px 24px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22.001px",
+        "border": "rgb(31, 35, 41)",
+        "justify": "normal",
+        "align": "normal",
+        "display": "block",
+        "position": "static"
+      }
+    },
+    {
+      "d": 2,
+      "tag": "form",
+      "cls": "perf-web__ud__form perf-web__ud__form-vertical perf-web__ud__form-md",
+      "rect": {
+        "x": 1444,
+        "y": 487.5,
+        "w": 552,
+        "h": 310
+      },
+      "t": "名称*中文英文描述中文0/2000添加英",
+      "kids": 2,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22.001px",
+        "border": "rgb(31, 35, 41)",
+        "justify": "normal",
+        "align": "normal",
+        "display": "block",
+        "position": "static"
+      }
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "perf-web__ud__row perf-web__ud__form__item perf-web__ud__form__item-error-locally",
+      "rect": {
+        "x": 1444,
+        "y": 487.5,
+        "w": 552,
+        "h": 110
+      },
+      "t": "名称*中文英文",
+      "kids": 2,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22.001px",
+        "border": "rgb(31, 35, 41)",
+        "justify": "normal",
+        "align": "stretch",
+        "display": "flex",
+        "position": "static"
+      }
+    },
+    {
+      "d": 4,
+      "tag": "div",
+      "cls": "perf-web__ud__col perf-web__ud__form__item__label",
+      "rect": {
+        "x": 1444,
+        "y": 487.5,
+        "w": 552,
+        "h": 22
+      },
+      "t": "名称*",
+      "kids": 2,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22.001px",
+        "border": "rgb(31, 35, 41)",
+        "justify": "flow-start",
+        "align": "baseline",
+        "display": "flex",
+        "position": "relative"
+      }
+    },
+    {
+      "d": 4,
+      "tag": "div",
+      "cls": "perf-web__ud__col perf-web__ud__form__item__control",
+      "rect": {
+        "x": 1444,
+        "y": 517.5,
+        "w": 552,
+        "h": 80
+      },
+      "t": "中文英文",
+      "kids": 1,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22.001px",
+        "border": "rgb(31, 35, 41)",
+        "justify": "normal",
+        "align": "normal",
+        "display": "flex",
+        "position": "relative"
+      }
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "perf-web__ud__row perf-web__ud__form__item perf-web__ud__form__item-error-locally",
+      "rect": {
+        "x": 1444,
+        "y": 617.5,
+        "w": 552,
+        "h": 180
+      },
+      "t": "描述中文0/2000添加英文",
+      "kids": 2,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22.001px",
+        "border": "rgb(31, 35, 41)",
+        "justify": "normal",
+        "align": "stretch",
+        "display": "flex",
+        "position": "static"
+      }
+    },
+    {
+      "d": 4,
+      "tag": "div",
+      "cls": "perf-web__ud__col perf-web__ud__form__item__label",
+      "rect": {
+        "x": 1444,
+        "y": 617.5,
+        "w": 552,
+        "h": 22
+      },
+      "t": "描述",
+      "kids": 1,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22.001px",
+        "border": "rgb(31, 35, 41)",
+        "justify": "flow-start",
+        "align": "baseline",
+        "display": "flex",
+        "position": "relative"
+      }
+    },
+    {
+      "d": 4,
+      "tag": "div",
+      "cls": "perf-web__ud__col perf-web__ud__form__item__control",
+      "rect": {
+        "x": 1444,
+        "y": 647.5,
+        "w": 552,
+        "h": 150
+      },
+      "t": "中文0/2000添加英文",
+      "kids": 1,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22.001px",
+        "border": "rgb(31, 35, 41)",
+        "justify": "normal",
+        "align": "normal",
+        "display": "flex",
+        "position": "relative"
+      }
+    },
+    {
+      "d": 1,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__footer",
+      "rect": {
+        "x": 1420,
+        "y": 841.5,
+        "w": 600,
+        "h": 56
+      },
+      "t": "确定取消",
+      "kids": 1,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "0px 24px 24px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22px",
+        "border": "rgb(31, 35, 41)",
+        "justify": "normal",
+        "align": "normal",
+        "display": "block",
+        "position": "static"
+      }
+    },
+    {
+      "d": 2,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__footer__btns",
+      "rect": {
+        "x": 1444,
+        "y": 841.5,
+        "w": 552,
+        "h": 44
+      },
+      "t": "确定取消",
+      "kids": 2,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22px",
+        "border": "rgb(31, 35, 41)",
+        "justify": "normal",
+        "align": "normal",
+        "display": "flex",
+        "position": "static"
+      }
+    },
+    {
+      "d": 3,
+      "tag": "button",
+      "cls": "perf-web__ud__button perf-web__ud__button--filled perf-web__ud__button--filled-default perf-web__ud_",
+      "rect": {
+        "x": 1916,
+        "y": 841.5,
+        "w": 80,
+        "h": 32
+      },
+      "t": "确定",
+      "kids": 0,
+      "st": {
+        "bg": "rgb(20, 86, 240)",
+        "color": "rgb(255, 255, 255)",
+        "radius": "6px",
+        "pad": "4px 11px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22px",
+        "border": "rgb(20, 86, 240)",
+        "justify": "center",
+        "align": "center",
+        "display": "flex",
+        "position": "relative"
+      }
+    },
+    {
+      "d": 3,
+      "tag": "button",
+      "cls": "perf-web__ud__button perf-web__ud__button--outlined perf-web__ud__button--outlined-default perf-web_",
+      "rect": {
+        "x": 1824,
+        "y": 841.5,
+        "w": 80,
+        "h": 32
+      },
+      "t": "取消",
+      "kids": 0,
+      "st": {
+        "bg": "rgb(255, 255, 255)",
+        "color": "rgb(31, 35, 41)",
+        "radius": "6px",
+        "pad": "4px 11px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22px",
+        "border": "rgb(208, 211, 214)",
+        "justify": "center",
+        "align": "center",
+        "display": "flex",
+        "position": "relative"
+      }
+    }
+  ]
+}

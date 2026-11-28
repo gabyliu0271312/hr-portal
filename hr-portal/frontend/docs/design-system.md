@@ -1,6 +1,9 @@
 # HR Portal Design System
 
-**版本**：v2.1 · **更新**：2026-06-06 · **作用域**：本仓 frontend 及后续接入的大型业务应用
+**版本**：v2.2 · **更新**：2026-11-26 · **作用域**：本仓 frontend 及后续接入的大型业务应用
+
+> **唯一事实源**：[src/styles/tokens.css](../src/styles/tokens.css) 的实际值；视觉基准为绩效模块飞书实测线（`--perf-*` / `--ui-*`）。
+> 本文档与 tokens.css 冲突时**以 tokens.css 为准**；发现冲突先修文档，不得据旧文档写代码。组件复用硬规则见 [hr-portal/CLAUDE.md](../../CLAUDE.md)。
 
 ## 大原则
 
@@ -25,7 +28,7 @@ HR Portal 是平台入口，不是单一工具页面集合。绩效管理、招�
 当前风格为平台化飞书风：
 
 - 主色 `#3370ff` 飞书蓝，浅色辅以 `#eef2ff`
-- 灰底页面 `#f4f6f9` + 白色 `<el-card>` 内容块
+- 灰底页面 `#f5f6f7` + 白色 `UiSurface` 内容块（不要裸 `<el-card>`）
 - Element Plus 作为基础组件体系
 - 信息密度服从可读性，不追求极致紧凑
 - 圆角、阴影、hover 动效保持克制，避免营销页或装饰卡片感
@@ -54,19 +57,19 @@ HR Portal 是平台入口，不是单一工具页面集合。绩效管理、招�
 | 用途 | 变量 | 值 |
 |---|---|---|
 | 主色 | `--color-primary` | `#3370ff` |
-| 主色 hover | `--color-primary-hover` | `#2855cc` |
+| 主色 hover | `--color-primary-hover` | `#1456f0` |
 | 主色浅 | `--color-primary-light` | `#eef2ff` |
-| 标题文字 | `--color-text-primary` | `#1a2233` |
+| 标题文字 | `--color-text-primary` | `#1f2329` |
 | 正文文字 | `--color-text-regular` | `#374151` |
 | 次要文字 | `--color-text-secondary` | `#5c6b82` |
-| 占位文字 | `--color-text-placeholder` | `#9aa5b4` |
-| 页面背景 | `--color-bg-page` | `#f4f6f9` |
+| 占位文字 | `--color-text-placeholder` | `#8f959e` |
+| 页面背景 | `--ui-page-background` | `#f5f6f7`（`--color-bg-page` 仅旧页面兼容） |
 | 卡片背景 | `--color-bg-card` | `#ffffff` |
 | hover 背景 | `--color-bg-hover` | `#f0f5ff` |
-| 边框 | `--color-border` | `#e4e9f0` |
+| 边框 | `--color-border` | `#bbbfc4` |
 | 成功 | `--color-success` | `#12b76a` |
 | 警告 | `--color-warning` | `#f5920a` |
-| 危险 | `--color-danger` | `#f04438` |
+| 危险 | `--color-danger` | `#d83931` |
 
 状态色需要浅底或边框时，使用 `--color-success-light`、`--color-success-border`、`--color-danger-light`、`--color-danger-border` 等配套 token。
 
@@ -128,73 +131,107 @@ HR Portal 是平台入口，不是单一工具页面集合。绩效管理、招�
 
 ## 页面模板
 
-每个普通业务页面统一使用：
+每个普通业务页面统一使用（对齐绩效线结构）：
 
 ```vue
 <template>
-  <div style="padding: 24px">
-    <el-card>
-      <template #header>
-        <div style="display: flex; justify-content: space-between; align-items: center">
-          <span style="font-size: 16px; font-weight: 600">页面标题</span>
-          <PermissionButton menu="xxx" op="C" type="primary">
-            主操作
-          </PermissionButton>
-        </div>
-      </template>
+  <div style="padding: var(--spacing-6)">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start">
+      <PageTitle title="页面标题" description="可选描述" />
+      <PermissionButton menu="xxx" op="C" type="primary">主操作</PermissionButton>
+    </div>
 
-      <el-form inline style="margin-bottom: 16px">
-        ...
-      </el-form>
+    <UiSurface>
+      <UiListToolbar v-model:keyword="keyword" @search="onSearch" />
 
-      <div style="overflow-x: auto">
-        <el-table
-          v-loading="loading"
-          :data="list"
-          stripe
-          style="width: 100%"
-          max-height="600"
-        >
-          ...
-        </el-table>
-      </div>
-    </el-card>
+      <UiTable
+        :columns="columns"
+        :rows="list"
+        :loading="loading"
+        row-key="id"
+        sticky-header-top="var(--performance-table-sticky-top)"
+        max-height="600"
+      >
+        <template #cell="{ row, column, value }">...</template>
+      </UiTable>
+
+      <UiPagination
+        :page="page"
+        :page-size="pageSize"
+        :total="total"
+        @page-change="onPageChange"
+        @page-size-change="onSizeChange"
+      />
+    </UiSurface>
   </div>
 </template>
 ```
 
+完整参考：[AllocationResult.vue](../src/views/salary/AllocationResult.vue)。`UiTable` 已内置吸顶/滚动/固定列，**不需要**外层 `overflow-x` div，也不要 `el-table` 五件套。
+
 ## 表格规范
 
-表格五件套必须保留：
+统一使用 `UiTable`（[components/ui/UiTable.vue](../src/components/ui/UiTable.vue)），它已内置表头吸顶、横向滚动同步、固定列、空/加载态、多选与排序。调用方只声明列与数据：
 
-1. 外层包 `<div style="overflow-x: auto">`
-2. `<el-table style="width: 100%" max-height="600">`
-3. 全局 `.el-table .cell { white-space: nowrap; overflow: visible }`
-4. 数据列用 `min-width`
-5. 操作列 `width="280" fixed="right"`，按钮超过 3 个时使用下拉
+```vue
+<UiTable
+  :columns="[{ key: 'name', label: '名称', minWidth: 160 }]"
+  :rows="list"
+  :loading="loading"
+  row-key="id"
+  sticky-header-top="var(--performance-table-sticky-top)"
+  max-height="600"
+>
+  <template #cell="{ row, column, value }">...</template>
+</UiTable>
+```
+
+- 数据列用 `minWidth`；固定列用 `fixed: 'left' | 'right'`
+- 操作列在 `#cell` 插槽内渲染 `PermissionButton`，超过 3 个改下拉
+- 空态用 `#empty` 插槽，加载态由 `loading` 驱动
 
 禁止：
 
-- CSS `position: sticky` 自实现固定列
-- `.hp-table-wrap` 外层滚动容器
+- 裸 `<el-table>` 搭"五件套"
+- CSS `position: sticky` 自实现固定列、`.hp-table-wrap` 外层滚动容器
 - 数据列硬写 `width` 造成窄屏挤压
-- 表格外层和 `el-table` 内层同时做横向滚动
+- 表格外层与内层同时做横向滚动
 
 ## 业务数据表
 
 动态业务数据表的列定义由后端 `table_columns` 元数据决定，前端不写死列。
 
-敏感列展示规则：
+动态列由 `UiTable` 的 `columns` 承载（`key` = 字段 code），单元格在 `#cell` 插槽渲染。敏感列展示规则：
 
 ```vue
-<span v-if="col.is_sensitive" style="color: var(--color-text-placeholder); font-family: monospace">
-  ******
-</span>
+<template #cell="{ row, column, value }">
+  <span v-if="sensitiveCodes.has(column.key)" style="color: var(--color-text-placeholder); font-family: monospace">
+    ******
+  </span>
+  <span v-else>{{ formatCell(row, value) }}</span>
+</template>
 ```
 
-不要使用旧的 `.hp-redacted` 脱敏格栅。
+不要使用旧的 `.hp-redacted` 脱敏格栅，也不要裸 `<el-table>`。
 
 ## 组件约定
+
+### 图表（ECharts）
+
+- 唯一入口 [components/ui/UiChart.vue](../src/components/ui/UiChart.vue)；颜色、轴线、字体从 `tokens.css` 的 `--ui-chart-*` 读取（经 `composables/useChartTheme.ts`），图表代码不写死色值。
+- 分类色按 `--ui-chart-series-1..8` 固定顺序使用，不循环生成；新增图表类型在 `UiChart.vue` 的 `use([...])` 注册。
+- series 2–5 对白底对比度 <3:1，必须配可见直接标签或表格视图（relief 规则）。
+- 轴样式默认由组件注入；需覆盖时在 option 的 `axisLine / splitLine / axisLabel` 内局部指定。
+
+```vue
+<UiChart
+  :option="{
+    xAxis: { type: 'category', data: ['A', 'B'] },
+    yAxis: { type: 'value' },
+    series: [{ type: 'bar', data: [3, 5] }],
+  }"
+/>
+```
 
 ### 绩效浮层（PM-T004-T05-F36，2026-10-29）
 

@@ -1,0 +1,181 @@
+{
+  "found": true,
+  "chain": [
+    {
+      "tag": "button",
+      "cls": "perf-web__ud__button perf-web__ud__button--filled perf-web__ud__button--filled-default perf-web__ud__button--s",
+      "rect": {
+        "x": 280,
+        "y": 238,
+        "w": 126,
+        "h": 32
+      },
+      "t": "添加评估角色",
+      "st": {
+        "bg": "rgb(20, 86, 240)",
+        "color": "rgb(255, 255, 255)",
+        "border": "rgb(20, 86, 240)",
+        "radius": "6px",
+        "pad": "4px 11px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22px",
+        "display": "flex",
+        "align": "center",
+        "gap": "normal"
+      }
+    },
+    {
+      "tag": "div",
+      "cls": "!flex !justify-between",
+      "rect": {
+        "x": 280,
+        "y": 238,
+        "w": 3120,
+        "h": 32
+      },
+      "t": "添加评估角色通过角色名称搜索筛选",
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgba(0, 0, 0, 0.65)",
+        "border": "rgba(0, 0, 0, 0.65)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "21px",
+        "display": "flex",
+        "align": "normal",
+        "gap": "normal"
+      }
+    },
+    {
+      "tag": "div",
+      "cls": "!p-10 !pb-5 !bg-white !rounded-lg",
+      "rect": {
+        "x": 260,
+        "y": 162,
+        "w": 3160,
+        "h": 574
+      },
+      "t": "评估角色可以在绩效模板中被设为环",
+      "st": {
+        "bg": "rgb(255, 255, 255)",
+        "color": "rgba(0, 0, 0, 0.65)",
+        "border": "rgba(0, 0, 0, 0.65)",
+        "radius": "8px",
+        "pad": "20px 20px 10px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "21px",
+        "display": "block",
+        "align": "normal",
+        "gap": "normal"
+      }
+    },
+    {
+      "tag": "div",
+      "cls": "",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "t": "评估角色可以在绩效模板中被设为环",
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgba(0, 0, 0, 0.65)",
+        "border": "rgba(0, 0, 0, 0.65)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "21px",
+        "display": "contents",
+        "align": "normal",
+        "gap": "normal"
+      }
+    },
+    {
+      "tag": "div",
+      "cls": "perf-web__ud__tabs__pane",
+      "rect": {
+        "x": 260,
+        "y": 162,
+        "w": 3160,
+        "h": 574
+      },
+      "t": "评估角色可以在绩效模板中被设为环",
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgba(0, 0, 0, 0.65)",
+        "border": "rgba(0, 0, 0, 0.65)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "21px",
+        "display": "block",
+        "align": "normal",
+        "gap": "normal"
+      }
+    },
+    {
+      "tag": "div",
+      "cls": "perf-web__ud__tabs__content",
+      "rect": {
+        "x": 260,
+        "y": 162,
+        "w": 3160,
+        "h": 574
+      },
+      "t": "评估角色可以在绩效模板中被设为环",
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgba(0, 0, 0, 0.65)",
+        "border": "rgba(0, 0, 0, 0.65)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "21px",
+        "display": "block",
+        "align": "normal",
+        "gap": "normal"
+      }
+    },
+    {
+      "tag": "div",
+      "cls": "perf-web__ud__tabs perf-web__ud__tabs--type-line perf-web__ud__tabs--size-lg",
+      "rect": {
+        "x": 260,
+        "y": 102,
+        "w": 3160,
+        "h": 634
+      },
+      "t": "管理角色评估角色更多评估角色可以",
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgba(0, 0, 0, 0.65)",
+        "border": "rgba(0, 0, 0, 0.65)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "21px",
+        "display": "flex",
+        "align": "normal",
+        "gap": "normal"
+      }
+    }
+  ],
+  "svg": [
+    {
+      "w": 14,
+      "h": 14,
+      "inner": "<path d=\"M12 2a1 1 0 0 0-1 1v8H3a1 1 0 1 0 0 2h8v8a1 1 0 1 0 2 0v-8h8a1 1 0 1 0 0-2h-8V3a1 1 0 0 0-1-1Z\" fill=\"currentCo"
+    }
+  ],
+  "hasAddIcon": true
+}

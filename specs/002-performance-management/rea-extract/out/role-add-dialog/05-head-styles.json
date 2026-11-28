@@ -1,0 +1,137 @@
+{
+  "hint": [
+    {
+      "tag": "div",
+      "cls": "perf-web__ud__notice__description-content",
+      "rect": {
+        "x": 320,
+        "y": 191,
+        "w": 3096,
+        "h": 22
+      },
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "border": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "0px 32px 0px 0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22.001px",
+        "display": "-webkit-box",
+        "align": "normal"
+      }
+    },
+    {
+      "tag": "div",
+      "cls": "perf-web__ud__notice__description",
+      "rect": {
+        "x": 320,
+        "y": 191,
+        "w": 3096,
+        "h": 26
+      },
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "border": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22.001px",
+        "display": "flex",
+        "align": "center"
+      }
+    },
+    {
+      "tag": "div",
+      "cls": "perf-web__ud__notice__main perf-web__ud__notice__main--no-title",
+      "rect": {
+        "x": 320,
+        "y": 191,
+        "w": 3096,
+        "h": 22
+      },
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "border": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22.001px",
+        "display": "flex",
+        "align": "flow-start"
+      }
+    },
+    {
+      "tag": "div",
+      "cls": "perf-web__ud__notice perf-web__ud__notice-info perf-web__ud__notice-showIcon perf-web__ud_",
+      "rect": {
+        "x": 280,
+        "y": 182,
+        "w": 3120,
+        "h": 40
+      },
+      "st": {
+        "bg": "rgb(240, 244, 255)",
+        "color": "rgb(31, 35, 41)",
+        "border": "rgb(31, 35, 41)",
+        "radius": "6px",
+        "pad": "9px 0px 9px 16px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22.001px",
+        "display": "flex",
+        "align": "center"
+      }
+    },
+    {
+      "tag": "div",
+      "cls": "!p-10 !pb-5 !bg-white !rounded-lg",
+      "rect": {
+        "x": 260,
+        "y": 162,
+        "w": 3160,
+        "h": 525
+      },
+      "st": {
+        "bg": "rgb(255, 255, 255)",
+        "color": "rgba(0, 0, 0, 0.65)",
+        "border": "rgba(0, 0, 0, 0.65)",
+        "radius": "8px",
+        "pad": "20px 20px 10px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "21px",
+        "display": "block",
+        "align": "normal"
+      }
+    },
+    {
+      "tag": "div",
+      "cls": "",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgba(0, 0, 0, 0.65)",
+        "border": "rgba(0, 0, 0, 0.65)",
+        "radius": "0px",
+        "pad": "0px",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "21px",
+        "display": "contents",
+        "align": "normal"
+      }
+    }
+  ],
+  "addBtn": null
+}

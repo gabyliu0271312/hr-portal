@@ -1,0 +1,733 @@
+{
+  "modalLayerFound": false,
+  "allBtns": [
+    {
+      "t": "添加评估角色",
+      "x": 280,
+      "y": 238,
+      "w": 126,
+      "h": 32,
+      "cls": "perf-web__ud__button perf-web__ud__button--filled perf-web__ud__button--filled-default per",
+      "bg": "rgb(20, 86, 240)",
+      "c": "rgb(255, 255, 255)",
+      "border": "rgb(20, 86, 240)",
+      "radius": "6px",
+      "disabled": false,
+      "fontWeight": "400"
+    },
+    {
+      "t": "筛选",
+      "x": 3320,
+      "y": 238,
+      "w": 80,
+      "h": 32,
+      "cls": "perf-web__ud__button perf-web__ud__button--outlined perf-web__ud__button--outlined-default",
+      "bg": "rgb(255, 255, 255)",
+      "c": "rgb(31, 35, 41)",
+      "border": "rgb(208, 211, 214)",
+      "radius": "6px",
+      "disabled": false,
+      "fontWeight": "400"
+    },
+    {
+      "t": "编辑",
+      "x": 2966.2,
+      "y": 346,
+      "w": 28,
+      "h": 22,
+      "cls": "perf-web__ud__button perf-web__ud__button--link perf-web__ud__button--link-primary perf-we",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(187, 191, 196)",
+      "border": "rgba(0, 0, 0, 0)",
+      "radius": "6px",
+      "disabled": true,
+      "fontWeight": "400"
+    },
+    {
+      "t": "停用",
+      "x": 3010.2,
+      "y": 346,
+      "w": 28,
+      "h": 22,
+      "cls": "perf-web__ud__button perf-web__ud__button--link perf-web__ud__button--link-primary perf-we",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(187, 191, 196)",
+      "border": "rgba(0, 0, 0, 0)",
+      "radius": "6px",
+      "disabled": true,
+      "fontWeight": "400"
+    },
+    {
+      "t": "编辑",
+      "x": 2966.2,
+      "y": 393,
+      "w": 28,
+      "h": 22,
+      "cls": "perf-web__ud__button perf-web__ud__button--link perf-web__ud__button--link-primary perf-we",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(187, 191, 196)",
+      "border": "rgba(0, 0, 0, 0)",
+      "radius": "6px",
+      "disabled": true,
+      "fontWeight": "400"
+    },
+    {
+      "t": "停用",
+      "x": 3010.2,
+      "y": 393,
+      "w": 28,
+      "h": 22,
+      "cls": "perf-web__ud__button perf-web__ud__button--link perf-web__ud__button--link-primary perf-we",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(187, 191, 196)",
+      "border": "rgba(0, 0, 0, 0)",
+      "radius": "6px",
+      "disabled": true,
+      "fontWeight": "400"
+    },
+    {
+      "t": "编辑",
+      "x": 2966.2,
+      "y": 440,
+      "w": 28,
+      "h": 22,
+      "cls": "perf-web__ud__button perf-web__ud__button--link perf-web__ud__button--link-primary perf-we",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(187, 191, 196)",
+      "border": "rgba(0, 0, 0, 0)",
+      "radius": "6px",
+      "disabled": true,
+      "fontWeight": "400"
+    },
+    {
+      "t": "停用",
+      "x": 3010.2,
+      "y": 440,
+      "w": 28,
+      "h": 22,
+      "cls": "perf-web__ud__button perf-web__ud__button--link perf-web__ud__button--link-primary perf-we",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(187, 191, 196)",
+      "border": "rgba(0, 0, 0, 0)",
+      "radius": "6px",
+      "disabled": true,
+      "fontWeight": "400"
+    },
+    {
+      "t": "编辑",
+      "x": 2966.2,
+      "y": 487,
+      "w": 28,
+      "h": 22,
+      "cls": "perf-web__ud__button perf-web__ud__button--link perf-web__ud__button--link-primary perf-we",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(187, 191, 196)",
+      "border": "rgba(0, 0, 0, 0)",
+      "radius": "6px",
+      "disabled": true,
+      "fontWeight": "400"
+    },
+    {
+      "t": "停用",
+      "x": 3010.2,
+      "y": 487,
+      "w": 28,
+      "h": 22,
+      "cls": "perf-web__ud__button perf-web__ud__button--link perf-web__ud__button--link-primary perf-we",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(187, 191, 196)",
+      "border": "rgba(0, 0, 0, 0)",
+      "radius": "6px",
+      "disabled": true,
+      "fontWeight": "400"
+    },
+    {
+      "t": "编辑",
+      "x": 2966.2,
+      "y": 534,
+      "w": 28,
+      "h": 22,
+      "cls": "perf-web__ud__button perf-web__ud__button--link perf-web__ud__button--link-primary perf-we",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(187, 191, 196)",
+      "border": "rgba(0, 0, 0, 0)",
+      "radius": "6px",
+      "disabled": true,
+      "fontWeight": "400"
+    },
+    {
+      "t": "停用",
+      "x": 3010.2,
+      "y": 534,
+      "w": 28,
+      "h": 22,
+      "cls": "perf-web__ud__button perf-web__ud__button--link perf-web__ud__button--link-primary perf-we",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(187, 191, 196)",
+      "border": "rgba(0, 0, 0, 0)",
+      "radius": "6px",
+      "disabled": true,
+      "fontWeight": "400"
+    },
+    {
+      "t": "编辑",
+      "x": 2966.2,
+      "y": 581,
+      "w": 28,
+      "h": 22,
+      "cls": "perf-web__ud__button perf-web__ud__button--link perf-web__ud__button--link-primary perf-we",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(187, 191, 196)",
+      "border": "rgba(0, 0, 0, 0)",
+      "radius": "6px",
+      "disabled": true,
+      "fontWeight": "400"
+    },
+    {
+      "t": "停用",
+      "x": 3010.2,
+      "y": 581,
+      "w": 28,
+      "h": 22,
+      "cls": "perf-web__ud__button perf-web__ud__button--link perf-web__ud__button--link-primary perf-we",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(187, 191, 196)",
+      "border": "rgba(0, 0, 0, 0)",
+      "radius": "6px",
+      "disabled": true,
+      "fontWeight": "400"
+    },
+    {
+      "t": "",
+      "x": 3214.1,
+      "y": 634,
+      "w": 26,
+      "h": 26,
+      "cls": "perf-web__ud__pagination-item-link",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(187, 191, 196)",
+      "border": "rgb(187, 191, 196)",
+      "radius": "0px",
+      "disabled": true,
+      "fontWeight": "400"
+    },
+    {
+      "t": "",
+      "x": 3286.1,
+      "y": 634,
+      "w": 26,
+      "h": 26,
+      "cls": "perf-web__ud__pagination-item-link",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(187, 191, 196)",
+      "border": "rgb(187, 191, 196)",
+      "radius": "0px",
+      "disabled": true,
+      "fontWeight": "400"
+    },
+    {
+      "t": "",
+      "x": 1972,
+      "y": 444.5,
+      "w": 28,
+      "h": 28,
+      "cls": "perf-web__ud__button perf-web__ud__button--icon perf-web__ud__button--icon-default perf-we",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(100, 106, 115)",
+      "border": "rgba(0, 0, 0, 0)",
+      "radius": "6px",
+      "disabled": false,
+      "fontWeight": "400"
+    },
+    {
+      "t": "添加英文",
+      "x": 1444,
+      "y": 564.5,
+      "w": 82,
+      "h": 26,
+      "cls": "perf-web__ud__button perf-web__ud__button--text perf-web__ud__button--text-primary perf-we",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(20, 86, 240)",
+      "border": "rgba(0, 0, 0, 0)",
+      "radius": "6px",
+      "disabled": false,
+      "fontWeight": "400"
+    },
+    {
+      "t": "添加英文",
+      "x": 1444,
+      "y": 764.5,
+      "w": 82,
+      "h": 26,
+      "cls": "perf-web__ud__button perf-web__ud__button--text perf-web__ud__button--text-primary perf-we",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(20, 86, 240)",
+      "border": "rgba(0, 0, 0, 0)",
+      "radius": "6px",
+      "disabled": false,
+      "fontWeight": "400"
+    },
+    {
+      "t": "确定",
+      "x": 1916,
+      "y": 834.5,
+      "w": 80,
+      "h": 32,
+      "cls": "perf-web__ud__button perf-web__ud__button--filled perf-web__ud__button--filled-default per",
+      "bg": "rgb(20, 86, 240)",
+      "c": "rgb(255, 255, 255)",
+      "border": "rgb(20, 86, 240)",
+      "radius": "6px",
+      "disabled": false,
+      "fontWeight": "400"
+    },
+    {
+      "t": "取消",
+      "x": 1824,
+      "y": 834.5,
+      "w": 80,
+      "h": 32,
+      "cls": "perf-web__ud__button perf-web__ud__button--outlined perf-web__ud__button--outlined-default",
+      "bg": "rgb(255, 255, 255)",
+      "c": "rgb(31, 35, 41)",
+      "border": "rgb(208, 211, 214)",
+      "radius": "6px",
+      "disabled": false,
+      "fontWeight": "400"
+    }
+  ],
+  "inputs": [
+    {
+      "tag": "INPUT",
+      "t": "通过角色名称搜索",
+      "x": 3120,
+      "y": 243,
+      "w": 159,
+      "h": 22,
+      "cls": "perf-web__ud__native-input uly5x3f u11u7vat",
+      "readonly": false,
+      "border": "rgb(31, 35, 41)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "radius": "0px"
+    },
+    {
+      "tag": "INPUT",
+      "t": "",
+      "x": 3329.1,
+      "y": 635,
+      "w": 44.9,
+      "h": 24,
+      "cls": "perf-web__ud__select__selector__search__input perf-web__ud__native-input",
+      "readonly": true,
+      "border": "rgb(31, 35, 41)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "radius": "0px"
+    },
+    {
+      "tag": "INPUT",
+      "t": "",
+      "x": 1456,
+      "y": 529.5,
+      "w": 487,
+      "h": 22,
+      "cls": "perf-web__ud__native-input uly5x3f u11u7vat",
+      "readonly": false,
+      "border": "rgb(31, 35, 41)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "radius": "0px"
+    },
+    {
+      "tag": "TEXTAREA",
+      "t": "",
+      "x": 1444,
+      "y": 640.5,
+      "w": 552,
+      "h": 116,
+      "cls": "perf-web__ud-scrollbar ud-typography-body-0 uses1vf u82itaf u71fsbu",
+      "readonly": false,
+      "border": "rgb(208, 211, 214)",
+      "bg": "rgb(255, 255, 255)",
+      "radius": "6px"
+    },
+    {
+      "tag": "TEXTAREA",
+      "t": "",
+      "x": 2888,
+      "y": 0,
+      "w": 552,
+      "h": 28,
+      "cls": "",
+      "readonly": false,
+      "border": "rgb(118, 118, 118)",
+      "bg": "rgb(255, 255, 255)",
+      "radius": "0px"
+    }
+  ],
+  "labels": [
+    {
+      "t": "飞书绩效设置",
+      "x": 77,
+      "y": 14
+    },
+    {
+      "t": "应用设置",
+      "x": 0,
+      "y": 72
+    },
+    {
+      "t": "周期与项目",
+      "x": 50,
+      "y": 112
+    },
+    {
+      "t": "席位管理",
+      "x": 50,
+      "y": 153
+    },
+    {
+      "t": "指标管理",
+      "x": 50,
+      "y": 194
+    },
+    {
+      "t": "绩效模板",
+      "x": 50,
+      "y": 235
+    },
+    {
+      "t": "评估题管理",
+      "x": 50,
+      "y": 276
+    },
+    {
+      "t": "权限管理",
+      "x": 50,
+      "y": 317
+    },
+    {
+      "t": "角色配置",
+      "x": 50,
+      "y": 358
+    },
+    {
+      "t": "授权配置",
+      "x": 50,
+      "y": 399
+    },
+    {
+      "t": "其他权限设置",
+      "x": 50,
+      "y": 440
+    },
+    {
+      "t": "被评估人信息可见性设置",
+      "x": 50,
+      "y": 481
+    },
+    {
+      "t": "系统设置",
+      "x": 50,
+      "y": 522
+    },
+    {
+      "t": "通用设置",
+      "x": 0,
+      "y": 561
+    },
+    {
+      "t": "飞书管理后台",
+      "x": 50,
+      "y": 604
+    },
+    {
+      "t": "角色配置",
+      "x": 260,
+      "y": 76
+    },
+    {
+      "t": "管理角色",
+      "x": 260,
+      "y": 102
+    },
+    {
+      "t": "评估角色",
+      "x": 352,
+      "y": 102
+    },
+    {
+      "t": "更多",
+      "x": 444,
+      "y": 90
+    },
+    {
+      "t": "评估角色可以在绩效模板中被设为环节执行人",
+      "x": 320,
+      "y": 191
+    },
+    {
+      "t": "通过角色名称搜索",
+      "x": 3120,
+      "y": 243
+    },
+    {
+      "t": "角色",
+      "x": 292,
+      "y": 299
+    },
+    {
+      "t": "描述",
+      "x": 737.7,
+      "y": 299
+    },
+    {
+      "t": "如何指定角色成员",
+      "x": 1183.4,
+      "y": 299
+    },
+    {
+      "t": "状态",
+      "x": 1629.1,
+      "y": 299
+    },
+    {
+      "t": "更新人",
+      "x": 2074.8,
+      "y": 299
+    },
+    {
+      "t": "最近更新时间",
+      "x": 2520.5,
+      "y": 299
+    },
+    {
+      "t": "操作",
+      "x": 2966.2,
+      "y": 299
+    },
+    {
+      "t": "被评估人",
+      "x": 292,
+      "y": 347
+    },
+    {
+      "t": "系统预置角色",
+      "x": 737.7,
+      "y": 347
+    },
+    {
+      "t": "员工本人即为角色成员",
+      "x": 1183.4,
+      "y": 347
+    },
+    {
+      "t": "已启用",
+      "x": 1643.1,
+      "y": 346
+    },
+    {
+      "t": "--",
+      "x": 2074.8,
+      "y": 347
+    },
+    {
+      "t": "--",
+      "x": 2520.5,
+      "y": 347
+    },
+    {
+      "t": "实线上级",
+      "x": 292,
+      "y": 394
+    },
+    {
+      "t": "系统预置角色",
+      "x": 737.7,
+      "y": 394
+    },
+    {
+      "t": "从组织架构中获取",
+      "x": 1183.4,
+      "y": 394
+    },
+    {
+      "t": "已启用",
+      "x": 1643.1,
+      "y": 393
+    },
+    {
+      "t": "--",
+      "x": 2074.8,
+      "y": 394
+    },
+    {
+      "t": "--",
+      "x": 2520.5,
+      "y": 394
+    },
+    {
+      "t": "虚线上级",
+      "x": 292,
+      "y": 441
+    },
+    {
+      "t": "系统预置角色",
+      "x": 737.7,
+      "y": 441
+    },
+    {
+      "t": "从组织架构中获取",
+      "x": 1183.4,
+      "y": 441
+    },
+    {
+      "t": "已启用",
+      "x": 1643.1,
+      "y": 440
+    },
+    {
+      "t": "--",
+      "x": 2074.8,
+      "y": 441
+    },
+    {
+      "t": "--",
+      "x": 2520.5,
+      "y": 441
+    },
+    {
+      "t": "360° 评估人",
+      "x": 292,
+      "y": 488
+    },
+    {
+      "t": "系统预置角色",
+      "x": 737.7,
+      "y": 488
+    },
+    {
+      "t": "通过 360 邀请添加",
+      "x": 1183.4,
+      "y": 488
+    },
+    {
+      "t": "已启用",
+      "x": 1643.1,
+      "y": 487
+    },
+    {
+      "t": "--",
+      "x": 2074.8,
+      "y": 488
+    },
+    {
+      "t": "--",
+      "x": 2520.5,
+      "y": 488
+    },
+    {
+      "t": "校准人",
+      "x": 292,
+      "y": 535
+    },
+    {
+      "t": "系统预置角色",
+      "x": 737.7,
+      "y": 535
+    },
+    {
+      "t": "在项目配置中指定",
+      "x": 1183.4,
+      "y": 535
+    },
+    {
+      "t": "已启用",
+      "x": 1643.1,
+      "y": 534
+    },
+    {
+      "t": "--",
+      "x": 2074.8,
+      "y": 535
+    },
+    {
+      "t": "--",
+      "x": 2520.5,
+      "y": 535
+    },
+    {
+      "t": "指标评价人",
+      "x": 292,
+      "y": 582
+    },
+    {
+      "t": "系统预置角色",
+      "x": 737.7,
+      "y": 582
+    },
+    {
+      "t": "在添加指标时指定",
+      "x": 1183.4,
+      "y": 582
+    },
+    {
+      "t": "已启用",
+      "x": 1643.1,
+      "y": 581
+    },
+    {
+      "t": "--",
+      "x": 2074.8,
+      "y": 582
+    },
+    {
+      "t": "--",
+      "x": 2520.5,
+      "y": 582
+    },
+    {
+      "t": "10 条/页",
+      "x": 3329.1,
+      "y": 635
+    },
+    {
+      "t": "添加评估角色",
+      "x": 1444,
+      "y": 446.5
+    },
+    {
+      "t": "名称",
+      "x": 1444,
+      "y": 494.5
+    },
+    {
+      "t": "*",
+      "x": 1474,
+      "y": 494.5
+    },
+    {
+      "t": "中文",
+      "x": 1957,
+      "y": 530.5
+    },
+    {
+      "t": "描述",
+      "x": 1444,
+      "y": 610.5
+    },
+    {
+      "t": "中文",
+      "x": 1909.1,
+      "y": 727.5
+    },
+    {
+      "t": "0",
+      "x": 1949.1,
+      "y": 730.5
+    },
+    {
+      "t": "/2000",
+      "x": 1954.6,
+      "y": 730.5
+    }
+  ]
+}

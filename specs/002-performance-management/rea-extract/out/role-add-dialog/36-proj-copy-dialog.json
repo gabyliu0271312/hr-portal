@@ -1,0 +1,185 @@
+{
+  "found": true,
+  "text": "复制项目  2026 Q4 测试360°评估及邀请确定取消",
+  "lines": [
+    {
+      "d": 0,
+      "tag": "div",
+      "cls": "perf-web__ud__dialog__content perf-web__ud__modal perf-web__ud__dialog__content-",
+      "t": "复制项目  2026 Q4 测试360°评估及邀请确定取消",
+      "x": 1420,
+      "y": 32,
+      "w": 600,
+      "h": 1249
+    },
+    {
+      "d": 1,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__content perf-web__ud__modal-closable ud-typography-body-0 u",
+      "t": "复制项目  2026 Q4 测试360°评估及邀请确定取消",
+      "x": 1420,
+      "y": 565,
+      "w": 600,
+      "h": 184
+    },
+    {
+      "d": 2,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__header",
+      "t": "复制项目",
+      "x": 1420,
+      "y": 565,
+      "w": 600,
+      "h": 72
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__title ud-typography-title-4 u1ewtqcl u1lmfglv uibjyge u1abm",
+      "t": "复制项目",
+      "x": 1444,
+      "y": 589,
+      "w": 520,
+      "h": 24
+    },
+    {
+      "d": 4,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__titleContent",
+      "t": "复制项目",
+      "x": 1444,
+      "y": 589,
+      "w": 520,
+      "h": 24
+    },
+    {
+      "d": 4,
+      "tag": "span",
+      "cls": "perf-web__ud__empty-inline-element u1j7mq28 u1a3p1vp u14t3ns0",
+      "t": "",
+      "x": 1964,
+      "y": 589,
+      "w": 0,
+      "h": 24
+    },
+    {
+      "d": 2,
+      "tag": "button",
+      "cls": "perf-web__ud__button perf-web__ud__button--icon perf-web__ud__button--icon-defau",
+      "t": "",
+      "x": 1972,
+      "y": 587,
+      "w": 28,
+      "h": 28
+    },
+    {
+      "d": 3,
+      "tag": "span",
+      "cls": "universe-icon",
+      "t": "",
+      "x": 1976,
+      "y": 591,
+      "w": 20,
+      "h": 20
+    },
+    {
+      "d": 4,
+      "tag": "svg",
+      "cls": "[object SVGAnimatedString]",
+      "t": "",
+      "x": 1976,
+      "y": 591,
+      "w": 20,
+      "h": 20
+    },
+    {
+      "d": 2,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__body",
+      "t": "2026 Q4 测试360°评估及邀请",
+      "x": 1420,
+      "y": 637,
+      "w": 600,
+      "h": 32
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "sc-iKgIei bUYmKM",
+      "t": "2026 Q4 测试360°评估及邀请",
+      "x": 1444,
+      "y": 637,
+      "w": 552,
+      "h": 32
+    },
+    {
+      "d": 4,
+      "tag": "div",
+      "cls": "perf-web__ud__select",
+      "t": "2026 Q4 测试360°评估及邀请",
+      "x": 1444,
+      "y": 637,
+      "w": 552,
+      "h": 32
+    },
+    {
+      "d": 2,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__footer",
+      "t": "确定取消",
+      "x": 1420,
+      "y": 693,
+      "w": 600,
+      "h": 56
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__footer__btns",
+      "t": "确定取消",
+      "x": 1444,
+      "y": 693,
+      "w": 552,
+      "h": 44
+    },
+    {
+      "d": 4,
+      "tag": "button",
+      "cls": "perf-web__ud__button perf-web__ud__button--filled perf-web__ud__button--filled-d",
+      "t": "确定",
+      "x": 1916,
+      "y": 693,
+      "w": 80,
+      "h": 32
+    },
+    {
+      "d": 4,
+      "tag": "button",
+      "cls": "perf-web__ud__button perf-web__ud__button--outlined perf-web__ud__button--outlin",
+      "t": "取消",
+      "x": 1824,
+      "y": 693,
+      "w": 80,
+      "h": 32
+    }
+  ],
+  "inputs": [
+    {
+      "tag": "INPUT",
+      "ph": "",
+      "val": ""
+    }
+  ],
+  "btns": [
+    {
+      "t": "确定",
+      "cls": "perf-web__ud__button perf-web__ud__button--filled ",
+      "disabled": false
+    },
+    {
+      "t": "取消",
+      "cls": "perf-web__ud__button perf-web__ud__button--outline",
+      "disabled": false
+    }
+  ]
+}

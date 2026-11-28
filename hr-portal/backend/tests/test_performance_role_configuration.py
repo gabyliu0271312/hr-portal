@@ -96,6 +96,30 @@ async def test_create_performance_role_persists_and_audits_name_and_description(
     assert audit.after_state["name"] == "校准人"
 
 
+@pytest.mark.asyncio
+async def test_create_assessment_role_sets_member_source_and_bilingual_fields():
+    db = _FakeRoleDb()
+    result = await create_performance_role(
+        PerformanceRoleCreateIn(
+            name="评估助手",
+            name_en="Assessment assistant",
+            description="评估协助",
+            description_en="Evaluation support",
+            role_type="ASSESSMENT",
+        ),
+        context=_context(),
+        db=db,
+    )
+
+    role = next(item for item in db.items if isinstance(item, models.PerformanceRole))
+    assert role.role_type == "ASSESSMENT"
+    assert role.member_source == "在周期中导入"
+    assert role.name_en == "Assessment assistant"
+    assert role.description_en == "Evaluation support"
+    assert result.role_type == "ASSESSMENT"
+    assert result.member_source == "在周期中导入"
+
+
 def test_create_performance_role_rejects_blank_name_and_unknown_fields():
     with pytest.raises(ValueError):
         PerformanceRoleCreateIn(name="   ")
@@ -112,8 +136,10 @@ def test_role_status_input_rejects_invalid_payload():
 
 def _role(*, active=False, system=False, role_type="MANAGEMENT", function_permission_keys=()):
     return SimpleNamespace(
-        id=8, code="custom.test", name="自定义角色", description="备注", role_type=role_type,
-        member_source=None, function_permission_keys=list(function_permission_keys), is_system=system, is_active=active,
+        id=8, code="custom.test", name="自定义角色", name_en=None, description="备注", description_en=None,
+        role_type=role_type,
+        member_source="在周期中导入" if role_type == "ASSESSMENT" else None,
+        function_permission_keys=list(function_permission_keys), is_system=system, is_active=active,
         updated_at=datetime.now(UTC),
     )
 
@@ -140,20 +166,35 @@ async def test_update_custom_role_persists_changes_and_audits():
 
 
 @pytest.mark.asyncio
-async def test_update_system_role_persists_changes_like_custom_role():
+async def test_update_system_role_is_rejected():
     db = _FakeRoleDb()
     db.role = _role(system=True, function_permission_keys=["performance.frontend.progress"])
+    with pytest.raises(HTTPException) as error:
+        await update_performance_role(
+            8,
+            PerformanceRoleUpdateIn(name="项目管理员"),
+            _context(),
+            db,
+        )
+    assert error.value.status_code == 400
+    assert error.value.detail == "系统角色不可编辑"
+    assert db.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_update_assessment_role_allows_bilingual_fields():
+    db = _FakeRoleDb()
+    db.role = _role(role_type="ASSESSMENT", active=True)
     result = await update_performance_role(
         8,
-        PerformanceRoleUpdateIn(
-            name="项目管理员",
-            function_permission_keys=["performance.frontend.progress", "performance.frontend.data-view"],
-        ),
+        PerformanceRoleUpdateIn(name="评估助手", name_en="Assessment assistant", description="评估协助", description_en="Evaluation support"),
         _context(),
         db,
     )
-    assert result.name == "项目管理员"
-    assert result.function_permission_keys == ["performance.frontend.progress", "performance.frontend.data-view"]
+    assert result.name == "评估助手"
+    assert result.name_en == "Assessment assistant"
+    assert result.description == "评估协助"
+    assert result.description_en == "Evaluation support"
     assert db.commits == 1
     assert db.items[-1].event_type == "PERFORMANCE_ROLE_UPDATED"
 
@@ -175,15 +216,24 @@ async def test_role_deactivation_and_deletion_write_audits_in_one_transaction():
 
 
 @pytest.mark.asyncio
-async def test_status_change_rejects_system_and_assessment_roles():
-    for role, message in [(_role(active=True, system=True), "系统角色不可停用"), (_role(active=True, role_type="ASSESSMENT"), "评估角色不可操作")]:
-        db = _FakeRoleDb()
-        db.role = role
-        with pytest.raises(HTTPException) as error:
-            await update_performance_role_status(8, PerformanceRoleStatusIn(is_active=False), _context(), db)
-        assert error.value.status_code == 400
-        assert error.value.detail == message
-        assert db.commits == 0
+async def test_status_change_rejects_system_roles():
+    db = _FakeRoleDb()
+    db.role = _role(active=True, system=True)
+    with pytest.raises(HTTPException) as error:
+        await update_performance_role_status(8, PerformanceRoleStatusIn(is_active=False), _context(), db)
+    assert error.value.status_code == 400
+    assert error.value.detail == "系统角色不可停用"
+    assert db.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_status_change_allows_custom_assessment_roles():
+    db = _FakeRoleDb()
+    db.role = _role(active=True, role_type="ASSESSMENT")
+    result = await update_performance_role_status(8, PerformanceRoleStatusIn(is_active=False), _context(), db)
+    assert result.is_active is False
+    assert db.commits == 1
+    assert db.items[-1].event_type == "PERFORMANCE_ROLE_DEACTIVATED"
 
 
 @pytest.mark.asyncio
@@ -192,10 +242,9 @@ async def test_status_change_rejects_system_and_assessment_roles():
     [
         (_role(active=True), "需要先停用角色"),
         (_role(system=True), "系统角色不可删除"),
-        (_role(role_type="ASSESSMENT"), "评估角色不可删除"),
     ],
 )
-async def test_delete_role_rejects_active_system_and_assessment_roles(role, message):
+async def test_delete_role_rejects_active_and_system_roles(role, message):
     db = _FakeRoleDb()
     db.role = role
     with pytest.raises(HTTPException) as error:
@@ -204,6 +253,16 @@ async def test_delete_role_rejects_active_system_and_assessment_roles(role, mess
     assert message in error.value.detail
     assert db.deleted is None
     assert db.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_delete_allows_inactive_custom_assessment_roles():
+    db = _FakeRoleDb()
+    db.role = _role(active=False, role_type="ASSESSMENT")
+    await delete_performance_role(8, _context(), db)
+    assert db.deleted is db.role
+    assert db.commits == 1
+    assert db.items[-1].event_type == "PERFORMANCE_ROLE_DELETED"
 
 
 @pytest.mark.asyncio

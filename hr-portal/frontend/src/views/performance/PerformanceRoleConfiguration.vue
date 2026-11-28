@@ -18,11 +18,12 @@
     </div>
 
     <section class="role-card">
+      <PerformancePromptNotice v-if="activeTab === 'assessment'" class="role-hint" type="info">评估角色可以在绩效模板中被设为环节执行人</PerformancePromptNotice>
       <PerformanceListToolbar
         class="role-toolbar"
         :keyword="keyword"
-        :search-placeholder="activeTab === 'assessment' ? '通过角色类型搜索' : '通过角色名称搜索'"
-        :search-aria-label="activeTab === 'assessment' ? '通过角色类型搜索' : '通过角色名称搜索'"
+        :search-placeholder="'通过角色名称搜索'"
+        :search-aria-label="'通过角色名称搜索'"
         :filter-active="filterCount > 0"
         :filter-count="filterCount"
         @update:keyword="keyword = $event"
@@ -30,6 +31,7 @@
       >
         <template #left>
           <PerformanceCreateButton v-if="activeTab === 'management'" label="新建角色" @click="goCreate" />
+          <PerformanceCreateButton v-else label="添加评估角色" @click="openCreateDialog" />
         </template>
         <template #actions>
           <PerformanceExportButton v-if="activeTab === 'management'" :load-rows="exportRows" filename="绩效管理角色" :disabled="loading || !total" @success="ElMessage.success('导出成功')" @error="ElMessage.error('导出失败，请稍后重试')" />
@@ -79,8 +81,27 @@
           <span v-else-if="column.key === 'updatedBy'" class="role-updater">{{ value }}</span>
           <div v-else-if="column.key === 'action'" class="role-actions">
             <template v-if="activeTab === 'assessment'">
-              <UiButton variant="text" aria-label="编辑角色" disabled>编辑</UiButton>
-              <UiButton variant="text" aria-label="停用角色" disabled>停用</UiButton>
+              <template v-if="row.isSystem">
+                <UiButton variant="text" aria-label="编辑角色" disabled>编辑</UiButton>
+                <UiButton variant="text" aria-label="停用角色" disabled>停用</UiButton>
+              </template>
+              <template v-else>
+                <UiButton variant="text" aria-label="编辑角色" @click="openEditDialog(row)">编辑</UiButton>
+                <UiButton variant="text" :aria-label="row.isActive ? '停用角色' : '启用角色'" @click="openDeactivateDialog(row)">{{ row.isActive ? '停用' : '启用' }}</UiButton>
+                <div class="role-more-wrap">
+                  <el-dropdown trigger="click" placement="bottom-end" popper-class="performance-role-action-popper">
+                    <button class="role-more-button" type="button" aria-label="更多操作">···</button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item @click="openCopyDialog(row)">复制</el-dropdown-item>
+                        <PerformanceDisabledReason :disabled="row.isActive" :reason="'需要先停用角色，再进行删除'">
+                          <el-dropdown-item :disabled="row.isActive" @click="openAssessmentDeleteDialog(row)">删除</el-dropdown-item>
+                        </PerformanceDisabledReason>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
+              </template>
             </template>
             <template v-else>
               <PerformancePermissionButton allowed op="U" aria-label="编辑角色" @click="goEdit(row)">编辑</PerformancePermissionButton>
@@ -121,6 +142,33 @@
       :error-message="deleteError"
       @confirm="confirmDelete"
     />
+    <PerformanceRoleFormDialog
+      v-model="roleFormDialogVisible"
+      :title="roleFormTitle"
+      :initial="roleFormInitial"
+      :loading="formSaving"
+      @submit="submitRoleForm"
+    />
+    <PerformanceConfirmDialog
+      v-model="deactivateDialogVisible"
+      :message="deactivateMessage"
+      description="停用后，后续配置的模板将不能在环节执行人中选择。"
+      confirm-text="停用"
+      cancel-text="取消"
+      :loading="deactivating"
+      :error-message="deactivateError"
+      @confirm="confirmDeactivate"
+    />
+    <PerformanceConfirmDialog
+      v-model="assessmentDeleteDialogVisible"
+      :message="assessmentDeleteMessage"
+      description="停用后，后续配置的模板将不能在环节执行人中选择此角色。"
+      confirm-text="删除"
+      cancel-text="取消"
+      :loading="deleting"
+      :error-message="deleteError"
+      @confirm="confirmAssessmentDelete"
+    />
   </section>
 </template>
 
@@ -135,6 +183,8 @@ import {
 } from '@/api/performance'
 import type { PerformanceTableColumn } from '@/components/performance/performanceTableColumns'
 import PerformanceCreateButton from '@/components/performance/PerformanceCreateButton.vue'
+import PerformancePromptNotice from '@/components/performance/PerformancePromptNotice.vue'
+import PerformanceRoleFormDialog, { type PerformanceRoleFormValue } from '@/components/performance/PerformanceRoleFormDialog.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
@@ -154,9 +204,11 @@ type RoleTab = 'management' | 'assessment'
 type RoleRow = {
   id: number
   name: string
+  nameEn: string
   isActive: boolean
   isSystem: boolean
   description: string
+  descriptionEn: string
   status: '已启用' | '已停用'
   memberSource: string
   updatedBy: string
@@ -171,7 +223,7 @@ const tabs: Array<{ key: RoleTab; label: string }> = [
 const tableColumns = computed<PerformanceTableColumn[]>(() => {
   const isAssessment = activeTab.value === 'assessment'
   const columns: PerformanceTableColumn[] = [
-    { key: 'name', label: isAssessment ? '角色类型' : '角色', width: 180 },
+    { key: 'name', label: '角色', width: 180 },
     { key: 'description', label: '描述', width: isAssessment ? 180 : 280 },
   ]
   if (isAssessment) columns.push({ key: 'memberSource', label: '如何指定角色成员', width: 220 })
@@ -179,7 +231,7 @@ const tableColumns = computed<PerformanceTableColumn[]>(() => {
     { key: 'status', label: '状态', width: 120 },
     { key: 'updatedBy', label: '更新人', width: isAssessment ? 120 : 180 },
   )
-  if (!isAssessment) columns.push({ key: 'updatedAt', label: '最近更新时间', width: 180 })
+  columns.push({ key: 'updatedAt', label: '最近更新时间', width: 180 })
   columns.push({ key: 'action', label: '操作', width: 180, fixed: 'right' })
   return columns
 })
@@ -197,6 +249,20 @@ const pendingDeleteRole = ref<RoleRow | null>(null)
 const deleteDialogVisible = ref(false)
 const deleteError = ref('')
 const deleting = ref(false)
+const roleFormDialogVisible = ref(false)
+const roleFormMode = ref<'create' | 'edit' | 'copy'>('create')
+const roleFormTitle = ref('添加评估角色')
+const roleFormInitial = ref<PerformanceRoleFormValue>({ name: { zh: '', en: '' }, description: { zh: '', en: '' } })
+const formSaving = ref(false)
+const pendingEditRole = ref<RoleRow | null>(null)
+const deactivateDialogVisible = ref(false)
+const pendingDeactivateRole = ref<RoleRow | null>(null)
+const deactivating = ref(false)
+const deactivateError = ref('')
+const deactivateMessage = computed(() => pendingDeactivateRole.value ? `确定停用「${pendingDeactivateRole.value.name}」吗？` : '')
+const assessmentDeleteDialogVisible = ref(false)
+const pendingAssessmentDeleteRole = ref<RoleRow | null>(null)
+const assessmentDeleteMessage = computed(() => pendingAssessmentDeleteRole.value ? `确定删除「${pendingAssessmentDeleteRole.value.name}」吗？` : '')
 let requestId = 0
 
 const STATUS_OPTIONS: PerformanceSearchSelectOption[] = [
@@ -236,9 +302,11 @@ function toRoleRow(item: PerformanceRoleListItem): RoleRow {
   return {
     id: item.id,
     name: item.name,
+    nameEn: item.name_en || '',
     isActive: item.is_active,
     isSystem: item.is_system,
     description: item.description || '--',
+    descriptionEn: item.description_en || '',
     memberSource: item.member_source || '--',
     status: item.is_active ? '已启用' : '已停用',
     updatedBy: '--',
@@ -351,6 +419,114 @@ async function confirmDelete() {
   await loadRoles()
 }
 
+function toFormValue(row: RoleRow): PerformanceRoleFormValue {
+  return { name: { zh: row.name, en: row.nameEn }, description: { zh: row.description === '--' ? '' : row.description, en: row.descriptionEn } }
+}
+
+function openCreateDialog() {
+  roleFormMode.value = 'create'
+  roleFormTitle.value = '添加评估角色'
+  roleFormInitial.value = { name: { zh: '', en: '' }, description: { zh: '', en: '' } }
+  roleFormDialogVisible.value = true
+}
+
+function openEditDialog(row: RoleRow) {
+  roleFormMode.value = 'edit'
+  roleFormTitle.value = '编辑评估角色'
+  roleFormInitial.value = toFormValue(row)
+  pendingEditRole.value = row
+  roleFormDialogVisible.value = true
+}
+
+function openCopyDialog(row: RoleRow) {
+  roleFormMode.value = 'copy'
+  roleFormTitle.value = '添加评估角色'
+  roleFormInitial.value = { name: { zh: `${row.name} 副本`, en: row.nameEn ? `${row.nameEn} Copy` : '' }, description: { zh: row.description === '--' ? '' : row.description, en: row.descriptionEn } }
+  roleFormDialogVisible.value = true
+}
+
+async function submitRoleForm(payload: PerformanceRoleFormValue) {
+  if (formSaving.value) return
+  formSaving.value = true
+  try {
+    if (roleFormMode.value === 'edit' && pendingEditRole.value) {
+      await performanceRoleApi.update(pendingEditRole.value.id, {
+        name: payload.name.zh,
+        name_en: payload.name.en || undefined,
+        description: payload.description.zh || null,
+        description_en: payload.description.en || undefined,
+      })
+      ElMessage.success('评估角色已更新')
+    } else {
+      await performanceRoleApi.create({
+        name: payload.name.zh,
+        name_en: payload.name.en || undefined,
+        description: payload.description.zh || null,
+        description_en: payload.description.en || undefined,
+        role_type: 'ASSESSMENT',
+      })
+      ElMessage.success(roleFormMode.value === 'copy' ? '评估角色已复制' : '评估角色已创建')
+    }
+    roleFormDialogVisible.value = false
+    pendingEditRole.value = null
+    await loadRoles()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail || '保存失败')
+  } finally {
+    formSaving.value = false
+  }
+}
+
+function openDeactivateDialog(row: RoleRow) {
+  if (row.isSystem) return
+  pendingDeactivateRole.value = row
+  deactivateError.value = ''
+  deactivateDialogVisible.value = true
+}
+
+async function confirmDeactivate() {
+  const role = pendingDeactivateRole.value
+  if (!role || deactivating.value) return
+  deactivating.value = true
+  try {
+    await performanceRoleApi.updateStatus(role.id, !role.isActive)
+  } catch (error: any) {
+    deactivateError.value = error?.response?.data?.detail || '角色状态更新失败'
+    deactivating.value = false
+    return
+  }
+  deactivateDialogVisible.value = false
+  pendingDeactivateRole.value = null
+  deactivating.value = false
+  ElMessage.success(role.isActive ? '角色已停用' : '角色已启用')
+  await loadRoles()
+}
+
+function openAssessmentDeleteDialog(row: RoleRow) {
+  if (row.isActive || row.isSystem) return
+  pendingAssessmentDeleteRole.value = row
+  deleteError.value = ''
+  assessmentDeleteDialogVisible.value = true
+}
+
+async function confirmAssessmentDelete() {
+  const role = pendingAssessmentDeleteRole.value
+  if (!role || deleting.value) return
+  deleting.value = true
+  try {
+    await performanceRoleApi.remove(role.id)
+  } catch (error: any) {
+    deleteError.value = error?.response?.data?.detail || '角色删除失败'
+    deleting.value = false
+    return
+  }
+  assessmentDeleteDialogVisible.value = false
+  pendingAssessmentDeleteRole.value = null
+  deleting.value = false
+  ElMessage.success('评估角色已删除')
+  await loadRoles()
+}
+
 function notifyUnavailable(action: string) {
   ElMessage.info(`${action}功能将在后续任务接入`)
 }
@@ -365,6 +541,7 @@ function notifyUnavailable(action: string) {
 .role-tab.active::after { position: absolute; right: 16px; bottom: -1px; left: 16px; height: 3px; border-radius: 3px 3px 0 0; background: var(--color-primary); content: ''; }
 .role-card { box-sizing: border-box; margin-top: 16px; padding: 10px; border-radius: 8px; background: var(--color-bg-card); box-shadow: rgba(31, 35, 41, .02) 0 1px 2px -2px, rgba(31, 35, 41, .02) 0 2px 4px, rgba(31, 35, 41, .02) 0 2px 8px 2px; }
 .role-toolbar :deep(.list-toolbar) { margin-bottom: 8px; }
+.role-hint { margin-bottom: var(--spacing-2); }
 .role-name-button { padding: 0; border: 0; background: transparent; color: var(--color-primary); cursor: pointer; font: inherit; text-align: left; }
 .role-name-button:hover { color: var(--color-primary); }
 .role-status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }

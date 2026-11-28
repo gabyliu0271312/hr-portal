@@ -41,6 +41,7 @@ from app.performance.field_settings_router import router as performance_field_se
 from app.performance.assessment_method_settings_router import router as performance_assessment_method_settings_router
 from app.performance.subject_visibility_router import router as performance_subject_visibility_router
 from app.performance.role_configuration_router import router as performance_role_configuration_router
+from app.performance.auth_rules_router import router as performance_auth_rules_router
 from app.performance.seed import PerformanceBootstrapConfigurationError
 from app.data.columns_router import router as columns_router
 from app.ai.employee_profile_fields_router import router as employee_profile_fields_router
@@ -260,6 +261,7 @@ app.include_router(performance_field_settings_router, prefix=settings.API_PREFIX
 app.include_router(performance_assessment_method_settings_router, prefix=settings.API_PREFIX)
 app.include_router(performance_subject_visibility_router, prefix=settings.API_PREFIX)
 app.include_router(performance_role_configuration_router, prefix=settings.API_PREFIX)
+app.include_router(performance_auth_rules_router, prefix=settings.API_PREFIX)
 app.include_router(ai_router, prefix=settings.API_PREFIX)
 app.include_router(codegen_router, prefix=settings.API_PREFIX)
 app.include_router(users_router, prefix=settings.API_PREFIX)

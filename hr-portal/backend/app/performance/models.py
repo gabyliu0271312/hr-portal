@@ -371,7 +371,9 @@ class PerformanceRole(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(64), nullable=False)
+    name_en: Mapped[str | None] = mapped_column(String(64), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description_en: Mapped[str | None] = mapped_column(Text, nullable=True)
     role_type: Mapped[str] = mapped_column(String(16), nullable=False, default="MANAGEMENT", server_default="MANAGEMENT")
     member_source: Mapped[str | None] = mapped_column(String(64), nullable=True)
     function_permission_keys: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
@@ -739,6 +741,30 @@ class PerformancePublicationTransfer(Base):
     transferred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class PerformanceAuthRule(Base):
+    __tablename__ = "performance_auth_rules"
+    __table_args__ = (
+        Index("ix_performance_auth_rules_role_active", "role_id", "is_active"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    or_scope: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    role_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("performance_roles.id", ondelete="CASCADE"), nullable=False
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_by_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_by_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    updated_by_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

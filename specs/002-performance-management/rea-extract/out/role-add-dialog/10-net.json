@@ -1,0 +1,34 @@
+[
+  {
+    "kind": "req",
+    "url": "https://idreamsky.feishu.cn/perf/api/review/custom_review_role/add",
+    "method": "POST",
+    "type": "xhr",
+    "body": "{\"name\":{\"zh-CN\":\"REA采集测试评估角色\",\"en-US\":\"REA test review role\"},\"description\":{\"zh-CN\":\"REA采集用的临时测试评估角色，仅用于抓取保存接口\",\"en-US\":\"\"}}",
+    "headers": {
+      "ct": "application/json"
+    }
+  },
+  {
+    "kind": "req",
+    "url": "https://idreamsky.feishu.cn/perf/api/review/custom_review_roles?keyword=&enable_status=0&offset=0&limit=10",
+    "method": "GET",
+    "type": "xhr",
+    "body": null,
+    "headers": {
+      "ct": ""
+    }
+  },
+  {
+    "kind": "res",
+    "url": "https://idreamsky.feishu.cn/perf/api/review/custom_review_role/add",
+    "status": 200,
+    "body": "{\"code\":0,\"data\":{\"id\":\"7713168207476952247\"},\"msg\":\"操作成功\",\"success\":true}"
+  },
+  {
+    "kind": "res",
+    "url": "https://idreamsky.feishu.cn/perf/api/review/custom_review_roles?keyword=&enable_status=0&offset=0&limit=10",
+    "status": 200,
+    "body": "{\"code\":0,\"data\":{\"count\":7,\"roles\":[{\"id\":\"7713168207476952247\",\"tenant_id\":\"6732051441411884552\",\"name\":{\"zh-CN\":\"REA采集测试评估角色\",\"en-US\":\"REA test review role\"},\"description\":{\"zh-CN\":\"REA采集用的临时测试评估角色，仅用于抓取保存接口\"},\"enable_status\":1,\"member_source\":{\"zh-CN\":\"在周期中导入\",\"en-US\":\"Imported in cycle\"},\"deletable\":true,\"is_preset\":false,\"modify_time\":1795861918000,\"modify_user_id\":\"6733065964654462476\",\"role_type\":\"custom_review\"},{\"id\":\"0\",\"tenant_id\":\"6732051441411884552\",\"name\":{\"zh-CN\":\"被评估人\",\"en-US\":\"Reviewee\"},\"description\":{\"zh-CN\":\"系统预置角色\",\"en-US\":\"System preset role\"},\"enable_status\":1,\"member_source\":{\"zh-CN\":\"员工本人即为角色成员\",\"en-US\":\"Employees assigned to roles\"},\"deletable\":false,\"is_preset\":true,\"modify_time\":0,\"modify_user_id\":\"\",\"role_type\":\"reviewee\"},{\"id\":\"0\",\"tenant_id\":\"6732051441411884552\",\"name\":{\"zh-CN\":\"实线上级\",\"en-US\":\"Solid-line leader\"},\"description\":{\"zh-CN\":\"系统预置角色\",\"en-US\":\"System preset role\"},\"enable_status\":1,\"member_source\":{\"zh-CN\":\"从组织架构中获取\",\"en-US\":\"Obtained from the organizational structure\"},\"deletable\":false,\"is_preset\":true,\"modify_time\":0,\"modify_user_id\":\"\",\"role_type\":\"leader\"},{\"id\":\"0\",\"tenant_id\":\"6732051441411884552\",\"name\":{\"zh-CN\":\"虚线上级\",\"en-US\":\"Dotted-line leader\"},\"description\":{\"zh-CN\":\"系统预置角色\",\"en-US\":\"System preset role\"},\"enable_status\":1,\"member_source\":{\"zh-CN\":\"从组织架构中获取\",\"en-US\":\"Obtained from the organizational structure\"},\"deletable\":false,\"is_preset\":true,\"modify_time\":0,\"modify_user_id\":\"\",\"role_type\":\"dotted_leader\"},{\"id\":\"0\",\"tenant_id\":\"6732051441411884552\",\"name\":{\"zh-CN\":\"360° 评估人\",\"en-US\":\"360° reviewers\"},\"description\":{\"zh-CN\":\"系统预置角色\",\"en-US\":\"System preset role\"},\"enable_status\":1,\"member_source\":{\"zh-CN\":\"通过 360 邀请添加\",\"en-US\":\"Added via 360° invitation\"},\"deletable\":false,\"is_preset\":true,\"modify_time\":0,\"modify_user_id\":\"\",\"role_type\":\"360_reviewer\"},{\"id\":\"0\",\"tenant_id\":\"6732051441411884552\",\"name\":{\"zh-CN\":\"校准人\",\"en-US\":\"Calibration owner\"},\"description\":{\"zh-CN\":\"系统预置角色\",\"en-US\":\"System preset role\"},\""
+  }
+]

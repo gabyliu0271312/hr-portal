@@ -16,8 +16,8 @@
 
 - 路径约定：`frontend/src/views/<分组>/<PascalName>.vue`
 - 分组与菜单 code 第一段对应（system / datasource / data / report）
-- 页面整体用 `<el-card>` 包裹，外层 `<div style="padding: 24px">`
-- 卡片头放标题 + 主操作按钮（飞书风）
+- 页面整体用 `<UiSurface>` 包裹，外层 `<div style="padding: var(--spacing-6)">`（不要裸 `<el-card>`）
+- 标题 + 主操作按钮放页面头部（飞书风）
 - **所有交互按钮必须套 `<PermissionButton>`**：
 
   ```vue
@@ -25,8 +25,8 @@
   ```
 
 - op 语义：V=查看 / C=新增 / U=修改 / D=删除 / E=导出
-- 表格必须按 [设计规范](frontend/docs/design-system.md) 的「表格规范」五件套实现
-- **新页面参考模板**：[Users.vue](frontend/src/views/system/Users.vue)（直接复制改造）
+- 表格必须用 `UiTable`（见下文「前端规范」），不要裸 `<el-table>` 搭五件套
+- **新页面参考模板**：列表页 [AllocationResult.vue](frontend/src/views/salary/AllocationResult.vue)（`UiSurface`+`UiTable`+`UiPagination`+`UiDialogShell`）；主数据页 [PeopleRoster.vue](frontend/src/views/master-data/PeopleRoster.vue)
 
 ### 第 2 步：注册前端路由
 
@@ -129,58 +129,78 @@ seed 幂等执行：已存在菜单不动，仅 INSERT 新菜单。**不会自�
 
 ---
 
-## 前端规范（违反 = 必返工）
+## 前端规范（硬规则，违反 = 返工）
 
-> 完整规范见 [frontend/docs/design-system.md](hr-portal/frontend/docs/design-system.md)。
-> 以下是必守底线，AI 写代码前必须熟悉。
+> **唯一事实源**：[frontend/src/styles/tokens.css](frontend/src/styles/tokens.css) 的实际值。
+> **视觉基准**：绩效模块的飞书实测线（`--perf-*` / `--ui-*`）。
+> 任何文档（含 design-system.md）与 tokens.css 冲突时，**以 tokens.css 为准**；发现冲突先修文档，禁止照旧文档写代码。
 
-### 视觉风格
+### 铁律一：组件必须复用，禁止手写等价实现
 
-**平台飞书风**（v2.1，2026-06-06 重建）：
+需求 → 必须使用的共享组件（`frontend/src/components/ui/`）：
 
-- 主色 `#3370ff` 飞书蓝
-- 灰底页面 `#f4f6f9` + 白色 `<el-card>` 内容块
-- 字体走系统默认 sans-serif
-- 三层菜单：顶部 tab → 左侧二级分组 → 左侧三级叶子
-- 设计 token 唯一源头：`frontend/src/styles/tokens.css`
-- **绩效系统现有设计 token 和成熟交互组件作为全局基线**：主数据、组织等模块直接复用；跨模块能力提升到共享组件目录共同消费，不在业务模块复制近似实现
-- 禁止恢复 `--brand-*` / `--ink-*` / `hp-*` / PageHead / Ledger 旧风格
+| 需求 | 必须用 | 禁止 |
+|---|---|---|
+| 数据表格 | `UiTable` | 裸 `<el-table>`、自写 sticky 固定列 |
+| 分页 | `UiPagination` | 裸 `<el-pagination>` |
+| 弹窗 | `UiDialogShell` | 裸 `<el-dialog>` |
+| 侧边抽屉 | `UiDrawerShell` | 裸 `<el-drawer>` |
+| 全屏子页面 | `UiFullScreenModal` + `UiPageHeader` | 自写全屏壳 |
+| 白色内容容器 | `UiSurface` | 裸 `<el-card>` 自写 padding/圆角/阴影 |
+| 搜索/动作工具栏 | `UiListToolbar` | 自写 flex 工具栏 |
+| 开关 | `UiSwitch` | 裸 `<el-switch>` |
+| 复选框 | `UiCheckbox` | 裸 `<el-checkbox>` |
+| 按钮 | `PermissionButton`（需权限）/ `UiButton`（纯交互） | 裸 `<el-button>`、自写按钮样式 |
+| 底部固定操作栏 | `UiFixedActionBar` | 自写 `position: fixed` 操作条 |
+| 步骤条 | `UiStepFlow` | 裸 `<el-steps>` |
+| 图表 | `UiChart`（ECharts 封装，颜色走 `--ui-chart-*`） | 直接 `import echarts` 自绘渲染 |
 
-### 表格五件套（写新页面时必须严格按此实现）
+**选用优先级**：绩效业务专用组件（`components/performance/`）> 通用 `Ui`（`components/ui/`）> Element Plus 原子 > 自写。
+例：选择器用 `PerformanceSearchSelect`，浮层用 `PerformancePopover`，绩效弹窗用 `PerformanceDialogShell`。
+
+**视觉风格**：主色 `#3370ff` 飞书蓝；页面底色 `#f5f6f7`；字体系统默认 sans-serif；三层菜单（顶部 tab → 左侧分组 → 左侧叶子）。
+
+### 铁律二：禁止魔法值，一切走 token
+
+- 颜色、字号、间距、圆角、阴影、层级**一律引用 `tokens.css` 变量**。
+- 新代码**不得出现** `#hex`、`rgb()/rgba()` 字面量（图标 SVG 的 `fill/stroke` 除外），不得写裸 `px` 尺寸。
+- 页面底色用 `--ui-page-background`（`#f5f6f7`），不用 `--color-bg-page`。
+- token 缺失：先复用最接近的语义 token；确需新增，加到 `tokens.css` 并命名 `--ui-*`（组件级）或 `--performance-*`（业务级），**禁止在业务组件里定义局部颜色变量**。
+- 禁止恢复 `--brand-*` / `--ink-*` / `--hp-*` / PageHead / Ledger 旧风格。
+
+### UiTable 用法（替代旧「表格五件套」）
+
+`UiTable` 已内置表头吸顶、横向滚动同步、固定列、空/加载态、多选、排序；调用方只给列定义和数据：
 
 ```vue
-<div style="overflow-x: auto">
-  <el-table
-    :data="list"
-    stripe
-    style="width: 100%"
-    max-height="600"
-  >
-    <el-table-column prop="xxx" label="..." min-width="120" />
-    <el-table-column label="操作" width="280" fixed="right">
-      <template #default="{ row }">
-        <PermissionButton menu="..." op="U" size="small">编辑</PermissionButton>
-        ...
-      </template>
-    </el-table-column>
-  </el-table>
-</div>
+<UiTable
+  :columns="[
+    { key: 'name', label: '名称', minWidth: 160 },
+    { key: 'owner', label: '负责人', minWidth: 120 },
+  ]"
+  :rows="list"
+  :loading="loading"
+  row-key="id"
+  sticky-header-top="var(--performance-table-sticky-top)"
+  max-height="600"
+>
+  <template #cell="{ row, column, value }">
+    <!-- 自定义单元格（含操作列）；默认显示 value，空值显示 placeholder -->
+  </template>
+</UiTable>
 ```
 
-**五个不能省的关键点**：
+❌ 禁止：裸 `<el-table>` 搭五件套、自写 `position: sticky` 固定列、`.hp-table-wrap`。
 
-1. 外层 `<div style="overflow-x: auto">`
-2. el-table `style="width: 100%"`
-3. el-table `max-height="600"` —— **关键，让 EP 创建独立 body-wrapper 激活 fixed-right**
-4. 数据列用 `min-width`，不要 `width`
-5. 操作列 `width="280" fixed="right"`，按钮 ≤ 3 个；超 3 个改下拉
+### 铁律三：改完必自检
 
-### 反面案例（已踩坑，禁止重现）
+改完任何前端页面，运行：
 
-❌ 写自己的 `.hp-table-wrap` + `position: sticky` 自实现固定列 → 破坏 EP table layout
-❌ 没设 `max-height` → fixed-right 失效降级为普通列
-❌ 数据列硬写 `width="160"` → 窄屏挤压
-❌ 外层 div + el-table 都做横向滚动 → 表头表体不同步
+```bash
+node frontend/scripts/check-ui-rules.mjs --files <改动过的 .vue 文件...>
+```
+
+改动文件必须 0 违规（裸 el-dialog/drawer/table、硬编码色值、裸 px）。存量页面不在本次范围，但**每次改到一个页面就顺手对齐它**。
 
 ### PermissionButton 用法
 
@@ -245,13 +265,13 @@ items = [
 ```
 
 ```vue
-<!-- 前端：DataTableView.vue，按 columns 动态 v-for -->
-<el-table-column v-for="col in columns" :key="col.code" :label="col.label" :prop="col.code">
-  <template #default="{ row }">
-    <span v-if="col.is_sensitive">▘▘▘▘▘</span>
-    <span v-else>{{ formatCell(row, col) }}</span>
+<!-- 前端：DataTableView.vue，用 UiTable 承载动态列（key=col.code, label, minWidth） -->
+<UiTable :columns="tableColumns" :rows="rows" row-key="_id">
+  <template #cell="{ row, column, value }">
+    <span v-if="sensitiveCodes.has(column.key)">▘▘▘▘▘</span>
+    <span v-else>{{ formatCell(row, value) }}</span>
   </template>
-</el-table-column>
+</UiTable>
 ```
 
 ### 接入新数据源类型

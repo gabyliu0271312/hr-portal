@@ -404,8 +404,11 @@
   --performance-project-status-started: #32a645;
   --performance-project-status-ended: #8f959e;
   --performance-count-badge-height: 16px;
+  --performance-count-badge-font-size: 10px;
   --performance-count-badge-bg: #eff0f1;
   --performance-count-badge-text: #646a73;
+  --performance-language-tag-height: 20px;
+  --performance-language-tag-padding-inline: 6px;
   --performance-count-link-color: var(--color-primary-active);
   --performance-count-link-hover-color: var(--color-primary-hover);
   --performance-count-link-disabled-color: var(--performance-button-link-disabled-color);

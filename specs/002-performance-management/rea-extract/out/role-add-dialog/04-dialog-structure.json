@@ -1,0 +1,98 @@
+{
+  "found": true,
+  "modalCls": "perf-web__ud__dialog__wrap perf-web__ud__dialog--centered uz5stix",
+  "modalRect": {
+    "x": 0,
+    "y": 0,
+    "w": 3440,
+    "h": 1313
+  },
+  "children": [
+    {
+      "d": 1,
+      "tag": "div",
+      "cls": "perf-web__ud__dialog__content perf-web__ud__modal perf-web__ud__dialog__content-md u10pi13n u6juhto u22iagw u6",
+      "rect": {
+        "x": 1420,
+        "y": 32,
+        "w": 600,
+        "h": 1249
+      },
+      "t": "添加评估角色 名称*中文添加英文描述中文0/20",
+      "st": {
+        "position": "relative",
+        "bg": "rgba(0, 0, 0, 0)",
+        "color": "rgb(31, 35, 41)",
+        "border": "rgb(31, 35, 41)",
+        "radius": "0px",
+        "pad": "0px",
+        "shadow": "none",
+        "fs": "14px",
+        "fw": "400"
+      },
+      "kids": [
+        {
+          "d": 2,
+          "tag": "div",
+          "cls": "perf-web__ud__modal__content perf-web__ud__modal-closable ud-typography-body-0 u1ewtqcl ugr6219 u11qmguv u10jk",
+          "rect": {
+            "x": 1420,
+            "y": 422.5,
+            "w": 600,
+            "h": 468
+          },
+          "t": "添加评估角色 名称*中文添加英文描述中文0/20",
+          "st": {
+            "position": "relative",
+            "bg": "rgb(255, 255, 255)",
+            "color": "rgb(31, 35, 41)",
+            "border": "rgb(31, 35, 41)",
+            "radius": "8px",
+            "pad": "0px",
+            "shadow": "none",
+            "fs": "14px",
+            "fw": "400"
+          }
+        }
+      ]
+    }
+  ],
+  "ancestors": [
+    {
+      "d": 1,
+      "tag": "div",
+      "cls": "",
+      "rect": {
+        "x": 0,
+        "y": 1313,
+        "w": 3440,
+        "h": 0
+      },
+      "t": "添加评估角色 名称*中文添加英文描述中文0/20"
+    },
+    {
+      "d": 2,
+      "tag": "div",
+      "cls": "perf-web__ud__dialog__root",
+      "rect": {
+        "x": 0,
+        "y": 1313,
+        "w": 3440,
+        "h": 0
+      },
+      "t": "添加评估角色 名称*中文添加英文描述中文0/20"
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "perf-web__ud__portal",
+      "rect": {
+        "x": 0,
+        "y": 1313,
+        "w": 3440,
+        "h": 0
+      },
+      "t": "添加评估角色 名称*中文添加英文描述中文0/20"
+    }
+  ]
+}

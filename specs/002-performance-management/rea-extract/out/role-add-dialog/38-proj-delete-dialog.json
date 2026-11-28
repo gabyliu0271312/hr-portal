@@ -1,0 +1,155 @@
+{
+  "found": true,
+  "text": "确定要删除\"测试360°邀请及确认\"吗？ 项目已启动，删除后，项目中的评估数据将全部被删除且不可恢复，请谨慎操作。输入「确认删除」以确认当前操作*删除保留",
+  "lines": [
+    {
+      "d": 0,
+      "tag": "div",
+      "cls": "perf-web__ud__dialog__content perf-web__ud__confirm perf-web__ud__dialog__conten",
+      "t": "确定要删除\"测试360°邀请及确认\"吗？ 项目已启动，删除后",
+      "x": 1420,
+      "y": 32,
+      "w": 600,
+      "h": 1249
+    },
+    {
+      "d": 1,
+      "tag": "div",
+      "cls": "perf-web__ud__confirm__content perf-web__ud__confirm-hasIcon perf-web__ud__confi",
+      "t": "确定要删除\"测试360°邀请及确认\"吗？ 项目已启动，删除后",
+      "x": 1420,
+      "y": 522,
+      "w": 600,
+      "h": 270
+    },
+    {
+      "d": 2,
+      "tag": "div",
+      "cls": "perf-web__ud__confirm__header",
+      "t": "确定要删除\"测试360°邀请及确认\"吗？ 项目已启动，删除后",
+      "x": 1420,
+      "y": 522,
+      "w": 600,
+      "h": 214
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "perf-web__ud__confirm__title ud-typography-title-4 u1ewtqcl u1lmfglv uibjyge u1a",
+      "t": "确定要删除\"测试360°邀请及确认\"吗？",
+      "x": 1444,
+      "y": 546,
+      "w": 552,
+      "h": 24
+    },
+    {
+      "d": 4,
+      "tag": "div",
+      "cls": "perf-web__ud__confirm__icon u1ewtqcl u1lmfglv u17vyym1 u1abmfm4 u9yszdx u1nbblvp",
+      "t": "",
+      "x": 1444,
+      "y": 546,
+      "w": 24,
+      "h": 24
+    },
+    {
+      "d": 4,
+      "tag": "div",
+      "cls": "perf-web__ud__confirm__titleContent",
+      "t": "确定要删除\"测试360°邀请及确认\"吗？",
+      "x": 1484,
+      "y": 546,
+      "w": 512,
+      "h": 24
+    },
+    {
+      "d": 4,
+      "tag": "span",
+      "cls": "perf-web__ud__empty-inline-element u1j7mq28 u1a3p1vp u14t3ns0",
+      "t": "",
+      "x": 1996,
+      "y": 546,
+      "w": 0,
+      "h": 24
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "perf-web__ud__confirm__body ud-typography-body-0 uses1vf u82itaf u71fsbu",
+      "t": "项目已启动，删除后，项目中的评估数据将全部被删除且不可恢复，",
+      "x": 1484,
+      "y": 578,
+      "w": 512,
+      "h": 134
+    },
+    {
+      "d": 4,
+      "tag": "div",
+      "cls": "",
+      "t": "项目已启动，删除后，项目中的评估数据将全部被删除且不可恢复，",
+      "x": 1484,
+      "y": 582,
+      "w": 512,
+      "h": 110
+    },
+    {
+      "d": 2,
+      "tag": "div",
+      "cls": "perf-web__ud__confirm__footer",
+      "t": "删除保留",
+      "x": 1420,
+      "y": 736,
+      "w": 600,
+      "h": 56
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "perf-web__ud__confirm__footer__btns",
+      "t": "删除保留",
+      "x": 1444,
+      "y": 736,
+      "w": 552,
+      "h": 44
+    },
+    {
+      "d": 4,
+      "tag": "button",
+      "cls": "perf-web__ud__button perf-web__ud__button--outlined perf-web__ud__button--outlin",
+      "t": "删除",
+      "x": 1916,
+      "y": 736,
+      "w": 80,
+      "h": 32
+    },
+    {
+      "d": 4,
+      "tag": "button",
+      "cls": "perf-web__ud__button perf-web__ud__button--outlined perf-web__ud__button--outlin",
+      "t": "保留",
+      "x": 1824,
+      "y": 736,
+      "w": 80,
+      "h": 32
+    }
+  ],
+  "inputs": [
+    {
+      "tag": "INPUT",
+      "ph": "",
+      "val": ""
+    }
+  ],
+  "btns": [
+    {
+      "t": "删除",
+      "cls": "perf-web__ud__button perf-web__ud__button--outline",
+      "disabled": false
+    },
+    {
+      "t": "保留",
+      "cls": "perf-web__ud__button perf-web__ud__button--outline",
+      "disabled": false
+    }
+  ]
+}

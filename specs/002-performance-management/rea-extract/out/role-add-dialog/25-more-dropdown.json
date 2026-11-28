@@ -1,0 +1,169 @@
+{
+  "texts": [
+    {
+      "t": "编辑",
+      "x": 2966,
+      "y": 347,
+      "w": 28
+    },
+    {
+      "t": "停用",
+      "x": 3010,
+      "y": 347,
+      "w": 28
+    },
+    {
+      "t": "编辑",
+      "x": 2966,
+      "y": 395,
+      "w": 28
+    },
+    {
+      "t": "停用",
+      "x": 3010,
+      "y": 395,
+      "w": 28
+    },
+    {
+      "t": "编辑",
+      "x": 2966,
+      "y": 442,
+      "w": 28
+    },
+    {
+      "t": "停用",
+      "x": 3010,
+      "y": 442,
+      "w": 28
+    },
+    {
+      "t": "编辑",
+      "x": 2966,
+      "y": 489,
+      "w": 28
+    },
+    {
+      "t": "停用",
+      "x": 3010,
+      "y": 489,
+      "w": 28
+    },
+    {
+      "t": "编辑",
+      "x": 2966,
+      "y": 536,
+      "w": 28
+    },
+    {
+      "t": "停用",
+      "x": 3010,
+      "y": 536,
+      "w": 28
+    },
+    {
+      "t": "编辑",
+      "x": 2966,
+      "y": 583,
+      "w": 28
+    },
+    {
+      "t": "停用",
+      "x": 3010,
+      "y": 583,
+      "w": 28
+    },
+    {
+      "t": "编辑",
+      "x": 2966,
+      "y": 630,
+      "w": 28
+    },
+    {
+      "t": "停用",
+      "x": 3010,
+      "y": 630,
+      "w": 28
+    },
+    {
+      "t": "共 7 条",
+      "x": 3158,
+      "y": 682,
+      "w": 43
+    },
+    {
+      "t": "1",
+      "x": 3250,
+      "y": 683,
+      "w": 26
+    },
+    {
+      "t": "10 条/页",
+      "x": 3329,
+      "y": 684,
+      "w": 45
+    },
+    {
+      "t": "复制",
+      "x": 3030,
+      "y": 386,
+      "w": 28
+    },
+    {
+      "t": "删除",
+      "x": 3030,
+      "y": 425,
+      "w": 28
+    }
+  ],
+  "containers": [
+    {
+      "cls": "perf-web__ud__dropdown",
+      "x": 3010,
+      "y": 374,
+      "w": 68,
+      "h": 90
+    },
+    {
+      "cls": "perf-web__ud__dropdown__content perf-web__ud__slide-up-down-bottom-end-300-300-2",
+      "x": 3010,
+      "y": 371,
+      "w": 68,
+      "h": 90
+    },
+    {
+      "cls": "perf-web__ud__menu-normal perf-web__ud__menu-normal-root perf-web__ud__menu-norm",
+      "x": 3010,
+      "y": 371,
+      "w": 68,
+      "h": 90
+    },
+    {
+      "cls": "perf-web__ud__menu-normal-item sc-iuInmA hduIIp !max-w-100 perf-web__ud__menu-no",
+      "x": 3014,
+      "y": 378,
+      "w": 60,
+      "h": 37
+    },
+    {
+      "cls": "perf-web__ud__text perf-web__ud__menu-normal-item-title-content perf-web__ud__me",
+      "x": 3030,
+      "y": 385,
+      "w": 28,
+      "h": 22
+    },
+    {
+      "cls": "perf-web__ud__menu-normal-item sc-iuInmA hduIIp !max-w-100 perf-web__ud__menu-no",
+      "x": 3014,
+      "y": 417,
+      "w": 60,
+      "h": 37
+    },
+    {
+      "cls": "perf-web__ud__text perf-web__ud__menu-normal-item-title-content perf-web__ud__me",
+      "x": 3030,
+      "y": 424,
+      "w": 28,
+      "h": 22
+    }
+  ]
+}

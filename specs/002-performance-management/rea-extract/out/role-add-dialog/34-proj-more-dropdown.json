@@ -1,0 +1,34 @@
+[
+  {
+    "t": "复制",
+    "cls": "perf-web__ud__menu-normal-item sc-iuInmA hduIIp !m",
+    "x": 2990,
+    "y": 531,
+    "w": 116,
+    "h": 37
+  },
+  {
+    "t": "删除",
+    "cls": "perf-web__ud__menu-normal-item sc-iuInmA hduIIp !m",
+    "x": 2990,
+    "y": 570,
+    "w": 116,
+    "h": 37
+  },
+  {
+    "t": "导入评估信息",
+    "cls": "perf-web__ud__menu-normal-item sc-iuInmA hduIIp !m",
+    "x": 2990,
+    "y": 609,
+    "w": 116,
+    "h": 37
+  },
+  {
+    "t": "查看导入记录",
+    "cls": "perf-web__ud__menu-normal-item sc-iuInmA hduIIp !m",
+    "x": 2990,
+    "y": 648,
+    "w": 116,
+    "h": 37
+  }
+]

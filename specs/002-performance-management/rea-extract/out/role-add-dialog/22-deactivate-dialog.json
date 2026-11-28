@@ -1,0 +1,224 @@
+{
+  "found": true,
+  "text": "确定停用「REA采集测试评估角色」吗？ 停用后，后续配置的模板将不能在环节执行人中选择。停用取消",
+  "lines": [
+    {
+      "d": 0,
+      "tag": "div",
+      "cls": "perf-web__ud__dialog__content perf-web__ud__confirm perf-web__ud__dialog__content-sm u10pi",
+      "t": "确定停用「REA采集测试评估角色」吗？ 停用后，后续配置的模板将不能",
+      "x": 1510,
+      "y": 20,
+      "w": 420,
+      "h": 1273,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "c": "rgb(31, 35, 41)",
+        "fs": "14px",
+        "fw": "400"
+      }
+    },
+    {
+      "d": 1,
+      "tag": "div",
+      "cls": "perf-web__ud__confirm__content perf-web__ud__confirm-hasIcon perf-web__ud__confirm-confirm",
+      "t": "确定停用「REA采集测试评估角色」吗？ 停用后，后续配置的模板将不能",
+      "x": 1510,
+      "y": 567,
+      "w": 420,
+      "h": 180,
+      "st": {
+        "bg": "rgb(255, 255, 255)",
+        "c": "rgb(31, 35, 41)",
+        "fs": "14px",
+        "fw": "400"
+      }
+    },
+    {
+      "d": 2,
+      "tag": "div",
+      "cls": "perf-web__ud__confirm__header",
+      "t": "确定停用「REA采集测试评估角色」吗？ 停用后，后续配置的模板将不能",
+      "x": 1510,
+      "y": 567,
+      "w": 420,
+      "h": 124,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "c": "rgb(31, 35, 41)",
+        "fs": "14px",
+        "fw": "400"
+      }
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "perf-web__ud__confirm__title ud-typography-title-4 u1ewtqcl u1lmfglv uibjyge u1abmfm4 u9ys",
+      "t": "确定停用「REA采集测试评估角色」吗？",
+      "x": 1534,
+      "y": 591,
+      "w": 372,
+      "h": 24,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "c": "rgb(31, 35, 41)",
+        "fs": "16px",
+        "fw": "600"
+      }
+    },
+    {
+      "d": 4,
+      "tag": "div",
+      "cls": "perf-web__ud__confirm__icon u1ewtqcl u1lmfglv u17vyym1 u1abmfm4 u9yszdx u1nbblvp uifp7yv u",
+      "t": "",
+      "x": 1534,
+      "y": 591,
+      "w": 24,
+      "h": 24,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "c": "rgb(255, 129, 26)",
+        "fs": "16px",
+        "fw": "600"
+      }
+    },
+    {
+      "d": 4,
+      "tag": "div",
+      "cls": "perf-web__ud__confirm__titleContent",
+      "t": "确定停用「REA采集测试评估角色」吗？",
+      "x": 1574,
+      "y": 591,
+      "w": 332,
+      "h": 24,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "c": "rgb(31, 35, 41)",
+        "fs": "16px",
+        "fw": "600"
+      }
+    },
+    {
+      "d": 4,
+      "tag": "span",
+      "cls": "perf-web__ud__empty-inline-element u1j7mq28 u1a3p1vp u14t3ns0",
+      "t": "",
+      "x": 1906,
+      "y": 591,
+      "w": 0,
+      "h": 24,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "c": "rgb(31, 35, 41)",
+        "fs": "16px",
+        "fw": "600"
+      }
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "perf-web__ud__confirm__body ud-typography-body-0 uses1vf u82itaf u71fsbu",
+      "t": "停用后，后续配置的模板将不能在环节执行人中选择。",
+      "x": 1574,
+      "y": 623,
+      "w": 332,
+      "h": 44,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "c": "rgb(31, 35, 41)",
+        "fs": "14px",
+        "fw": "400"
+      }
+    },
+    {
+      "d": 2,
+      "tag": "div",
+      "cls": "perf-web__ud__confirm__footer",
+      "t": "停用取消",
+      "x": 1510,
+      "y": 691,
+      "w": 420,
+      "h": 56,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "c": "rgb(31, 35, 41)",
+        "fs": "14px",
+        "fw": "400"
+      }
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "perf-web__ud__confirm__footer__btns",
+      "t": "停用取消",
+      "x": 1534,
+      "y": 691,
+      "w": 372,
+      "h": 44,
+      "st": {
+        "bg": "rgba(0, 0, 0, 0)",
+        "c": "rgb(31, 35, 41)",
+        "fs": "14px",
+        "fw": "400"
+      }
+    },
+    {
+      "d": 4,
+      "tag": "button",
+      "cls": "perf-web__ud__button perf-web__ud__button--outlined perf-web__ud__button--outlined-danger ",
+      "t": "停用",
+      "x": 1826,
+      "y": 691,
+      "w": 80,
+      "h": 32,
+      "st": {
+        "bg": "rgb(255, 255, 255)",
+        "c": "rgb(245, 74, 69)",
+        "fs": "14px",
+        "fw": "400"
+      }
+    },
+    {
+      "d": 4,
+      "tag": "button",
+      "cls": "perf-web__ud__button perf-web__ud__button--outlined perf-web__ud__button--outlined-default",
+      "t": "取消",
+      "x": 1734,
+      "y": 691,
+      "w": 80,
+      "h": 32,
+      "st": {
+        "bg": "rgb(255, 255, 255)",
+        "c": "rgb(31, 35, 41)",
+        "fs": "14px",
+        "fw": "400"
+      }
+    }
+  ],
+  "btns": [
+    {
+      "t": "停用",
+      "x": 1826,
+      "y": 691,
+      "w": 80,
+      "h": 32,
+      "cls": "perf-web__ud__button perf-web__ud__button--outlined perf-web",
+      "bg": "rgb(255, 255, 255)",
+      "c": "rgb(245, 74, 69)",
+      "border": "rgb(245, 74, 69)",
+      "disabled": false
+    },
+    {
+      "t": "取消",
+      "x": 1734,
+      "y": 691,
+      "w": 80,
+      "h": 32,
+      "cls": "perf-web__ud__button perf-web__ud__button--outlined perf-web",
+      "bg": "rgb(255, 255, 255)",
+      "c": "rgb(31, 35, 41)",
+      "border": "rgb(208, 211, 214)",
+      "disabled": false
+    }
+  ]
+}

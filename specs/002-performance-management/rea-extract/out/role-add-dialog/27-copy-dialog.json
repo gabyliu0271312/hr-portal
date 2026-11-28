@@ -1,0 +1,211 @@
+{
+  "found": true,
+  "boxRect": {
+    "x": 1420,
+    "y": 415.5,
+    "w": 600,
+    "h": 482
+  },
+  "lines": [
+    {
+      "d": 0,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__content perf-web__ud__modal-closable ud-typography-body-0 u1ewtqcl ug",
+      "t": "添加评估角色 名称*中文英文描述REA采集用的临时测试评估角",
+      "x": 1420,
+      "y": 416,
+      "w": 600,
+      "h": 482
+    },
+    {
+      "d": 1,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__header",
+      "t": "添加评估角色",
+      "x": 1420,
+      "y": 416,
+      "w": 600,
+      "h": 72
+    },
+    {
+      "d": 2,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__title ud-typography-title-4 u1ewtqcl u1lmfglv uibjyge u1abmfm4 u9yszd",
+      "t": "添加评估角色",
+      "x": 1444,
+      "y": 440,
+      "w": 520,
+      "h": 24
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__titleContent",
+      "t": "添加评估角色",
+      "x": 1444,
+      "y": 440,
+      "w": 520,
+      "h": 24
+    },
+    {
+      "d": 3,
+      "tag": "span",
+      "cls": "perf-web__ud__empty-inline-element u1j7mq28 u1a3p1vp u14t3ns0",
+      "t": "",
+      "x": 1964,
+      "y": 440,
+      "w": 0,
+      "h": 24
+    },
+    {
+      "d": 1,
+      "tag": "button",
+      "cls": "perf-web__ud__button perf-web__ud__button--icon perf-web__ud__button--icon-default perf-we",
+      "t": "",
+      "x": 1972,
+      "y": 438,
+      "w": 28,
+      "h": 28
+    },
+    {
+      "d": 2,
+      "tag": "span",
+      "cls": "universe-icon",
+      "t": "",
+      "x": 1976,
+      "y": 442,
+      "w": 20,
+      "h": 20
+    },
+    {
+      "d": 3,
+      "tag": "svg",
+      "cls": "[object SVGAnimatedString]",
+      "t": "",
+      "x": 1976,
+      "y": 442,
+      "w": 20,
+      "h": 20
+    },
+    {
+      "d": 1,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__body",
+      "t": "名称*中文英文描述REA采集用的临时测试评估角色，仅用于抓取",
+      "x": 1420,
+      "y": 488,
+      "w": 600,
+      "h": 330
+    },
+    {
+      "d": 2,
+      "tag": "form",
+      "cls": "perf-web__ud__form perf-web__ud__form-vertical perf-web__ud__form-md",
+      "t": "名称*中文英文描述REA采集用的临时测试评估角色，仅用于抓取",
+      "x": 1444,
+      "y": 488,
+      "w": 552,
+      "h": 310
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "perf-web__ud__row perf-web__ud__form__item perf-web__ud__form__item-error-locally",
+      "t": "名称*中文英文",
+      "x": 1444,
+      "y": 488,
+      "w": 552,
+      "h": 110
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "perf-web__ud__row perf-web__ud__form__item perf-web__ud__form__item-error-locally",
+      "t": "描述REA采集用的临时测试评估角色，仅用于抓取保存接口中文2",
+      "x": 1444,
+      "y": 618,
+      "w": 552,
+      "h": 180
+    },
+    {
+      "d": 1,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__footer",
+      "t": "确定取消",
+      "x": 1420,
+      "y": 842,
+      "w": 600,
+      "h": 56
+    },
+    {
+      "d": 2,
+      "tag": "div",
+      "cls": "perf-web__ud__modal__footer__btns",
+      "t": "确定取消",
+      "x": 1444,
+      "y": 842,
+      "w": 552,
+      "h": 44
+    },
+    {
+      "d": 3,
+      "tag": "button",
+      "cls": "perf-web__ud__button perf-web__ud__button--filled perf-web__ud__button--filled-default per",
+      "t": "确定",
+      "x": 1916,
+      "y": 842,
+      "w": 80,
+      "h": 32
+    },
+    {
+      "d": 3,
+      "tag": "button",
+      "cls": "perf-web__ud__button perf-web__ud__button--outlined perf-web__ud__button--outlined-default",
+      "t": "取消",
+      "x": 1824,
+      "y": 842,
+      "w": 80,
+      "h": 32
+    }
+  ],
+  "inputs": [
+    {
+      "tag": "INPUT",
+      "ph": "",
+      "val": "REA采集测试评估角色 副本",
+      "x": 1456,
+      "y": 523
+    },
+    {
+      "tag": "INPUT",
+      "ph": "",
+      "val": "REA test review role Copy",
+      "x": 1456,
+      "y": 563
+    },
+    {
+      "tag": "TEXTAREA",
+      "ph": "",
+      "val": "REA采集用的临时测试评估角色，仅用于抓取保存接口",
+      "x": 1444,
+      "y": 648
+    }
+  ],
+  "btns": [
+    {
+      "t": "添加英文",
+      "cls": "perf-web__ud__button perf-web__ud__button--text perf-we",
+      "disabled": false
+    },
+    {
+      "t": "确定",
+      "cls": "perf-web__ud__button perf-web__ud__button--filled perf-",
+      "disabled": false
+    },
+    {
+      "t": "取消",
+      "cls": "perf-web__ud__button perf-web__ud__button--outlined per",
+      "disabled": false
+    }
+  ]
+}

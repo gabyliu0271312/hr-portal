@@ -301,7 +301,7 @@ onBeforeUnmount(() => { ++request })
   border: 0;
   border-radius: 6px;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-bg-card);
   cursor: pointer;
   font: 400 14px/32px var(--font-sans);
 }
@@ -315,7 +315,7 @@ onBeforeUnmount(() => { ++request })
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #1456f0;
+  color: var(--color-primary-hover);
   cursor: pointer;
   font: 500 14px/22px var(--font-sans);
   white-space: nowrap;

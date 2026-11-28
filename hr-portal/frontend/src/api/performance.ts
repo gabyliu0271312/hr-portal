@@ -800,7 +800,9 @@ export interface PerformanceRoleListItem {
   id: number
   code: string
   name: string
+  name_en?: string | null
   description: string | null
+  description_en?: string | null
   role_type: 'MANAGEMENT' | 'ASSESSMENT'
   member_source: string | null
   is_system: boolean
@@ -818,13 +820,18 @@ export interface PerformanceRoleListPage {
 
 export interface PerformanceRoleCreatePayload {
   name: string
+  name_en?: string
   description?: string | null
+  description_en?: string
+  role_type?: 'MANAGEMENT' | 'ASSESSMENT'
   function_permission_keys?: string[]
 }
 
 export interface PerformanceRoleUpdatePayload {
   name?: string
+  name_en?: string
   description?: string | null
+  description_en?: string
   function_permission_keys?: string[]
 }
 
@@ -892,6 +899,54 @@ export const performanceUserAuthorizationApi = {
   },
   async revoke(userId: number): Promise<void> {
     await api.delete(`${userAuthorizationPath}/${userId}`)
+  },
+}
+
+export interface PerformanceAuthRule {
+  id: number
+  role_id: number
+  role_name: string
+  or_scope: PerformanceAudienceGroup[]
+  updated_at: string
+  updated_by?: string | null
+}
+
+export interface PerformanceAuthRuleOptions {
+  fields: Array<{ key: string; label: string; operators: string[]; option_source: string }>
+  organization_tree: PerformanceHrbpOrganizationNode[]
+  people: Array<{ value: string; label: string; department?: string | null }>
+  roles: Array<{ id: number; name: string; function_permission_keys: string[] }>
+  job_families: Array<{ value: string; label: string }>
+  position_levels: Array<{ value: string; label: string }>
+  hire_date_range: { min: string | null; max: string | null }
+  employee_types: Array<{ value: string; label: string }>
+}
+
+const authRulePath = '/performance/permission-settings/auth-rules'
+export const performanceAuthRuleApi = {
+  async list(keyword = '', page = 1, pageSize = 10): Promise<{ items: PerformanceAuthRule[]; total: number; page: number; page_size: number }> {
+    const { data } = await api.get(authRulePath, { params: { keyword: keyword || undefined, page, page_size: pageSize } })
+    return data
+  },
+  async exportAll(keyword = ''): Promise<{ items: PerformanceAuthRule[]; total: number }> {
+    const { data } = await api.get(authRulePath + '/export', { params: { keyword: keyword || undefined } })
+    return data
+  },
+  async options(): Promise<PerformanceAuthRuleOptions> {
+    const { data } = await api.get(authRulePath + '/options')
+    return data
+  },
+  async resolveScope(orScope: PerformanceAudienceGroup[]): Promise<{ count: number; user_ids: string[] }> {
+    const { data } = await api.post(authRulePath + '/resolve-scope', { or_scope: orScope })
+    return data
+  },
+  async save(roleId: number, orScope: PerformanceAudienceGroup[], edit = false, id?: number): Promise<PerformanceAuthRule> {
+    const payload = { role_id: roleId, or_scope: orScope }
+    const { data } = edit ? await api.put(`${authRulePath}/${id}`, payload) : await api.post(authRulePath, payload)
+    return data
+  },
+  async remove(id: number): Promise<void> {
+    await api.delete(`${authRulePath}/${id}`)
   },
 }
 
