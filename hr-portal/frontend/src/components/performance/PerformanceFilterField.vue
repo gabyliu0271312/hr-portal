@@ -21,7 +21,7 @@
       :loading-text="personLoadingText"
       :empty-text="personEmptyText"
       :remote-search="hasRemoteLoader"
-      :tag-shape="personMultiple ? 'round' : 'default'"
+      :tag-shape="'round'"
       :auto-height="field.autoHeight"
       :highlight-query="true"
       :aria-label="field.label"

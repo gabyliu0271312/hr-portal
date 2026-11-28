@@ -3,7 +3,10 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 
 const { list, push } = vi.hoisted(() => ({ list: vi.fn(), push: vi.fn() }))
-vi.mock('@/api/performance', () => ({ performanceTagFillQuestionApi: { list } }))
+vi.mock('@/api/performance', () => ({
+  performanceTagFillQuestionApi: { list },
+  performanceTemplateApi: { peopleOptions: vi.fn(() => Promise.resolve([])) },
+}))
 vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
 
 import TagFillQuestionManagement from './TagFillQuestionManagement.vue'

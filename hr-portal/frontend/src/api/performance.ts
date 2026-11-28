@@ -2233,9 +2233,9 @@ function mapTagFillQuestion(item: PerformanceTagFillQuestionWire): PerformanceTa
 }
 
 export const performanceTagFillQuestionApi = {
-  async list(keyword = '', page = 1, pageSize = 10): Promise<{ items: PerformanceTagFillQuestion[]; total: number }> {
+  async list(keyword = '', page = 1, pageSize = 10, creatorId?: string): Promise<{ items: PerformanceTagFillQuestion[]; total: number }> {
     const { data } = await api.get<{ items: PerformanceTagFillQuestionWire[]; total: number }>('/performance/tagged-fill-in-questions', {
-      params: { offset: (page - 1) * pageSize, limit: pageSize, question_type: 'tag_text', keyword },
+      params: { offset: (page - 1) * pageSize, limit: pageSize, question_type: 'tag_text', keyword, ...(creatorId ? { creator: creatorId } : {}) },
     })
     return { items: data.items.map(mapTagFillQuestion), total: data.total }
   },
@@ -2482,6 +2482,8 @@ export type PerformanceExecutorLevel = 'DIRECT_MANAGER' | 'LEVEL_1_MANAGER' | 'C
 export interface PerformanceExecutorPerson {
   employee_no: string
   display_name: string
+  department?: string
+  portal_user_id?: string | null
 }
 export type PerformanceExecutorRole =
   | { type: 'REAL_LINE_MANAGER'; levels: Array<'DIRECT_MANAGER' | 'LEVEL_1_MANAGER'> }

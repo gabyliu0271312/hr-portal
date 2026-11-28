@@ -11,6 +11,7 @@ from app.performance.tag_fill_questions_router import (
     _contains_tag_reference,
     create_tag_fill_question,
     delete_tag_fill_question,
+    list_tag_fill_questions,
     update_tag_fill_question,
 )
 
@@ -133,6 +134,44 @@ async def test_create_and_update_persist_the_management_form_fields():
 def test_reference_detection_finds_nested_template_snapshots():
     assert _contains_tag_reference({"items": [{"tagOptionId": "101"}]}, "101") is True
     assert _contains_tag_reference({"items": [{"tagOptionId": "102"}]}, "101") is False
+
+
+class _ListScalarResult:
+    def scalar_one(self):
+        return 0
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return []
+
+
+class _ListDb:
+    def __init__(self):
+        self.statement = None
+
+    async def execute(self, statement):
+        self.statement = statement
+        return _ListScalarResult()
+
+
+@pytest.mark.asyncio
+async def test_list_tag_fill_questions_applies_keyword_and_creator_filters():
+    db = _ListDb()
+    result = await list_tag_fill_questions(
+        offset=0,
+        limit=10,
+        question_type="tag_text",
+        keyword="价值",
+        creator="1",
+        _context=_context(),
+        db=db,
+    )
+    assert result.items == []
+    statement = str(db.statement)
+    assert "performance_tag_fill_questions.created_by_ref =" in statement
+    assert "LIKE" in statement.upper()
 
 
 @pytest.mark.asyncio

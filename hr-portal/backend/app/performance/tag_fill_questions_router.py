@@ -145,6 +145,7 @@ async def list_tag_fill_questions(
     limit: int = Query(default=10, ge=1, le=100),
     question_type: QuestionType = "tag_text",
     keyword: str = Query(default="", max_length=200),
+    creator: str | None = Query(default=None, max_length=128),
     _context: PerformanceAccessContext = Depends(require_performance_permission("performance.configuration.manage")),
     db: AsyncSession = Depends(get_session),
 ) -> TagFillQuestionListResponse:
@@ -157,6 +158,8 @@ async def list_tag_fill_questions(
             PerformanceTagFillQuestion.description.ilike(pattern),
             PerformanceTagFillQuestion.remark.ilike(pattern),
         ))
+    if creator:
+        filters.append(PerformanceTagFillQuestion.created_by_ref == creator)
     base = select(PerformanceTagFillQuestion).where(*filters)
     total = int((await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one())
     rows = (await db.execute(

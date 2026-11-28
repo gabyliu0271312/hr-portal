@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, require_performance_permission
-from app.performance.models import PerformanceAuditEvent, PerformanceCycle, PerformanceMetricType, PerformanceProject, PerformanceReviewRule, PerformanceTemplate, PerformanceTemplateWorkflow
+from app.performance.models import PerformanceAuditEvent, PerformanceCycle, PerformanceIdentityLink, PerformanceMetricType, PerformanceProject, PerformanceReviewRule, PerformanceTemplate, PerformanceTemplateWorkflow
 from app.performance.template_workflow_service import (
     PerformanceTemplateWorkflowService,
     TemplateWorkflowValidationError,
@@ -226,7 +226,25 @@ async def template_people_options(
             for person in people
             if needle in (person.label or "").casefold() or needle in (person.value or "").casefold()
         ]
-    return [{"employee_no": person.value, "display_name": person.label} for person in people]
+    portal_user_by_employee_no: dict[str, int] = {}
+    employee_nos = [person.value for person in people]
+    if employee_nos:
+        links = (await db.execute(
+            select(PerformanceIdentityLink.portal_user_id, PerformanceIdentityLink.employee_no).where(
+                PerformanceIdentityLink.employee_no.in_(employee_nos),
+                PerformanceIdentityLink.is_active.is_(True),
+            )
+        )).all()
+        portal_user_by_employee_no = {employee_no: portal_user_id for portal_user_id, employee_no in links}
+    return [
+        {
+            "employee_no": person.value,
+            "display_name": person.label,
+            "department": person.department,
+            "portal_user_id": str(portal_user_by_employee_no[person.value]) if person.value in portal_user_by_employee_no else None,
+        }
+        for person in people
+    ]
 
 
 @router.get("", response_model=list[TemplateListItem])

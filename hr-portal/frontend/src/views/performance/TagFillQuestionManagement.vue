@@ -2,12 +2,18 @@
 import { onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
-import { performanceTagFillQuestionApi } from '@/api/performance'
+import { performanceTagFillQuestionApi, performanceTemplateApi } from '@/api/performance'
+import { usePerformanceFilterDraft } from '@/composables/usePerformanceFilterDraft'
 import AddOutlinedIcon from '@/components/performance/AddOutlinedIcon.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceListPage from '@/components/performance/PerformanceListPage.vue'
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
+import PerformanceFilterPopover from '@/components/performance/PerformanceFilterPopover.vue'
+import PerformanceFilterField from '@/components/performance/PerformanceFilterField.vue'
+import PerformanceFilterActions from '@/components/performance/PerformanceFilterActions.vue'
 import TagFillQuestionTable from '@/components/performance/TagFillQuestionTable.vue'
+import type { PerformanceSearchSelectOption } from '@/components/performance/PerformanceSearchSelect.vue'
+import type { PerformanceFilterField as PerformanceFilterFieldDescriptor } from '@/components/performance/performanceFilterTypes'
 import type { TagFillQuestionRecord } from '@/components/performance/tagFillQuestionFixtures'
 
 const router = useRouter()
@@ -18,10 +24,19 @@ const total = ref(0)
 const loading = ref(false)
 const questions = ref<TagFillQuestionRecord[]>([])
 
+const filterDraft = usePerformanceFilterDraft<Record<string, string[]>>(() => ({ creator: [] }))
+const { applied: appliedFilters, draft: draftFilters, activeCount: filterCount, open: openFilterDraft, confirm: confirmFilterDraft, cancel: cancelFilterDraft, clear: clearFilterDraft } = filterDraft
+const filterOpen = ref(false)
+const filterAnchor = ref<HTMLElement | null>(null)
+const filterFields: PerformanceFilterFieldDescriptor[] = [
+  { key: 'creator', label: '创建人', type: 'person', placeholder: '请搜索', emptyText: '暂无匹配人员', loadingText: '搜索中', loadOptions: loadCreatorOptions },
+]
+
 async function load() {
   loading.value = true
   try {
-    const result = await performanceTagFillQuestionApi.list(keyword.value, page.value, pageSize.value)
+    const creator = appliedFilters.value.creator[0]
+    const result = await performanceTagFillQuestionApi.list(keyword.value, page.value, pageSize.value, creator)
     questions.value = result.items
     total.value = result.total
   } catch {
@@ -31,6 +46,45 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+async function loadCreatorOptions(query: string): Promise<PerformanceSearchSelectOption[]> {
+  const people = await performanceTemplateApi.peopleOptions(query)
+  const options: PerformanceSearchSelectOption[] = []
+  const seen = new Set<string>()
+  for (const person of people) {
+    const name = person.display_name?.trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    options.push({
+      value: person.portal_user_id || person.employee_no,
+      label: name,
+      subLabel: person.department || undefined,
+      avatarFallback: name.slice(-1),
+      searchText: `${name} ${person.employee_no} ${person.department || ''}`,
+    })
+  }
+  return options
+}
+
+function toggleFilter(anchor?: HTMLElement) {
+  if (filterOpen.value) { cancelFilter(); return }
+  if (anchor instanceof HTMLElement) filterAnchor.value = anchor
+  openFilterDraft()
+  filterOpen.value = true
+}
+function confirmFilter() {
+  confirmFilterDraft()
+  filterOpen.value = false
+  page.value = 1
+  void load()
+}
+function cancelFilter() {
+  cancelFilterDraft()
+  filterOpen.value = false
+}
+function clearFilter() {
+  clearFilterDraft()
 }
 
 function create() {
@@ -60,9 +114,11 @@ onMounted(load)
   <PerformanceListPage title="标签型填写题">
     <PerformanceListToolbar
       v-model:keyword="keyword"
+      :filter-active="filterCount > 0"
+      :filter-count="filterCount"
       @search="page = 1; load()"
       @clear="page = 1; load()"
-      @filter="ElMessage.info('当前列表仅支持名称、描述和备注搜索')"
+      @filter="toggleFilter"
     >
       <template #left>
         <UiButton variant="primary" class="create-button" @click="create">
@@ -70,6 +126,12 @@ onMounted(load)
         </UiButton>
       </template>
     </PerformanceListToolbar>
+    <PerformanceFilterPopover :visible="filterOpen" :anchor="filterAnchor" aria-label="标签型填写题筛选" @close="cancelFilter">
+      <PerformanceFilterField v-for="field in filterFields" :key="field.key" v-model="draftFilters[field.key]" :field="field" />
+      <template #footer>
+        <PerformanceFilterActions @confirm="confirmFilter" @cancel="cancelFilter" @clear="clearFilter" />
+      </template>
+    </PerformanceFilterPopover>
     <TagFillQuestionTable
       :questions="questions"
       :loading="loading"
