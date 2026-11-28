@@ -101,13 +101,22 @@ def test_defaults_are_returned_without_writing():
     assert db.setting is None and db.commits == 0
 
 
-@pytest.mark.parametrize("authenticated,allowed,status", [(False, False, 401), (True, False, 403)])
-def test_routes_require_configuration_permission(authenticated, allowed, status):
+def test_routes_require_authentication():
     db = MemoryDb()
-    api = client(db, allowed, authenticated)
-    assert api.get(URL).status_code == status
-    assert api.put(URL, json=state()).status_code == status
+    api = client(db, authenticated=False)
+    assert api.get(URL).status_code == 401
+    assert api.put(URL, json=state()).status_code == 401
     assert db.statements == [] and db.commits == 0
+
+
+def test_read_is_available_to_performance_users_but_write_requires_configuration_permission():
+    db = MemoryDb()
+    api = client(db, allowed=False)
+    read = api.get(URL)
+    assert read.status_code == 200
+    assert len(read.json()["filter_conditions"]) == 32
+    assert api.put(URL, json=state()).status_code == 403
+    assert db.setting is None and db.commits == 0
 
 
 def test_payload_validation_prevents_writes():

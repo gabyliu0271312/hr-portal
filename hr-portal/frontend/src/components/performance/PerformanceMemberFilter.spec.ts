@@ -15,8 +15,11 @@ import PerformanceOrganizationSelect from './PerformanceOrganizationSelect.vue'
 import PerformanceSelectShell from './PerformanceSelectShell.vue'
 import { ElDatePicker } from 'element-plus'
 import { employeeSwitchEpoch } from '@/stores/identitySwitch'
+import { getPerformanceFilterConditions } from '@/api/performanceFieldSettings'
+import { createFieldSettingsPreview } from './performanceFieldSettings'
 
 enableAutoUnmount(afterEach)
+vi.mock('@/api/performanceFieldSettings', () => ({ getPerformanceFilterConditions: vi.fn() }))
 vi.mock('@/api/performance', async () => {
   const actual = await vi.importActual<typeof import('@/api/performance')>('@/api/performance')
   return { ...actual, projectManagementApi: { ...actual.projectManagementApi, cycleMemberFilterOptions: vi.fn(), cycleMemberFilterPresets: vi.fn(), saveCycleMemberFilterPreset: vi.fn(), deleteCycleMemberFilterPreset: vi.fn(), cycleMembers: vi.fn(), cycleExportMembers: vi.fn() } }
@@ -33,6 +36,7 @@ beforeEach(() => {
   vi.mocked(projectManagementApi.cycleMemberFilterPresets).mockResolvedValue({ items: [] })
   vi.mocked(projectManagementApi.cycleMembers).mockResolvedValue({ items: [], total: 0, page: 1, page_size: 50 })
   vi.mocked(projectManagementApi.cycleExportMembers).mockResolvedValue({ items: [], total: 0, page: 1, page_size: 50 })
+  vi.mocked(getPerformanceFilterConditions).mockResolvedValue(createFieldSettingsPreview().default_filter_condition.filter_conditions)
 })
 
 describe('cycle member advanced filters', () => {
@@ -108,6 +112,46 @@ describe('cycle member advanced filters', () => {
     expect(controls[1].findComponent(PerformanceSelectShell).vm.isOpen).toBe(true)
     expect(wrapper.findAll('button[aria-label^="删除条件"]')).toHaveLength(2)
   })
+  it('orders fields and builds default rows from saved filter settings', async () => {
+    const make = (key: string, label: string, kind: MemberFilterField['kind']): MemberFilterField => ({ key, label, kind, operators: [{ value: 'in', label: '包含' }, { value: 'not_in', label: '不包含' }], options: [] })
+    const fields = [
+      make('name', '人员', 'person'),
+      make('position_level', '职级', 'select'),
+      make('department', '所属部门', 'organization'),
+      make('direct_supervisor', '直属上级', 'person'),
+      make('job_sequence', '序列（筛选结果不含子序列）', 'sequence'),
+      make('job_sequence_descendants', '序列（筛选结果含子序列）', 'sequence'),
+      make('department_path', '部门（含子部门）', 'organization'),
+      make('hrbp', 'HRBP', 'person'),
+      make('hire_date', '入职日期', 'date'),
+      make('employee_type', '人员类型', 'select'),
+      make('project_name', '项目名称', 'select'),
+    ]
+    vi.mocked(projectManagementApi.cycleMemberFilterOptions).mockResolvedValue({ fields })
+    const wrapper = mountFilter({ logic: 'and', conditions: [] })
+    await flushPromises()
+    await flushPromises()
+    const controls = wrapper.findAllComponents(PerformanceMemberFilterField)
+    expect(controls.map(control => control.props('modelValue'))).toEqual([
+      'direct_supervisor', 'department_path', 'department', 'position_level', 'job_sequence_descendants', 'name',
+    ])
+    expect(controls[0].props('fields').map((item: MemberFilterField) => item.key)).toEqual([
+      'direct_supervisor', 'hrbp', 'department_path', 'department', 'position_level',
+      'job_sequence_descendants', 'job_sequence', 'name', 'hire_date', 'employee_type', 'project_name',
+    ])
+  })
+
+  it('shows no default rows when the saved settings clear all defaults', async () => {
+    const fields: MemberFilterField[] = [{ ...field, key: 'direct_supervisor', label: '直属上级', kind: 'person' }]
+    vi.mocked(projectManagementApi.cycleMemberFilterOptions).mockResolvedValue({ fields })
+    vi.mocked(getPerformanceFilterConditions).mockResolvedValue(createFieldSettingsPreview().default_filter_condition.filter_conditions.map(condition => ({ ...condition, default: false })))
+    const wrapper = mountFilter({ logic: 'and', conditions: [] })
+    await flushPromises()
+    await flushPromises()
+    expect(wrapper.findAllComponents(PerformanceMemberFilterField)).toHaveLength(0)
+    expect(wrapper.text()).toContain('添加条件')
+  })
+
   it('closes outside without applying but keeps teleported child layers open', async () => {
     const anchor = document.createElement('button')
     document.body.append(anchor)

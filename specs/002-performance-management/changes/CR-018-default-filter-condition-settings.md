@@ -13,6 +13,15 @@
 - GET/PUT `/api/v1/performance/system-settings/fields/filter-conditions`。GET 无记录时返回默认状态且不落库；PUT 单例行锁、同事务审计 `PERFORMANCE_FILTER_CONDITIONS_UPDATED`。
 - 独立单例存储 `performance_filter_condition_settings`，新迁移 `0328_performance_filter_conditions`；不混入既有设置表。
 
+## 前台筛选面板联动
+
+- 消费入口：`PerformanceMemberFilter.vue`（项目成员列表的高级筛选面板）。每次打开面板重新读取配置；读取失败才回退旧的硬编码默认条件。
+- 读取权限：`GET /filter-conditions` 放开给已登录的绩效用户；`PUT` 仍要求 `performance.configuration.manage`，写权限不变。
+- 行为：按配置顺序重排字段下拉；`default=true` 的条件生成空值默认行，用户填写值并点「确定」后才参与筛选；全部取消默认则面板初始无行。
+- 配置 key → 本地可筛选字段映射：`directLeader→direct_supervisor`、`hrbp→hrbp`、`departments→department_path`、`directDepartment→department`、`level→position_level`、`allCategories→job_sequence_descendants`、`directCategory→job_sequence`、`userId→name`、`joinDate→hire_date`、`employeeType→employee_type`、`activity→project_name`。
+- 未映射：`leaders`（本地无独立“上级”筛选项）、`dottedLeaders`、`pdtManagerKey`、`pdtProjectKey`、`pdtCoProjectKey`、`pdtRoleKey`、`jobTitle`、`isManager`、`followGroup`、`followedUser`、`realTimeDimissionStatus`、绩效结果/环节/历史等动态项。它们仍可在后台配置，但不会出现在成员筛选面板。
+- 仅接入成员高级筛选；校准筛选、授权记录筛选等不属于本次联动范围。
+
 ## UI 实测基线（飞书生产页面 DOM）
 
 | 项目 | 实测 |
@@ -39,6 +48,7 @@
 
 - [ ] CR-018-T01：单例存储、32 项目录校验、GET/PUT、权限/审计、迁移与专项测试。
 - [ ] CR-018-T02：行/弹窗组件、页面接入、保存后回读、前端测试、UI 规则与本地真实渲染验收。
+- [ ] CR-018-T03：成员高级筛选消费配置——只读接口权限、字段排序、默认条件行、映射与未覆盖项、前后端定向测试。
 
 Given 无已存配置，When 打开页面/弹窗，Then 返回 32 项默认状态且 7 项默认、6 项禁用，不写库。
 Given 未完成的键集合、重复键、未知键、非布尔默认值或禁用项设默认，When 保存，Then 422 且不写库。
@@ -56,10 +66,10 @@ Given 无 `performance.configuration.manage`，When 读取或写入，Then 401/4
 
 ### 测试与检查
 
-- 后端：`python -m pytest tests/test_performance_filter_conditions.py tests/test_performance_manager_standard.py -q` → **36 passed, 1 skipped**（既有 PostgreSQL 验收标记跳过）。
-- 前端：`npx vitest run src/views/performance/Settings.spec.ts src/components/performance/PerformanceFilterConditionSettingsDialog.spec.ts src/api/performanceFieldSettings.spec.ts` → **22 passed / 3 files**。
-- UI 规则：`node scripts/check-ui-rules.mjs --files src/views/performance/Settings.vue src/components/performance/PerformanceFilterConditionRow.vue src/components/performance/PerformanceFilterConditionSettingsDialog.vue` → **0 违规**。
-- 类型：`npx vue-tsc --noEmit` 仅剩既有 `CalibrationSingleTask.spec.ts` 的 `exists` 类型错误，新增/修改文件无报错。
+- 后端：`python -m pytest tests/test_performance_filter_conditions.py tests/test_performance_member_filters.py -q` → **93 passed**（含成员筛选原有回归）。
+- 前端：`npx vitest run src/components/performance/PerformanceMemberFilter.spec.ts src/views/performance/Settings.spec.ts` → **39 passed / 2 files**；新增成员面板顺序/默认行/全取消默认覆盖。
+- UI 规则：`node scripts/check-ui-rules.mjs --files src/components/performance/PerformanceMemberFilter.vue` → **0 违规**。
+- 类型：`npx vue-tsc --noEmit` 通过。
 
 ### 本地真实渲染
 
@@ -70,5 +80,6 @@ Given 无 `performance.configuration.manage`，When 读取或写入，Then 401/4
 
 - 未升级/降级真实 PostgreSQL，未验证真实行锁/审计回滚；仅有离线 DDL 与内存测试。
 - 未运行 `npm run build`、未部署生产、未做整页像素差分。
+- 未在真实页面做“保存配置 → 打开成员筛选面板”的浏览器端到端验收；当前为组件测试与后端单测。
 - 滚动条 thumb/track 的伪元素颜色未采到，沿用项目全局滚动条 token；仅确认宽度 8px。
 - 前台筛选面板未消费该配置，属于明确非范围。

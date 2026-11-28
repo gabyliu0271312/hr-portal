@@ -8,6 +8,9 @@ import PerformanceMemberFilterValue from './PerformanceMemberFilterValue.vue'
 import PerformanceMemberFilterPresets from './PerformanceMemberFilterPresets.vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'
 import UiButton from '@/components/ui/UiButton.vue'
+import { getPerformanceFilterConditions } from '@/api/performanceFieldSettings'
+import type { PerformanceFilterCondition } from './performanceFieldSettings'
+import { defaultMemberFilterRows, memberFilterSettingKeys, orderMemberFilterFields } from './performanceMemberFilterSettings'
 
 const props = defineProps<{ visible: boolean; anchor: HTMLElement | null; cycleId: number; modelValue: PerformanceMemberFilters; contextKey: string }>()
 const emit = defineEmits<{ close: []; apply: [filters: PerformanceMemberFilters] }>()
@@ -17,10 +20,13 @@ const fields = ref<MemberFilterField[]>([])
 const candidateCache = new Map<string, PerformanceMemberFilterOption[]>()
 function rememberCandidates(key: string, options: PerformanceMemberFilterOption[]) { candidateCache.set(key, options) }
 const draft = ref<PerformanceMemberFilters>({ logic: 'and', conditions: [] })
+const filterSettings = ref<PerformanceFilterCondition[] | null>(null)
+const filterSettingsAttempted = ref(false)
 const loading = ref(false)
 const error = ref('')
 const validationError = ref('')
 let sequence = 0
+let settingsSequence = 0
 const relationOptions = [{ value: 'and', label: '所有' }, { value: 'or', label: '任意' }]
 const fieldFor = (condition: PerformanceMemberFilterCondition) => fields.value.find(field => field.key === condition.key)
 const completeFilters = computed<PerformanceMemberFilters>(() => ({ logic: draft.value.logic, conditions: draft.value.conditions.filter(condition => {
@@ -28,14 +34,31 @@ const completeFilters = computed<PerformanceMemberFilters>(() => ({ logic: draft
   if (fieldFor(condition)?.kind !== 'date') return true
   return condition.values.length === 2 && condition.values.every(value => /^\d{4}-\d{2}-\d{2}$/.test(value)) && condition.values[0] <= condition.values[1]
 }).map(condition => ({ ...condition, values: [...condition.values] })) }))
+function applyFieldOrder() {
+  const { ordered } = memberFilterSettingKeys(filterSettings.value)
+  fields.value = orderMemberFilterFields(fields.value, ordered)
+}
 function defaults() {
   if (draft.value.conditions.length) return
-  const keys = ['direct_supervisor', 'supervisors', 'department_path', 'department', 'position_level', 'job_sequence_descendants', 'job_sequence', 'name']
-  draft.value.conditions = keys.flatMap(key => {
-    const field = fields.value.find(item => item.key === key)
-    if (!field || (key === 'job_sequence' && fields.value.some(item => item.key === 'job_sequence_descendants'))) return []
-    return [{ key, op: field.operators[0].value, values: [] }]
-  })
+  if (!fields.value.length || !filterSettingsAttempted.value) return
+  const { defaults: keys } = memberFilterSettingKeys(filterSettings.value)
+  draft.value.conditions = defaultMemberFilterRows(fields.value, keys)
+}
+async function loadFilterSettings() {
+  const request = ++settingsSequence
+  filterSettingsAttempted.value = false
+  try {
+    const result = await getPerformanceFilterConditions()
+    if (request === settingsSequence) filterSettings.value = result
+  } catch {
+    if (request === settingsSequence) filterSettings.value = null
+  } finally {
+    if (request === settingsSequence) {
+      filterSettingsAttempted.value = true
+      applyFieldOrder()
+      if (props.visible) defaults()
+    }
+  }
 }
 async function load() {
   const request = ++sequence
@@ -45,6 +68,7 @@ async function load() {
     const result = await projectManagementApi.cycleMemberFilterOptions(props.cycleId)
     if (request === sequence) {
       fields.value = result.fields.map(field => field.kind === 'person' ? { ...field, options: candidateCache.get(field.key) || [] } : field)
+      if (filterSettingsAttempted.value) applyFieldOrder()
       if (props.visible) defaults()
     }
   } catch (cause: any) {
@@ -62,6 +86,7 @@ watch(() => props.visible, visible => {
   if (!visible) return
   draft.value = { logic: props.modelValue.logic, conditions: props.modelValue.conditions.map(condition => ({ ...condition, values: [...condition.values] })) }
   validationError.value = ''
+  void loadFilterSettings()
   defaults()
 }, { immediate: true })
 function outside(event: PointerEvent) {

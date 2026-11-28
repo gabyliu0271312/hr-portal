@@ -18,6 +18,7 @@ from app.data.employee_roster_contract import (
 )
 from app.performance.auth_context import (
     PerformanceAccessContext,
+    get_performance_access_context,
     require_performance_permission,
     resolve_trusted_performance_actor,
 )
@@ -292,7 +293,7 @@ async def update_manager_standard(
 
 @router.get("/filter-conditions", response_model=FilterConditionsPayload)
 async def get_filter_conditions(
-    _: PerformanceAccessContext = Depends(_context),
+    _: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ) -> FilterConditionsPayload:
     setting = await db.get(PerformanceFilterConditionSetting, 1)
