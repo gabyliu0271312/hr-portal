@@ -485,9 +485,14 @@ def _job_sequence_tree(people: list[PerformanceAuthorizationSnapshotPerson]) -> 
 @router.get("/{cycle_id}/focus-groups/options", response_model=FocusGroupOptionsOut)
 async def focus_group_options(
     cycle_id: int,
-    _: PerformanceAccessContext = Depends(require_performance_permission(FOCUS_GROUP_PERMISSION)),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ) -> FocusGroupOptionsOut:
+    """筛选/维护选项（组织树、序列树、人员、职级等）。
+
+    与成员列表（/members）同鉴权：能访问人员组管理即可加载，不要求周期管理权限。
+    组织/序列数据对成员列表访问者本就可见（成员行已返回部门路径），此处不扩大信息面。
+    """
     cycle = await _require_cycle(db, cycle_id)
     options = await PerformanceProjectService(db).evaluator_options(cycle)
     people = await _cycle_people(db, cycle)

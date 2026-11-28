@@ -9,7 +9,7 @@ const { list, remove, confirm, success, error } = vi.hoisted(() => ({
   error: vi.fn(),
 }))
 
-vi.mock('@/api/performance', () => ({ performanceReviewRuleApi: { list, remove } }))
+vi.mock('@/api/performance', () => ({ performanceReviewRuleApi: { list, remove }, performanceTemplateApi: { peopleOptions: vi.fn().mockResolvedValue([]) } }))
 vi.mock('element-plus', async () => {
   const actual = await vi.importActual<any>('element-plus')
   return { ...actual, ElMessageBox: { confirm }, ElMessage: { success, error } }
@@ -24,6 +24,19 @@ function mountView() {
           props: ['rules'],
           emits: ['remove'],
           template: '<div aria-label="评估规则表格">暂无评估规则<button v-if="rules.length" data-remove @click="$emit(\'remove\', rules[0])">删除</button></div>',
+        },
+        PerformanceFilterPopover: {
+          props: ['visible'],
+          template: '<div v-if="visible" class="filter-popover"><slot /><slot name="footer" /></div>',
+        },
+        PerformanceFilterField: {
+          props: ['field', 'modelValue'],
+          emits: ['update:modelValue'],
+          template: '<button class="filter-field" :data-key="field.key" @click="$emit(\'update:modelValue\', field.key === \'creator\' ? [\'E1\'] : [\'评分\'])">{{ field.label }}</button>',
+        },
+        PerformanceFilterActions: {
+          emits: ['confirm', 'cancel', 'clear'],
+          template: '<div class="filter-actions"><button class="confirm" @click="$emit(\'confirm\')">确定</button><button class="cancel" @click="$emit(\'cancel\')">取消</button><button class="clear" @click="$emit(\'clear\')">清除</button></div>',
         },
         'el-button': {
           emits: ['click'],
@@ -59,12 +72,23 @@ describe('ReviewRuleManagement', () => {
     expect(wrapper.get('[aria-label="评估规则表格"]').text()).toBe('暂无评估规则')
   })
 
-  it('emits create and filter actions', async () => {
+  it('opens the filter popover and applies the selected method to the list', async () => {
     const wrapper = mountView()
     await wrapper.get('.rule-create-button').trigger('click')
-    await wrapper.get('.filter-button').trigger('click')
     expect(wrapper.emitted('create')).toHaveLength(1)
-    expect(wrapper.emitted('filter')).toHaveLength(1)
+
+    await wrapper.get('.filter-button').trigger('click')
+    expect(wrapper.find('.filter-popover').exists()).toBe(true)
+    expect(wrapper.get('.filter-popover').text()).toContain('评估方式')
+    expect(wrapper.get('.filter-popover').text()).toContain('创建人')
+
+    await wrapper.get('.filter-field[data-key="method"]').trigger('click')
+    await wrapper.get('.filter-actions .confirm').trigger('click')
+    await flushPromises()
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ review_type: '评分' }))
+    expect(wrapper.get('.filter-button').text()).toContain('筛选 (1)')
+    expect(wrapper.find('.filter-popover').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('shows normalized conflict details and refreshes rule availability', async () => {

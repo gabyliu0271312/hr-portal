@@ -10,6 +10,10 @@
     @close="cancel"
   >
     <form class="performance-filter-drawer__form" novalidate @submit.prevent="confirm">
+      <p v-if="error" class="performance-filter-drawer__error" role="alert">
+        {{ error }}
+        <UiButton variant="text" :disabled="retrying" @click="emit('retry')">重试</UiButton>
+      </p>
       <div v-for="field in fields" :key="field.key" class="performance-filter-drawer__field">
         <span class="performance-filter-drawer__label">{{ field.label }}</span>
         <PerformancePersonSelect
@@ -25,18 +29,21 @@
           @search="keyword => searchPeople(field, keyword)"
           @update:model-value="value => setValue(field.key, Array.isArray(value) ? value : value ? [value] : [])"
         />
-        <PerformanceOrganizationTreeSelect
-          v-else-if="field.type === 'tree'"
-          :model-value="draft[field.key] || []"
-          :nodes="field.nodes"
-          :selection-indicator="field.selectionIndicator || 'checkmark'"
-          :selected-surface="field.selectedSurface || 'filled'"
-          :max-visible-tags="field.maxVisibleTags ?? 0"
-          :placeholder="field.placeholder || '请选择'"
-          :aria-label="field.label"
-          :popup-label="`${field.label}选项`"
-          @update:model-value="value => setValue(field.key, value)"
-        />
+        <template v-else-if="field.type === 'tree'">
+          <PerformanceOrganizationTreeSelect
+            v-if="!error"
+            :model-value="draft[field.key] || []"
+            :nodes="field.nodes"
+            :selection-indicator="field.selectionIndicator || 'checkmark'"
+            :selected-surface="field.selectedSurface || 'filled'"
+            :max-visible-tags="field.maxVisibleTags ?? 0"
+            :placeholder="field.placeholder || '请选择'"
+            :aria-label="field.label"
+            :popup-label="`${field.label}选项`"
+            @update:model-value="value => setValue(field.key, value)"
+          />
+          <span v-else class="performance-filter-drawer__unavailable" aria-hidden="true">—</span>
+        </template>
         <PerformanceDateRangePicker
           v-else
           :model-value="draft[field.key] || []"
@@ -79,14 +86,21 @@ const props = withDefaults(defineProps<{
   fields: PerformanceFilterDrawerField[]
   initialValues?: PerformanceFilterDrawerValues
   title?: string
+  /** 树选项（部门/序列）加载失败时的内联提示；为空则不提示 */
+  error?: string | null
+  /** 树选项重试进行中 */
+  retrying?: boolean
 }>(), {
   initialValues: () => ({}),
   title: '筛选成员',
+  error: null,
+  retrying: false,
 })
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   apply: [values: PerformanceFilterDrawerValues]
+  retry: []
 }>()
 
 const visible = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
@@ -142,6 +156,9 @@ function clear() {
 .performance-filter-drawer__form { display: flex; flex: 1; flex-direction: column; gap: var(--performance-filter-drawer-field-gap); min-height: 0; padding: var(--spacing-5) var(--spacing-4); overflow-y: auto; box-sizing: border-box; }
 .performance-filter-drawer__field { display: flex; flex-direction: column; min-width: 0; }
 .performance-filter-drawer__label { display: block; padding-bottom: var(--performance-field-label-gap); color: var(--color-text-primary); font-size: var(--font-size-md); font-weight: var(--performance-filter-drawer-label-weight); line-height: var(--performance-input-line-height); }
+.performance-filter-drawer__error { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-2); margin: 0; padding: var(--spacing-2) var(--spacing-3); border-radius: var(--radius-md); background: var(--color-danger-light); color: var(--color-danger); font-size: var(--font-size-md); line-height: var(--performance-input-line-height); }
+.performance-filter-drawer__error :deep(.performance-button) { flex: none; min-width: 0; padding-inline: var(--spacing-2); }
+.performance-filter-drawer__unavailable { display: block; height: var(--performance-control-height); line-height: var(--performance-control-height); color: var(--color-text-placeholder); }
 .performance-filter-drawer__footer { display: flex; align-items: center; gap: var(--spacing-3); height: var(--performance-filter-drawer-footer-height); padding: var(--spacing-6); box-sizing: border-box; }
 .performance-filter-drawer__footer :deep(.performance-button) { min-width: var(--performance-button-min-width); }
 .performance-filter-drawer__footer :deep(.performance-button--link) { min-width: 0; }

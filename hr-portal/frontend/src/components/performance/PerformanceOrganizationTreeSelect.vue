@@ -18,7 +18,7 @@
       <div class="organization-tree__list">
         <div class="organization-tree__scroll" role="tree">
           <PerformanceOrganizationTreeNodes :nodes="filteredNodes" :selected="modelValue" :searching="Boolean(query.trim())" :selection-indicator="selectionIndicator" :selected-surface="selectedSurface" :default-expanded="defaultExpanded" :disabled="disabled" @toggle="toggleNode" />
-          <div v-if="!filteredNodes.length" class="organization-tree__empty">暂无可选部门</div>
+          <div v-if="!filteredNodes.length" class="organization-tree__empty">暂无内容</div>
         </div>
       </div>
     </template>

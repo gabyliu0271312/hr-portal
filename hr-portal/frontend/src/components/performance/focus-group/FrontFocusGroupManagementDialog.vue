@@ -74,6 +74,7 @@ const filterValues = ref<PerformanceFilterDrawerValues>({})
 const appliedFilters = ref<PerformanceFocusGroupMemberFilters>({})
 const filterOptions = ref<PerformanceFocusGroupOptions | null>(null)
 const filterOptionsLoading = ref(false)
+const filterOptionsError = ref<string | null>(null)
 
 const filterFields = computed<PerformanceFilterDrawerField[]>(() => [
   { key: 'leaderIds', label: '直属上级', type: 'person', multiple: true, loadOptions: searchPeopleOptions },
@@ -103,13 +104,19 @@ async function openFilter() {
   filterOpen.value = true
   if (!props.cycleId || filterOptions.value || filterOptionsLoading.value) return
   filterOptionsLoading.value = true
+  filterOptionsError.value = null
   try {
     filterOptions.value = await performanceFocusGroupApi.options(props.cycleId)
   } catch {
-    ElMessage.error('筛选选项加载失败，请稍后重试')
+    filterOptionsError.value = '筛选选项加载失败，请重试'
   } finally {
     filterOptionsLoading.value = false
   }
+}
+
+function retryFilterOptions() {
+  filterOptions.value = null
+  void openFilter()
 }
 
 function applyFilter(values: PerformanceFilterDrawerValues) {
@@ -197,6 +204,7 @@ watch(() => props.cycleId, () => {
   groups.value = []
   activeGroupId.value = null
   filterOptions.value = null
+  filterOptionsError.value = null
   resetFilters()
   rows.value = []
   memberEmployeeNos.value = []
@@ -328,7 +336,10 @@ function formatDateTime(value: string | null | undefined) {
               v-model="filterOpen"
               :fields="filterFields"
               :initial-values="filterValues"
+              :error="filterOptionsError"
+              :retrying="filterOptionsLoading"
               @apply="applyFilter"
+              @retry="retryFilterOptions"
             />
 
             <PerformanceConfirmDialog
