@@ -39,10 +39,16 @@ function applyFieldOrder() {
   fields.value = orderMemberFilterFields(fields.value, ordered)
 }
 function defaults() {
-  if (draft.value.conditions.length) return
   if (!fields.value.length || !filterSettingsAttempted.value) return
   const { defaults: keys } = memberFilterSettingKeys(filterSettings.value)
-  draft.value.conditions = defaultMemberFilterRows(fields.value, keys)
+  const rows = defaultMemberFilterRows(fields.value, keys)
+  const byKey = new Map(rows.map(row => [row.key, row]))
+  for (const condition of draft.value.conditions) {
+    const target = byKey.get(condition.key)
+    if (target) { target.op = condition.op; target.values = [...condition.values] }
+    else rows.push({ key: condition.key, op: condition.op, values: [...condition.values] })
+  }
+  draft.value.conditions = rows
 }
 async function loadFilterSettings() {
   const request = ++settingsSequence

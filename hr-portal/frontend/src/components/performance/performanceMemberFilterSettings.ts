@@ -13,6 +13,7 @@ export const MEMBER_FILTER_KEY_BY_SETTING_KEY: Record<string, string> = {
   joinDate: 'hire_date',
   employeeType: 'employee_type',
   activity: 'project_name',
+  isManager: 'is_manager',
 }
 
 const LEGACY_DEFAULT_KEYS = ['direct_supervisor', 'supervisors', 'department_path', 'department', 'position_level', 'job_sequence_descendants', 'job_sequence', 'name']

@@ -266,7 +266,7 @@ HR Portal 是平台入口，不是单一工具页面集合。绩效管理、招�
 - 字段使用 `PerformanceFormItem compact`（标签 14/600/22，块距 16px）；页脚 `PerformanceFilterActions`（row-reverse，清除/取消/确定，60×28，padding 8/8/12，sticky）。
 - 人员多选 `PerformancePersonFilterSelect`：基于 `PerformancePersonSelect`，`remote-search` 空关键词不请求/不展示，输入 250ms 后请求；选项 52 高、32 头像、14 姓名 + 12 部门；已选 chip 24 高、pill、头像 20（`tag-shape="round"`）。
 - 状态单选 `PerformanceSearchSelect selection-style="plain"`：只读输入、点击展开，选项 30 高，hover 0.08。
-- 触发按钮 `PerformanceFilterButton` 增加 `active/count`：激活底 `--performance-filter-active-background`（#E1EAFF），边框/文字主色，文案“筛选 (n)”；n 为非空字段数。
+- 触发按钮 `PerformanceFilterButton` 增加 `active/count`：激活态为 outline-primary（边框/文字主色 #1456F0，**无底色**；hover `--performance-button-outline-primary-hover-background` #E0E9FF、按下 #C2D4FF），文案“筛选 (n)”；n 为非空字段数。注意 active 态不加底色——飞书实采 active 为纯白底，`--performance-filter-active-background` 已废弃删除。
 - 新增 token 集中在 `--performance-filter-*` 与 `--performance-select-tag-round-*`；主按钮 hover 统一 #336DF4，link hover 同色，控件边框 #D0D3D6。
 
 ### PermissionButton

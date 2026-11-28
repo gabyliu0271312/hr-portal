@@ -57,7 +57,7 @@ const filterLabels: [string, string, boolean][] = [
   ['directCategory', '序列（筛选结果不含子序列）', false],
   ['jobTitle', '职务', false],
   ['pdtRoleKey', '项目角色', false],
-  ['isManager', '是否管理者', false],
+  ['isManager', '是否为管理者', false],
   ['userId', '人员', true],
   ['followGroup', '人员组', false],
   ['followedUser', '我标记为关注的人', false],

@@ -100,6 +100,55 @@ def test_fields_only_advertise_include_and_exclude_operators():
     assert all([op["value"] for op in field["operators"]] == ["in", "not_in"] for field in fields)
 
 
+def test_is_manager_field_exposed_with_static_options():
+    fields = member_filter_options([row("A")], schema())["fields"]
+    is_manager = next(field for field in fields if field["key"] == "is_manager")
+    assert is_manager["kind"] == "select"
+    assert is_manager["options"] == [{"value": "manager", "label": "是"}, {"value": "not_manager", "label": "否"}]
+    assert [op["value"] for op in is_manager["operators"]] == ["in", "not_in"]
+
+
+def test_filter_by_is_manager_uses_injected_values():
+    items = [row("A"), row("B"), row("C")]
+    items[0].filter_values = {"is_manager": "manager"}
+    items[2].filter_values = {"is_manager": "not_manager"}
+    result = filter_member_rows(items, parse_member_filters(payload(("is_manager", "in", ["manager"]))), schema())
+    assert [item.employee_no for item in result] == ["A"]
+    result = filter_member_rows(items, parse_member_filters(payload(("is_manager", "in", ["not_manager"]))), schema())
+    assert [item.employee_no for item in result] == ["C"]
+    result = filter_member_rows(items, parse_member_filters(payload(("is_manager", "not_in", ["not_manager"]))), schema())
+    assert [item.employee_no for item in result] == ["A"]
+
+
+@pytest.mark.asyncio
+async def test_inject_is_manager_values_uses_manager_standard(monkeypatch):
+    from app.performance import auth_rule_service, projects_router
+
+    people = [
+        SimpleNamespace(employee_no="E1", direct_supervisor_employee_no="L1", employee_type="正式", employment_status="在职"),
+        SimpleNamespace(employee_no="E2", direct_supervisor_employee_no="L1", employee_type="正式", employment_status="离职"),
+        SimpleNamespace(employee_no="E3", direct_supervisor_employee_no="L1", employee_type="派遣", employment_status="在职"),
+        SimpleNamespace(employee_no="E4", direct_supervisor_employee_no=None, employee_type="正式", employment_status="在职"),
+    ]
+    db = AsyncMock()
+
+    # 默认标准：有在职直属下级即管理者
+    db.get.return_value = None
+    monkeypatch.setattr(auth_rule_service, "load_rule_roster_people", AsyncMock(return_value=people))
+    items = [SimpleNamespace(employee_no="L1", filter_values={}), SimpleNamespace(employee_no="E4", filter_values={})]
+    await projects_router._inject_is_manager_values(db, items)
+    assert items[0].filter_values["is_manager"] == "manager"
+    assert items[1].filter_values["is_manager"] == "not_manager"
+
+    # 标准二：仅指定人员类型的在职直属下级才算
+    db.get.return_value = SimpleNamespace(manager_standard="specific_employee_type_underling", specific_employee_types=["派遣"])
+    monkeypatch.setattr(auth_rule_service, "load_rule_roster_people", AsyncMock(return_value=people))
+    items = [SimpleNamespace(employee_no="L1", filter_values={}), SimpleNamespace(employee_no="E4", filter_values={})]
+    await projects_router._inject_is_manager_values(db, items)
+    assert items[0].filter_values["is_manager"] == "manager"  # 有派遣在职下属 E3
+    assert items[1].filter_values["is_manager"] == "not_manager"
+
+
 def test_non_person_options_not_truncated_while_person_search_is_limited():
     items = [row(f"E{index:03}", department=f"部门{index:03}") for index in range(150)]
     departments = member_filter_options(items, schema(), key="department")["fields"][0]["options"]
@@ -307,10 +356,11 @@ def test_historical_rating_filter_metadata_keeps_its_own_configuration():
         "group": ["历史周期绩效结果", "Q4"], "operators": OPERATORS,
         "options": [{"value": "old-b", "label": "B", "color": "blue"}, {"value": "old-a", "label": "A"}],
     }]}
-    field = member_filter_fields(current)[0]
+    fields = member_filter_options([], current)["fields"]
+    assert {item["key"] for item in fields} == {"history_rating:12:grade", "is_manager"}
+    field = next(item for item in fields if item["key"] == "history_rating:12:grade")
     assert field["key"] == "history_rating:12:grade"
     assert field["options"] == [{"value": "old-b", "label": "B", "color": "blue"}, {"value": "old-a", "label": "A"}]
-    assert member_filter_options([], current)["fields"] == [field]
 
 
 @pytest.mark.asyncio

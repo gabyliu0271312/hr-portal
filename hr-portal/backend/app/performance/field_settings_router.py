@@ -73,7 +73,7 @@ FILTER_CONDITION_CATALOG: tuple[tuple[str, str, bool], ...] = (
     ("directCategory", "序列（筛选结果不含子序列）", False),
     ("jobTitle", "职务", False),
     ("pdtRoleKey", "项目角色", False),
-    ("isManager", "是否管理者", False),
+    ("isManager", "是否为管理者", False),
     ("userId", "人员", False),
     ("followGroup", "人员组", False),
     ("followedUser", "我标记为关注的人", False),

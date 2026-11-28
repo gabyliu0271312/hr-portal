@@ -14,6 +14,14 @@ FILTER_KINDS = {
     "hire_date": "date", "employee_type": "select", "project_name": "select",
 }
 OPERATORS = [{"value": "in", "label": "包含"}, {"value": "not_in", "label": "不包含"}]
+IS_MANAGER_FIELD = {
+    "key": "is_manager",
+    "label": "是否为管理者",
+    "kind": "select",
+    "group": [],
+    "operators": OPERATORS,
+    "options": [{"value": "manager", "label": "是"}, {"value": "not_manager", "label": "否"}],
+}
 
 
 def stage_filter_field(node):
@@ -104,6 +112,8 @@ def member_filter_fields(schema, items=()):
         fields.append({"key": "job_sequence_descendants", "label": "序列（筛选结果含子序列）", "kind": "sequence",
                        "group": [], "operators": OPERATORS, "options": []})
     fields.extend(field for key, field in metadata.items() if key.startswith("history_rating:"))
+    if not any(field["key"] == "is_manager" for field in fields):
+        fields.append(dict(IS_MANAGER_FIELD))
     return fields
 
 
@@ -124,6 +134,8 @@ def member_filter_values(item):
     for key in values:
         if key in overrides:
             values[key] = overrides[key]
+    if "is_manager" in overrides:
+        values["is_manager"] = overrides["is_manager"]
     if "name" in values:
         values["name"] = {"value": str(_value(item, "employee_no")), "label": _value(item, "display_name")}
         if _value(item, "avatar_url"):
@@ -217,6 +229,8 @@ def member_filter_options(items, schema, *, key=None, keyword=None):
         if field["key"] in configured and field["key"].startswith(("rating:", "history_rating:")):
             continue
         if field["key"].startswith("stage:") and field["options"]:
+            continue
+        if field["key"] == "is_manager" and field["options"]:
             continue
         if field["kind"] == "sequence":
             roots = {}

@@ -519,7 +519,6 @@
   --performance-filter-footer-padding: var(--spacing-2) var(--spacing-2) var(--spacing-3);
   --performance-filter-action-width: 60px;
   --performance-filter-action-gap: var(--spacing-3);
-  --performance-filter-active-background: #e1eaff;
   --performance-filter-icon-size: 14px;
   --performance-authorization-toolbar-height: 68px;
   --performance-authorization-status-dot-size: var(--spacing-2);

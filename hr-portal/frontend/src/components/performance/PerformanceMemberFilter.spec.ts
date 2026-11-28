@@ -141,6 +141,27 @@ describe('cycle member advanced filters', () => {
     ])
   })
 
+  it('merges saved filter conditions into default rows on reopen', async () => {
+    const make = (key: string, label: string, kind: MemberFilterField['kind']): MemberFilterField => ({ key, label, kind, operators: [{ value: 'in', label: '包含' }, { value: 'not_in', label: '不包含' }], options: [] })
+    const fields = [
+      make('direct_supervisor', '直属上级', 'person'),
+      make('position_level', '职级', 'select'),
+      make('name', '人员', 'person'),
+    ]
+    vi.mocked(projectManagementApi.cycleMemberFilterOptions).mockResolvedValue({ fields })
+    const saved = { logic: 'and' as const, conditions: [{ key: 'direct_supervisor', op: 'in' as const, values: ['E1'] }] }
+    const wrapper = mountFilter(saved)
+    await flushPromises()
+    await flushPromises()
+    const controls = wrapper.findAllComponents(PerformanceMemberFilterField)
+    expect(controls.map(control => control.props('modelValue'))).toEqual([
+      'direct_supervisor', 'position_level', 'name',
+    ])
+    const values = wrapper.findAllComponents(PerformanceMemberFilterValue)
+    expect(values[0].props('modelValue')).toEqual(['E1'])
+    expect(values.slice(1).every(value => value.props('modelValue').length === 0)).toBe(true)
+  })
+
   it('shows no default rows when the saved settings clear all defaults', async () => {
     const fields: MemberFilterField[] = [{ ...field, key: 'direct_supervisor', label: '直属上级', kind: 'person' }]
     vi.mocked(projectManagementApi.cycleMemberFilterOptions).mockResolvedValue({ fields })

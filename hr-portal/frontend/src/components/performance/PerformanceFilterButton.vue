@@ -3,7 +3,6 @@
     :variant="active ? 'outline-primary' : 'secondary'"
     class="filter-button"
     :class="{ 'is-icon-only': variant === 'icon-only', 'is-active': active }"
-    :style="activeStyle"
     :aria-label="displayLabel"
     :aria-pressed="active"
     :disabled="disabled"
@@ -23,7 +22,6 @@ import UiButton from '../ui/UiButton.vue'
 const props = withDefaults(defineProps<{ label?: string; variant?: 'default' | 'icon-only'; disabled?: boolean; active?: boolean; count?: number }>(), { label: '筛选', variant: 'default', disabled: false, active: false, count: 0 })
 const emit = defineEmits<{ click: [] }>()
 const displayLabel = computed(() => props.count > 0 ? `${props.label} (${props.count})` : props.label)
-const activeStyle = computed(() => props.active ? { backgroundColor: 'var(--performance-filter-active-background)' } : undefined)
 </script>
 
 <style scoped>

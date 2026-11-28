@@ -438,6 +438,8 @@ onBeforeUnmount(() => { ++requestSequence; ++preferenceRequest; ++saveRequest })
     <PerformanceListToolbar
       ref="memberToolbar"
       :filter-label="memberFilters.conditions.length ? `筛选 (${memberFilters.conditions.length})` : '筛选'"
+      :filter-active="memberFilters.conditions.length > 0"
+      :filter-count="memberFilters.conditions.length"
       v-model:keyword="keyword"
       class="member-list-toolbar"
       search-placeholder="搜索成员"

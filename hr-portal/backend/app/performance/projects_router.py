@@ -2506,7 +2506,7 @@ def _result_opening_scope(context: PerformanceAccessContext, grants: list[tuple[
 
 async def _opening_role_grants(db: AsyncSession, context: PerformanceAccessContext) -> list[tuple[PerformanceRole, PerformanceRoleAssignment]]:
     now = datetime.now(UTC)
-    return list((await db.execute(select(PerformanceRole, PerformanceRoleAssignment).join(
+    grants = list((await db.execute(select(PerformanceRole, PerformanceRoleAssignment).join(
         PerformanceRoleAssignment, PerformanceRoleAssignment.role_id == PerformanceRole.id,
     ).where(
         PerformanceRoleAssignment.subject_type == context.subject_type,
@@ -2517,6 +2517,27 @@ async def _opening_role_grants(db: AsyncSession, context: PerformanceAccessConte
         or_(PerformanceRoleAssignment.starts_at.is_(None), PerformanceRoleAssignment.starts_at <= now),
         or_(PerformanceRoleAssignment.ends_at.is_(None), PerformanceRoleAssignment.ends_at > now),
     ))).all())
+    existing = {(role.code, assignment.scope_type, assignment.scope_ref) for role, assignment in grants}
+    rule_codes = {grant.code for grant in context.role_grants if grant.code.startswith("custom.")
+                  and getattr(grant, "source", "assignment") == "rule"
+                  and grant.scope_type == "GLOBAL" and grant.scope_ref == "GLOBAL"
+                  and (grant.code, grant.scope_type, grant.scope_ref) not in existing}
+    if rule_codes:
+        from app.performance.auth_rule_service import matching_roles
+        from app.performance.auth_context import resolve_performance_employee_no, PerformanceIdentityMappingConflict
+        try:
+            employee_no = await resolve_performance_employee_no(db, context)
+        except PerformanceIdentityMappingConflict:
+            employee_no = None
+        rule_codes.intersection_update(code for _, code in await matching_roles(db, employee_no))
+    if rule_codes:
+        roles = (await db.execute(select(PerformanceRole).where(
+            PerformanceRole.code.in_(rule_codes), PerformanceRole.is_active.is_(True),
+            PerformanceRole.is_system.is_(False), PerformanceRole.role_type == "MANAGEMENT",
+        ))).scalars().all()
+        grants.extend((role, PerformanceRoleAssignment(subject_type=context.subject_type, subject_id=context.subject_id,
+            role_id=role.id, scope_type="GLOBAL", scope_ref="GLOBAL", is_active=True)) for role in roles)
+    return grants
 
 
 async def _opening_access_grants(db: AsyncSession, context: PerformanceAccessContext, projects: list[PerformanceProject]) -> list[tuple[PerformanceRole, PerformanceRoleAssignment]]:
@@ -3584,6 +3605,37 @@ def _sort_member_rows(items, sort_by, sort_order, rating_columns, schema=None):
 
 
 
+async def _inject_is_manager_values(db: AsyncSession, items: list) -> None:
+    """按字段设置的管理者判定标准，为成员注入 is_manager 值（manager/not_manager）。"""
+    from app.performance.auth_rule_service import load_rule_roster_people
+    from app.performance.field_settings_router import ManagerStandardPayload, _defaults
+    from app.performance.member_columns_service import _value
+    from app.performance.models import PerformanceManagerStandardSetting
+
+    setting = await db.get(PerformanceManagerStandardSetting, 1)
+    standard = _defaults() if setting is None else ManagerStandardPayload.model_validate(setting)
+    people = await load_rule_roster_people(db)
+    allowed_types = frozenset(standard.specific_employee_types)
+    managers: set[str] = set()
+    for person in people:
+        if person.employment_status != "在职":
+            continue
+        supervisor = person.direct_supervisor_employee_no
+        if not supervisor:
+            continue
+        if standard.manager_standard == "inservice_direct_underling" or person.employee_type in allowed_types:
+            managers.add(supervisor)
+    for item in items:
+        employee_no = _value(item, "employee_no")
+        if not employee_no:
+            continue
+        value = "manager" if employee_no in managers else "not_manager"
+        if isinstance(item, dict):
+            item.setdefault("filter_values", {})["is_manager"] = value
+        else:
+            item.filter_values = {**(getattr(item, "filter_values", None) or {}), "is_manager": value}
+
+
 async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, *, export=False, page=None, page_size=50, schema_out=None, filters=None):
     from app.performance.member_filters_service import parse_member_filters, filter_member_rows
 
@@ -3621,6 +3673,8 @@ async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db
         items, columns, _total = await _authorized_member_rows(authorized, keyword, sort_by, sort_order, context, db, merged_schema, export=export)
         if any(condition["key"].startswith("history_rating:") for condition in parsed_filters["conditions"]):
             await _cycle_member_history_filters(cycle_id, items, merged_schema, context, db, export=export)
+        if any(condition["key"] == "is_manager" for condition in parsed_filters["conditions"]):
+            await _inject_is_manager_values(db, items)
         items = filter_member_rows(items, parsed_filters, merged_schema)
         total = len(items)
         if page is not None and not export:

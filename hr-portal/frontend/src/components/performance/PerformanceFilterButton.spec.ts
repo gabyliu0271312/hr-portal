@@ -8,7 +8,7 @@ describe('PerformanceFilterButton', () => {
     expect(wrapper.text()).toContain('筛选 (2)')
     expect(wrapper.attributes('aria-pressed')).toBe('true')
     expect(wrapper.classes()).toContain('performance-button--outline-primary')
-    expect(wrapper.attributes('style')).toContain('--performance-filter-active-background')
+    expect(wrapper.attributes('style')).toBeUndefined()
     await wrapper.trigger('click')
     expect(wrapper.emitted('click')).toHaveLength(1)
   })
