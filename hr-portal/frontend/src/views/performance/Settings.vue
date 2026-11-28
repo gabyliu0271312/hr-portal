@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import PerformanceManagerStandardDialog from '@/components/performance/PerformanceManagerStandardDialog.vue'
-import { getPerformanceManagerStandard, getPerformanceEmployeeTypes, savePerformanceManagerStandard } from '@/api/performanceFieldSettings'
+import PerformanceFilterConditionSettingsDialog from '@/components/performance/PerformanceFilterConditionSettingsDialog.vue'
+import { getPerformanceManagerStandard, getPerformanceEmployeeTypes, getPerformanceFilterConditions, savePerformanceManagerStandard, savePerformanceFilterConditions } from '@/api/performanceFieldSettings'
+import type { PerformanceFilterConditionUpdate } from '@/api/performanceFieldSettings'
 import { ElMessage } from 'element-plus'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformancePageTitle from '@/components/performance/PerformancePageTitle.vue'
@@ -11,6 +13,7 @@ import {
   createFieldSettingsPreview,
   detailFieldOptions,
   type PerformanceFieldOption,
+  type PerformanceFilterCondition,
   type PerformanceFieldSettings,
   type PerformanceManagerStandard,
   type PerformanceFieldSettingsSection as SectionKey,
@@ -28,6 +31,40 @@ const props = withDefaults(defineProps<{
 })
 const emit = defineEmits<{ 'request-edit': [section: SectionKey]; 'request-example': [] }>()
 const visibleFields = computed(() => props.settings.review_detail_visible_fields.field.map(id => props.fieldOptions.find(field => field.id === id)?.label || id))
+
+const filterConditions = ref<PerformanceFilterCondition[]>(props.settings.default_filter_condition.filter_conditions.map(condition => ({ ...condition })))
+const filterLoading = ref(true)
+const filterError = ref('')
+const filterOpen = ref(false)
+const savingFilter = ref(false)
+const filterSaveError = ref('')
+
+async function loadFilterConditions() {
+  filterLoading.value = true
+  filterError.value = ''
+  try {
+    filterConditions.value = await getPerformanceFilterConditions()
+  } catch {
+    filterError.value = '筛选条件加载失败'
+  } finally {
+    filterLoading.value = false
+  }
+}
+
+async function saveFilterConditions(items: PerformanceFilterConditionUpdate[]) {
+  if (savingFilter.value) return
+  savingFilter.value = true
+  filterSaveError.value = ''
+  try {
+    await savePerformanceFilterConditions(items)
+    filterConditions.value = await getPerformanceFilterConditions()
+    filterOpen.value = false
+  } catch {
+    filterSaveError.value = '保存或回读失败，请重试；当前编辑内容已保留'
+  } finally {
+    savingFilter.value = false
+  }
+}
 
 const manager = ref<PerformanceManagerStandard | null>(null)
 const employeeTypes = ref<{ value: string; label: string }[]>([])
@@ -76,9 +113,18 @@ async function saveManager(value: PerformanceManagerStandard) {
     savingManager.value = false
   }
 }
-onMounted(loadManager)
+onMounted(() => {
+  void loadManager()
+  void loadFilterConditions()
+})
 function requestEdit(section: SectionKey) {
   emit('request-edit', section)
+  if (section === 'default_filter_condition') {
+    if (filterLoading.value || filterError.value) return
+    filterSaveError.value = ''
+    filterOpen.value = true
+    return
+  }
   if (section === 'definition_of_manager') {
     if (!manager.value || loadingManager.value || loadError.value) return
     saveError.value = ''
@@ -113,7 +159,14 @@ function requestExample() {
       </template>
       <div class="field-settings-summary">
         <div class="field-settings-summary__label">筛选条件</div>
-        <div class="field-settings-summary__filters"><template v-for="(condition, index) in settings.default_filter_condition.filter_conditions" :key="condition.filter_key"><span v-if="index">、</span><span>{{ condition.label }}</span><span v-if="condition.default">（默认筛选）</span></template><span v-if="!settings.default_filter_condition.filter_conditions.length">暂无筛选条件</span></div>
+        <div class="field-settings-summary__filters">
+          <span v-if="filterLoading">加载中…</span>
+          <span v-else-if="filterError" role="alert">{{ filterError }} <UiButton variant="link" :disabled="filterLoading" @click="loadFilterConditions">重试</UiButton></span>
+          <template v-else>
+            <template v-for="(condition, index) in filterConditions" :key="condition.filter_key"><span v-if="index">、</span><span>{{ condition.label }}</span><span v-if="condition.default">（默认筛选）</span></template>
+            <span v-if="!filterConditions.length">暂无筛选条件</span>
+          </template>
+        </div>
       </div>
     </PerformanceFieldSettingsSection>
 
@@ -131,6 +184,7 @@ function requestExample() {
       </div>
     </PerformanceFieldSettingsSection>
     <PerformanceManagerStandardDialog v-if="manager" v-model="managerOpen" :value="manager" :options="managerOptions" :saving="savingManager" :error="saveError" @save="saveManager" />
+    <PerformanceFilterConditionSettingsDialog v-if="!filterLoading && !filterError" v-model="filterOpen" :value="filterConditions" :saving="savingFilter" :error="filterSaveError" @save="saveFilterConditions" />
   </div>
 </template>
 

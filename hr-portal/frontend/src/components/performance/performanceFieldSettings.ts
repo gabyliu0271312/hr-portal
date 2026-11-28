@@ -8,6 +8,7 @@ export interface PerformanceFilterCondition {
   filter_key: string
   label: string
   default: boolean
+  disable_set_default: boolean
 }
 
 export interface PerformanceManagerStandard {
@@ -62,7 +63,6 @@ const filterLabels: [string, string, boolean][] = [
   ['joinDate', '入职日期', false],
   ['realTimeDimissionStatus', '当前雇佣状态', false],
   ['employeeType', '人员类型', false],
-  ['recruitmentType', '', false],
   ['finalReviewScoreFilterKey', '当前周期绩效结果', false],
   ['currentSemesterAssessmentItemComparisonFilterKey', '当前周期评估项间对比', false],
   ['inviteReviewScoreFilterKey', '当前周期 360° 评估结果', false],
@@ -73,15 +73,28 @@ const filterLabels: [string, string, boolean][] = [
   ['stageReviewDataChangedGroup', '校准环节是否有结果变更', false],
   ['activity', '所属项目', false],
   ['stageStatusFilterKey', '环节状态', false],
-  ['firstContractEnd', '', false],
   ['finalReviewModifiedAt', '绩效结果最近变更时间', false],
 ]
+
+const disableSetDefaultKeys = new Set([
+  'finalReviewScoreFilterKey',
+  'currentSemesterAssessmentItemComparisonFilterKey',
+  'inviteReviewScoreFilterKey',
+  'otherStageScoreFilterKey',
+  'historySemesterFinalScore',
+  'stageStatusFilterKey',
+])
 
 export function createFieldSettingsPreview(): PerformanceFieldSettings {
   return {
     review_detail_visible_fields: { field: ['department', 'level', 'category', 'directLeader', 'joinDate'] },
     default_filter_condition: {
-      filter_conditions: filterLabels.map(([filter_key, label, isDefault]) => ({ filter_key, label, default: isDefault })),
+      filter_conditions: filterLabels.map(([filter_key, label, isDefault]) => ({
+        filter_key,
+        label,
+        default: isDefault && !disableSetDefaultKeys.has(filter_key),
+        disable_set_default: disableSetDefaultKeys.has(filter_key),
+      })),
     },
     department_tree_view_all: { enabled: true },
     definition_of_manager: { manager_standard: 'inservice_direct_underling', specific_employee_types: [] },

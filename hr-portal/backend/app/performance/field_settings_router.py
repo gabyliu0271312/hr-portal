@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, StrictStr, model_validator
+from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr, model_validator
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +22,7 @@ from app.performance.auth_context import (
     resolve_trusted_performance_actor,
 )
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
-from app.performance.models import PerformanceManagerStandardSetting
+from app.performance.models import PerformanceFilterConditionSetting, PerformanceManagerStandardSetting
 
 router = APIRouter(prefix="/performance/system-settings/fields", tags=["performance-field-settings"])
 
@@ -51,6 +51,108 @@ def _defaults() -> ManagerStandardPayload:
 class EmployeeTypeOption(BaseModel):
     value: str
     label: str
+
+
+FILTER_CONDITION_CATALOG: tuple[tuple[str, str, bool], ...] = (
+    ("directLeader", "直属上级", False),
+    ("dottedLeaders", "虚线上级", False),
+    ("leaders", "上级", False),
+    ("pdtManagerKey", "项目上级", False),
+    ("hrbp", "HRBP", False),
+    ("departments", "部门", False),
+    ("directDepartment", "直属部门", False),
+    ("pdtProjectKey", "参与的业务项目", False),
+    ("pdtCoProjectKey", "合作的业务项目", False),
+    ("level", "职级", False),
+    ("allCategories", "序列（筛选结果含子序列）", False),
+    ("directCategory", "序列（筛选结果不含子序列）", False),
+    ("jobTitle", "职务", False),
+    ("pdtRoleKey", "项目角色", False),
+    ("isManager", "是否管理者", False),
+    ("userId", "人员", False),
+    ("followGroup", "人员组", False),
+    ("followedUser", "我标记为关注的人", False),
+    ("joinDate", "入职日期", False),
+    ("realTimeDimissionStatus", "当前雇佣状态", False),
+    ("employeeType", "人员类型", False),
+    ("finalReviewScoreFilterKey", "当前周期绩效结果", True),
+    ("currentSemesterAssessmentItemComparisonFilterKey", "当前周期评估项间对比", True),
+    ("inviteReviewScoreFilterKey", "当前周期 360° 评估结果", True),
+    ("inviteReviewRelation", "360° 评估关系", False),
+    ("inviteReviewerTagUnderLimitGroup", "360° 标签标记人数低于建议人数", False),
+    ("otherStageScoreFilterKey", "当前周期其他环节评估结果", True),
+    ("historySemesterFinalScore", "历史周期绩效结果", True),
+    ("stageReviewDataChangedGroup", "校准环节是否有结果变更", False),
+    ("activity", "所属项目", False),
+    ("stageStatusFilterKey", "环节状态", True),
+    ("finalReviewModifiedAt", "绩效结果最近变更时间", False),
+)
+FILTER_CONDITION_BY_KEY = {key: (label, disabled) for key, label, disabled in FILTER_CONDITION_CATALOG}
+DEFAULT_FILTER_KEYS = frozenset({
+    "directLeader", "leaders", "departments", "directDepartment", "level", "allCategories", "userId",
+})
+
+
+class FilterConditionItem(BaseModel):
+    filter_key: str
+    label: str
+    default: bool
+    disable_set_default: bool
+
+
+class FilterConditionsPayload(BaseModel):
+    filter_conditions: list[FilterConditionItem]
+
+
+class FilterConditionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    filter_key: StrictStr
+    default: StrictBool
+
+
+class FilterConditionsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    filter_conditions: list[FilterConditionUpdate]
+
+    @model_validator(mode="after")
+    def validate_catalog(self) -> "FilterConditionsInput":
+        keys = [item.filter_key for item in self.filter_conditions]
+        if len(keys) != len(set(keys)):
+            raise ValueError("筛选条件重复")
+        if set(keys) != set(FILTER_CONDITION_BY_KEY):
+            raise ValueError("筛选条件目录不完整或包含未知项")
+        for item in self.filter_conditions:
+            if item.default and FILTER_CONDITION_BY_KEY[item.filter_key][1]:
+                raise ValueError(f"{item.filter_key} 不允许设为默认条件")
+        return self
+
+
+def _default_filter_state() -> list[dict]:
+    return [{"filter_key": key, "default": key in DEFAULT_FILTER_KEYS} for key, _, _ in FILTER_CONDITION_CATALOG]
+
+
+def _filter_payload(state: list) -> FilterConditionsPayload:
+    seen: set[str] = set()
+    items: list[FilterConditionItem] = []
+    for entry in state or []:
+        if not isinstance(entry, dict):
+            continue
+        key = entry.get("filter_key")
+        if not isinstance(key, str) or key not in FILTER_CONDITION_BY_KEY or key in seen:
+            continue
+        seen.add(key)
+        label, disabled = FILTER_CONDITION_BY_KEY[key]
+        items.append(FilterConditionItem(
+            filter_key=key, label=label,
+            default=bool(entry.get("default")) and not disabled,
+            disable_set_default=disabled,
+        ))
+    for key, label, disabled in FILTER_CONDITION_CATALOG:
+        if key not in seen:
+            items.append(FilterConditionItem(filter_key=key, label=label, default=False, disable_set_default=disabled))
+    return FilterConditionsPayload(filter_conditions=items)
 
 
 async def _context(
@@ -124,3 +226,46 @@ async def update_manager_standard(
     await db.commit()
     await db.refresh(setting)
     return ManagerStandardPayload.model_validate(setting)
+
+
+@router.get("/filter-conditions", response_model=FilterConditionsPayload)
+async def get_filter_conditions(
+    _: PerformanceAccessContext = Depends(_context),
+    db: AsyncSession = Depends(get_session),
+) -> FilterConditionsPayload:
+    setting = await db.get(PerformanceFilterConditionSetting, 1)
+    return _filter_payload(_default_filter_state() if setting is None else setting.filter_conditions)
+
+
+@router.put("/filter-conditions", response_model=FilterConditionsPayload)
+async def update_filter_conditions(
+    payload: FilterConditionsInput,
+    context: PerformanceAccessContext = Depends(_context),
+    db: AsyncSession = Depends(get_session),
+) -> FilterConditionsPayload:
+    actor = await resolve_trusted_performance_actor(db, context)
+    state = [{"filter_key": item.filter_key, "default": item.default} for item in payload.filter_conditions]
+    await db.execute(
+        insert(PerformanceFilterConditionSetting)
+        .values(id=1, filter_conditions=_default_filter_state(), updated_by_type=actor.actor_type, updated_by_ref=actor.actor_ref)
+        .on_conflict_do_nothing(index_elements=["id"])
+    )
+    setting = (await db.execute(
+        select(PerformanceFilterConditionSetting)
+        .where(PerformanceFilterConditionSetting.id == 1).with_for_update()
+    )).scalar_one()
+    before = _filter_payload(setting.filter_conditions).model_dump()
+    after = _filter_payload(state).model_dump()
+    if before != after:
+        setting.filter_conditions = state
+        setting.updated_by_type = actor.actor_type
+        setting.updated_by_ref = actor.actor_ref
+        PerformanceAuditService(db).append_event(AuditEventInput(
+            event_type="PERFORMANCE_FILTER_CONDITIONS_UPDATED",
+            actor_type=actor.actor_type, actor_ref=actor.actor_ref,
+            subject_type="FILTER_CONDITION_SETTINGS", subject_ref="1",
+            before_state=before, after_state=after,
+        ))
+    await db.commit()
+    await db.refresh(setting)
+    return _filter_payload(setting.filter_conditions)

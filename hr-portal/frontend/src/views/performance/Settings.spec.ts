@@ -7,10 +7,13 @@ import { createFieldSettingsPreview } from '@/components/performance/performance
 const message = vi.hoisted(() => ({ info: vi.fn() }))
 vi.mock('element-plus', () => ({ ElMessage: message }))
 const managerApi = vi.hoisted(() => ({ get: vi.fn(), types: vi.fn(), save: vi.fn() }))
+const filterApi = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn() }))
 vi.mock('@/api/performanceFieldSettings', () => ({
   getPerformanceManagerStandard: managerApi.get,
   getPerformanceEmployeeTypes: managerApi.types,
   savePerformanceManagerStandard: managerApi.save,
+  getPerformanceFilterConditions: filterApi.get,
+  savePerformanceFilterConditions: filterApi.save,
 }))
 
 function mountPage(settings = createFieldSettingsPreview()) {
@@ -29,6 +32,8 @@ beforeEach(() => {
   managerApi.get.mockResolvedValue({ manager_standard: 'inservice_direct_underling', specific_employee_types: [] })
   managerApi.types.mockResolvedValue([{ value: '正式', label: '正式' }, { value: '实习', label: '实习' }])
   managerApi.save.mockResolvedValue({ manager_standard: 'specific_employee_type_underling', specific_employee_types: ['正式'] })
+  filterApi.get.mockResolvedValue(createFieldSettingsPreview().default_filter_condition.filter_conditions)
+  filterApi.save.mockImplementation(async (items: unknown) => items)
 })
 
 describe('字段设置主页面', () => {
@@ -48,15 +53,25 @@ describe('字段设置主页面', () => {
     wrapper.unmount()
   })
 
-  it.each([
-    ['设置详情页顶部字段', 'review_detail_visible_fields'],
-    ['设置筛选条件', 'default_filter_condition'],
-  ])('reserves %s without claiming to save or opening a dialog', async (label, key) => {
+  it('reserves the detail field entry without claiming to save or opening a dialog', async () => {
     const wrapper = mountPage()
-    await wrapper.get(`button[aria-label="${label}"]`).trigger('click')
-    expect(wrapper.emitted('request-edit')).toEqual([[key]])
+    await flushPromises()
+    await wrapper.get('button[aria-label="设置详情页顶部字段"]').trigger('click')
+    expect(wrapper.emitted('request-edit')).toEqual([['review_detail_visible_fields']])
     expect(message.info).toHaveBeenCalledWith('当前为配置预览，设置弹窗及保存功能将在后续开放')
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('opens the filter condition dialog without showing the preview notice', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.get('button[aria-label="设置筛选条件"]').trigger('click')
+    expect(wrapper.emitted('request-edit')).toEqual([['default_filter_condition']])
+    expect(message.info).not.toHaveBeenCalled()
+    const dialog = wrapper.findComponent({ name: 'PerformanceFilterConditionSettingsDialog' })
+    expect(dialog.props('modelValue')).toBe(true)
+    expect(dialog.props('value')).toHaveLength(32)
     wrapper.unmount()
   })
 
@@ -140,6 +155,49 @@ describe('字段设置主页面', () => {
     wrapper.unmount()
   })
 
+  it('saves filter conditions and applies the successful readback to the summary', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.get('button[aria-label="设置筛选条件"]').trigger('click')
+    const dialog = wrapper.findComponent({ name: 'PerformanceFilterConditionSettingsDialog' })
+    const saved = createFieldSettingsPreview().default_filter_condition.filter_conditions.map(condition => (
+      condition.filter_key === 'dottedLeaders' ? { ...condition, default: true } : condition
+    ))
+    const payload = saved.map(({ filter_key, default: isDefault }) => ({ filter_key, default: isDefault }))
+    filterApi.get.mockResolvedValueOnce(saved)
+    dialog.vm.$emit('save', payload)
+    await flushPromises()
+    expect(filterApi.save).toHaveBeenCalledWith(payload)
+    expect(filterApi.get).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('.field-settings-summary__filters').text()).toContain('虚线上级（默认筛选）')
+    expect(dialog.props('modelValue')).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps the filter dialog open and the old summary when saving fails', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.get('button[aria-label="设置筛选条件"]').trigger('click')
+    const dialog = wrapper.findComponent({ name: 'PerformanceFilterConditionSettingsDialog' })
+    filterApi.save.mockRejectedValueOnce(new Error('failed'))
+    dialog.vm.$emit('save', createFieldSettingsPreview().default_filter_condition.filter_conditions.map(({ filter_key, default: isDefault }) => ({ filter_key, default: isDefault })))
+    await flushPromises()
+    expect(dialog.props('modelValue')).toBe(true)
+    expect(dialog.props('error')).toContain('已保留')
+    expect(wrapper.get('.field-settings-summary__filters').text()).not.toContain('虚线上级（默认筛选）')
+    wrapper.unmount()
+  })
+
+  it('does not open the filter dialog when initial loading is denied', async () => {
+    filterApi.get.mockRejectedValueOnce(new Error('403'))
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.text()).toContain('筛选条件加载失败')
+    await wrapper.get('button[aria-label="设置筛选条件"]').trigger('click')
+    expect(wrapper.findComponent({ name: 'PerformanceFilterConditionSettingsDialog' }).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('keeps department selection read-only and previews both search modes', async () => {
     const settings = createFieldSettingsPreview()
     const wrapper = mountPage(settings)
@@ -159,12 +217,14 @@ describe('字段设置主页面', () => {
     wrapper.unmount()
   })
 
-  it('accepts replacement data and handles empty summaries without changing the source', () => {
+  it('accepts replacement data and handles empty summaries without changing the source', async () => {
     const settings = createFieldSettingsPreview()
     settings.review_detail_visible_fields.field = []
     settings.default_filter_condition.filter_conditions = []
     settings.department_tree_view_all.enabled = false
+    filterApi.get.mockResolvedValueOnce([])
     const wrapper = mountPage(settings)
+    await flushPromises()
     expect(wrapper.text()).toContain('暂无展示字段')
     expect(wrapper.text()).toContain('暂无筛选条件')
     expect(wrapper.findAll<HTMLInputElement>('input[type="radio"]').map(node => node.element.checked)).toEqual([false, true])

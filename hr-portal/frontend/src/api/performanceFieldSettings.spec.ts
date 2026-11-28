@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { getPerformanceEmployeeTypes, getPerformanceManagerStandard, savePerformanceManagerStandard } from './performanceFieldSettings'
+import { getPerformanceEmployeeTypes, getPerformanceFilterConditions, getPerformanceManagerStandard, savePerformanceFilterConditions, savePerformanceManagerStandard } from './performanceFieldSettings'
 
 const api = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn() }))
 vi.mock('./client', () => ({ api }))
@@ -21,5 +21,19 @@ describe('管理者标准 API 字符串契约', () => {
     api.put.mockResolvedValueOnce({ data: value })
     expect(await savePerformanceManagerStandard(value)).toEqual(value)
     expect(api.put).toHaveBeenCalledWith('/performance/system-settings/fields/manager-standard', value)
+  })
+})
+
+describe('筛选条件 API 键契约', () => {
+  it('loads and saves the ordered key/default list', async () => {
+    const loaded = [{ filter_key: 'directLeader', label: '直属上级', default: true, disable_set_default: false }]
+    api.get.mockResolvedValueOnce({ data: { filter_conditions: loaded } })
+    expect(await getPerformanceFilterConditions()).toEqual(loaded)
+    expect(api.get).toHaveBeenCalledWith('/performance/system-settings/fields/filter-conditions')
+    const payload = [{ filter_key: 'directLeader', default: false }]
+    const saved = [{ filter_key: 'directLeader', label: '直属上级', default: false, disable_set_default: false }]
+    api.put.mockResolvedValueOnce({ data: { filter_conditions: saved } })
+    expect(await savePerformanceFilterConditions(payload)).toEqual(saved)
+    expect(api.put).toHaveBeenCalledWith('/performance/system-settings/fields/filter-conditions', { filter_conditions: payload })
   })
 })
