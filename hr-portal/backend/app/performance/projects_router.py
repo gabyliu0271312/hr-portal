@@ -2529,7 +2529,13 @@ async def _opening_role_grants(db: AsyncSession, context: PerformanceAccessConte
             employee_no = await resolve_performance_employee_no(db, context)
         except PerformanceIdentityMappingConflict:
             employee_no = None
-        rule_codes.intersection_update(code for _, code in await matching_roles(db, employee_no))
+        try:
+            current_roles = await matching_roles(db, employee_no)
+        except HTTPException as exc:
+            if exc.status_code != 503:
+                raise
+            current_roles = []
+        rule_codes.intersection_update(code for _, code in current_roles)
     if rule_codes:
         roles = (await db.execute(select(PerformanceRole).where(
             PerformanceRole.code.in_(rule_codes), PerformanceRole.is_active.is_(True),

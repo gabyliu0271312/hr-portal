@@ -51,11 +51,11 @@ def api(monkeypatch):
     compiles(BigInteger, 'sqlite')(lambda *_args, **_kwargs: 'INTEGER')
     engine = create_engine('sqlite://', connect_args={'check_same_thread': False}, poolclass=StaticPool)
     import json
-    from app.performance.models import PerformanceCycle, PerformanceSubjectVisibilitySetting
+    from app.performance.models import PerformanceAuthRule, PerformanceCycle, PerformanceSubjectVisibilitySetting
     connection = engine.raw_connection()
     connection.create_function('jsonb_typeof', 1, lambda value: 'array' if isinstance(json.loads(value), list) else 'object')
     connection.close()
-    tables = [model.__table__ for model in (User, Role, Menu, RoleMenu, UserRole, PerformanceCycle, PerformanceSubjectVisibilitySetting, PerformanceRole, PerformancePermission, PerformanceRolePermission, PerformanceRoleAssignment, PerformanceSystemAccount, PerformanceIdentityLink, PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceProject, PerformanceProjectNodeSnapshot, PerformanceProjectMemberSnapshot, PerformanceProjectMember, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherSetting)]
+    tables = [PerformanceAuthRule.__table__] + [model.__table__ for model in (User, Role, Menu, RoleMenu, UserRole, PerformanceCycle, PerformanceSubjectVisibilitySetting, PerformanceRole, PerformancePermission, PerformanceRolePermission, PerformanceRoleAssignment, PerformanceSystemAccount, PerformanceIdentityLink, PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceProject, PerformanceProjectNodeSnapshot, PerformanceProjectMemberSnapshot, PerformanceProjectMember, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherSetting)]
     Base.metadata.create_all(engine, tables=tables)
     session = Session(engine, expire_on_commit=False)
     now = datetime.now(UTC)

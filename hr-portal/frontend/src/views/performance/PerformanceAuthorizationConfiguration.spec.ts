@@ -16,8 +16,7 @@ vi.mock('element-plus', async (importOriginal) => ({ ...await importOriginal<typ
 function mountPage() {
   return mount(PerformanceAuthorizationConfiguration, {
     global: { stubs: {
-      PerformanceManagementTable: { props: ['rows', 'emptyText', 'total'], template: '<div class="management-table"><div v-for="row in rows" :key="row.id || row.user_id" class="management-row">{{ row.role_name || (row.roles || []).map(r => r.name).join() }}</div><slot /><slot name="empty" :loading="false" :text="emptyText" /><p>{{ emptyText }}</p></div>' },
-      ElTableColumn: { props: ['label'], template: '<div class="column">{{ label }}<slot /></div>' },
+      PerformanceManagementTable: { props: ['rows', 'columns', 'emptyText', 'total'], template: '<div class="management-table"><div v-for="column in columns" :key="column.key" class="column">{{ column.label }}</div><div v-for="row in rows" :key="row.id || row.user_id"><template v-for="column in columns" :key="column.key"><slot name="cell" :row="row" :column="column" /></template></div><slot v-if="!rows.length" name="empty" :loading="false" :text="emptyText" /></div>' },
       PerformancePermissionButton: { props: ['ariaLabel'], emits: ['click'], template: '<button :aria-label="ariaLabel" @click="$emit(\'click\')"><slot /></button>' },
       PerformanceAuthorizationDialog: { props: ['modelValue', 'mode', 'authorization', 'rule'], emits: ['update:modelValue', 'saved'], template: '<div v-if="modelValue" role="dialog">{{ mode }}</div>' },
       PerformanceConfirmDialog: { props: ['modelValue'], emits: ['update:modelValue', 'confirm'], template: '<div v-if="modelValue" role="alertdialog"><button class="confirm" @click="$emit(\'confirm\')">确认</button></div>' },
@@ -135,8 +134,11 @@ describe('PerformanceAuthorizationConfiguration', () => {
     await flushPromises()
     await wrapper.findAll('[role="tab"]')[1].trigger('click')
     await flushPromises()
-    expect(pageSource).toContain('performanceAuthRuleApi.remove')
-    expect(pageSource).toContain('deleteRuleVisible')
-    expect(wrapper.find('[aria-label="删除规则"]').exists()).toBe(true)
+    await wrapper.get('[aria-label="删除规则"]').trigger('click')
+    expect(ruleApi.remove).not.toHaveBeenCalled()
+    await wrapper.get('.confirm').trigger('click')
+    await flushPromises()
+    expect(ruleApi.remove).toHaveBeenCalledWith(5)
+    expect(ruleApi.list).toHaveBeenCalledTimes(2)
   })
 })

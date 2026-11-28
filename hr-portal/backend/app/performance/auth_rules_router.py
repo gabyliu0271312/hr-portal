@@ -107,6 +107,7 @@ class AuthRuleResolveIn(BaseModel):
 class AuthRuleResolveOut(BaseModel):
     count: int
     user_ids: list[str]
+    group_counts: list[int]
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +185,7 @@ async def auth_rule_resolve_scope(
 ) -> AuthRuleResolveOut:
     people = await load_rule_roster_people(db)
     user_ids = _resolve_people(payload.or_scope, people)
-    return AuthRuleResolveOut(count=len(user_ids), user_ids=user_ids)
+    return AuthRuleResolveOut(count=len(user_ids), user_ids=user_ids, group_counts=[len(_resolve_people([group], people)) for group in payload.or_scope])
 
 
 # ---------------------------------------------------------------------------

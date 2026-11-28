@@ -1,12 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import {
-  performanceAuthRuleApi,
-  performanceUserAuthorizationApi,
-  type PerformanceAuthRule,
-  type PerformanceUserAuthorization,
-} from '@/api/performance'
+import { performanceAuthRuleApi, performanceUserAuthorizationApi, type PerformanceAuthRule, type PerformanceUserAuthorization } from '@/api/performance'
 import { formatDisplayDateTime } from '@/utils/datetime'
 import PerformanceAuthorizationDialog from '@/components/performance/PerformanceAuthorizationDialog.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
@@ -19,6 +14,8 @@ import PerformanceListToolbar from '@/components/performance/PerformanceListTool
 import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'
 import PerformancePermissionButton from '@/components/performance/PerformancePermissionButton.vue'
 import MetricTemplateEmptyIllustration from '@/components/performance/MetricTemplateEmptyIllustration.vue'
+import { PERFORMANCE_CONDITION_FIELDS, HIRE_DATE_OPERATOR_OPTIONS, type PerformanceConditionField } from '@/components/performance/performanceConditionFields'
+import type { PerformanceTableColumn } from '@/components/performance/performanceTableColumns'
 
 const tabs = [{ key: 'users', label: '指定用户授权' }, { key: 'rules', label: '按规则授权' }]
 const activeTab = ref('users')
@@ -49,9 +46,19 @@ const deleteRuleVisible = ref(false)
 const deletingRule = ref(false)
 const deleteRuleError = ref('')
 let sequence = 0
-
+const columns = computed<PerformanceTableColumn[]>(() => [
+  { key: 'subject', label: isRuleTab.value ? '用户范围' : '选择用户', width: 280 },
+  { key: 'roles', label: '授权角色', width: 200 },
+  { key: 'updated_by', label: '更新人', width: 160 },
+  { key: 'updated_at', label: '最近更新时间', width: 200 },
+  { key: 'actions', label: '操作', width: 160, fixed: 'right' },
+])
 function ruleScopeLabel(orScope: PerformanceAuthRule['or_scope']) {
-  return orScope.length ? `${orScope.length} 组范围条件` : '--'
+  return orScope.map(group => group.conditions.map(condition => {
+    const field = PERFORMANCE_CONDITION_FIELDS[condition.field as PerformanceConditionField]?.label || condition.field
+    const operator = HIRE_DATE_OPERATOR_OPTIONS.find(option => option.value === condition.operator)?.label || (condition.operator === 'exclude' ? '不包含' : '包含')
+    return `${field} ${operator} ${condition.values.join('、')}`
+  }).join(' 且 ')).join(' 或 ') || '--'
 }
 
 async function loadRows() {
@@ -83,10 +90,8 @@ async function loadRows() {
 watch([activeTab, keyword], () => { page.value = 1; dialogVisible.value = false; void loadRows() }, { immediate: true })
 
 function openCreateDialog() {
-  editing.value = null
-  editingRule.value = null
-  dialogMode.value = isRuleTab.value ? 'rules' : 'users'
-  dialogVisible.value = true
+  editing.value = null; editingRule.value = null
+  dialogMode.value = isRuleTab.value ? 'rules' : 'users'; dialogVisible.value = true
 }
 function openEditUser(row: PerformanceUserAuthorization) { editing.value = row; editingRule.value = null; dialogMode.value = 'users'; dialogVisible.value = true }
 function openEditRule(row: PerformanceAuthRule) { editing.value = null; editingRule.value = row; dialogMode.value = 'rules'; dialogVisible.value = true }
@@ -138,11 +143,7 @@ async function exportRows() {
   ]
 }
 
-function scopeCell(orScope: PerformanceAuthRule['or_scope']) {
-  return ruleScopeLabel(orScope)
-}
 </script>
-
 <template>
   <section class="authorization-configuration">
     <h1 class="authorization-title">授权配置</h1>
@@ -156,7 +157,7 @@ function scopeCell(orScope: PerformanceAuthRule['or_scope']) {
         </PerformanceListToolbar>
         <p v-if="loadError" role="alert">{{ loadError }} <UiButton variant="text" @click="loadRows">重试</UiButton></p>
         <PerformanceManagementTable
-          :key="activeTab" :rows="isRuleTab ? ruleRows : userRows" :loading="loading" loading-text="正在加载授权配置"
+          :key="activeTab" :rows="isRuleTab ? ruleRows : userRows" :columns="columns" :row-key="isRuleTab ? 'id' : 'user_id'" :loading="loading" loading-text="正在加载授权配置"
           :empty-text="keyword.trim() ? '暂无匹配结果' : isRuleTab ? '暂无授权规则' : '暂无用户授权'"
           :table-aria-label="`${isRuleTab ? '按规则授权' : '指定用户授权'}列表`" pagination-aria-label="授权配置分页"
           :page="page" :page-size="pageSize" :total="total"
@@ -168,28 +169,16 @@ function scopeCell(orScope: PerformanceAuthRule['or_scope']) {
               <span>{{ text }}</span>
             </div>
           </template>
-          <el-table-column :key="activeTab" :prop="isRuleTab ? 'orScope' : 'users'" :label="isRuleTab ? '用户范围' : '选择用户'" min-width="240">
-            <template #default="{ row }">
-              <template v-if="isRuleTab">{{ row?.or_scope ? scopeCell(row.or_scope) : '' }}</template>
-              <template v-else>{{ row?.display_name ? `${row.display_name}（${row.employee_no}）` : '' }}</template>
-            </template>
-          </el-table-column>
-          <el-table-column prop="roles" label="授权角色" min-width="200">
-            <template #default="{ row }">
-              <template v-if="isRuleTab">{{ row?.role_name || '' }}</template>
-              <template v-else>{{ row?.roles?.map((role: any) => role.name).join('、') || '' }}</template>
-            </template>
-          </el-table-column>
-          <el-table-column prop="updatedBy" label="更新人" min-width="160"><template #default="{ row }">{{ row?.updated_by || '--' }}</template></el-table-column>
-          <el-table-column prop="updatedAt" label="最近更新时间" min-width="200"><template #default="{ row }">{{ row?.updated_at ? formatDisplayDateTime(row.updated_at) : '' }}</template></el-table-column>
-          <el-table-column label="操作" :width="isRuleTab ? 160 : 180" fixed="right">
-            <template #default="{ row }"><div class="authorization-actions">
-              <PerformancePermissionButton v-if="!isRuleTab" allowed op="U" aria-label="编辑授权" @click="openEditUser(row)">编辑</PerformancePermissionButton>
-              <PerformancePermissionButton v-if="!isRuleTab" allowed op="D" aria-label="撤销授权" @click="openRevoke(row)">撤销</PerformancePermissionButton>
-              <PerformancePermissionButton v-if="isRuleTab" allowed op="U" aria-label="编辑规则" @click="openEditRule(row)">编辑</PerformancePermissionButton>
-              <PerformancePermissionButton v-if="isRuleTab" allowed op="D" aria-label="删除规则" @click="openDeleteRule(row)">删除</PerformancePermissionButton>
-            </div></template>
-          </el-table-column>
+          <template #cell="{ row, column }">
+            <template v-if="column.key === 'subject'">{{ isRuleTab ? ruleScopeLabel(row.or_scope) : `${row.display_name}（${row.employee_no}）` }}</template>
+            <template v-else-if="column.key === 'roles'">{{ isRuleTab ? row.role_name : row.roles.map((role: any) => role.name).join('、') }}</template>
+            <template v-else-if="column.key === 'updated_by'">{{ row.updated_by || '--' }}</template>
+            <template v-else-if="column.key === 'updated_at'">{{ formatDisplayDateTime(row.updated_at) }}</template>
+            <div v-else-if="column.key === 'actions'" class="authorization-actions">
+              <PerformancePermissionButton allowed op="U" :aria-label="isRuleTab ? '编辑规则' : '编辑授权'" @click="isRuleTab ? openEditRule(row) : openEditUser(row)">编辑</PerformancePermissionButton>
+              <PerformancePermissionButton allowed op="D" :aria-label="isRuleTab ? '删除规则' : '撤销授权'" @click="isRuleTab ? openDeleteRule(row) : openRevoke(row)">{{ isRuleTab ? '删除' : '撤销' }}</PerformancePermissionButton>
+            </div>
+          </template>
         </PerformanceManagementTable>
       </PerformanceContentSurface>
     </PerformanceLineTabs>
@@ -198,7 +187,6 @@ function scopeCell(orScope: PerformanceAuthRule['or_scope']) {
     <PerformanceConfirmDialog v-model="deleteRuleVisible" message="确定删除此授权规则吗？" :description="`删除后，满足该规则范围的用户将不再获得「${pendingDeleteRule?.role_name || ''}」角色的授权。`" cancel-text="保留" confirm-text="确定" :loading="deletingRule" :error-message="deleteRuleError" @confirm="deleteRule" />
   </section>
 </template>
-
 <style scoped>
 .authorization-configuration { min-width: 0; color: var(--color-text-primary); font-family: var(--font-sans); }
 .authorization-title { margin: 0 0 var(--spacing-4); font-size: var(--font-size-xl); font-weight: var(--performance-page-title-weight); line-height: var(--performance-page-title-line-height); }

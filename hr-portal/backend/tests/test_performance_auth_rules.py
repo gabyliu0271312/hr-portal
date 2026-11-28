@@ -24,7 +24,7 @@ from app.performance.models import (
     PerformanceRole, PerformanceSystemAccount, PerformanceRoleAssignment,
     PerformancePermission, PerformanceRolePermission,
 )
-from app.users.models import User
+from app.users.models import User, Role, UserRole, Menu, RoleMenu
 
 
 class AsyncDb:
@@ -59,7 +59,7 @@ def api(monkeypatch):
     compiles(BigInteger, 'sqlite')(lambda *_args, **_kwargs: 'INTEGER')
     engine = create_engine('sqlite://', connect_args={'check_same_thread': False}, poolclass=StaticPool)
     tables = [model.__table__ for model in (
-        User, PerformanceRole, PerformanceIdentityLink, PerformanceSystemAccount,
+        User, Role, UserRole, Menu, RoleMenu, PerformanceRole, PerformanceIdentityLink, PerformanceSystemAccount,
         PerformanceAuditEvent, PerformanceAuthRule, PerformanceRoleAssignment,
         PerformancePermission, PerformanceRolePermission,
     )]
@@ -240,6 +240,117 @@ async def test_rule_roster_options_use_physical_columns(api, monkeypatch):
     broken = Table('broken_rule_roster', MetaData(), Column('employee_no', String))
     monkeypatch.setattr(rule_service, 'employee_roster_table', lambda: broken)
     assert client.get(PATH + '/options').status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_rule_changes_apply_to_next_authorization_read_without_overwriting_direct_grants(api, monkeypatch):
+    from app.performance.auth_context import load_active_authorization
+    from app.performance.snapshot_service import RosterAuthorizationInput, build_snapshot_people
+    client, db, session, app = api
+    roster = [RosterAuthorizationInput('E8', '员工', employment_status='在职', department='研发')]
+
+    async def people(_db):
+        return build_snapshot_people(roster)
+
+    monkeypatch.setattr(rule_service, 'load_rule_roster_people', people)
+    session.add(PerformancePermission(id=1, code='performance.projects.manage', name='项目', category='project'))
+    session.add(PerformanceRolePermission(role_id=11, permission_id=1))
+    session.commit()
+    scope = [{'conditions': [{'field': 'department', 'operator': 'include', 'values': ['研发']}]}]
+    created = client.post(PATH, json={'role_id': 11, 'or_scope': scope})
+    assert created.status_code == 201, created.text
+    rule_id = created.json()['id']
+    grants, permissions = await load_active_authorization(db, 'PORTAL_USER', 8)
+    assert [(grant.code, grant.scope_type, grant.scope_ref) for grant in grants] == [('custom.manager', 'GLOBAL', 'GLOBAL')]
+    assert permissions == ('performance.projects.manage',)
+    from app.performance import projects_router as projects
+    role = session.get(PerformanceRole, 11)
+    role.function_permission_keys = [projects.TASK_EVALUATION_AUTHORIZATION_KEY]
+    session.commit()
+    context = PerformanceAccessContext('PORTAL_USER', 8, '员工', None, ('performance.app',), grants, permissions)
+    project = SimpleNamespace(id=1, project_ref='P1', cycle_ref='C1', settings={'data_managers': []})
+    assert await projects._task_management_scope(context, project, db, projects.TASK_EVALUATION_AUTHORIZATION_KEY) is None
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as denied:
+        await projects._task_management_scope(context, project, db, projects.TASK_CALIBRATION_AUTHORIZATION_KEY)
+    assert denied.value.status_code == 403
+    assert session.scalar(select(func.count()).select_from(PerformanceRoleAssignment)) == 0
+    roster[:] = [RosterAuthorizationInput('E8', '员工', employment_status='在职', department='运营')]
+    assert await load_active_authorization(db, 'PORTAL_USER', 8) == ((), ())
+    roster[:] = [RosterAuthorizationInput('E8', '员工', employment_status='在职', department='研发')]
+    assert (await load_active_authorization(db, 'PORTAL_USER', 8))[1] == permissions
+    payload = {'role_id': 11, 'or_scope': [{'conditions': [{'field': 'employee', 'operator': 'include', 'values': ['OTHER']}]}]}
+    assert client.put(f'{PATH}/{rule_id}', json=payload).status_code == 200
+    assert await load_active_authorization(db, 'PORTAL_USER', 8) == ((), ())
+    assert client.put(f'{PATH}/{rule_id}', json={'role_id': 11, 'or_scope': scope}).status_code == 200
+    role = session.get(PerformanceRole, 11)
+    role.is_active = False
+    session.commit()
+    assert await load_active_authorization(db, 'PORTAL_USER', 8) == ((), ())
+    role.is_active = True
+    session.commit()
+    assert client.delete(f'{PATH}/{rule_id}').status_code == 204
+    assert await load_active_authorization(db, 'PORTAL_USER', 8) == ((), ())
+    with pytest.raises(HTTPException):
+        await projects._task_management_scope(context, project, db, projects.TASK_EVALUATION_AUTHORIZATION_KEY)
+    recreated = client.post(PATH, json={'role_id': 11, 'or_scope': scope})
+    rule_id = recreated.json()['id']
+    session.add(PerformanceRoleAssignment(subject_type='PORTAL_USER', subject_id=8, role_id=11, scope_type='GLOBAL', scope_ref='GLOBAL', is_active=True))
+    session.commit()
+    assert len((await load_active_authorization(db, 'PORTAL_USER', 8))[0]) == 1
+    assert client.delete(f'{PATH}/{rule_id}').status_code == 204
+    assert (await load_active_authorization(db, 'PORTAL_USER', 8))[1] == permissions
+    assert session.scalar(select(func.count()).select_from(PerformanceRoleAssignment)) == 1
+
+
+def test_superior_uses_ancestor_chain_and_is_cycle_safe():
+    from app.performance.snapshot_service import RosterAuthorizationInput, build_snapshot_people
+    people = build_snapshot_people([
+        RosterAuthorizationInput('TOP', '顶层'),
+        RosterAuthorizationInput('MID', '中层', direct_supervisor_source_value='TOP'),
+        RosterAuthorizationInput('E8', '员工', direct_supervisor_source_value='MID'),
+    ])
+    def group(field):
+        return [rule_service.AuthRuleGroup.model_validate({'conditions': [{'field': field, 'operator': 'include', 'values': ['TOP']}]})]
+    assert rule_service.resolve_people(group('superior'), people) == ['E8', 'MID']
+    assert rule_service.resolve_people(group('directLeader'), people) == ['MID']
+    cyclic = build_snapshot_people([
+        RosterAuthorizationInput('TOP', '顶层', direct_supervisor_source_value='MID'),
+        RosterAuthorizationInput('MID', '中层', direct_supervisor_source_value='TOP'),
+    ])
+    assert rule_service.resolve_people(group('superior'), cyclic) == ['MID']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('case', ['left', 'missing', 'invalid_rule', 'identity_conflict', 'roster_unavailable'])
+async def test_rule_grants_fail_closed_without_removing_explicit_assignments(api, monkeypatch, case):
+    from fastapi import HTTPException
+    from app.performance import auth_context
+    from app.performance.snapshot_service import RosterAuthorizationInput, build_snapshot_people
+    client, db, session, app = api
+    session.add(PerformanceAuthRule(role_id=11, or_scope=[{'conditions': [{'field': 'employee', 'operator': 'include', 'values': ['E8']}]}]))
+    session.commit()
+    async def people(_db):
+        if case == 'roster_unavailable':
+            raise HTTPException(status_code=503, detail='花名册字段未准备好')
+        if case == 'missing':
+            return []
+        return build_snapshot_people([RosterAuthorizationInput('E8', '员工', employment_status='离职' if case == 'left' else '在职')])
+    monkeypatch.setattr(rule_service, 'load_rule_roster_people', people)
+    if case == 'invalid_rule':
+        rule = session.scalar(select(PerformanceAuthRule))
+        rule.or_scope = [{'conditions': [{'field': 'unknown', 'operator': 'exclude', 'values': ['X']}]}]
+        session.commit()
+    if case == 'identity_conflict':
+        async def conflict(*_args):
+            raise auth_context.PerformanceIdentityMappingConflict('身份来源冲突')
+        monkeypatch.setattr(auth_context, 'resolve_performance_employee_no', conflict)
+    assert await auth_context.load_active_authorization(db, 'PORTAL_USER', 8) == ((), ())
+    session.add(PerformanceRoleAssignment(subject_type='PORTAL_USER', subject_id=8, role_id=11, scope_type='ORG', scope_ref='公司/研发', is_active=True))
+    session.commit()
+    grants, _ = await auth_context.load_active_authorization(db, 'PORTAL_USER', 8)
+    assert [(grant.code, grant.scope_type, grant.scope_ref) for grant in grants] == [('custom.manager', 'ORG', '公司/研发')]
+    assert (await auth_context.load_active_authorization(db, 'SYSTEM_ACCOUNT', 8)) == ((), ())
 
 
 def test_auth_rules_migration_offline_ddl_and_model_agree():

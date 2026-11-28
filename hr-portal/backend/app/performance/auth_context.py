@@ -1,7 +1,7 @@
 """Authentication and authorization context for the performance application."""
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -41,6 +41,7 @@ class PerformanceRoleGrant:
     code: str
     scope_type: str
     scope_ref: str
+    source: str = field(default="assignment", compare=False)
 
 
 @dataclass(frozen=True)
@@ -286,7 +287,7 @@ async def load_active_authorization(
             )
         )
     ).all()
-    resolved_rows = [(row.id, row.code, row.scope_type, row.scope_ref) for row in role_rows]
+    resolved_rows = [(row.id, row.code, row.scope_type, row.scope_ref, "assignment") for row in role_rows]
     if subject_type == SUBJECT_TYPE_PORTAL_USER:
         from app.performance.auth_rule_service import matching_roles
         rule_rows = (await db.execute(select(PerformanceAuthRule, PerformanceRole.id, PerformanceRole.code).join(
@@ -299,12 +300,18 @@ async def load_active_authorization(
                 employee_no = await resolve_performance_employee_no(db, identity_context)
             except PerformanceIdentityMappingConflict:
                 employee_no = None
-            resolved_rows.extend((role_id, code, "GLOBAL", "GLOBAL") for role_id, code in await matching_roles(db, employee_no, rule_rows))
+            try:
+                matched = await matching_roles(db, employee_no, rule_rows)
+            except HTTPException as exc:
+                if exc.status_code != 503:
+                    raise
+                matched = []
+            resolved_rows.extend((role_id, code, "GLOBAL", "GLOBAL", "rule") for role_id, code in matched)
     role_grants = tuple(dict.fromkeys(
-        PerformanceRoleGrant(code=code, scope_type=scope_type, scope_ref=scope_ref)
-        for _, code, scope_type, scope_ref in resolved_rows
+        PerformanceRoleGrant(code=code, scope_type=scope_type, scope_ref=scope_ref, source=source)
+        for _, code, scope_type, scope_ref, source in resolved_rows
     ))
-    role_ids = sorted({role_id for role_id, _, _, _ in resolved_rows})
+    role_ids = sorted({role_id for role_id, _, _, _, _ in resolved_rows})
     if not role_ids:
         return role_grants, ()
 

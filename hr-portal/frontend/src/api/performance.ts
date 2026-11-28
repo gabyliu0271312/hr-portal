@@ -936,7 +936,7 @@ export const performanceAuthRuleApi = {
     const { data } = await api.get(authRulePath + '/options')
     return data
   },
-  async resolveScope(orScope: PerformanceAudienceGroup[]): Promise<{ count: number; user_ids: string[] }> {
+  async resolveScope(orScope: PerformanceAudienceGroup[]): Promise<{ count: number; user_ids: string[]; group_counts: number[] }> {
     const { data } = await api.post(authRulePath + '/resolve-scope', { or_scope: orScope })
     return data
   },
