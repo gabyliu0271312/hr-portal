@@ -1,7 +1,7 @@
 <template>
   <ul class="performance-organization-tree-nodes" role="group">
     <li v-for="node in nodes" :key="node.value" role="treeitem" :aria-expanded="node.children.length ? isExpanded(node) : undefined" :aria-selected="selected.includes(node.value)">
-      <div class="performance-organization-tree-node" :class="{ 'is-selected': selected.includes(node.value) }" :style="{ paddingLeft: `calc(var(--spacing-2) + ${node.level - 1} * var(--performance-organization-tree-indent))` }">
+      <div class="performance-organization-tree-node" :class="{ 'is-selected': selected.includes(node.value), 'is-filled-selected': selectedSurface === 'filled' && selected.includes(node.value) }" :style="{ paddingLeft: `calc(var(--spacing-2) + ${node.level - 1} * var(--performance-tree-indent))` }">
         <button
           v-if="node.children.length"
           class="performance-organization-tree-node__expand"
@@ -20,7 +20,7 @@
           <PerformanceSymbol v-if="selected.includes(node.value)" name="ListCheckBoldOutlined" />
         </button>
       </div>
-      <PerformanceOrganizationTreeNodes v-if="node.children.length && isExpanded(node)" :nodes="node.children" :selected="selected" :searching="searching" :selection-indicator="selectionIndicator" :default-expanded="defaultExpanded" :disabled="disabled" @toggle="$emit('toggle', $event)" />
+      <PerformanceOrganizationTreeNodes v-if="node.children.length && isExpanded(node)" :nodes="node.children" :selected="selected" :searching="searching" :selection-indicator="selectionIndicator" :selected-surface="selectedSurface" :default-expanded="defaultExpanded" :disabled="disabled" @toggle="$emit('toggle', $event)" />
     </li>
   </ul>
 </template>
@@ -31,7 +31,7 @@ import UiCheckbox from '../ui/UiCheckbox.vue'
 import PerformanceSymbol from './PerformanceSymbol.vue'
 import type { PerformanceHrbpOrganizationNode } from '@/api/performance'
 
-const props = withDefaults(defineProps<{ nodes: PerformanceHrbpOrganizationNode[]; selected: string[]; searching?: boolean; selectionIndicator?: 'checkmark' | 'checkbox'; defaultExpanded?: boolean; disabled?: boolean }>(), { searching: false, selectionIndicator: 'checkmark', defaultExpanded: true, disabled: false })
+const props = withDefaults(defineProps<{ nodes: PerformanceHrbpOrganizationNode[]; selected: string[]; searching?: boolean; selectionIndicator?: 'checkmark' | 'checkbox'; selectedSurface?: 'plain' | 'filled'; defaultExpanded?: boolean; disabled?: boolean }>(), { searching: false, selectionIndicator: 'checkmark', selectedSurface: 'plain', defaultExpanded: true, disabled: false })
 defineEmits<{ toggle: [value: string] }>()
 
 const expanded = ref(new Set<string>())
@@ -67,16 +67,17 @@ watch([() => props.nodes, () => props.searching], ([nodes, searching]) => {
 .performance-organization-tree-nodes { margin: 0; padding: 0; list-style: none; }
 .performance-organization-tree-node :deep(.ui-checkbox) { margin-right:var(--spacing-2); }
 .performance-organization-tree-node :deep(.ui-checkbox__label:empty) { display:none; }
-.performance-organization-tree-node { display: flex; align-items: center; width: 100%; height: var(--performance-select-option-height); padding-right: var(--spacing-2); box-sizing: border-box; color: var(--color-text-primary); font: var(--font-weight-normal) var(--font-size-md)/var(--input-line-height) var(--font-sans); }
+.performance-organization-tree-node { display: flex; align-items: center; width: 100%; height: var(--performance-tree-node-height); padding-right: var(--spacing-2); box-sizing: border-box; color: var(--color-text-primary); font: var(--font-weight-normal) var(--font-size-md)/var(--input-line-height) var(--font-sans); }
 .performance-organization-tree-node:hover { background: var(--performance-select-option-hover); }
 .performance-organization-tree-node.is-selected { background: var(--performance-select-option-selected); }
+.performance-organization-tree-node.is-filled-selected { background: var(--performance-tree-selected-background); }
 .performance-organization-tree-node.is-selected .performance-organization-tree-node__label { color: var(--performance-select-check-color); }
-.performance-organization-tree-node__expand { display: grid; place-items: center; width: var(--performance-icon-button-size); height: var(--performance-icon-button-size); flex: 0 0 var(--performance-icon-button-size); padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--performance-icon-button-color); cursor: pointer; }
+.performance-organization-tree-node__expand { display: grid; place-items: center; width: var(--performance-tree-expand-size); height: var(--performance-tree-expand-size); flex: 0 0 var(--performance-tree-expand-size); padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--performance-icon-button-color); cursor: pointer; }
 .performance-organization-tree-node__expand:hover { background: var(--performance-icon-button-hover-background); }
 .performance-organization-tree-node__expand svg { transition: transform var(--duration-base) var(--ease-standard); }
 .performance-organization-tree-node__expand svg.is-collapsed { transform: rotate(-90deg); }
 .performance-organization-tree-node__expand--placeholder { pointer-events: none; }
-.performance-organization-tree-node__label { overflow: hidden; min-width: 0; height: var(--performance-select-option-height); flex: 1; padding: calc((var(--performance-select-option-height) - var(--input-line-height)) / 2) 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
-.performance-organization-tree-node__checker { display: grid; place-items: center; width: var(--performance-icon-button-size); height: var(--performance-icon-button-size); flex: 0 0 var(--performance-icon-button-size); padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--performance-select-check-color); cursor: pointer; }
+.performance-organization-tree-node__label { overflow: hidden; min-width: 0; height: var(--performance-tree-node-height); flex: 1; padding: calc((var(--performance-tree-node-height) - var(--input-line-height)) / 2) 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.performance-organization-tree-node__checker { display: grid; place-items: center; width: var(--performance-tree-expand-size); height: var(--performance-tree-expand-size); flex: 0 0 var(--performance-tree-expand-size); padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--performance-select-check-color); cursor: pointer; }
 .performance-organization-tree-node__checker:hover { background: var(--performance-icon-button-hover-background); }
 </style>

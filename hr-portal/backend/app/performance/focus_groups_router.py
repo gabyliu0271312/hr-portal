@@ -244,6 +244,8 @@ class FocusGroupOptionsOut(BaseModel):
     position_levels: list[dict[str, str]]
     hire_date_range: dict[str, str | None]
     departure_date_range: dict[str, str | None]
+    # 序列树（职位族 → 职位类，值与筛选口径一致）
+    job_sequence_tree: list[dict[str, Any]] = Field(default_factory=list)
     api_document_url: str | None = None
     communication_enabled: bool = False
 
@@ -454,6 +456,32 @@ def _person_option(person: PerformanceAuthorizationSnapshotPerson) -> FocusGroup
     )
 
 
+def _job_sequence_tree(people: list[PerformanceAuthorizationSnapshotPerson]) -> list[dict[str, Any]]:
+    """快照人员 → 序列树（职位族 → 职位类）。值的口径与筛选参数一致：`族` / `族/类`。"""
+    roots: dict[str, dict[str, Any]] = {}
+    for person in people:
+        family = (person.job_family or "").strip()
+        if not family:
+            continue
+        node = roots.setdefault(family, {"value": family, "label": family, "children": {}})
+        category = (person.job_category or "").strip()
+        if category:
+            node["children"].setdefault(category, {"value": f"{family}/{category}", "label": category})
+
+    def serialize(nodes: dict[str, dict[str, Any]], level: int = 1) -> list[dict[str, Any]]:
+        return [
+            {
+                "value": node["value"],
+                "label": node["label"],
+                "level": level,
+                "children": serialize(node["children"], level + 1),
+            }
+            for _, node in sorted(nodes.items(), key=lambda item: item[0])
+        ]
+
+    return serialize(roots)
+
+
 @router.get("/{cycle_id}/focus-groups/options", response_model=FocusGroupOptionsOut)
 async def focus_group_options(
     cycle_id: int,
@@ -505,6 +533,7 @@ async def focus_group_options(
         position_levels=options["position_levels"],
         hire_date_range=options["hire_date_range"],
         departure_date_range=options["departure_date_range"],
+        job_sequence_tree=_job_sequence_tree(people),
         api_document_url=None,
         communication_enabled=communication_enabled,
     )

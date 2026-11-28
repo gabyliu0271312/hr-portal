@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
@@ -156,6 +157,7 @@ async def _member_added_by(db: AsyncSession, cycle: PerformanceCycle, group: Per
             if employee_no not in result:
                 result[employee_no] = {
                     "added_by": actor_name,
+                    "added_by_ref": str(event.actor_ref),
                     "added_at": event.event_at.replace(tzinfo=UTC).isoformat() if event.event_at.tzinfo is None else event.event_at.isoformat(),
                 }
     return result
@@ -297,6 +299,75 @@ async def get_focus_group_change_people(
     return {"total": len(items), "items": items[(current - 1) * size: current * size]}
 
 
+MEMBER_FILTER_LIST_KEYS = ("leaderIds", "departmentIds", "categoryIds", "operator_ids")
+
+
+def _invalid_member_filters() -> None:
+    raise HTTPException(422, "INVALID_MEMBER_FILTERS")
+
+
+def _parse_member_filters(raw: str | None) -> dict[str, Any]:
+    """解析飞书 emp_list 的 filters 契约（仅允许已实测的 6 个键）。"""
+    if raw is None:
+        return {}
+    if not isinstance(raw, str) or len(raw) > 65536:
+        _invalid_member_filters()
+    try:
+        data = json.loads(raw)
+    except (ValueError, RecursionError):
+        _invalid_member_filters()
+    if not isinstance(data, dict) or set(data) - {*MEMBER_FILTER_LIST_KEYS, "start_time", "end_time"}:
+        _invalid_member_filters()
+    parsed: dict[str, Any] = {}
+    for key in MEMBER_FILTER_LIST_KEYS:
+        value = data.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, list) or len(value) > 100:
+            _invalid_member_filters()
+        if any(not isinstance(item, str) or not item.strip() or len(item) > 1536 for item in value):
+            _invalid_member_filters()
+        if value:
+            parsed[key] = [item.strip() for item in value]
+    for key in ("start_time", "end_time"):
+        value = data.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            _invalid_member_filters()
+        parsed[key] = value
+    return parsed
+
+
+def _matches_department(person: dict[str, Any], values: list[str]) -> bool:
+    """部门按快照 organization_ref 路径口径匹配（选中父级包含子级）。"""
+    ref = str(person.get("organization_ref") or "")
+    return any(ref == value or ref.startswith(f"{value}/") for value in values)
+
+
+def _matches_category(person: dict[str, Any], values: list[str]) -> bool:
+    """序列按快照 job_family/job_category 口径匹配；选中族包含其下全部类。"""
+    family = str(person.get("job_family") or "")
+    category = str(person.get("job_category") or "")
+    for value in values:
+        parts = [part for part in value.split("/") if part]
+        if not parts or family != parts[0]:
+            continue
+        if len(parts) == 1 or category == parts[1]:
+            return True
+    return False
+
+
+def _parse_added_at(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+
+
 @router.get("/{cycle_id}/focus-groups/{group_id}/members")
 async def get_focus_group_members(
     cycle_id: int, group_id: int,
@@ -305,6 +376,7 @@ async def get_focus_group_members(
     current: Annotated[int, Query(ge=1)] = 1,
     size: Annotated[int, Query(ge=0, le=1000)] = 0,
     keyword: Annotated[str | None, Query(max_length=100)] = None,
+    filters: Annotated[str | None, Query(max_length=65536)] = None,
 ):
     """成员列表（对齐飞书 emp_list：分页 + 搜索 + total）。
 
@@ -331,6 +403,44 @@ async def get_focus_group_members(
                 person.get("job_sequence"),
             ) if value
         ).casefold()]
+    member_filters = _parse_member_filters(filters)
+    if member_filters:
+        leader_set = set(member_filters.get("leaderIds") or [])
+        department_values = member_filters.get("departmentIds") or []
+        category_values = member_filters.get("categoryIds") or []
+        operator_values = member_filters.get("operator_ids") or []
+        operator_refs: set[str] = set()
+        if operator_values:
+            portal_by_employee = {
+                person.employee_no: str(person.portal_user_id)
+                for person in snapshot_people if person.portal_user_id is not None
+            }
+            operator_refs = set(operator_values)
+            operator_refs.update(portal_by_employee[value] for value in operator_values if value in portal_by_employee)
+        start_at = datetime.fromtimestamp(member_filters["start_time"] / 1000, UTC) if "start_time" in member_filters else None
+        end_at = datetime.fromtimestamp(member_filters["end_time"] / 1000, UTC) if "end_time" in member_filters else None
+
+        def keep(person: dict[str, Any]) -> bool:
+            if leader_set and person.get("direct_supervisor_employee_no") not in leader_set:
+                return False
+            if department_values and not _matches_department(person, department_values):
+                return False
+            if category_values and not _matches_category(person, category_values):
+                return False
+            info = added_by.get(person["value"]) or {}
+            if operator_values and str(info.get("added_by_ref") or "") not in operator_refs:
+                return False
+            if start_at is not None or end_at is not None:
+                added_at = _parse_added_at(info.get("added_at"))
+                if added_at is None:
+                    return False
+                if start_at is not None and added_at < start_at:
+                    return False
+                if end_at is not None and added_at > end_at:
+                    return False
+            return True
+
+        result["people"] = [person for person in result["people"] if keep(person)]
     result["total"] = len(result["people"])
     if size:
         result["people"] = result["people"][(current - 1) * size: current * size]

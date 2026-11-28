@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div class="performance-drawer" role="presentation">
+    <div class="performance-drawer" role="presentation" :style="{ '--drawer-z-index': zIndex }">
       <div v-if="modelValue && mask" class="performance-drawer__mask" @click="onOutsideClick" />
       <div v-else-if="modelValue && closeOnOutside" class="performance-drawer__outside" aria-hidden="true" @click="onOutsideClick" />
       <Transition name="performance-drawer-slide" appear @after-leave="emit('closed')">
@@ -10,7 +10,7 @@
         </div>
         <header class="performance-drawer__header">
           <div class="performance-drawer__header-slot"><slot name="header"><h2>{{ title }}</h2></slot></div>
-          <button class="performance-drawer__close" type="button" aria-label="关闭" :disabled="closeDisabled" @click="close">
+          <button v-if="!hideClose" class="performance-drawer__close" type="button" aria-label="关闭" :disabled="closeDisabled" @click="close">
             <svg :width="closeIconSize" :height="closeIconSize" viewBox="0 0 24 24" fill="none" data-icon="CloseOutlined" aria-hidden="true"><path :d="closePath" :stroke="variant === 'default' ? 'currentColor' : undefined" :stroke-width="variant === 'default' ? 2 : undefined" :stroke-linecap="variant === 'default' ? 'round' : undefined" :fill="variant === 'default' ? 'none' : 'currentColor'" /></svg>
           </button>
         </header>
@@ -43,7 +43,11 @@ const props = withDefaults(defineProps<{
   keyboard?: boolean
   closeOnOutside?: boolean
   closeDisabled?: boolean
-}>(), { title: '', ariaLabel: '', width: 'var(--drawer-width)', variant: 'default', bodyClass: '', resizable: false, minWidth: 420, maxWidth: Number.POSITIVE_INFINITY, oppositeLimitDistance: 148, cacheKey: '', lang: 'zh-CN', mask: true, keyboard: true, closeOnOutside: true, closeDisabled: false })
+  /** 飞书筛选抽屉形态：标题栏不渲染关闭按钮（仅取消/确定关闭，点遮罩仍关闭） */
+  hideClose?: boolean
+  /** 抽屉层级（用于嵌在全屏弹窗之上） */
+  zIndex?: string
+}>(), { title: '', ariaLabel: '', width: 'var(--drawer-width)', variant: 'default', bodyClass: '', resizable: false, minWidth: 420, maxWidth: Number.POSITIVE_INFINITY, oppositeLimitDistance: 148, cacheKey: '', lang: 'zh-CN', mask: true, keyboard: true, closeOnOutside: true, closeDisabled: false, hideClose: false, zIndex: 'var(--performance-drawer-z-index)' })
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; close: []; closed: []; resize: [width: number] }>()
 const { resizing, effectiveMinWidth, effectiveMaxWidth, widthValue, panelWidth, clampWidth, startResize, stopResize, onDraggerKeydown } = usePerformanceDrawerResize(props, value => emit('resize', value))
 const closeIconSize = computed(() => props.variant === 'default' || props.variant === 'evaluation' ? 16 : 20)

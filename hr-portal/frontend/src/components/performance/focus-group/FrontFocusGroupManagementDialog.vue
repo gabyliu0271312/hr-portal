@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { performanceFocusGroupApi, type PerformanceFocusGroupMember } from '@/api/performance'
+import { performanceFocusGroupApi, type PerformanceFocusGroupMember, type PerformanceFocusGroupMemberFilters, type PerformanceFocusGroupOptions } from '@/api/performance'
 import type { PerformanceFocusGroupOverviewItem } from '@/api/performance'
+import PerformanceFilterDrawer, { type PerformanceFilterDrawerField, type PerformanceFilterDrawerValues } from '@/components/performance/PerformanceFilterDrawer.vue'
+import type { PerformanceSearchSelectOption } from '@/components/performance/PerformanceSearchSelect.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiSurface from '@/components/ui/UiSurface.vue'
 import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
@@ -57,12 +59,81 @@ async function loadOverview() {
 
 /* ---- 成员表格（分页 + 搜索，切换 tab 重置 total） ---- */
 const rows = ref<PerformanceFocusGroupMember[]>([])
+/** 组内全量成员（不随分页/筛选变化；移除成员时用它计算新名单，避免误删） */
+const memberEmployeeNos = ref<string[]>([])
 const total = ref(0)
 const loading = ref(false)
 const memberError = ref('')
 const page = ref(1)
 const pageSize = ref(10)
 const keyword = ref('')
+
+/* ---- 成员筛选抽屉（REA 对齐飞书：直属上级/部门/序列/添加人/操作时间） ---- */
+const filterOpen = ref(false)
+const filterValues = ref<PerformanceFilterDrawerValues>({})
+const appliedFilters = ref<PerformanceFocusGroupMemberFilters>({})
+const filterOptions = ref<PerformanceFocusGroupOptions | null>(null)
+const filterOptionsLoading = ref(false)
+
+const filterFields = computed<PerformanceFilterDrawerField[]>(() => [
+  { key: 'leaderIds', label: '直属上级', type: 'person', multiple: true, loadOptions: searchPeopleOptions },
+  { key: 'departmentIds', label: '部门', type: 'tree', nodes: filterOptions.value?.organization_tree || [], placeholder: '请选择' },
+  { key: 'categoryIds', label: '序列（筛选结果含子序列）', type: 'tree', nodes: filterOptions.value?.job_sequence_tree || [], placeholder: '请选择', selectedSurface: 'plain' },
+  { key: 'operator_ids', label: '添加人', type: 'person', multiple: true, loadOptions: searchPeopleOptions },
+  { key: 'operationTime', label: '操作时间', type: 'dateRange' },
+])
+
+async function searchPeopleOptions(keywordText: string): Promise<PerformanceSearchSelectOption[]> {
+  const text = keywordText.trim()
+  if (!props.cycleId || !text) return []
+  const people = await performanceFocusGroupApi.searchPeople(props.cycleId, text)
+  return people.map(person => {
+    const department = (person.department || '').split('/').filter(Boolean).pop()
+    return {
+      value: person.value,
+      label: person.label,
+      ...(department ? { subLabel: department } : {}),
+      searchText: [person.label, person.value, department].filter(Boolean).join(' '),
+      avatarFallback: person.label.slice(-1),
+    }
+  })
+}
+
+async function openFilter() {
+  filterOpen.value = true
+  if (!props.cycleId || filterOptions.value || filterOptionsLoading.value) return
+  filterOptionsLoading.value = true
+  try {
+    filterOptions.value = await performanceFocusGroupApi.options(props.cycleId)
+  } catch {
+    ElMessage.error('筛选选项加载失败，请稍后重试')
+  } finally {
+    filterOptionsLoading.value = false
+  }
+}
+
+function applyFilter(values: PerformanceFilterDrawerValues) {
+  const filters: PerformanceFocusGroupMemberFilters = {}
+  if (values.leaderIds?.length) filters.leaderIds = [...values.leaderIds]
+  if (values.departmentIds?.length) filters.departmentIds = [...values.departmentIds]
+  if (values.categoryIds?.length) filters.categoryIds = [...values.categoryIds]
+  if (values.operator_ids?.length) filters.operator_ids = [...values.operator_ids]
+  const range = values.operationTime || []
+  if (range.length === 2 && range[0] && range[1]) {
+    filters.start_time = new Date(`${range[0]}T00:00:00`).getTime()
+    filters.end_time = new Date(`${range[1]}T23:59:59.999`).getTime()
+  }
+  appliedFilters.value = filters
+  filterValues.value = Object.fromEntries(Object.entries(values).map(([key, value]) => [key, [...value]]))
+  page.value = 1
+  void loadMembers()
+}
+
+function resetFilters() {
+  filterOpen.value = false
+  filterValues.value = {}
+  appliedFilters.value = {}
+}
 
 const columns = computed<PerformanceTableColumn[]>(() => [
   { key: 'display_name', label: '姓名', width: 195, fixed: 'left' },
@@ -88,11 +159,14 @@ async function loadMembers() {
       current: page.value,
       size: pageSize.value,
       keyword: keyword.value.trim() || undefined,
+      filters: Object.keys(appliedFilters.value).length ? appliedFilters.value : undefined,
     })
     rows.value = result.people
+    memberEmployeeNos.value = result.employee_nos || result.people.map(person => person.value)
     total.value = result.total ?? result.people.length
   } catch (e: any) {
     rows.value = []
+    memberEmployeeNos.value = []
     total.value = 0
     memberError.value = e?.response?.data?.detail || '成员加载失败，请稍后重试'
   } finally {
@@ -105,7 +179,9 @@ function selectGroup(groupId: string) {
   activeGroupId.value = Number(groupId)
   page.value = 1
   keyword.value = ''
+  resetFilters()
   rows.value = []
+  memberEmployeeNos.value = []
   total.value = 0
   void loadMembers()
 }
@@ -120,7 +196,10 @@ watch(() => props.cycleId, () => {
   loaded.value = false
   groups.value = []
   activeGroupId.value = null
+  filterOptions.value = null
+  resetFilters()
   rows.value = []
+  memberEmployeeNos.value = []
   total.value = 0
 })
 
@@ -147,7 +226,7 @@ async function confirmRemove() {
   if (!props.cycleId || activeGroupId.value == null || !target || removing.value) return
   removing.value = true
   try {
-    const next = rows.value.filter(person => person.value !== target.value).map(person => person.value)
+    const next = memberEmployeeNos.value.filter(value => value !== target.value)
     await performanceFocusGroupApi.updateMembers(props.cycleId, activeGroupId.value, next)
     removeOpen.value = false
     removeTarget.value = null
@@ -211,7 +290,7 @@ function formatDateTime(value: string | null | undefined) {
                   @page-size-change="changePageSize"
                 >
                   <template #toolbar>
-                    <PerformanceListToolbar v-model:keyword="keyword" search-placeholder="搜索成员" search-aria-label="搜索成员" search-width="var(--search-input-width-wide)" @search="search" @clear="clearSearch" @filter="search">
+                    <PerformanceListToolbar v-model:keyword="keyword" search-placeholder="搜索成员" search-aria-label="搜索成员" search-width="var(--search-input-width-wide)" @search="search" @clear="clearSearch" @filter="openFilter">
                       <template v-if="maintainable" #left>
                         <UiButton variant="primary" :disabled="!cycleId" @click="addOpen = true">添加</UiButton>
                       </template>
@@ -241,8 +320,15 @@ function formatDateTime(value: string | null | undefined) {
               v-model="addOpen"
               :cycle-id="cycleId"
               :group-id="activeGroupId"
-              :current-employee-nos="rows.map(person => person.value)"
+              :current-employee-nos="memberEmployeeNos"
               @added="onAdded"
+            />
+
+            <PerformanceFilterDrawer
+              v-model="filterOpen"
+              :fields="filterFields"
+              :initial-values="filterValues"
+              @apply="applyFilter"
             />
 
             <PerformanceConfirmDialog

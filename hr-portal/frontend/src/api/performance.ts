@@ -3278,8 +3278,20 @@ export interface PerformanceFocusGroupPayload {
 export interface PerformanceFocusGroupOptions extends PerformanceEvaluatorOptions {
   fields: Array<{ key: string; label: string; operators: string[]; option_source: string }>
   people: Array<{ value: string; label: string; sub_label?: string; department?: string | null; email?: string | null }>
+  /** 序列树（职位族 → 职位类；value 口径：`族` / `族/类`） */
+  job_sequence_tree?: PerformanceHrbpOrganizationNode[]
   api_document_url: string | null
   communication_enabled: boolean
+}
+
+/** 飞书 emp_list 实测筛选契约（值使用本地口径：员工号 / 部门路径 / 序列路径） */
+export interface PerformanceFocusGroupMemberFilters {
+  leaderIds?: string[]
+  departmentIds?: string[]
+  categoryIds?: string[]
+  operator_ids?: string[]
+  start_time?: number
+  end_time?: number
 }
 
 export interface PerformanceResolveScopePayload {
@@ -3422,9 +3434,16 @@ export interface PerformanceFocusGroupOverview {
 }
 
 export const performanceFocusGroupApi = {
-  async members(cycleId: number, groupId: number, params?: { current?: number; size?: number; keyword?: string }): Promise<PerformanceFocusGroupMembers> {
+  async members(cycleId: number, groupId: number, params?: { current?: number; size?: number; keyword?: string; filters?: PerformanceFocusGroupMemberFilters }): Promise<PerformanceFocusGroupMembers> {
     const { data } = await api.get<PerformanceFocusGroupMembers>(`/performance/cycles/${cycleId}/focus-groups/${groupId}/members`, {
-      params: params && (params.current || params.size || params.keyword) ? { current: params.current, size: params.size, ...(params.keyword ? { keyword: params.keyword } : {}) } : undefined,
+      params: params && (params.current || params.size || params.keyword || params.filters)
+        ? {
+            current: params.current,
+            size: params.size,
+            ...(params.keyword ? { keyword: params.keyword } : {}),
+            ...(params.filters && Object.keys(params.filters).length ? { filters: JSON.stringify(params.filters) } : {}),
+          }
+        : undefined,
     })
     return data
   },

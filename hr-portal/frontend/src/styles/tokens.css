@@ -471,9 +471,19 @@
   --drawer-width: 480px;
   --drawer-wide-width: 680px;
   --drawer-z-index: 2200;
-  --drawer-overlay: rgba(0, 0, 0, 0.45);
+  --drawer-overlay: rgba(0, 0, 0, 0.55);
   --drawer-shadow: -8px 0 24px rgba(31, 35, 41, 0.16);
   --drawer-evaluation-shadow: -12px 0 36px 10px rgba(31, 35, 41, 0.1), -8px 0 24px rgba(31, 35, 41, 0.04), -6px 0 12px -10px rgba(31, 35, 41, 0.06);
+  /* 筛选抽屉（REA 实测） */
+  --performance-filter-drawer-shadow: rgba(31, 35, 41, 0.04) -10px 0 36px 10px, rgba(31, 35, 41, 0.04) -8px 0 24px 0, rgba(31, 35, 41, 0.06) -6px 0 12px -10px;
+  --performance-filter-drawer-header-height: 57px;
+  --performance-filter-drawer-header-border: rgba(31, 35, 41, 0.15);
+  --performance-filter-drawer-footer-height: 80px;
+  --performance-filter-drawer-content-padding: var(--spacing-2);
+  --performance-filter-drawer-field-gap: var(--spacing-4);
+  --performance-filter-drawer-label-weight: 600;
+  /* 嵌在全屏人员组弹窗（confirm 2300）之上 */
+  --performance-filter-drawer-z-index: 2400;
   --drawer-enter-duration: 300ms;
   --drawer-leave-duration: 200ms;
   --performance-drawer-z-index: 2200;
@@ -561,7 +571,8 @@
   --performance-rule-table-min-width: 666px;
   --performance-rule-table-header-height: 31px;
   --performance-rule-table-row-height: 53px;
-  --performance-popover-z-index: calc(var(--performance-confirm-z-index) + 1);
+  /* 弹层需始终高于筛选抽屉（2400） */
+  --performance-popover-z-index: calc(var(--performance-confirm-z-index) + 101);
   --performance-member-scope-width: 172px;
   --performance-member-scope-height: 32px;
   --performance-member-scope-padding-inline: 11px;
@@ -782,6 +793,8 @@
   --performance-select-footer-height: 28px;
   --performance-select-overflow-popup-max-width: 320px;
   --performance-select-overflow-popup-padding: var(--spacing-3);
+  --performance-select-overflow-arrow-width: 16px;
+  --performance-select-overflow-arrow-height: 8px;
 
   /* 详情页顶部字段效果预览（REA 实测 ud__dialog 预览块：外框 552×127 / 顶栏 28 / 头像 40 / 分隔线 1×0.9em） */
   --performance-preview-border: var(--perf-n-300);
@@ -890,6 +903,29 @@
   --performance-tree-expand-size: 16px;
   --performance-tree-expand-icon-size: 10px;
   --performance-tree-indent: 16px;
+  --performance-tree-selected-background: #f0f4ff;
+  /* 日期区间面板（REA 实测） */
+  --performance-date-range-panel-width: 560px;
+  --performance-date-range-panel-gap: var(--spacing-7);
+  --performance-date-panel-padding: 15px;
+  --performance-date-panel-width: 248px;
+  --performance-date-panel-body-height: 248px;
+  --performance-date-panel-header-gap: var(--spacing-25);
+  --performance-date-panel-cell-size: 32px;
+  --performance-date-panel-cell-radius: 16px;
+  --performance-date-panel-nav-size: 16px;
+  --performance-date-mode-panel-width: 280px;
+  --performance-date-mode-cell-width: 48px;
+  --performance-date-mode-nav-gap: var(--spacing-3);
+  --performance-date-panel-weeks-gap: var(--spacing-1);
+  --performance-date-panel-range-background: #e0e9ff;
+  --performance-date-panel-range-preview-background: #c2d4ff;
+  --performance-date-panel-today-border: var(--color-primary-hover);
+  --performance-date-panel-selected-background: var(--color-primary-hover);
+  --performance-date-panel-muted-color: var(--color-text-placeholder);
+  --performance-date-range-separator-width: 8px;
+  --performance-date-range-separator-height: 1px;
+  --performance-date-range-icon-size: var(--font-size-lg);
 
   --performance-drawer-header-height: 56px;
   --performance-drawer-title-weight: 600;
@@ -1107,4 +1143,31 @@
   --ui-page-desc-size: 14px;
   --ui-page-desc-line-height: 22px;
   --ui-page-desc-color: #8f959e;
+
+  /* ==========================================================
+   * 图表层（ECharts）
+   * 唯一色源：本层 tokens。JS 侧由 composables/useChartTheme.ts 读取，
+   * 图表代码禁止写死色值。分类色经 dataviz 验证：白底相邻 CVD ΔE 11.8、
+   * 常视 ΔE 20.5，硬门全通过；series 2-5 对白底 <3:1，
+   * 使用处必须配可见直接标签或表格视图（relief 规则）。
+   * ========================================================== */
+  --ui-chart-series-1: #3370ff;
+  --ui-chart-series-2: #f47230;
+  --ui-chart-series-3: #00b894;
+  --ui-chart-series-4: #f2a600;
+  --ui-chart-series-5: #ee7fac;
+  --ui-chart-series-6: #008a17;
+  --ui-chart-series-7: #6a4ce2;
+  --ui-chart-series-8: #ec4647;
+  --ui-chart-surface: var(--color-bg-card);
+  --ui-chart-text-primary: var(--color-text-primary);
+  --ui-chart-text-secondary: var(--color-text-secondary);
+  --ui-chart-axis-line: #c2c2c2;
+  --ui-chart-split-line: #e7e7e7;
+  --ui-chart-tooltip-background: var(--color-bg-card);
+  --ui-chart-tooltip-border: var(--color-border-light);
+  --ui-chart-tooltip-shadow: var(--shadow-popover);
+  --ui-chart-font-family: var(--font-sans);
+  --ui-chart-font-size: var(--font-size-xs);
+  --ui-chart-default-height: 300px;
 }

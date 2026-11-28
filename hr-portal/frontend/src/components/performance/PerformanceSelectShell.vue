@@ -47,6 +47,8 @@ const props = withDefaults(defineProps<{
   popupHeight?: number | 'auto'
   popupWidth?: number
   popupMaxHeight?: number
+  /** 可见标签上限（0=按宽度自适应，与飞书多选一致；>0 可强制折叠） */
+  maxVisibleTags?: number
   /** 多选时按内容换行展示全部标签（筛选弹窗多选状态实测行为） */
   autoHeight?: boolean
   selectionStyle?: 'tags' | 'plain'
@@ -61,7 +63,7 @@ const props = withDefaults(defineProps<{
   lockedValues?: string[]
 }>(), {
   selectedItems: () => [], placeholder: '请选择', ariaLabel: '选择器', popupLabel: '选项', clearLabel: '清空已选',
-  popupHeight: 'auto', popupWidth: undefined, popupMaxHeight: 320, autoHeight: false, selectionStyle: 'tags', tagShape: 'default', openOnFocus: true, openOnSearch: false, hideArrow: false, disabledSurface: 'muted', disabled: false, lockedValues: () => [],
+  popupHeight: 'auto', popupWidth: undefined, popupMaxHeight: 320, maxVisibleTags: 0, autoHeight: false, selectionStyle: 'tags', tagShape: 'default', openOnFocus: true, openOnSearch: false, hideArrow: false, disabledSurface: 'muted', disabled: false, lockedValues: () => [],
 })
 const emit = defineEmits<{ 'update:modelValue': [value: string[]]; 'update:query': [value: string]; open: []; close: []; keydown: [event: KeyboardEvent] }>()
 const root = ref<HTMLElement | null>(null)
@@ -82,12 +84,14 @@ const overflowItems = computed(() => props.selectionStyle === 'plain' ? [] : pro
 function measureVisibleItems() {
   if (props.autoHeight) { visibleCount.value = props.selectedItems.length; return }
   const width = content.value?.getBoundingClientRect().width
-  if (!width || props.selectionStyle === 'plain') { visibleCount.value = props.selectedItems.length; return }
+  const limit = props.maxVisibleTags > 0 ? props.maxVisibleTags : Number.POSITIVE_INFINITY
+  if (!width || props.selectionStyle === 'plain') { visibleCount.value = Math.min(props.selectedItems.length, limit); return }
+  if (props.maxVisibleTags > 0 && props.selectedItems.length <= limit) { visibleCount.value = props.selectedItems.length; return }
   const tags = Array.from(measureRoot.value?.querySelectorAll<HTMLElement>('.performance-select-shell__measure-tag') || [])
   const counters = Array.from(measureRoot.value?.querySelectorAll<HTMLElement>('.performance-select-shell__overflow-count') || [])
   const available = width - (searchInput.value?.getBoundingClientRect().width || 6)
   const widths = tags.map(tag => tag.getBoundingClientRect().width)
-  if (widths.reduce((sum, width) => sum + width, 0) <= available) { visibleCount.value = tags.length; return }
+  if (widths.reduce((sum, width) => sum + width, 0) <= available) { visibleCount.value = Math.min(tags.length, limit); return }
   let used = 0
   let count = 0
   for (; count < tags.length; count += 1) {
@@ -98,7 +102,7 @@ function measureVisibleItems() {
     if (next + reserve > available) break
     used = next
   }
-  visibleCount.value = count
+  visibleCount.value = Math.min(count, limit)
 }
 function updatePosition() {
   if (!open.value || !root.value) return
@@ -162,6 +166,7 @@ watch(popup, element => {
   }
 }, { flush: 'post' })
 watch(() => props.popupWidth, () => { if (open.value) void nextTick(updatePosition) })
+watch(() => props.maxVisibleTags, () => { void nextTick(measureVisibleItems) })
 watch(() => props.disabled, disabled => { if (disabled) close() })
 onMounted(() => {
   void nextTick(measureVisibleItems)
@@ -216,5 +221,5 @@ onBeforeUnmount(() => {
 .performance-select-shell__overflow-items { display: flex; flex-wrap: wrap; max-width: min(var(--performance-select-overflow-popup-max-width), calc(100vw - 48px)); }
 .performance-select-shell__measure { position: absolute; top: 0; left: 0; display: flex; width: max-content; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; font: 400 var(--font-size-md)/22px var(--font-sans); }
 .performance-select-shell__measure-tag { display: inline-flex; }
-:global(.performance-select-overflow-popper.el-popover) { min-width: 0; max-width: calc(100vw - 24px); padding: var(--performance-select-overflow-popup-padding); border-radius: var(--performance-popover-radius); background: var(--performance-popover-background); box-shadow: var(--performance-popover-shadow); }
+:global(.performance-select-overflow-popper.el-popover) { min-width: 0; max-width: calc(100vw - 24px); padding: var(--performance-select-overflow-popup-padding); border: var(--performance-popover-border-width) solid var(--performance-popover-border); border-radius: var(--performance-popover-radius); background: var(--performance-popover-background); box-shadow: var(--performance-popover-shadow); }
 </style>
