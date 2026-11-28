@@ -21,6 +21,7 @@ from app.core.jwt import (
     decode_token_payload,
 )
 from app.performance.models import (
+    PerformanceAuthRule,
     PerformanceAuthorizationSnapshot,
     PerformanceAuthorizationSnapshotPerson,
     PerformanceIdentityLink,
@@ -285,15 +286,25 @@ async def load_active_authorization(
             )
         )
     ).all()
-    role_grants = tuple(
-        PerformanceRoleGrant(
-            code=row.code,
-            scope_type=row.scope_type,
-            scope_ref=row.scope_ref,
-        )
-        for row in role_rows
-    )
-    role_ids = sorted({row.id for row in role_rows})
+    resolved_rows = [(row.id, row.code, row.scope_type, row.scope_ref) for row in role_rows]
+    if subject_type == SUBJECT_TYPE_PORTAL_USER:
+        from app.performance.auth_rule_service import matching_roles
+        rule_rows = (await db.execute(select(PerformanceAuthRule, PerformanceRole.id, PerformanceRole.code).join(
+            PerformanceRole, PerformanceRole.id == PerformanceAuthRule.role_id,
+        ).where(PerformanceAuthRule.is_active.is_(True), PerformanceRole.is_active.is_(True),
+                PerformanceRole.is_system.is_(False), PerformanceRole.role_type == "MANAGEMENT"))).all()
+        if rule_rows:
+            identity_context = PerformanceAccessContext(subject_type, subject_id, "", None, (), (), ())
+            try:
+                employee_no = await resolve_performance_employee_no(db, identity_context)
+            except PerformanceIdentityMappingConflict:
+                employee_no = None
+            resolved_rows.extend((role_id, code, "GLOBAL", "GLOBAL") for role_id, code in await matching_roles(db, employee_no, rule_rows))
+    role_grants = tuple(dict.fromkeys(
+        PerformanceRoleGrant(code=code, scope_type=scope_type, scope_ref=scope_ref)
+        for _, code, scope_type, scope_ref in resolved_rows
+    ))
+    role_ids = sorted({role_id for role_id, _, _, _ in resolved_rows})
     if not role_ids:
         return role_grants, ()
 
