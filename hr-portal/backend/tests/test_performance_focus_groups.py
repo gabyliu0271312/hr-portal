@@ -657,6 +657,54 @@ async def test_resolve_scope_poll_isolated_and_returns_feishu_scopes(monkeypatch
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("snapshot_count", [0, 1])
+async def test_focus_group_options_queries_communication_through_project(monkeypatch, snapshot_count):
+    from types import SimpleNamespace
+    from app.performance.focus_groups_router import focus_group_options, PerformanceProjectService
+
+    cycle = _StubCycle(7)
+    cycle.template_ids = []
+    db = _StubDb(cycle=cycle)
+    person = SimpleNamespace(
+        employee_no="E1", display_name="测试人员", organization_ref="技术部",
+        department="技术部", job_family="研发", job_category="后端",
+    )
+    options = {
+        "organization_tree": [{"value": "技术部", "label": "技术部", "level": 1, "children": []}],
+        "employee_types": [], "employment_statuses": [], "job_families": [],
+        "position_levels": [], "hire_date_range": {"min": None, "max": None},
+        "departure_date_range": {"min": None, "max": None},
+    }
+
+    async def evaluator_options(self, selected_cycle):
+        return options
+
+    async def snapshot_people(self, selected_cycle):
+        return None, [person]
+
+    queries = []
+
+    async def scalar(statement):
+        queries.append(statement)
+        return snapshot_count
+
+    monkeypatch.setattr(PerformanceProjectService, "evaluator_options", evaluator_options)
+    monkeypatch.setattr(PerformanceProjectService, "_cycle_snapshot_people", snapshot_people)
+    db.scalar = scalar
+    context = await _permission_context("performance.cycles.manage")()
+    result = await focus_group_options(7, context, db)
+
+    assert result.people[0].value == "E1"
+    assert result.organization_tree == options["organization_tree"]
+    assert result.job_sequence_tree[0]["value"] == "研发"
+    assert result.communication_enabled is bool(snapshot_count)
+    sql = str(queries[0])
+    assert "JOIN performance_projects ON performance_projects.id = performance_project_node_snapshots.project_id" in sql
+    assert "performance_projects.cycle_ref =" in sql
+    assert queries[0].compile().params["cycle_ref_1"] == cycle.cycle_ref
+
+
+@pytest.mark.asyncio
 async def test_focus_groups_real_database_round_trip():
     """本地开发库回滚验收：显式 RUN_PERFORMANCE_DB_TEST=1 才运行。"""
     import os

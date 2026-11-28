@@ -466,7 +466,7 @@ def _job_sequence_tree(people: list[PerformanceAuthorizationSnapshotPerson]) -> 
         node = roots.setdefault(family, {"value": family, "label": family, "children": {}})
         category = (person.job_category or "").strip()
         if category:
-            node["children"].setdefault(category, {"value": f"{family}/{category}", "label": category})
+            node["children"].setdefault(category, {"value": f"{family}/{category}", "label": category, "children": {}})
 
     def serialize(nodes: dict[str, dict[str, Any]], level: int = 1) -> list[dict[str, Any]]:
         return [
@@ -512,8 +512,9 @@ async def focus_group_options(
         communication_enabled = bool(await db.scalar(
             select(func.count())
             .select_from(PerformanceProjectNodeSnapshot)
+            .join(PerformanceProject, PerformanceProject.id == PerformanceProjectNodeSnapshot.project_id)
             .where(
-                PerformanceProjectNodeSnapshot.cycle_ref == cycle.cycle_ref,
+                PerformanceProject.cycle_ref == cycle.cycle_ref,
                 PerformanceProjectNodeSnapshot.node_type == "result_communication",
             )
         ))
