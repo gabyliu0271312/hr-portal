@@ -126,10 +126,11 @@ onBeforeUnmount(cleanup)
 .performance-popover{position:fixed;z-index:var(--performance-popover-z-index);box-sizing:border-box;min-width:var(--performance-popover-min-width);color:var(--color-text-primary);font:400 var(--font-size-md)/var(--performance-popover-line-height) var(--font-sans);text-align:left;white-space:normal}
 .performance-popover__content{box-sizing:border-box;overflow:auto;overscroll-behavior:contain;padding:var(--performance-popover-padding-y) var(--performance-popover-padding-x);border:var(--performance-popover-border-width) solid var(--performance-popover-border);border-radius:var(--performance-popover-radius);background:var(--performance-popover-background);box-shadow:var(--performance-popover-shadow);overflow-wrap:anywhere}
 .performance-popover__arrow{position:absolute;bottom:0;line-height:0;pointer-events:none}
-.performance-popover__arrow svg{position:absolute;width:var(--performance-popover-arrow-width);height:var(--performance-popover-arrow-height);transform:translate(-50%,-1px)}
+.performance-popover__arrow svg{position:absolute;width:var(--performance-popover-arrow-width);height:var(--performance-popover-arrow-height);transform:translate(-50%,calc(-1 * var(--performance-popover-border-width)))}
 .performance-popover__arrow path{fill:var(--performance-popover-background);stroke:var(--performance-popover-border);stroke-width:var(--performance-popover-border-width)}
 .performance-popover[data-placement="bottom"]>.performance-popover__arrow{top:0;bottom:auto}
-.performance-popover[data-placement="bottom"]>.performance-popover__arrow svg{transform:translate(-50%,1px) rotate(180deg)}
+/* 底部浮层箭头整体位于白卡上方（REA：箭头 y179..187，白卡顶 186），仅留 1px 边框重叠，不能压进白色内容区 */
+.performance-popover[data-placement="bottom"]>.performance-popover__arrow svg{transform:translate(-50%,calc(-1 * var(--performance-popover-arrow-height) + var(--performance-popover-border-width))) rotate(180deg)}
 .performance-popover[data-placement="right"]>.performance-popover__arrow{left:0;bottom:auto}
 .performance-popover[data-placement="left"]>.performance-popover__arrow{right:0;bottom:auto}
 .performance-popover[data-placement="right"]>.performance-popover__arrow svg,.performance-popover[data-placement="left"]>.performance-popover__arrow svg{width:var(--performance-popover-arrow-height);height:var(--performance-popover-arrow-width)}
